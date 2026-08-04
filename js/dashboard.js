@@ -136,6 +136,7 @@ const Dashboard = {
       this.state.dataStale = !anyOk;
 
       this.state.lastUpdate = new Date();
+      if (!silent) this._setLoading(false); // clear loading state BEFORE rendering
       this._persistSnapshot();
       this._render();
       this._refreshOpenModal();
@@ -143,9 +144,9 @@ const Dashboard = {
     } catch (err) {
       console.error('[Dashboard] loadAll error:', err);
       this.state.dataStale = true;
+      if (!silent) this._setLoading(false);
       if (!silent) this._showToast('Some data failed to load — check internet connection', 'warning');
     }
-    if (!silent) this._setLoading(false);
   },
 
   // ─── Snapshot persistence (instant paint on next load) ───────────────────────
