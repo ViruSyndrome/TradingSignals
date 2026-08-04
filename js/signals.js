@@ -262,3 +262,5 @@ const Signals = {
     return this.LEVELS[signalKey] || this.LEVELS.NEUTRAL;
   },
 };
+
+if (typeof module !== 'undefined' && module.exports) module.exports = Signals;

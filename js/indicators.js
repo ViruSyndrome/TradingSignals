@@ -203,3 +203,5 @@ const Indicators = {
     return count > 0 ? sum / count : null;
   },
 };
+
+if (typeof module !== 'undefined' && module.exports) module.exports = Indicators;

@@ -96,3 +96,5 @@ const CONFIG = {
     crypto: 'always',
   },
 };
+
+if (typeof module !== 'undefined' && module.exports) module.exports = CONFIG;

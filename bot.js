@@ -2,15 +2,11 @@ require('dotenv').config();
 const { TelegramBot } = require('node-telegram-bot-api');
 const fs = require('fs');
 
-// Load exact same indicator math as the frontend
-const configStr = fs.readFileSync('js/config.js', 'utf8').replace('const CONFIG =', 'global.CONFIG =');
-eval(configStr);
-
-const indStr = fs.readFileSync('js/indicators.js', 'utf8').replace('const Indicators =', 'global.Indicators =');
-eval(indStr);
-
-const sigStr = fs.readFileSync('js/signals.js', 'utf8').replace('const Signals =', 'global.Signals =');
-eval(sigStr);
+// Load exact same indicator math as the frontend — now via proper require()
+const CONFIG     = require('./js/config.js');
+const Indicators = require('./js/indicators.js');
+const Signals    = require('./js/signals.js');
+global.Indicators = Indicators; // signals.js references Indicators as a global
 
 const token = process.env.TELEGRAM_BOT_TOKEN;
 const chatId = process.env.TELEGRAM_CHAT_ID;
@@ -59,8 +55,15 @@ bot.onText(/\/status/, (msg) => {
 });
 
 // --- Market Scanner ---
-// In-memory dedup: only re-alert when a symbol's signal actually changes.
-const lastAlerted = {};
+// Persist dedup state so restarts don't re-fire alerts
+const ALERT_STATE_FILE = 'lastAlerted.json';
+function loadAlertState() {
+  try { return JSON.parse(fs.readFileSync(ALERT_STATE_FILE, 'utf8')); } catch { return {}; }
+}
+function saveAlertState(state) {
+  fs.writeFileSync(ALERT_STATE_FILE, JSON.stringify(state, null, 2));
+}
+const lastAlerted = loadAlertState();
 
 async function scanMarket() {
   console.log('Scanning market...');
@@ -102,8 +105,10 @@ async function scanMarket() {
         if (message && !alreadyAlerted) {
           bot.sendMessage(chatId, message).catch(err => console.error('Send failed:', err.message));
           lastAlerted[asset.symbol] = alertKey;
+          saveAlertState(lastAlerted);
         } else if (!message) {
           delete lastAlerted[asset.symbol];
+          saveAlertState(lastAlerted);
         }
       }
     } catch (e) {
