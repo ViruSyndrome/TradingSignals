@@ -136,7 +136,8 @@ const Dashboard = {
       this.state.dataStale = !anyOk;
 
       this.state.lastUpdate = new Date();
-      if (!silent) this._setLoading(false); // clear loading state BEFORE rendering
+      this.state.loading = false; // Always clear the internal loading flag
+      if (!silent) this._setLoading(false); // Only clear UI spinner if not silent
       this._persistSnapshot();
       this._render();
       this._refreshOpenModal();
@@ -144,6 +145,7 @@ const Dashboard = {
     } catch (err) {
       console.error('[Dashboard] loadAll error:', err);
       this.state.dataStale = true;
+      this.state.loading = false;
       if (!silent) this._setLoading(false);
       if (!silent) this._showToast('Some data failed to load — check internet connection', 'warning');
     }
