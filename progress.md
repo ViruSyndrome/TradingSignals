@@ -92,3 +92,9 @@ We upgraded the validator with two additional modes:
 - Rolling walk-forward showed only **NEAR, INJ, TRX** were selected in all 3 train windows and held up out-of-sample; RENDER and RUNE failed the robustness test and were dropped.
 - New live list: **NEAR, INJ, TRX** (core) + **LDO, TAO, UNI** (probation — marginal full-window positives).
 - Full-window validation with realistic costs: **54 trades, 42.6% WR, +1.35% net avg return** (vs +1.01% with the old 8-coin list).
+
+## Final Forward-Testing Protocol (ACTIVE 🚀)
+1. **Code Freeze:** Parameter tuning is frozen to prevent overfitting.
+2. **Forward Testing:** System is running live on Render/Netlify for a 2-4 week forward-testing period.
+3. **Execution Rules:** Use Binance BNB fee discount + Limit orders to keep round-trip costs ≤ 0.40%.
+4. **Monthly Ritual:** Run `node backtest.js --walk-forward-rolling` on the 1st of every month to refresh `provenWinners`.
