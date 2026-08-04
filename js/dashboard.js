@@ -330,7 +330,7 @@ const Dashboard = {
     } else if (cat === 'oversold') {
       assets = assets.filter(a => a.signalResult?.indicators?.rsi?.value < 30);
     } else if (cat === 'highconf') {
-      assets = assets.filter(a => (a.signalResult?.confidence ?? 0) >= 75 && (a.signalResult?.score ?? 0) > 0);
+      assets = assets.filter(a => (a.signalResult?.confidence ?? 0) >= 60 && (a.signalResult?.score ?? 0) > 0);
     } else if (cat !== 'all') {
       assets = assets.filter(a => a.category === cat);
     }
@@ -443,9 +443,9 @@ const Dashboard = {
 
   // ─── Trade Quality Tier Calculator ────────────────────────────────────────────
   _tradeQuality(score, confidence) {
-    if (score >= 2.5 && confidence >= 75) return { label: 'Golden Entry', icon: '✅', cls: 'golden', rank: 1, tip: 'Strong momentum AND all indicators agree. Best possible setup.' };
-    if (score >= 2.5 && confidence < 75)  return { label: 'Risky Momentum', icon: '⚠️', cls: 'risky', rank: 2, tip: 'High score but indicators disagree. Could be a fake-out.' };
-    if (score >= 1.0 && confidence >= 75)  return { label: 'Mild Buy', icon: '🤔', cls: 'mild', rank: 3, tip: 'Indicators agree but movement is gentle. Safe but small upside.' };
+    if (score >= 2.0 && confidence >= 60) return { label: 'Golden Entry', icon: '✅', cls: 'golden', rank: 1, tip: 'Strong momentum AND most indicators agree. Best possible setup.' };
+    if (score >= 2.0 && confidence < 60)  return { label: 'Risky Momentum', icon: '⚠️', cls: 'risky', rank: 2, tip: 'High score but indicators disagree. Could be a fake-out.' };
+    if (score >= 0.5 && confidence >= 60)  return { label: 'Mild Buy', icon: '🤔', cls: 'mild', rank: 3, tip: 'Indicators agree but movement is gentle. Safe but small upside.' };
     return { label: 'Weak / Avoid', icon: '❌', cls: 'avoid', rank: 4, tip: 'Low score or bearish. Not a good entry point right now.' };
   },
 

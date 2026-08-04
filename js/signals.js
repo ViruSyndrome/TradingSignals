@@ -8,10 +8,10 @@
 const Signals = {
 
   LEVELS: {
-    STRONG_BUY:  { label: 'Strong Buy',  short: 'S.BUY',  cls: 'strong-buy',  icon: '🚀', minScore:  3.0 },
-    BUY:         { label: 'Buy',          short: 'BUY',    cls: 'buy',          icon: '📈', minScore:  1.0 },
-    NEUTRAL:     { label: 'Hold / Watch', short: 'HOLD',   cls: 'neutral',      icon: '⏸️',  minScore: -1.0 },
-    SELL:        { label: 'Sell',         short: 'SELL',   cls: 'sell',         icon: '📉', minScore: -3.0 },
+    STRONG_BUY:  { label: 'Strong Buy',  short: 'S.BUY',  cls: 'strong-buy',  icon: '🚀', minScore:  2.0 },
+    BUY:         { label: 'Buy',          short: 'BUY',    cls: 'buy',          icon: '📈', minScore:  0.5 },
+    NEUTRAL:     { label: 'Hold / Watch', short: 'HOLD',   cls: 'neutral',      icon: '⏸️',  minScore: -0.5 },
+    SELL:        { label: 'Sell',         short: 'SELL',   cls: 'sell',         icon: '📉', minScore: -2.0 },
     STRONG_SELL: { label: 'Strong Sell', short: 'S.SELL', cls: 'strong-sell',  icon: '🔻', minScore: -Infinity },
   },
 
@@ -170,7 +170,7 @@ const Signals = {
     // ── Determine composite signal via LEVELS.minScore ──────────────────────
     // Strong signals also require a confidence gate so a single dominant indicator
     // cannot fire a Strong Buy/Sell on its own.
-    const CONF_GATE = (typeof CONFIG !== 'undefined' && CONFIG.refresh?.strongConfidenceGate) || 75;
+    const CONF_GATE = (typeof CONFIG !== 'undefined' && CONFIG.refresh?.strongConfidenceGate) || 60;
     const L = this.LEVELS;
     let signal;
     if      (score >= L.STRONG_BUY.minScore  && confidence >= CONF_GATE) signal = 'STRONG_BUY';
