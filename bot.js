@@ -65,9 +65,22 @@ function saveAlertState(state) {
 }
 const lastAlerted = loadAlertState();
 
+// Fetch the Crypto Fear & Greed index (0-100). Returns undefined on failure
+// so the engine simply skips the sentiment adjustment.
+async function fetchFearGreed() {
+  try {
+    const res = await fetch('https://api.alternative.me/fng/?limit=1');
+    const json = await res.json();
+    const v = Number(json?.data?.[0]?.value);
+    return isFinite(v) ? v : undefined;
+  } catch { return undefined; }
+}
+
 async function scanMarket() {
   console.log('Scanning market...');
   const portfolio = loadPortfolio();
+  const fearGreed = await fetchFearGreed();
+  if (fearGreed !== undefined) console.log(`Fear & Greed index: ${fearGreed}`);
   
   for(const asset of CONFIG.assets.crypto) {
     try {
@@ -79,7 +92,7 @@ async function scanMarket() {
         const highs   = data.map(r => parseFloat(r[2]));
         const lows    = data.map(r => parseFloat(r[3]));
         const volumes = data.map(r => parseFloat(r[5]));
-        const result = Signals.generate(closes, { highs, lows, volumes });
+        const result = Signals.generate(closes, { highs, lows, volumes, fearGreed, symbol: asset.symbol });
         const price = closes[closes.length - 1];
 
         const owned = !!portfolio[asset.symbol];

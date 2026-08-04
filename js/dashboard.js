@@ -30,8 +30,8 @@ const Dashboard = {
     this._updateMarketStatus();
     // Paint instantly from last-known snapshot while the live fetch runs.
     if (this._restoreSnapshot()) this._render();
+    await this._fetchFearGreed();  // sentiment feeds the signal engine — fetch first
     await this.loadAll(true);
-    this._fetchFearGreed();
     this._scheduleRefresh();
   },
 
@@ -124,11 +124,12 @@ const Dashboard = {
         ...(forex.value       || []).map(d => ({ ...d, category: 'forex'       })),
       ];
 
-      // Signals now receive OHLCV so ATR and volume nudge can compute.
+      // Signals now receive OHLCV + sentiment + symbol (winners filter).
+      const fg = this._fgValue();
       this.state.allAssets = all.map(d => ({
         ...d,
         signalResult: d.closes?.length > 0
-          ? Signals.generate(d.closes, { highs: d.highs, lows: d.lows, volumes: d.volumes })
+          ? Signals.generate(d.closes, { highs: d.highs, lows: d.lows, volumes: d.volumes, fearGreed: fg, symbol: d.asset?.symbol || d.asset?.id })
           : null,
       }));
 
@@ -171,10 +172,11 @@ const Dashboard = {
       if (!raw) return false;
       const { ts, assets } = JSON.parse(raw);
       if (!Array.isArray(assets) || !assets.length) return false;
+      const fg = this._fgValue();
       this.state.allAssets = assets.map(d => ({
         ...d,
         signalResult: d.closes?.length > 0
-          ? Signals.generate(d.closes, { highs: d.highs, lows: d.lows, volumes: d.volumes })
+          ? Signals.generate(d.closes, { highs: d.highs, lows: d.lows, volumes: d.volumes, fearGreed: fg, symbol: d.asset?.symbol || d.asset?.id })
           : null,
       }));
       this.state.lastUpdate = new Date(ts);
@@ -269,6 +271,12 @@ const Dashboard = {
   },
 
   // ─── Fetch Fear & Greed Index ──────────────────────────────────────────────────
+  // Numeric F&G value for the signal engine (API returns it as a string).
+  _fgValue() {
+    const v = Number(this.state.fearGreed?.value);
+    return isFinite(v) ? v : undefined;
+  },
+
   async _fetchFearGreed() {
     try {
       const res = await fetch('https://api.alternative.me/fng/?limit=1');
@@ -443,9 +451,9 @@ const Dashboard = {
 
   // ─── Trade Quality Tier Calculator ────────────────────────────────────────────
   _tradeQuality(score, confidence) {
-    if (score >= 2.0 && confidence >= 60) return { label: 'Golden Entry', icon: '✅', cls: 'golden', rank: 1, tip: 'Strong momentum AND most indicators agree. Best possible setup.' };
-    if (score >= 2.0 && confidence < 60)  return { label: 'Risky Momentum', icon: '⚠️', cls: 'risky', rank: 2, tip: 'High score but indicators disagree. Could be a fake-out.' };
-    if (score >= 0.5 && confidence >= 60)  return { label: 'Mild Buy', icon: '🤔', cls: 'mild', rank: 3, tip: 'Indicators agree but movement is gentle. Safe but small upside.' };
+    if (score >= 2.5 && confidence >= 60) return { label: 'Golden Entry', icon: '✅', cls: 'golden', rank: 1, tip: 'Strong momentum AND most indicators agree. Best possible setup.' };
+    if (score >= 2.5 && confidence < 60)  return { label: 'Risky Momentum', icon: '⚠️', cls: 'risky', rank: 2, tip: 'High score but indicators disagree. Could be a fake-out.' };
+    if (score >= 1.5 && confidence >= 60)  return { label: 'Mild Buy', icon: '🤔', cls: 'mild', rank: 3, tip: 'Indicators agree but movement is gentle. Safe but small upside.' };
     return { label: 'Weak / Avoid', icon: '❌', cls: 'avoid', rank: 4, tip: 'Low score or bearish. Not a good entry point right now.' };
   },
 

@@ -60,7 +60,21 @@ const CONFIG = {
     // Temporarily disabled due to Yahoo Finance blocking free public CORS proxies.
     indianStocks: [],
     commodities: [],
-    forex: []
+    forex: [],
+
+    // ─── Proven winners (backtest-validated) ─────────────────────────────────
+    // Assets that were profitable in the last full backtest (node backtest.js).
+    // When signals.winnersOnlyBuys is true, BUY/STRONG_BUY signals on assets
+    // NOT in this list are downgraded to NEUTRAL. Re-run the backtest monthly
+    // and update this list — it reflects a 250-day window and WILL go stale.
+    // Core trio (NEAR, INJ, TRX) survived rolling walk-forward out-of-sample;
+    // LDO, TAO, UNI are marginal full-window positives kept on probation.
+    provenWinners: ['NEAR', 'INJ', 'TRX', 'LDO', 'TAO', 'UNI'],
+  },
+
+  // ─── Signal engine behaviour ─────────────────────────────────────────────────
+  signals: {
+    winnersOnlyBuys: true,   // suppress buy signals on assets outside provenWinners
   },
 
   // ─── Technical indicator parameters ─────────────────────────────────────────
