@@ -17,6 +17,7 @@ const Dashboard = {
     refreshTimer:  null,
     notifGranted:  false,
     watchlist:     JSON.parse(localStorage.getItem('trading_watchlist') || '[]'),
+    fearGreed:     null,
   },
 
   // ─── Boot ────────────────────────────────────────────────────────────────────
@@ -30,6 +31,7 @@ const Dashboard = {
     // Paint instantly from last-known snapshot while the live fetch runs.
     if (this._restoreSnapshot()) this._render();
     await this.loadAll(true);
+    this._fetchFearGreed();
     this._scheduleRefresh();
   },
 
@@ -43,7 +45,7 @@ const Dashboard = {
     };
     document.querySelectorAll('.filter-tab').forEach(tab => {
       const cat = tab.dataset.cat;
-      if (cat && cat !== 'all' && cat !== 'watchlist' && cat !== 'oversold' && (!map[cat] || map[cat].length === 0)) {
+      if (cat && cat !== 'all' && cat !== 'watchlist' && cat !== 'oversold' && cat !== 'highconf' && (!map[cat] || map[cat].length === 0)) {
         tab.style.display = 'none';
       }
     });
@@ -246,7 +248,35 @@ const Dashboard = {
         <span class="summary-value">${total}</span>
         <span class="summary-label">Total Tracked</span>
       </div>
+      ${this.state.fearGreed ? `
+      <div class="summary-item fear-greed-item" title="Crypto Fear & Greed Index: Measures overall market sentiment from news, social media, and volatility. 0 = Extreme Fear (good time to buy), 100 = Extreme Greed (market may crash). Updated daily.">
+        <span class="summary-value" style="color:${this._fgColor(this.state.fearGreed.value)}">${this.state.fearGreed.value_classification}</span>
+        <span class="summary-label">Fear & Greed: ${this.state.fearGreed.value}/100</span>
+      </div>` : ''}
     `;
+  },
+
+  // ─── Fear & Greed color helper ────────────────────────────────────────────────
+  _fgColor(val) {
+    if (val <= 25) return '#ef4444';  // Extreme Fear - red
+    if (val <= 45) return '#f97316';  // Fear - orange
+    if (val <= 55) return '#eab308';  // Neutral - yellow
+    if (val <= 75) return '#22c55e';  // Greed - green
+    return '#10b981';                  // Extreme Greed - bright green
+  },
+
+  // ─── Fetch Fear & Greed Index ──────────────────────────────────────────────────
+  async _fetchFearGreed() {
+    try {
+      const res = await fetch('https://api.alternative.me/fng/?limit=1');
+      const json = await res.json();
+      if (json.data && json.data[0]) {
+        this.state.fearGreed = json.data[0];
+        this._renderSummaryBar();
+      }
+    } catch (e) {
+      console.warn('Fear & Greed fetch failed:', e.message);
+    }
   },
 
   // ─── Top 4 opportunities ────────────────────────────────────────────────────
@@ -296,6 +326,8 @@ const Dashboard = {
       assets = assets.filter(a => this.state.watchlist.includes(a.asset.id));
     } else if (cat === 'oversold') {
       assets = assets.filter(a => a.signalResult?.indicators?.rsi?.value < 30);
+    } else if (cat === 'highconf') {
+      assets = assets.filter(a => (a.signalResult?.confidence ?? 0) >= 75 && (a.signalResult?.score ?? 0) > 0);
     } else if (cat !== 'all') {
       assets = assets.filter(a => a.category === cat);
     }
@@ -305,6 +337,14 @@ const Dashboard = {
     }
 
     this.state.filtered = assets;
+
+    // Sort by trade quality tier (golden first), then by confidence descending
+    assets.sort((a, b) => {
+      const qa = this._tradeQuality(a.signalResult?.score ?? 0, a.signalResult?.confidence ?? 0).rank;
+      const qb = this._tradeQuality(b.signalResult?.score ?? 0, b.signalResult?.confidence ?? 0).rank;
+      if (qa !== qb) return qa - qb;
+      return (b.signalResult?.confidence ?? 0) - (a.signalResult?.confidence ?? 0);
+    });
 
     if (assets.length === 0) {
       el.innerHTML = this.state.loading 
@@ -341,6 +381,7 @@ const Dashboard = {
     const chgStr  = change24h !== null ? (change24h >= 0 ? '+' : '') + change24h.toFixed(2) + '%' : '–';
     const chgCls  = change24h == null ? 'flat' : change24h >= 0 ? 'pos' : 'neg';
     const isStarred = this.state.watchlist.includes(asset.id);
+    const quality = this._tradeQuality(score, conf);
     const catBadge = { crypto: '₿ Crypto', stocks: '🇮🇳 Stock', commodities: '🪙 Commodity', forex: '💱 Forex' }[category] ?? category;
 
     return `
@@ -391,9 +432,18 @@ const Dashboard = {
         </div>
 
         ${error ? `<div class="card-error">⚠️ ${error}</div>` : ''}
+        <div class="trade-quality-badge quality-${quality.cls}" title="${quality.tip}">${quality.icon} ${quality.label}</div>
         <div class="card-footer">Click for full analysis →</div>
       </div>
     `;
+  },
+
+  // ─── Trade Quality Tier Calculator ────────────────────────────────────────────
+  _tradeQuality(score, confidence) {
+    if (score >= 2.5 && confidence >= 75) return { label: 'Golden Entry', icon: '✅', cls: 'golden', rank: 1, tip: 'Strong momentum AND all indicators agree. Best possible setup.' };
+    if (score >= 2.5 && confidence < 75)  return { label: 'Risky Momentum', icon: '⚠️', cls: 'risky', rank: 2, tip: 'High score but indicators disagree. Could be a fake-out.' };
+    if (score >= 1.0 && confidence >= 75)  return { label: 'Mild Buy', icon: '🤔', cls: 'mild', rank: 3, tip: 'Indicators agree but movement is gentle. Safe but small upside.' };
+    return { label: 'Weak / Avoid', icon: '❌', cls: 'avoid', rank: 4, tip: 'Low score or bearish. Not a good entry point right now.' };
   },
 
   // ─── Number formatter ────────────────────────────────────────────────────────
@@ -735,6 +785,8 @@ const Dashboard = {
       }
       this._renderSummaryBar();
       this._renderAssetGrid();
+      // Auto-scroll to the asset grid
+      document.getElementById('assetGrid')?.scrollIntoView({ behavior: 'smooth', block: 'start' });
     });
 
     // Modal close

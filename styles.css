@@ -394,6 +394,38 @@ button:focus-visible { outline: 2px solid var(--accent); border-radius: 4px; }
 .card-footer { font-size: 12px; color: var(--accent); text-align: center; opacity: 0; transition: opacity 0.2s; font-weight: 600; margin-top: 8px;}
 .asset-card:hover .card-footer { opacity: 1; }
 
+/* Trade Quality Badges */
+.trade-quality-badge {
+  text-align: center;
+  font-size: 12px;
+  font-weight: 700;
+  padding: 6px 12px;
+  border-radius: 6px;
+  margin-top: 8px;
+  letter-spacing: 0.5px;
+  text-transform: uppercase;
+}
+.quality-golden {
+  background: linear-gradient(135deg, rgba(16, 185, 129, 0.2), rgba(52, 211, 153, 0.1));
+  color: #34d399;
+  border: 1px solid rgba(16, 185, 129, 0.4);
+}
+.quality-risky {
+  background: linear-gradient(135deg, rgba(245, 158, 11, 0.2), rgba(251, 191, 36, 0.1));
+  color: #fbbf24;
+  border: 1px solid rgba(245, 158, 11, 0.4);
+}
+.quality-mild {
+  background: linear-gradient(135deg, rgba(59, 130, 246, 0.2), rgba(96, 165, 250, 0.1));
+  color: #60a5fa;
+  border: 1px solid rgba(59, 130, 246, 0.4);
+}
+.quality-avoid {
+  background: linear-gradient(135deg, rgba(107, 114, 128, 0.15), rgba(156, 163, 175, 0.08));
+  color: #9ca3af;
+  border: 1px solid rgba(107, 114, 128, 0.3);
+}
+
 .no-data { grid-column: 1 / -1; text-align: center; padding: 60px; color: var(--text-muted); font-size: 18px; background: var(--glass-border); border-radius: var(--radius-lg); }
 .card-error { font-size: 12px; color: var(--c-red); margin-top: 8px; text-align: center; }
 
