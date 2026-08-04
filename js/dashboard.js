@@ -465,6 +465,7 @@ const Dashboard = {
       this.state.watchlist.push(id);
     }
     localStorage.setItem('trading_watchlist', JSON.stringify(this.state.watchlist));
+    this._renderTopOpportunities();
     this._renderAssetGrid();
   },
 
