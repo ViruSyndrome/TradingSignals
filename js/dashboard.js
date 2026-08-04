@@ -1,0 +1,872 @@
+'use strict';
+
+/**
+ * dashboard.js — Main application controller.
+ * Orchestrates: data loading → indicator calculation → signal generation → UI rendering.
+ */
+const Dashboard = {
+
+  state: {
+    allAssets:     [],       // all fetched+processed assets
+    filtered:      [],       // currently displayed subset
+    activeCategory:'all',
+    activeSignalFilter: null, // 'STRONG_BUY', 'SELL', etc.
+    selectedAsset: null,     // for the detail modal
+    loading:       true,
+    lastUpdate:    null,
+    refreshTimer:  null,
+    notifGranted:  false,
+    watchlist:     JSON.parse(localStorage.getItem('trading_watchlist') || '[]'),
+  },
+
+  // ─── Boot ────────────────────────────────────────────────────────────────────
+  async init() {
+    if (window.Portfolio) Portfolio.init();
+    this._bindUI();
+    this._hideEmptyCategoryTabs();
+    this._initTooltips();
+    this._startClock();
+    this._updateMarketStatus();
+    // Paint instantly from last-known snapshot while the live fetch runs.
+    if (this._restoreSnapshot()) this._render();
+    await this.loadAll(true);
+    this._scheduleRefresh();
+  },
+
+  // Hide filter tabs for asset categories that are empty in CONFIG.
+  _hideEmptyCategoryTabs() {
+    const map = {
+      stocks:      CONFIG.assets.indianStocks,
+      crypto:      CONFIG.assets.crypto,
+      commodities: CONFIG.assets.commodities,
+      forex:       CONFIG.assets.forex,
+    };
+    document.querySelectorAll('.filter-tab').forEach(tab => {
+      const cat = tab.dataset.cat;
+      if (cat && cat !== 'all' && cat !== 'watchlist' && cat !== 'oversold' && (!map[cat] || map[cat].length === 0)) {
+        tab.style.display = 'none';
+      }
+    });
+  },
+
+  // ─── Custom Tooltips ────────────────────────────────────────────────────────
+  _initTooltips() {
+    const tooltip = document.createElement('div');
+    tooltip.className = 'custom-tooltip';
+    document.body.appendChild(tooltip);
+
+    let activeEl = null;
+
+    document.addEventListener('mouseover', (e) => {
+      const el = e.target.closest('[title], [data-title]');
+      if (!el) return;
+
+      const text = el.getAttribute('title') || el.getAttribute('data-title');
+      if (!text) return;
+
+      if (el.hasAttribute('title')) {
+        el.setAttribute('data-title', text);
+        el.removeAttribute('title');
+      }
+
+      activeEl = el;
+      tooltip.textContent = text;
+      tooltip.classList.add('visible');
+    });
+
+    document.addEventListener('mousemove', (e) => {
+      if (!activeEl) return;
+      // Position tooltip near cursor, offset slightly
+      let x = e.clientX + 15;
+      let y = e.clientY + 20;
+
+      // Prevent overflow off right edge
+      if (x + tooltip.offsetWidth > window.innerWidth - 10) {
+        x = e.clientX - tooltip.offsetWidth - 10;
+        // flip arrow if we want, but simple for now
+      }
+      // Prevent overflow off bottom
+      if (y + tooltip.offsetHeight > window.innerHeight - 10) {
+        y = e.clientY - tooltip.offsetHeight - 15;
+      }
+
+      tooltip.style.left = x + 'px';
+      tooltip.style.top = y + 'px';
+    });
+
+    document.addEventListener('mouseout', (e) => {
+      if (activeEl && (!e.relatedTarget || !activeEl.contains(e.relatedTarget))) {
+        tooltip.classList.remove('visible');
+        activeEl = null;
+      }
+    });
+    
+    // Re-bind dynamically created elements by listening on body (which we do)
+  },
+
+  // ─── Load all asset data ─────────────────────────────────────────────────────
+  async loadAll(silent = false) {
+    if (!silent) this._setLoading(true);
+    try {
+      const [crypto, stocks, commodities, forex] = await Promise.allSettled([
+        API.getAllCrypto(),
+        API.getAllStocks(),
+        API.getAllCommodities(),
+        API.getAllForex(),
+      ]);
+
+      const all = [
+        ...(crypto.value      || []).map(d => ({ ...d, category: 'crypto'      })),
+        ...(stocks.value      || []).map(d => ({ ...d, category: 'stocks'      })),
+        ...(commodities.value || []).map(d => ({ ...d, category: 'commodities' })),
+        ...(forex.value       || []).map(d => ({ ...d, category: 'forex'       })),
+      ];
+
+      // Signals now receive OHLCV so ATR and volume nudge can compute.
+      this.state.allAssets = all.map(d => ({
+        ...d,
+        signalResult: d.closes?.length > 0
+          ? Signals.generate(d.closes, { highs: d.highs, lows: d.lows, volumes: d.volumes })
+          : null,
+      }));
+
+      const anyOk = this.state.allAssets.some(a => a.price != null);
+      this.state.dataStale = !anyOk;
+
+      this.state.lastUpdate = new Date();
+      this._persistSnapshot();
+      this._render();
+      this._refreshOpenModal();
+      if (!silent) this._showToast(anyOk ? 'Data refreshed ✓' : 'Fetch failed — showing last known data', anyOk ? 'success' : 'warning');
+    } catch (err) {
+      console.error('[Dashboard] loadAll error:', err);
+      this.state.dataStale = true;
+      if (!silent) this._showToast('Some data failed to load — check internet connection', 'warning');
+    }
+    if (!silent) this._setLoading(false);
+  },
+
+  // ─── Snapshot persistence (instant paint on next load) ───────────────────────
+  SNAPSHOT_KEY: 'trading_snapshot_v1',
+  _persistSnapshot() {
+    try {
+      // Strip heavy indicator arrays before saving to keep localStorage small.
+      const slim = this.state.allAssets.map(a => ({
+        asset: a.asset, category: a.category,
+        price: a.price, change24h: a.change24h, closes: a.closes,
+        highs: a.highs, lows: a.lows, volumes: a.volumes, timestamps: a.timestamps,
+        fetchedAt: a.fetchedAt, error: a.error,
+      }));
+      localStorage.setItem(this.SNAPSHOT_KEY, JSON.stringify({ ts: Date.now(), assets: slim }));
+    } catch (e) { /* quota — ignore */ }
+  },
+  _restoreSnapshot() {
+    try {
+      const raw = localStorage.getItem(this.SNAPSHOT_KEY);
+      if (!raw) return false;
+      const { ts, assets } = JSON.parse(raw);
+      if (!Array.isArray(assets) || !assets.length) return false;
+      this.state.allAssets = assets.map(d => ({
+        ...d,
+        signalResult: d.closes?.length > 0
+          ? Signals.generate(d.closes, { highs: d.highs, lows: d.lows, volumes: d.volumes })
+          : null,
+      }));
+      this.state.lastUpdate = new Date(ts);
+      this.state.dataStale = true;
+      return true;
+    } catch (e) { return false; }
+  },
+
+  // ─── Refresh timer ───────────────────────────────────────────────────────────
+  _scheduleRefresh() {
+    clearInterval(this.state.refreshTimer);
+    this.state.refreshTimer = setInterval(() => this.loadAll(true), CONFIG.refresh.intervalMs);
+  },
+
+  // ─── Main render ─────────────────────────────────────────────────────────────
+  _render() {
+    this._renderSummaryBar();
+    this._renderTopOpportunities();
+    this._renderAssetGrid();
+    this._updateLastUpdated();
+  },
+
+  // ─── Summary bar at top ──────────────────────────────────────────────────────
+  _renderSummaryBar() {
+    const el = document.getElementById('summaryBar');
+    if (!el) return;
+
+    const counts = { STRONG_BUY: 0, BUY: 0, NEUTRAL: 0, SELL: 0, STRONG_SELL: 0 };
+    this.state.allAssets.forEach(a => {
+      const s = a.signalResult?.signal;
+      if (s && counts[s] !== undefined) counts[s]++;
+    });
+
+    const total = this.state.allAssets.length;
+    const bullPct = total > 0 ? Math.round(((counts.STRONG_BUY + counts.BUY) / total) * 100) : 0;
+    const sentiment = bullPct >= 60 ? '🟢 Bullish' : bullPct <= 40 ? '🔴 Bearish' : '🟡 Mixed';
+
+    const isActive = (sig) => this.state.activeSignalFilter === sig ? 'active' : '';
+
+    const staleBanner = this.state.dataStale
+      ? `<div class="summary-item stale-banner" title="The last live fetch failed. Numbers below are from your last successful load.">
+           <span class="summary-value" style="color:#f5a623">⚠️ Stale</span>
+           <span class="summary-label">Data may be outdated</span>
+         </div>`
+      : '';
+
+    el.innerHTML = `
+      ${staleBanner}
+      <div class="summary-item" title="Overall market direction based on how many assets are bullish vs bearish. Green = most assets trending up, Red = most trending down.">
+        <span class="summary-value">${sentiment}</span>
+        <span class="summary-label">Market Sentiment</span>
+      </div>
+      <div class="summary-item filterable ${isActive('STRONG_BUY')}" data-signal="STRONG_BUY" title="Assets where RSI, MACD, Moving Averages, and Bollinger Bands ALL agree it's a great time to buy. This is the rarest and strongest signal. Click to filter.">
+        <span class="summary-count strong-buy">${counts.STRONG_BUY}</span>
+        <span class="summary-label">Strong Buy</span>
+      </div>
+      <div class="summary-item filterable ${isActive('BUY')}" data-signal="BUY" title="Assets leaning bullish — most indicators favor buyers, but not all agree yet. Good setups worth watching. Click to filter.">
+        <span class="summary-count buy">${counts.BUY}</span>
+        <span class="summary-label">Buy</span>
+      </div>
+      <div class="summary-item filterable ${isActive('NEUTRAL')}" data-signal="NEUTRAL" title="No clear direction — indicators are mixed. Best to wait on the sidelines until a clearer signal forms. Click to filter.">
+        <span class="summary-count neutral">${counts.NEUTRAL}</span>
+        <span class="summary-label">Hold</span>
+      </div>
+      <div class="summary-item filterable ${isActive('SELL')}" data-signal="SELL" title="Assets leaning bearish — conditions favor sellers. If you own this, consider tightening your stop-loss. Click to filter.">
+        <span class="summary-count sell">${counts.SELL}</span>
+        <span class="summary-label">Sell</span>
+      </div>
+      <div class="summary-item filterable ${isActive('STRONG_SELL')}" data-signal="STRONG_SELL" title="All indicators agree this asset is overbought or in a strong downtrend. High risk to buy here. If you own it, consider selling. Click to filter.">
+        <span class="summary-count strong-sell">${counts.STRONG_SELL}</span>
+        <span class="summary-label">Strong Sell</span>
+      </div>
+      <div class="summary-item filterable" data-signal="ALL">
+        <span class="summary-value">${total}</span>
+        <span class="summary-label">Total Tracked</span>
+      </div>
+    `;
+  },
+
+  // ─── Top 4 opportunities ────────────────────────────────────────────────────
+  _renderTopOpportunities() {
+    const el = document.getElementById('topOpportunities');
+    if (!el) return;
+
+    // Rank by absolute score
+    const ranked = [...this.state.allAssets]
+      .filter(a => a.signalResult && a.closes?.length > 0)
+      .sort((a, b) => Math.abs(b.signalResult.score) - Math.abs(a.signalResult.score))
+      .slice(0, 4);
+
+    if (ranked.length === 0) {
+      el.innerHTML = '<p class="no-data">Loading opportunities…</p>';
+      return;
+    }
+
+    el.innerHTML = ranked.map(a => this._assetCardHTML(a, true)).join('');
+    this._attachCardListeners(el);
+    // Draw sparklines
+    ranked.forEach(a => {
+      if (a.closes?.length > 0) {
+        const isPos = (a.change24h ?? 0) >= 0;
+        Charts.renderSparkline(`spark_top_${a.asset.id}`, a.closes, isPos);
+      }
+    });
+
+    // Alert on strong signals across ALL assets, not just the top 4.
+    this.state.allAssets.forEach(a => {
+      const s = a.signalResult?.signal;
+      if (s === 'STRONG_BUY' || s === 'STRONG_SELL') {
+        this._maybeNotify(a);
+      }
+    });
+  },
+
+  // ─── Main asset grid (filtered by category) ─────────────────────────────────
+  _renderAssetGrid() {
+    const el = document.getElementById('assetGrid');
+    if (!el) return;
+
+    const cat = this.state.activeCategory;
+    let assets = this.state.allAssets;
+
+    if (cat === 'watchlist') {
+      assets = assets.filter(a => this.state.watchlist.includes(a.asset.id));
+    } else if (cat === 'oversold') {
+      assets = assets.filter(a => a.signalResult?.indicators?.rsi?.value < 30);
+    } else if (cat !== 'all') {
+      assets = assets.filter(a => a.category === cat);
+    }
+
+    if (this.state.activeSignalFilter) {
+      assets = assets.filter(a => a.signalResult?.signal === this.state.activeSignalFilter);
+    }
+
+    this.state.filtered = assets;
+
+    if (assets.length === 0) {
+      el.innerHTML = this.state.loading 
+        ? '<p class="no-data">No data yet — loading…</p>'
+        : '<p class="no-data">No assets match this filter currently.</p>';
+      return;
+    }
+
+    el.innerHTML = assets.map(a => this._assetCardHTML(a, false)).join('');
+    this._attachCardListeners(el);
+
+    assets.forEach(a => {
+      if (a.closes?.length > 0) {
+        const isPos = (a.change24h ?? 0) >= 0;
+        Charts.renderSparkline(`spark_${a.asset.id}`, a.closes, isPos);
+      }
+    });
+  },
+
+  // ─── Generate asset card HTML ────────────────────────────────────────────────
+  _assetCardHTML(d, isTop) {
+    const { asset, price, change24h, closes, signalResult, category, error } = d;
+    const sig = signalResult?.signal ?? 'NEUTRAL';
+    const level = Signals.level(sig);
+    const conf = signalResult?.confidence ?? 0;
+    const score = signalResult?.score ?? 0;
+    const rsi = signalResult?.indicators?.rsi?.value ?? '–';
+    const sparkId = isTop ? `spark_top_${asset.id}` : `spark_${asset.id}`;
+
+    const priceStr = price !== null
+      ? (asset.currency === 'INR' ? '₹' : '$') + this._fmt(price, asset)
+      : 'N/A';
+
+    const chgStr  = change24h !== null ? (change24h >= 0 ? '+' : '') + change24h.toFixed(2) + '%' : '–';
+    const chgCls  = change24h == null ? 'flat' : change24h >= 0 ? 'pos' : 'neg';
+    const isStarred = this.state.watchlist.includes(asset.id);
+    const catBadge = { crypto: '₿ Crypto', stocks: '🇮🇳 Stock', commodities: '🪙 Commodity', forex: '💱 Forex' }[category] ?? category;
+
+    return `
+      <div class="asset-card signal-border-${level.cls}" data-asset-id="${asset.id}" data-category="${category}" role="button" tabindex="0" aria-label="${asset.name} signal card">
+        <div class="card-header">
+          <div class="card-title-row">
+            <span class="asset-icon">${asset.icon}</span>
+            <div>
+              <div class="asset-name">${asset.name}</div>
+              <div class="asset-symbol">${asset.symbol}</div>
+            </div>
+            <span class="cat-badge">${catBadge}</span>
+            <button class="star-btn ${isStarred ? 'active' : ''}" data-star-id="${asset.id}" title="Toggle Watchlist" style="background:none; border:none; cursor:pointer; font-size:18px; margin-left:auto; opacity:${isStarred ? 1 : 0.3}; transition:0.2s;">⭐</button>
+          </div>
+          <div class="signal-badge signal-${level.cls} ${sig === 'STRONG_BUY' || sig === 'STRONG_SELL' ? 'pulse' : ''}" title="Signal: ${level.label}. This is the combined verdict from 4 technical indicators (RSI, MACD, Moving Averages, Bollinger Bands).">
+            <span>${level.icon}</span> ${level.short}
+          </div>
+        </div>
+
+        <div class="card-price-row">
+          <div class="price-main" title="Current live price from Binance, refreshed every 60 seconds.">${priceStr}</div>
+          <div class="price-change ${chgCls}" title="Price change in the last 24 hours. Green = price went up, Red = price went down.">${chgStr}</div>
+        </div>
+
+        <div class="sparkline-wrap" title="Mini price chart showing the trend over the last 90 days.">
+          <canvas id="${sparkId}" height="50"></canvas>
+        </div>
+
+        <div class="card-indicators">
+          <div class="ind-chip" title="RSI (Relative Strength Index): Measures if the asset is oversold or overbought. Below 30 = oversold (good to buy), Above 70 = overbought (consider selling). Range: 0–100.">
+            <span class="ind-label">RSI</span>
+            <span class="ind-val">${rsi}</span>
+          </div>
+          <div class="ind-chip" title="Composite Score: Sum of all indicator scores (RSI, MACD, Moving Averages, Bollinger Bands, Volume). Higher positive = stronger buy signal. A score of +3.0 or higher (with 75%+ confidence) triggers Strong Buy.">
+            <span class="ind-label">Score</span>
+            <span class="ind-val">${score > 0 ? '+' : ''}${score}</span>
+          </div>
+          <div class="ind-chip" title="Confidence: What % of indicators agree with the signal direction. 100% = all 4 indicators agree (very reliable). 25% = only 1 agrees (risky).">
+            <span class="ind-label">Confidence</span>
+            <span class="ind-val">${conf}%</span>
+          </div>
+        </div>
+
+        <div class="confidence-bar-wrap" title="Visual confidence meter. The fuller the bar, the more indicators agree.">
+          <div class="confidence-bar">
+            <div class="confidence-fill signal-bg-${level.cls}" style="width:${conf}%"></div>
+          </div>
+        </div>
+
+        ${error ? `<div class="card-error">⚠️ ${error}</div>` : ''}
+        <div class="card-footer">Click for full analysis →</div>
+      </div>
+    `;
+  },
+
+  // ─── Number formatter ────────────────────────────────────────────────────────
+  _fmt(price, asset) {
+    if (price === null || price === undefined) return 'N/A';
+    if (price >= 1000)   return price.toLocaleString('en-IN', { maximumFractionDigits: 2 });
+    if (price >= 1)      return price.toFixed(2);
+    if (price >= 0.01)   return price.toFixed(4);
+    return price.toFixed(6);
+  },
+
+  _toggleWatchlist(id) {
+    if (this.state.watchlist.includes(id)) {
+      this.state.watchlist = this.state.watchlist.filter(x => x !== id);
+    } else {
+      this.state.watchlist.push(id);
+    }
+    localStorage.setItem('trading_watchlist', JSON.stringify(this.state.watchlist));
+    this._renderAssetGrid();
+  },
+
+  // ─── Card click → open detail modal ─────────────────────────────────────────
+  _attachCardListeners(container) {
+    container.querySelectorAll('.star-btn').forEach(btn => {
+      btn.onclick = (e) => {
+        e.stopPropagation(); // prevent modal opening
+        this._toggleWatchlist(btn.dataset.starId);
+      };
+    });
+    container.querySelectorAll('.asset-card').forEach(card => {
+      card.onclick     = () => this._openModal(card.dataset.assetId);
+      card.onkeydown   = e => { if (e.key === 'Enter' || e.key === ' ') this._openModal(card.dataset.assetId); };
+    });
+  },
+
+  // ─── Detail modal ────────────────────────────────────────────────────────────
+  _openModal(assetId) {
+    const d = this.state.allAssets.find(a => a.asset.id === assetId);
+    if (!d) return;
+    this.state.selectedAsset = d;
+
+    const modal   = document.getElementById('assetModal');
+    const content = document.getElementById('modalContent');
+    if (!modal || !content) return;
+
+    const { asset, price, change24h, signalResult, category, closes, timestamps } = d;
+    const sig   = signalResult?.signal ?? 'NEUTRAL';
+    const level = Signals.level(sig);
+    const ind   = signalResult?.indicators ?? {};
+    const rec   = signalResult?.recommendation ?? '';
+    const arrays = signalResult?.arrays ?? {};
+
+    const priceStr = price !== null ? (asset.currency === 'INR' ? '₹' : '$') + this._fmt(price, asset) : 'N/A';
+    const chgStr   = change24h !== null ? (change24h >= 0 ? '+' : '') + change24h.toFixed(2) + '%' : '–';
+
+    content.innerHTML = `
+      <div class="modal-header">
+        <div class="modal-title-row">
+          <span class="asset-icon lg">${asset.icon}</span>
+          <div>
+            <h2>${asset.name} <span class="modal-symbol">${asset.symbol}</span></h2>
+            <div class="modal-meta">${{ crypto: '₿ Crypto', stocks: '🇮🇳 NSE Stock', commodities: '🪙 Commodity', forex: '💱 Forex' }[category] ?? category}</div>
+          </div>
+          <div class="signal-badge signal-${level.cls} lg ${['STRONG_BUY','STRONG_SELL'].includes(sig) ? 'pulse' : ''}">
+            ${level.icon} ${level.label}
+          </div>
+          <button class="action-btn" id="modalPaperBuyBtn" data-asset="${asset.id}" style="background:var(--accent); color:#fff; border-radius:4px; padding:6px 12px; margin-left: auto;">Buy (Paper Trade)</button>
+        </div>
+        <div class="modal-prices">
+          <div class="modal-price">${priceStr}</div>
+          <div class="price-change ${change24h == null ? 'flat' : change24h >= 0 ? 'pos' : 'neg'} lg">${chgStr} (24h)</div>
+        </div>
+        <div class="modal-buy-row" style="display:flex; gap:8px; align-items:center; margin-top:8px; font-size:13px;">
+          <label for="modalBuyAmount" style="color:var(--text-muted)">Paper-buy amount ($)</label>
+          <input type="number" id="modalBuyAmount" min="10" step="10" value="1000"
+            style="width:100px; padding:4px 8px; border-radius:4px; border:1px solid var(--border, #333); background:rgba(0,0,0,0.25); color:inherit;" />
+        </div>
+      </div>
+
+      <div class="modal-recommendation">
+        <p>${rec}</p>
+      </div>
+
+      <div class="modal-indicator-grid">
+        ${this._indicatorCards(ind)}
+      </div>
+
+      <div class="modal-charts">
+        <h3>📊 Price Chart (90 days)</h3>
+        <div class="chart-wrap" style="height:220px">
+          <canvas id="modalPriceChart"></canvas>
+        </div>
+        <div class="chart-row">
+          <div>
+            <h3>📉 RSI (14)</h3>
+            <div class="chart-wrap" style="height:120px">
+              <canvas id="modalRsiChart"></canvas>
+            </div>
+          </div>
+          <div>
+            <h3>〽️ MACD</h3>
+            <div class="chart-wrap" style="height:120px">
+              <canvas id="modalMacdChart"></canvas>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <div class="modal-education">
+        <h3>📚 How to read this</h3>
+        ${this._educationHTML(ind)}
+      </div>
+    `;
+
+    modal.classList.add('open');
+    document.body.classList.add('modal-open');
+
+    // Render charts after DOM update
+    requestAnimationFrame(() => {
+      if (closes?.length && timestamps?.length) {
+        Charts.renderPrice('modalPriceChart', closes, timestamps, arrays);
+        Charts.renderRSI('modalRsiChart', arrays.rsi ?? [], timestamps);
+        Charts.renderMACD('modalMacdChart', arrays.macd ?? {}, timestamps);
+      }
+    });
+  },
+
+  _indicatorCards(ind) {
+    const cards = [
+      { key: 'rsi', title: 'RSI (14)', icon: '📊', extra: val => `<div class="rsi-gauge" style="--rsi:${Math.min(100, val.value)}%"><div class="rsi-thumb"></div></div>` },
+      { key: 'macd', title: 'MACD', icon: '〽️', extra: () => '' },
+      { key: 'movingAvg', title: 'Moving Averages', icon: '📈', extra: () => '' },
+      { key: 'bollinger', title: 'Bollinger Bands', icon: '🎯', extra: () => '' },
+      { key: 'volume', title: 'Volume', icon: '📶', extra: () => '' },
+    ];
+
+    return cards.filter(c => ind[c.key]).map(c => {
+      const val = ind[c.key];
+      const level = Signals.level(val.signal);
+      let detailHTML = '';
+      if (c.key === 'rsi') detailHTML = `<div class="ind-detail-value">RSI = <strong>${val.value}</strong></div>`;
+      if (c.key === 'macd') detailHTML = `<div class="ind-detail-value">MACD: <strong>${val.value}</strong> | Signal: <strong>${val.signalValue}</strong></div>`;
+      if (c.key === 'movingAvg') {
+        const smaShortLabel = val.sma50Period && val.sma50Period !== 50 ? `${val.sma50Period} SMA*` : '50 SMA';
+        detailHTML = `
+          <div class="ind-detail-value" style="display:flex; flex-direction:column; gap:8px; margin-bottom:12px;">
+            <div style="padding:10px; background:rgba(0,0,0,0.2); border-radius:6px; border-left: 3px solid var(--accent);">
+              <div style="font-size:11px; color:var(--accent); text-transform:uppercase; margin-bottom:4px; font-weight:600;">⚡ Day Trend (EMA)</div>
+              9 EMA: <strong>${val.ema9}</strong> | 21 EMA: <strong>${val.ema21}</strong>
+            </div>
+            <div style="padding:10px; background:rgba(0,0,0,0.2); border-radius:6px; border-left: 3px solid var(--text-muted);">
+              <div style="font-size:11px; color:var(--text-muted); text-transform:uppercase; margin-bottom:4px; font-weight:600;">📊 Macro Trend (SMA)</div>
+              ${smaShortLabel}: <strong>${val.sma50 ?? '—'}</strong> | 200 SMA: <strong>${val.sma200 ?? '—'}</strong>
+            </div>
+            ${val.sma50Period && val.sma50Period !== 50 ? '<div style="font-size:11px; color:var(--text-muted)">* Not enough history for full 50-day SMA.</div>' : ''}
+          </div>
+        `;
+      }
+      if (c.key === 'bollinger') detailHTML = `<div class="ind-detail-value">%B: <strong>${val.percentB}%</strong> | Upper: ${val.upper} | Lower: ${val.lower}</div>`;
+      if (c.key === 'volume') detailHTML = `<div class="ind-detail-value">Latest: <strong>${val.last.toLocaleString()}</strong> | 20-day avg: <strong>${val.avg20.toLocaleString()}</strong> | Ratio: <strong>${val.ratio}×</strong></div>`;
+
+      return `
+        <div class="ind-card">
+          <div class="ind-card-header">
+            <span>${c.icon} ${c.title}</span>
+            <span class="signal-badge signal-${level.cls} sm">${level.icon} ${level.short}</span>
+          </div>
+          ${detailHTML}
+          ${c.extra(val)}
+          <p class="ind-desc">${val.description}</p>
+        </div>
+      `;
+    }).join('');
+  },
+
+  _educationHTML(ind) {
+    const tips = [
+      { title: 'RSI (Relative Strength Index)', icon: '📊', text: 'Measures momentum on a 0–100 scale. Below 30 = oversold (potential buy). Above 70 = overbought (potential sell). Most effective in ranging markets.' },
+      { title: 'MACD', icon: '〽️', text: 'Shows trend direction & momentum. When the MACD line crosses ABOVE the signal line → bullish. Crosses BELOW → bearish. Crossovers are the key signal.' },
+      { title: 'Dual Moving Averages (EMA & SMA)', icon: '📈', text: 'Macro Trend (50 & 200 SMA): Price above 50 SMA = healthy market to buy. Day Trend (9 & 21 EMA): Fast moving, when 9 EMA crosses ABOVE 21 EMA = exact time to buy.' },
+      { title: 'Bollinger Bands', icon: '🎯', text: 'Price near the lower band often bounces up (buy). Price near the upper band often falls (sell). A squeeze (bands narrowing) forecasts a big move coming.' },
+      { title: 'Confidence Score', icon: '🎯', text: 'Percentage of indicators that agree with the final signal direction. Higher confidence = stronger setup. Low confidence = conflicting signals — be cautious.' },
+      { title: 'Risk Management', icon: '🛡️', text: 'NEVER risk more than 1–2% of your total capital on a single trade. Always set a stop-loss before entering. Even the best signals fail sometimes.' },
+    ];
+    return `<div class="edu-grid">${tips.map(t => `<div class="edu-card"><div class="edu-icon">${t.icon}</div><h4>${t.title}</h4><p>${t.text}</p></div>`).join('')}</div>`;
+  },
+
+  // ─── Close modal ─────────────────────────────────────────────────────────────
+  _closeModal() {
+    const modal = document.getElementById('assetModal');
+    if (modal) modal.classList.remove('open');
+    document.body.classList.remove('modal-open');
+    this.state.selectedAsset = null;
+    Charts._destroy('modalPriceChart');
+    Charts._destroy('modalRsiChart');
+    Charts._destroy('modalMacdChart');
+  },
+
+  // Lightweight update of price/change/recommendation while the modal is open.
+  // Avoids re-rendering charts so the user's scroll position isn't jumped.
+  _refreshOpenModal() {
+    const sel = this.state.selectedAsset;
+    const modal = document.getElementById('assetModal');
+    if (!sel || !modal || !modal.classList.contains('open')) return;
+    const fresh = this.state.allAssets.find(a => a.asset.id === sel.asset.id);
+    if (!fresh) return;
+    this.state.selectedAsset = fresh;
+
+    const priceEl = modal.querySelector('.modal-price');
+    if (priceEl) {
+      priceEl.textContent = fresh.price != null
+        ? (fresh.asset.currency === 'INR' ? '₹' : '$') + this._fmt(fresh.price, fresh.asset)
+        : 'N/A';
+    }
+    const chgEl = modal.querySelector('.modal-prices .price-change');
+    if (chgEl) {
+      const c = fresh.change24h;
+      chgEl.className = 'price-change ' + (c == null ? 'flat' : c >= 0 ? 'pos' : 'neg') + ' lg';
+      chgEl.textContent = (c != null ? (c >= 0 ? '+' : '') + c.toFixed(2) + '%' : '–') + ' (24h)';
+    }
+    const recEl = modal.querySelector('.modal-recommendation p');
+    if (recEl) recEl.textContent = fresh.signalResult?.recommendation ?? '';
+  },
+
+  // ─── Category filter tabs ────────────────────────────────────────────────────
+  _setCategory(cat) {
+    this.state.activeCategory = cat;
+    document.querySelectorAll('.filter-tab').forEach(tab => {
+      tab.classList.toggle('active', tab.dataset.cat === cat);
+    });
+    this._renderAssetGrid();
+  },
+
+  // ─── Loading state ────────────────────────────────────────────────────────────
+  _setLoading(on) {
+    this.state.loading = on;
+    const el = document.getElementById('loadingOverlay');
+    if (el) el.classList.toggle('hidden', !on);
+  },
+
+  // ─── Clock ────────────────────────────────────────────────────────────────────
+  _startClock() {
+    const update = () => {
+      const el = document.getElementById('liveClock');
+      if (el) el.textContent = new Date().toLocaleTimeString('en-IN', { timeZone: 'Asia/Kolkata', hour: '2-digit', minute: '2-digit', second: '2-digit' });
+    };
+    update();
+    setInterval(update, 1000);
+  },
+
+  _updateLastUpdated() {
+    const el = document.getElementById('lastUpdated');
+    if (el && this.state.lastUpdate) {
+      el.textContent = 'Updated ' + this.state.lastUpdate.toLocaleTimeString('en-IN', { timeZone: 'Asia/Kolkata' });
+    }
+  },
+
+  _updateMarketStatus() {
+    const status = API.getMarketStatus();
+    const el = document.getElementById('marketStatus');
+    if (!el) return;
+    el.innerHTML = `
+      <span class="mkt-dot ${status.nse.open ? 'green' : 'red'}"></span> ${status.nse.label}
+      &nbsp;&nbsp;
+      <span class="mkt-dot green"></span> ${status.crypto.label}
+    `;
+  },
+
+  // ─── Browser notifications ───────────────────────────────────────────────────
+  // Chrome blocks Notification.requestPermission() outside a user gesture, so
+  // we only prompt once the user interacts (refresh, nav, filter, etc.).
+  _requestNotifPermission() {
+    if (!('Notification' in window)) return;
+    this.state.notifGranted = Notification.permission === 'granted';
+    if (Notification.permission !== 'default') return;
+    Notification.requestPermission().then(p => {
+      this.state.notifGranted = p === 'granted';
+    });
+  },
+
+  _maybeNotify(d) {
+    if (!this.state.notifGranted) return;
+    const key = `notif_${d.asset.id}_${d.signalResult?.signal}`;
+    const NOTIF_TTL_MS = 3600000; // 1h
+    try {
+      const raw = localStorage.getItem(key);
+      if (raw) {
+        const sentAt = parseInt(raw, 10);
+        if (!isNaN(sentAt) && Date.now() - sentAt < NOTIF_TTL_MS) return;
+      }
+    } catch (e) { /* ignore */ }
+    const level = Signals.level(d.signalResult.signal);
+    new Notification(`${level.icon} ${d.asset.name}: ${level.label}`, {
+      body: d.signalResult.recommendation.slice(0, 100) + '…',
+    });
+    try { localStorage.setItem(key, Date.now().toString()); } catch (e) { /* ignore */ }
+  },
+
+  // ─── Toast notifications ─────────────────────────────────────────────────────
+  _showToast(msg, type = 'info') {
+    const container = document.getElementById('toastContainer');
+    if (!container) return;
+    const toast = document.createElement('div');
+    toast.className = `toast toast-${type}`;
+    toast.textContent = msg;
+    container.appendChild(toast);
+    requestAnimationFrame(() => toast.classList.add('show'));
+    setTimeout(() => {
+      toast.classList.remove('show');
+      setTimeout(() => toast.remove(), 400);
+    }, 3000);
+  },
+
+  // ─── Bind all static UI events ───────────────────────────────────────────────
+  _bindUI() {
+    // Ask for notification permission once, on the first real user gesture.
+    const askOnce = () => {
+      this._requestNotifPermission();
+      document.removeEventListener('click', askOnce, true);
+      document.removeEventListener('keydown', askOnce, true);
+    };
+    document.addEventListener('click', askOnce, true);
+    document.addEventListener('keydown', askOnce, true);
+
+    // Category filter tabs
+    document.querySelectorAll('.filter-tab').forEach(tab => {
+      tab.onclick = () => this._setCategory(tab.dataset.cat);
+    });
+
+    // Summary Signal Filtering
+    document.getElementById('summaryBar')?.addEventListener('click', e => {
+      const item = e.target.closest('.filterable');
+      if (!item) return;
+      const sig = item.dataset.signal;
+      if (sig === 'ALL' || this.state.activeSignalFilter === sig) {
+        this.state.activeSignalFilter = null; // reset filter
+      } else {
+        this.state.activeSignalFilter = sig;
+      }
+      this._renderSummaryBar();
+      this._renderAssetGrid();
+    });
+
+    // Modal close
+    document.getElementById('modalClose')?.addEventListener('click', () => this._closeModal());
+    document.getElementById('assetModal')?.addEventListener('click', e => {
+      if (e.target.id === 'assetModal') this._closeModal();
+    });
+    document.addEventListener('keydown', e => { if (e.key === 'Escape') this._closeModal(); });
+
+    // Manual refresh button
+    document.getElementById('refreshBtn')?.addEventListener('click', () => {
+      // Actually bust the localStorage cache
+      Object.keys(localStorage).forEach(key => {
+        if (key.startsWith('trading_cache_')) localStorage.removeItem(key);
+      });
+      this.loadAll();
+    });
+
+    // Sidebar nav
+    document.querySelectorAll('.nav-link').forEach(link => {
+      link.onclick = e => {
+        e.preventDefault();
+        const section = link.dataset.section;
+        document.querySelectorAll('.main-section').forEach(s => s.classList.toggle('active', s.id === section));
+        document.querySelectorAll('.nav-link').forEach(l => l.classList.toggle('active', l === link));
+        if (section === 'portfolioSection') this._renderPortfolio();
+      };
+    });
+
+    // Portfolio
+    document.getElementById('resetPortfolioBtn')?.addEventListener('click', () => {
+      if (confirm('Are you sure you want to reset your Paper Trading account to $10,000?')) {
+        Portfolio.reset();
+        this._renderPortfolio();
+      }
+    });
+
+    // Delegate portfolio sell buttons
+    document.getElementById('openPositionsTable')?.addEventListener('click', e => {
+      if (e.target.classList.contains('sell-btn')) {
+        const tradeId = e.target.dataset.trade;
+        const currentPrice = parseFloat(e.target.dataset.price);
+        const res = Portfolio.sell(tradeId, currentPrice);
+        if (res.success) {
+          this._showToast(`Sold position. PnL: $${res.pnl.toFixed(2)}`, res.pnl >= 0 ? 'success' : 'warning');
+          this._renderPortfolio();
+        }
+      }
+    });
+
+    // Delegate paper buy button in modal
+    document.getElementById('assetModal')?.addEventListener('click', e => {
+      if (e.target.id === 'modalPaperBuyBtn') {
+        const assetId = e.target.dataset.asset;
+        const liveAsset = this.state.allAssets.find(a => a.asset.id === assetId);
+        if (!liveAsset || !liveAsset.price) {
+          this._showToast('Price unavailable', 'warning');
+          return;
+        }
+
+        const input = document.getElementById('modalBuyAmount');
+        const cost = Math.max(10, parseFloat(input?.value) || 1000);
+        const res = Portfolio.buy(liveAsset.asset, liveAsset.price, cost);
+        if (res.success) {
+          this._showToast(`Bought $${cost.toLocaleString()} of ${liveAsset.asset.symbol} (Paper Trade)`, 'success');
+          this._closeModal();
+          this._renderPortfolio();
+        } else {
+          this._showToast(res.error, 'error');
+        }
+      }
+    });
+  },
+
+  // ─── Portfolio Render ────────────────────────────────────────────────────────
+  _renderPortfolio() {
+    if (!window.Portfolio) return;
+    const state = Portfolio.getState();
+    
+    document.getElementById('portfolioBalance').textContent = '$' + state.balance.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+
+    const openTbody = document.querySelector('#openPositionsTable tbody');
+    if (openTbody) {
+      if (state.positions.length === 0) {
+        openTbody.innerHTML = '<tr><td colspan="6" style="text-align:center; padding:20px; color:var(--text-muted)">No open positions. Buy an asset from the dashboard to start!</td></tr>';
+      } else {
+        openTbody.innerHTML = state.positions.map(pos => {
+          const liveAsset = this.state.allAssets.find(a => a.asset.id === pos.assetId);
+          const currentPrice = liveAsset?.price ?? pos.buyPrice;
+          const liveVal = pos.amount * currentPrice;
+          const pnl = liveVal - pos.cost;
+          const pnlCls = pnl >= 0 ? 'pos' : 'neg';
+          const pnlStr = pnl >= 0 ? '+$' + pnl.toFixed(2) : '-$' + Math.abs(pnl).toFixed(2);
+          
+          return `
+            <tr>
+              <td><strong>${pos.name}</strong> <span style="font-size:12px; color:var(--text-muted)">${pos.symbol}</span></td>
+              <td>$${pos.buyPrice.toFixed(4)}</td>
+              <td>$${currentPrice.toFixed(4)}</td>
+              <td>$${pos.cost.toFixed(2)}</td>
+              <td><span class="pnl-badge ${pnlCls}">${pnlStr}</span></td>
+              <td><span class="pnl-badge" style="background:var(--bg-app); border: 1px solid var(--border); color: #fff;">${liveAsset?.signalResult?.signal ?? 'HOLD'}</span></td>
+              <td><button class="action-btn sell-btn" data-trade="${pos.tradeId}" data-price="${currentPrice}" style="padding:4px 8px; font-size:12px; border:1px solid var(--accent); color:var(--accent); border-radius:4px">Close Position</button></td>
+            </tr>
+          `;
+        }).join('');
+      }
+    }
+
+    const histTbody = document.querySelector('#tradeHistoryTable tbody');
+    if (histTbody) {
+      if (state.history.length === 0) {
+        histTbody.innerHTML = '<tr><td colspan="5" style="text-align:center; padding:20px; color:var(--text-muted)">No trade history yet.</td></tr>';
+      } else {
+        histTbody.innerHTML = state.history.map(h => {
+          const pnlCls = h.pnl >= 0 ? 'pos' : 'neg';
+          const pnlStr = h.pnl >= 0 ? '+$' + h.pnl.toFixed(2) : '-$' + Math.abs(h.pnl).toFixed(2);
+          const date = new Date(h.date).toLocaleDateString('en-IN') + ' ' + new Date(h.date).toLocaleTimeString('en-IN', { hour: '2-digit', minute:'2-digit' });
+          return `
+            <tr>
+              <td><strong>${h.name}</strong></td>
+              <td>$${h.buyPrice.toFixed(4)}</td>
+              <td>$${h.sellPrice.toFixed(4)}</td>
+              <td><span class="pnl-badge ${pnlCls}">${pnlStr} (${h.pnlPct.toFixed(2)}%)</span></td>
+              <td style="font-size:12px; color:var(--text-muted)">${date}</td>
+            </tr>
+          `;
+        }).join('');
+      }
+    }
+  },
+};
+
+// ── Boot on DOM ready ──────────────────────────────────────────────────────────
+document.addEventListener('DOMContentLoaded', () => Dashboard.init());
