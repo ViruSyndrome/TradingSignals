@@ -318,6 +318,8 @@ const Signals = {
   level(signalKey) {
     return this.LEVELS[signalKey] || this.LEVELS.NEUTRAL;
   },
+
+  _version: '4.1',
 };
 
 if (typeof module !== 'undefined' && module.exports) module.exports = Signals;

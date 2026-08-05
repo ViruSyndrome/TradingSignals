@@ -5,6 +5,10 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>Trade Signals — Universal Trading Monitor</title>
   <meta name="description" content="Real-time buy/sell signals for Indian Stocks, Crypto, Commodities and Forex using RSI, MACD, Moving Averages and Bollinger Bands." />
+  <!-- Prevent ALL browsers from caching this HTML file -->
+  <meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate" />
+  <meta http-equiv="Pragma" content="no-cache" />
+  <meta http-equiv="Expires" content="0" />
 
   <!-- Google Fonts -->
   <link rel="preconnect" href="https://fonts.googleapis.com" />
@@ -359,6 +363,10 @@
   <div class="toast-container" id="toastContainer" aria-live="polite"></div>
 
   <!-- Scripts -->
+  <!-- Version guard: if signals.js loaded is older than expected, force a full reload -->
+  <script>
+    window.__APP_VERSION__ = '4.1';
+  </script>
   <script src="js/config.js?v=4.1"></script>
   <script src="js/indicators.js?v=4.1"></script>
   <script src="js/api.js?v=4.1"></script>
@@ -366,6 +374,15 @@
   <script src="js/charts.js?v=4.1"></script>
   <script src="js/portfolio.js?v=4.1"></script>
   <script src="js/dashboard.js?v=4.1"></script>
+  <script>
+    // If signals.js didn't expose the right version, cached old code is running — force reload.
+    if (typeof Signals === 'undefined' || Signals._version !== window.__APP_VERSION__) {
+      if (!sessionStorage.getItem('reloaded_' + window.__APP_VERSION__)) {
+        sessionStorage.setItem('reloaded_' + window.__APP_VERSION__, '1');
+        location.reload(true);
+      }
+    }
+  </script>
 
   <!-- Risk calculator (inline, small) -->
   <script>
