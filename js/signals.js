@@ -209,13 +209,21 @@ const Signals = {
     // Strong signals also require a confidence gate so a single dominant indicator
     // cannot fire a Strong Buy/Sell on its own.
     const CONF_GATE = (typeof CONFIG !== 'undefined' && CONFIG.refresh?.strongConfidenceGate) || 60;
+    const WEAK_GATE = 30; // Require at least ~2 out of 6 indicators to agree for any Buy/Sell
     const L = this.LEVELS;
+    
     let signal;
-    if      (score >= L.STRONG_BUY.minScore  && confidence >= CONF_GATE) signal = 'STRONG_BUY';
-    else if (score >= L.BUY.minScore)                                    signal = 'BUY';
-    else if (score >= L.NEUTRAL.minScore)                                signal = 'NEUTRAL';
-    else if (score >  L.SELL.minScore || confidence < CONF_GATE)         signal = 'SELL';
-    else                                                                  signal = 'STRONG_SELL';
+    if (score >= L.STRONG_BUY.minScore && confidence >= CONF_GATE) {
+      signal = 'STRONG_BUY';
+    } else if (score >= L.BUY.minScore && confidence >= WEAK_GATE) {
+      signal = 'BUY';
+    } else if (score <= L.STRONG_SELL.minScore && confidence >= CONF_GATE) {
+      signal = 'STRONG_SELL';
+    } else if (score <= L.SELL.minScore && confidence >= WEAK_GATE) {
+      signal = 'SELL';
+    } else {
+      signal = 'NEUTRAL';
+    }
 
     // ── Proven-winners filter (config-driven, re-validate via backtest.js) ───
     // Buy signals on assets that historically lose money with this engine are
@@ -319,7 +327,7 @@ const Signals = {
     return this.LEVELS[signalKey] || this.LEVELS.NEUTRAL;
   },
 
-  _version: '4.2',
+  _version: '4.3',
 };
 
 if (typeof module !== 'undefined' && module.exports) module.exports = Signals;
