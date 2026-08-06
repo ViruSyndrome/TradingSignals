@@ -39,7 +39,7 @@ const CONFIG = {
       { id: 'WIFUSDT', symbol: 'WIF', name: 'dogwifhat', currency: 'USD', icon: '🐶' },
       { id: 'FLOKIUSDT', symbol: 'FLOKI', name: 'FLOKI', currency: 'USD', icon: '🛡️' },
       { id: 'AAVEUSDT', symbol: 'AAVE', name: 'Aave', currency: 'USD', icon: '👻' },
-      { id: 'MKRUSDT', symbol: 'MKR', name: 'Maker', currency: 'USD', icon: '🏦' },
+      { id: 'SKYUSDT', symbol: 'SKY', name: 'Sky (Maker)', currency: 'USD', icon: '🏦' },
       { id: 'LDOUSDT', symbol: 'LDO', name: 'Lido DAO', currency: 'USD', icon: '💧' },
       { id: 'GRTUSDT', symbol: 'GRT', name: 'The Graph', currency: 'USD', icon: '📊' },
       { id: 'THETAUSDT', symbol: 'THETA', name: 'Theta Network', currency: 'USD', icon: '📺' },
