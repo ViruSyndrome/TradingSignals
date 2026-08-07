@@ -229,11 +229,11 @@ const Dashboard = {
         <span class="summary-value">${sentiment}</span>
         <span class="summary-label">Market Sentiment</span>
       </div>
-      <div class="summary-item filterable ${isActive('STRONG_BUY')}" data-signal="STRONG_BUY" title="Assets where RSI, MACD, Moving Averages, and Bollinger Bands ALL agree it's a great time to buy. This is the rarest and strongest signal. Click to filter.">
+      <div class="summary-item filterable ${isActive('STRONG_BUY')}" data-signal="STRONG_BUY" title="High-conviction bullish setups where trend and momentum align. This is intentionally rare. Click to filter.">
         <span class="summary-count strong-buy">${counts.STRONG_BUY}</span>
         <span class="summary-label">Strong Buy</span>
       </div>
-      <div class="summary-item filterable ${isActive('BUY')}" data-signal="BUY" title="Assets leaning bullish — most indicators favor buyers, but not all agree yet. Good setups worth watching. Click to filter.">
+      <div class="summary-item filterable ${isActive('BUY')}" data-signal="BUY" title="Bullish setups. In live usage, core winners are prioritized over probation and non-winner assets. Click to filter.">
         <span class="summary-count buy">${counts.BUY}</span>
         <span class="summary-label">Buy</span>
       </div>
@@ -245,7 +245,7 @@ const Dashboard = {
         <span class="summary-count sell">${counts.SELL}</span>
         <span class="summary-label">Sell</span>
       </div>
-      <div class="summary-item filterable ${isActive('STRONG_SELL')}" data-signal="STRONG_SELL" title="All indicators agree this asset is overbought or in a strong downtrend. High risk to buy here. If you own it, consider selling. Click to filter.">
+      <div class="summary-item filterable ${isActive('STRONG_SELL')}" data-signal="STRONG_SELL" title="High-conviction bearish setups where trend and momentum align to the downside. Click to filter.">
         <span class="summary-count strong-sell">${counts.STRONG_SELL}</span>
         <span class="summary-label">Strong Sell</span>
       </div>
@@ -345,9 +345,20 @@ const Dashboard = {
     if (cat === 'watchlist') {
       assets = assets.filter(a => this.state.watchlist.includes(a.asset.id));
     } else if (cat === 'oversold') {
-      assets = assets.filter(a => a.signalResult?.indicators?.rsi?.value < 30);
+      assets = assets.filter(a => {
+        const rsi = a.signalResult?.indicators?.rsi?.value;
+        const macroBullish = !!a.signalResult?.indicators?.movingAvg?.macroBullish;
+        const tier = a.signalResult?.winnerTier;
+        return rsi < 30 && macroBullish && tier === 'core';
+      });
     } else if (cat === 'highconf') {
-      assets = assets.filter(a => (a.signalResult?.confidence ?? 0) >= 60 && (a.signalResult?.score ?? 0) > 0);
+      const gate = CONFIG.refresh?.strongConfidenceGate || 75;
+      assets = assets.filter(a => {
+        const conf = a.signalResult?.confidence ?? 0;
+        const score = a.signalResult?.score ?? 0;
+        const tier = a.signalResult?.winnerTier;
+        return conf >= gate && score > 0 && tier === 'core';
+      });
     } else if (cat !== 'all') {
       assets = assets.filter(a => a.category === cat);
     }
@@ -411,17 +422,17 @@ const Dashboard = {
     const winnerBadge = this._winnerTierBadge(winnerTier);
 
     return `
-      <div class="asset-card signal-border-${level.cls}" data-asset-id="${asset.id}" data-category="${category}" role="button" tabindex="0" aria-label="${asset.name} signal card">
+      <div class="asset-card signal-border-${level.cls} winner-tier-${winnerTier}" data-asset-id="${asset.id}" data-category="${category}" role="button" tabindex="0" aria-label="${asset.name} signal card">
         <div class="card-header">
           <div class="card-title-row">
             <span class="asset-icon">${asset.icon}</span>
-            <div>
+            <div class="asset-meta">
               <div class="asset-name">${asset.name}</div>
               <div class="asset-symbol">${asset.symbol}</div>
-            </div>
-            <div class="card-badges">
-              <span class="cat-badge-inline">${catBadge}</span>
-              ${winnerBadge}
+              <div class="card-badges">
+                <span class="cat-badge-inline">${catBadge}</span>
+                ${winnerBadge}
+              </div>
             </div>
             <button class="star-btn ${isStarred ? 'active' : ''}" data-star-id="${asset.id}" title="Toggle Watchlist" style="background:none; border:none; cursor:pointer; font-size:18px; margin-left:auto; opacity:${isStarred ? 1 : 0.3}; transition:0.2s;">⭐</button>
           </div>
@@ -444,11 +455,11 @@ const Dashboard = {
             <span class="ind-label">RSI</span>
             <span class="ind-val">${rsi}</span>
           </div>
-          <div class="ind-chip" title="Composite Score: Sum of all indicator scores (RSI, MACD, Moving Averages, Bollinger Bands, Volume). Higher positive = stronger buy signal. A score of +3.0 or higher (with 75%+ confidence) triggers Strong Buy.">
+          <div class="ind-chip" title="Composite Score: Weighted blend of trend, momentum, volatility and volume. Positive = bullish bias, negative = bearish bias.">
             <span class="ind-label">Score</span>
             <span class="ind-val">${score > 0 ? '+' : ''}${score}</span>
           </div>
-          <div class="ind-chip" title="Confidence: What % of indicators agree with the signal direction. 100% = all 4 indicators agree (very reliable). 25% = only 1 agrees (risky).">
+          <div class="ind-chip" title="Confidence: % of directional indicators that agree with the current signal direction. Higher is better.">
             <span class="ind-label">Confidence</span>
             <span class="ind-val">${conf}%</span>
           </div>
@@ -473,21 +484,21 @@ const Dashboard = {
     const confidence = signalResult?.confidence ?? 0;
     const winnerTier = signalResult?.winnerTier ?? 'none';
     const conviction = signalResult?.conviction ?? 'none';
-    if (winnerTier === 'core' && score >= 1.5 && confidence >= 60) {
+    if (winnerTier === 'core' && score >= 1.5) {
       return {
-        label: conviction === 'strong' ? 'Core Conviction' : 'Core Setup',
+        label: conviction === 'strong' ? 'Core Conviction' : confidence >= 60 ? 'Core Setup' : 'Core Watch',
         icon: conviction === 'strong' ? '🏆' : '✅',
         cls: 'core',
-        rank: 1,
+        rank: confidence >= 60 ? 1 : 2,
         tip: 'Validated core winner. This is the best live slice to focus on.'
       };
     }
     if (winnerTier === 'probation' && score >= 1.5 && confidence >= 60) {
-      return { label: 'Probation Setup', icon: '🧪', cls: 'probation', rank: 2, tip: 'Profitable lately, but less robust than the core winners.' };
+      return { label: 'Probation Setup', icon: '🧪', cls: 'probation', rank: 3, tip: 'Profitable lately, but less robust than the core winners.' };
     }
-    if (score >= 2.5 && confidence < 60)  return { label: 'Risky Momentum', icon: '⚠️', cls: 'risky', rank: 3, tip: 'High score but indicators disagree. Could be a fake-out.' };
-    if (score >= 1.5 && confidence >= 60)  return { label: 'Mild Buy', icon: '🤔', cls: 'mild', rank: 4, tip: 'Indicators agree but the asset is outside the validated winners focus.' };
-    return { label: 'Weak / Avoid', icon: '❌', cls: 'avoid', rank: 5, tip: 'Low score or bearish. Not a good entry point right now.' };
+    if (score >= 2.5 && confidence < 60)  return { label: 'Risky Momentum', icon: '⚠️', cls: 'risky', rank: 4, tip: 'High score but indicators disagree. Could be a fake-out.' };
+    if (score >= 1.5 && confidence >= 60)  return { label: 'Mild Buy', icon: '🤔', cls: 'mild', rank: 5, tip: 'Indicators agree but the asset is outside the validated winners focus.' };
+    return { label: 'Weak / Avoid', icon: '❌', cls: 'avoid', rank: 6, tip: 'Low score or bearish. Not a good entry point right now.' };
   },
 
   _winnerTierRank(tier) {

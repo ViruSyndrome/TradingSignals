@@ -316,17 +316,19 @@ button:focus-visible { outline: 2px solid var(--accent); border-radius: 4px; }
 
 /* Card Header */
 .card-header { display: flex; justify-content: space-between; align-items: flex-start; margin-bottom: 16px; }
-.card-title-row { display: flex; align-items: center; gap: 12px; }
+.card-title-row { display: flex; align-items: flex-start; gap: 12px; width: 100%; }
 .asset-icon { font-size: 24px; width: 40px; height: 40px; border-radius: 50%; background: rgba(255,255,255,0.05); display: flex; align-items: center; justify-content: center; }
 .asset-icon.lg { font-size: 36px; width: 64px; height: 64px; }
+.asset-meta { min-width: 0; flex: 1; }
 .asset-name { font-weight: 600; font-size: 16px; color: #fff; line-height: 1.2; }
 .asset-symbol { font-size: 13px; color: var(--text-muted); }
-.card-badges { display:flex; align-items:center; gap:6px; flex-wrap:wrap; }
+.card-badges { display:flex; align-items:center; gap:6px; flex-wrap:wrap; margin-top: 6px; }
 .cat-badge-inline,
 .winner-tier-badge { font-size: 10px; padding: 2px 8px; border-radius: 10px; color: var(--text-dark); }
 .cat-badge-inline { background: rgba(0,0,0,0.4); }
 .winner-tier-core { background: rgba(16, 185, 129, 0.18); color: #6ee7b7; border: 1px solid rgba(16, 185, 129, 0.35); }
 .winner-tier-probation { background: rgba(245, 158, 11, 0.18); color: #fcd34d; border: 1px solid rgba(245, 158, 11, 0.35); }
+.star-btn { margin-left: 8px !important; line-height: 1; }
 
 /* Signal Badges */
 .signal-badge {
