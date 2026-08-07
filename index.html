@@ -18,7 +18,7 @@
   <!-- Chart.js -->
   <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.4/dist/chart.umd.min.js"></script>
 
-  <link rel="stylesheet" href="styles.css?v=4.3" />
+  <link rel="stylesheet" href="styles.css?v=4.4" />
 </head>
 <body>
 
@@ -27,7 +27,7 @@
   ════════════════════════════════════════════════════════════════════════════ -->
   <aside class="sidebar" id="sidebar">
     <div class="sidebar-logo">
-      <div style="display: flex; align-items: center; gap: 12px;">
+      <div class="sidebar-brand">
         <div class="logo-icon">📈</div>
         <div>
           <div class="logo-title">TradeSignals</div>
@@ -373,7 +373,7 @@
   <script src="js/signals.js?v=4.3"></script>
   <script src="js/charts.js?v=4.3"></script>
   <script src="js/portfolio.js?v=4.3"></script>
-  <script src="js/dashboard.js?v=4.3"></script>
+  <script src="js/dashboard.js?v=4.4"></script>
   <script>
     // If signals.js didn't expose the right version, cached old code is running — force reload.
     if (typeof Signals === 'undefined' || Signals._version !== window.__APP_VERSION__) {
