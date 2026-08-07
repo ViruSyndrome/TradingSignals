@@ -321,8 +321,12 @@ button:focus-visible { outline: 2px solid var(--accent); border-radius: 4px; }
 .asset-icon.lg { font-size: 36px; width: 64px; height: 64px; }
 .asset-name { font-weight: 600; font-size: 16px; color: #fff; line-height: 1.2; }
 .asset-symbol { font-size: 13px; color: var(--text-muted); }
-.cat-badge { position: absolute; top: 12px; left: 12px; font-size: 10px; background: rgba(0,0,0,0.4); padding: 2px 8px; border-radius: 10px; color: var(--text-dark); opacity: 0; transition: opacity 0.2s; }
-.asset-card:hover .cat-badge { opacity: 1; }
+.card-badges { display:flex; align-items:center; gap:6px; flex-wrap:wrap; }
+.cat-badge-inline,
+.winner-tier-badge { font-size: 10px; padding: 2px 8px; border-radius: 10px; color: var(--text-dark); }
+.cat-badge-inline { background: rgba(0,0,0,0.4); }
+.winner-tier-core { background: rgba(16, 185, 129, 0.18); color: #6ee7b7; border: 1px solid rgba(16, 185, 129, 0.35); }
+.winner-tier-probation { background: rgba(245, 158, 11, 0.18); color: #fcd34d; border: 1px solid rgba(245, 158, 11, 0.35); }
 
 /* Signal Badges */
 .signal-badge {
@@ -409,6 +413,16 @@ button:focus-visible { outline: 2px solid var(--accent); border-radius: 4px; }
   background: linear-gradient(135deg, rgba(16, 185, 129, 0.2), rgba(52, 211, 153, 0.1));
   color: #34d399;
   border: 1px solid rgba(16, 185, 129, 0.4);
+}
+.quality-core {
+  background: linear-gradient(135deg, rgba(20, 184, 166, 0.24), rgba(45, 212, 191, 0.12));
+  color: #5eead4;
+  border: 1px solid rgba(20, 184, 166, 0.45);
+}
+.quality-probation {
+  background: linear-gradient(135deg, rgba(245, 158, 11, 0.2), rgba(251, 191, 36, 0.1));
+  color: #fbbf24;
+  border: 1px solid rgba(245, 158, 11, 0.35);
 }
 .quality-risky {
   background: linear-gradient(135deg, rgba(245, 158, 11, 0.2), rgba(251, 191, 36, 0.1));

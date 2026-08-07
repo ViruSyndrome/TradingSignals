@@ -69,12 +69,15 @@ const CONFIG = {
     // and update this list — it reflects a 250-day window and WILL go stale.
     // Core trio (NEAR, INJ, TRX) survived rolling walk-forward out-of-sample;
     // LDO, TAO, UNI are marginal full-window positives kept on probation.
+    coreWinners: ['NEAR', 'INJ', 'TRX'],
+    probationWinners: ['LDO', 'TAO', 'UNI'],
     provenWinners: ['NEAR', 'INJ', 'TRX', 'LDO', 'TAO', 'UNI'],
   },
 
   // ─── Signal engine behaviour ─────────────────────────────────────────────────
   signals: {
     winnersOnlyBuys: true,   // suppress buy signals on assets outside provenWinners
+    coreOnlyBuys: true,      // demote probation winners to watchlist-only in live usage
   },
 
   // ─── Technical indicator parameters ─────────────────────────────────────────

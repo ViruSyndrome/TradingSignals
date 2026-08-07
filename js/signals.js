@@ -12,7 +12,7 @@ const Signals = {
     BUY:         { label: 'Buy',          short: 'BUY',    cls: 'buy',          icon: '📈', minScore:  1.5 },
     NEUTRAL:     { label: 'Hold / Watch', short: 'HOLD',   cls: 'neutral',      icon: '⏸️',  minScore: -1.5 },
     SELL:        { label: 'Sell',         short: 'SELL',   cls: 'sell',         icon: '📉', minScore: -2.5 },
-    STRONG_SELL: { label: 'Strong Sell', short: 'S.SELL', cls: 'strong-sell',  icon: '🔻', minScore: -Infinity },
+    STRONG_SELL: { label: 'Strong Sell', short: 'S.SELL', cls: 'strong-sell',  icon: '🔻', minScore: -3.5 },
   },
 
   // ─── Main entry point ──────────────────────────────────────────────────────
@@ -185,7 +185,7 @@ const Signals = {
       if      (fearGreed >= 75) { s = -1.0; desc = `Market in Extreme Greed (${fearGreed}) — crowded trade, buy signals discounted`; }
       else if (fearGreed <= 20) { s = -0.5; desc = `Market in Extreme Fear (${fearGreed}) — broad sell-off, buy signals less reliable`; }
       else                      { desc = `Market sentiment ${fearGreed}/100 — no adjustment`; }
-      if (s !== 0 || desc) {
+      if (s !== 0) {
         score += s;
         indDetails.sentiment = {
           value: fearGreed,
@@ -198,45 +198,71 @@ const Signals = {
     // ── Confidence: % of sub-indicators agreeing with direction ──────────────
     const dir = score > 0.5 ? 'bull' : score < -0.5 ? 'bear' : 'flat';
     const indArr = Object.values(indDetails);
-    const agree = indArr.filter(ind => {
+    const directionalIndicators = indArr.filter(ind => Math.abs(ind.score || 0) > 0.05);
+    const confidencePool = directionalIndicators.length > 0 ? directionalIndicators : indArr;
+    const agree = confidencePool.filter(ind => {
       if (dir === 'bull') return ['BUY', 'STRONG_BUY'].includes(ind.signal);
       if (dir === 'bear') return ['SELL', 'STRONG_SELL'].includes(ind.signal);
       return ind.signal === 'NEUTRAL';
     }).length;
-    const confidence = indArr.length > 0 ? Math.round((agree / indArr.length) * 100) : 0;
+    const confidence = confidencePool.length > 0 ? Math.round((agree / confidencePool.length) * 100) : 0;
 
-    // ── Determine composite signal via LEVELS.minScore ──────────────────────
-    // Strong signals also require a confidence gate so a single dominant indicator
-    // cannot fire a Strong Buy/Sell on its own.
+    // ── Determine composite signal via base action + conviction ──────────────
+    // Strong tiers are conviction badges on top of Buy/Sell, not separate
+    // score buckets triggered by one dominant indicator.
     const CONF_GATE = (typeof CONFIG !== 'undefined' && CONFIG.refresh?.strongConfidenceGate) || 60;
     const WEAK_GATE = 30; // Require at least ~2 out of 6 indicators to agree for any Buy/Sell
     const L = this.LEVELS;
+    const ma = indDetails.movingAvg;
+    const macd = indDetails.macd;
+    const bullishTrendAligned = !!(ma?.macroBullish && ma?.microBullish);
+    const bearishTrendAligned = !!(ma && !ma.macroBullish && !ma.microBullish);
+    const bullishMomentumConfirmed = ['BUY', 'STRONG_BUY'].includes(macd?.signal) &&
+      (macd?.crossover === 'bullish' || ((macd?.value ?? 0) > (macd?.signalValue ?? 0)));
+    const bearishMomentumConfirmed = ['SELL', 'STRONG_SELL'].includes(macd?.signal) &&
+      (macd?.crossover === 'bearish' || ((macd?.value ?? 0) < (macd?.signalValue ?? 0)));
     
-    let signal;
-    if (score >= L.STRONG_BUY.minScore && confidence >= CONF_GATE) {
-      signal = 'STRONG_BUY';
-    } else if (score >= L.BUY.minScore && confidence >= WEAK_GATE) {
+    let signal = 'NEUTRAL';
+    if (score >= L.BUY.minScore && confidence >= WEAK_GATE) {
       signal = 'BUY';
-    } else if (score <= L.STRONG_SELL.minScore && confidence >= CONF_GATE) {
-      signal = 'STRONG_SELL';
+      if (score >= L.STRONG_BUY.minScore && confidence >= CONF_GATE && bullishTrendAligned && bullishMomentumConfirmed) {
+        signal = 'STRONG_BUY';
+      }
     } else if (score <= L.SELL.minScore && confidence >= WEAK_GATE) {
       signal = 'SELL';
-    } else {
-      signal = 'NEUTRAL';
+      if (score <= L.STRONG_SELL.minScore && confidence >= CONF_GATE && bearishTrendAligned && bearishMomentumConfirmed) {
+        signal = 'STRONG_SELL';
+      }
     }
+
+    const conviction = signal === 'STRONG_BUY' || signal === 'STRONG_SELL'
+      ? 'strong'
+      : signal === 'BUY' || signal === 'SELL'
+        ? 'standard'
+        : 'none';
 
     // ── Proven-winners filter (config-driven, re-validate via backtest.js) ───
     // Buy signals on assets that historically lose money with this engine are
     // downgraded to NEUTRAL. Backtests can bypass via opts.ignoreWinnersFilter.
     let winnersFiltered = false;
+    let coreOnlyFiltered = false;
+    let winnerTier = 'none';
     if (!ignoreWinnersFilter && symbol &&
         typeof CONFIG !== 'undefined' && CONFIG.signals?.winnersOnlyBuys &&
         Array.isArray(CONFIG.assets?.provenWinners) &&
         ['BUY', 'STRONG_BUY'].includes(signal)) {
       const base = String(symbol).toUpperCase().replace(/USDT$/, '');
+      if (Array.isArray(CONFIG.assets?.coreWinners) && CONFIG.assets.coreWinners.includes(base)) {
+        winnerTier = 'core';
+      } else if (Array.isArray(CONFIG.assets?.probationWinners) && CONFIG.assets.probationWinners.includes(base)) {
+        winnerTier = 'probation';
+      }
       if (!CONFIG.assets.provenWinners.includes(base)) {
         signal = 'NEUTRAL';
         winnersFiltered = true;
+      } else if (CONFIG.signals?.coreOnlyBuys && winnerTier === 'probation') {
+        signal = 'NEUTRAL';
+        coreOnlyFiltered = true;
       }
     }
 
@@ -261,16 +287,21 @@ const Signals = {
     let recommendation = this._recommend(signal, score, indDetails, stopSuggest);
     if (winnersFiltered) {
       recommendation = '⚠️ Buy signal suppressed — this asset has a losing track record in backtests with this engine. ' + recommendation;
+    } else if (coreOnlyFiltered) {
+      recommendation = '🧪 Watchlist-only setup — this asset is on probation, so bullish signals are hidden until it proves robust enough to join the core winners. ' + recommendation;
     }
 
     return {
       signal,
+      conviction,
       confidence,
       score: +score.toFixed(2),
       indicators: indDetails,
       recommendation,
       stopSuggest,
       winnersFiltered,
+      coreOnlyFiltered,
+      winnerTier,
       arrays: { rsi: rsiArr, macd: macdData, ema9, ema21, sma50, sma200, bb: bbData, atr: atrArr, closes },
       calculatedAt: new Date().toISOString(),
     };

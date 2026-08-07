@@ -17,6 +17,7 @@ const Signals    = require('./js/signals.js');
 
 // Signals.js references Indicators as a global (browser pattern).
 // Make it available globally for Node.js as well.
+global.CONFIG = CONFIG;
 global.Indicators = Indicators;
 
 // ─── Configuration ─────────────────────────────────────────────────────────────
@@ -299,6 +300,17 @@ function summarizeAssetTrades(symbol, trades) {
   return { symbol, trades: trades.length, winRate: wr, avgReturn: avg };
 }
 
+function printBySignalBlock(title, stats) {
+  console.log(`\n${title}`);
+  if (!stats || !stats.bySignal || Object.keys(stats.bySignal).length === 0) {
+    console.log('  No trades generated.');
+    return;
+  }
+  for (const [sig, s] of Object.entries(stats.bySignal)) {
+    console.log(`  ${sig.padEnd(14)} | ${s.trades} trades | Win: ${s.winRate} | Avg: ${s.avgReturn} | Best: ${s.bestTrade} | Worst: ${s.worstTrade}`);
+  }
+}
+
 function selectWinnersFromTraining(assetResults) {
   // Require at least 3 trades to reduce one-hit wonder noise.
   return assetResults
@@ -535,6 +547,12 @@ async function main() {
     const winnerTrades = allTrades.filter(t => winnersList.includes(t.symbol));
     const wStatsNet = computeStats(winnerTrades, 'returnPct');
     const wStatsGross = computeStats(winnerTrades, 'grossReturnPct');
+    const coreList = CONFIG.assets.coreWinners || [];
+    const probationList = CONFIG.assets.probationWinners || [];
+    const coreTrades = allTrades.filter(t => coreList.includes(t.symbol));
+    const probationTrades = allTrades.filter(t => probationList.includes(t.symbol));
+    const coreStatsNet = computeStats(coreTrades, 'returnPct');
+    const probationStatsNet = computeStats(probationTrades, 'returnPct');
     console.log('\n─── Winners-Only Strategy (provenWinners filter active) ───────');
     if (wStatsNet) {
       console.log(`  Assets:           ${winnersList.join(', ')}`);
@@ -546,6 +564,9 @@ async function main() {
     } else {
       console.log('  No trades on the winners list.');
     }
+    printBySignalBlock('─── Winners-Only By Entry Signal ───────────────────────────────', wStatsNet);
+    printStatsBlock('Core Winners Only:', coreStatsNet, computeStats(coreTrades, 'grossReturnPct'));
+    printStatsBlock('Probation Winners Only:', probationStatsNet, computeStats(probationTrades, 'grossReturnPct'));
   }
   console.log('\n═══════════════════════════════════════════════════════════════');
   console.log('  Backtest complete. These numbers reflect YOUR signal engine');

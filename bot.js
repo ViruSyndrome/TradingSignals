@@ -6,6 +6,7 @@ const fs = require('fs');
 const CONFIG     = require('./js/config.js');
 const Indicators = require('./js/indicators.js');
 const Signals    = require('./js/signals.js');
+global.CONFIG = CONFIG;
 global.Indicators = Indicators; // signals.js references Indicators as a global
 
 const token = process.env.TELEGRAM_BOT_TOKEN;
@@ -101,14 +102,16 @@ async function scanMarket() {
 
         let message = null;
         let stopText = '';
+        const winnerTier = result.winnerTier ?? 'none';
         if (result.stopSuggest) {
           stopText = `\n\n🛡️ Stop-Loss Suggestion:\nPrice: $${result.stopSuggest.stopPrice}\nDistance: ${result.stopSuggest.distancePct}%`;
         }
 
-        if (result.signal === 'STRONG_BUY') {
-          message = `🚀 STRONG BUY ALERT: ${asset.symbol}\nScore: +${result.score}\nPrice: $${price.toFixed(4)}\n\n${result.recommendation}${stopText}\n\nIf you buy this, reply /buy ${asset.symbol}`;
-        } else if (result.signal === 'BUY') {
-          message = `👀 BUY SETUP: ${asset.symbol}\nScore: +${result.score}\nPrice: $${price.toFixed(4)}\n\nIndicators are leaning bullish. Good time to research for an entry.${stopText}\n\nIf you buy this, reply /buy ${asset.symbol}`;
+        if (result.signal === 'STRONG_BUY' && winnerTier === 'core') {
+          const tierLabel = winnerTier === 'core' ? 'Core Winner' : winnerTier === 'probation' ? 'Probation Winner' : 'Watchlist';
+          message = `🚀 STRONG BUY ALERT: ${asset.symbol} (${tierLabel})\nScore: +${result.score}\nPrice: $${price.toFixed(4)}\n\n${result.recommendation}${stopText}\n\nIf you buy this, reply /buy ${asset.symbol}`;
+        } else if (result.signal === 'BUY' && winnerTier === 'core') {
+          message = `👀 CORE BUY SETUP: ${asset.symbol}\nScore: +${result.score}\nPrice: $${price.toFixed(4)}\n\nIndicators are leaning bullish on a core validated asset. Good time to research for an entry.${stopText}\n\nIf you buy this, reply /buy ${asset.symbol}`;
         } else if (result.signal === 'SELL' && owned) {
           message = `⚠️ EARLY WARNING: ${asset.symbol}\nScore: ${result.score}\nPrice: $${price.toFixed(4)}\n\nThis asset is losing momentum. If you are in profit, consider taking some off the table.`;
         } else if (result.signal === 'STRONG_SELL' && owned) {

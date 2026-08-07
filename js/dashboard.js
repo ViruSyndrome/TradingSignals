@@ -295,10 +295,19 @@ const Dashboard = {
     const el = document.getElementById('topOpportunities');
     if (!el) return;
 
-    // Rank by absolute score
+    // Rank by validated winner tier first, then bullish quality and confidence.
     const ranked = [...this.state.allAssets]
       .filter(a => a.signalResult && a.closes?.length > 0)
-      .sort((a, b) => Math.abs(b.signalResult.score) - Math.abs(a.signalResult.score))
+      .sort((a, b) => {
+        const tierDiff = this._winnerTierRank(a.signalResult?.winnerTier) - this._winnerTierRank(b.signalResult?.winnerTier);
+        if (tierDiff !== 0) return tierDiff;
+        const qa = this._tradeQuality(a.signalResult).rank;
+        const qb = this._tradeQuality(b.signalResult).rank;
+        if (qa !== qb) return qa - qb;
+        const scoreDiff = (b.signalResult?.score ?? 0) - (a.signalResult?.score ?? 0);
+        if (scoreDiff !== 0) return scoreDiff;
+        return (b.signalResult?.confidence ?? 0) - (a.signalResult?.confidence ?? 0);
+      })
       .slice(0, 4);
 
     if (ranked.length === 0) {
@@ -349,11 +358,15 @@ const Dashboard = {
 
     this.state.filtered = assets;
 
-    // Sort by trade quality tier (golden first), then by confidence descending
+    // Sort by validated winner tier first, then trade quality, then confidence.
     assets.sort((a, b) => {
-      const qa = this._tradeQuality(a.signalResult?.score ?? 0, a.signalResult?.confidence ?? 0).rank;
-      const qb = this._tradeQuality(b.signalResult?.score ?? 0, b.signalResult?.confidence ?? 0).rank;
+      const tierDiff = this._winnerTierRank(a.signalResult?.winnerTier) - this._winnerTierRank(b.signalResult?.winnerTier);
+      if (tierDiff !== 0) return tierDiff;
+      const qa = this._tradeQuality(a.signalResult).rank;
+      const qb = this._tradeQuality(b.signalResult).rank;
       if (qa !== qb) return qa - qb;
+      const scoreDiff = (b.signalResult?.score ?? 0) - (a.signalResult?.score ?? 0);
+      if (scoreDiff !== 0) return scoreDiff;
       return (b.signalResult?.confidence ?? 0) - (a.signalResult?.confidence ?? 0);
     });
 
@@ -383,6 +396,7 @@ const Dashboard = {
     const conf = signalResult?.confidence ?? 0;
     const score = signalResult?.score ?? 0;
     const rsi = signalResult?.indicators?.rsi?.value ?? '–';
+    const winnerTier = signalResult?.winnerTier ?? 'none';
     const sparkId = isTop ? `spark_top_${asset.id}` : `spark_${asset.id}`;
 
     const priceStr = price !== null
@@ -392,8 +406,9 @@ const Dashboard = {
     const chgStr  = change24h !== null ? (change24h >= 0 ? '+' : '') + change24h.toFixed(2) + '%' : '–';
     const chgCls  = change24h == null ? 'flat' : change24h >= 0 ? 'pos' : 'neg';
     const isStarred = this.state.watchlist.includes(asset.id);
-    const quality = this._tradeQuality(score, conf);
+    const quality = this._tradeQuality(signalResult);
     const catBadge = { crypto: '₿ Crypto', stocks: '🇮🇳 Stock', commodities: '🪙 Commodity', forex: '💱 Forex' }[category] ?? category;
+    const winnerBadge = this._winnerTierBadge(winnerTier);
 
     return `
       <div class="asset-card signal-border-${level.cls}" data-asset-id="${asset.id}" data-category="${category}" role="button" tabindex="0" aria-label="${asset.name} signal card">
@@ -404,7 +419,10 @@ const Dashboard = {
               <div class="asset-name">${asset.name}</div>
               <div class="asset-symbol">${asset.symbol}</div>
             </div>
-            <span class="cat-badge">${catBadge}</span>
+            <div class="card-badges">
+              <span class="cat-badge-inline">${catBadge}</span>
+              ${winnerBadge}
+            </div>
             <button class="star-btn ${isStarred ? 'active' : ''}" data-star-id="${asset.id}" title="Toggle Watchlist" style="background:none; border:none; cursor:pointer; font-size:18px; margin-left:auto; opacity:${isStarred ? 1 : 0.3}; transition:0.2s;">⭐</button>
           </div>
           <div class="signal-badge signal-${level.cls} ${sig === 'STRONG_BUY' || sig === 'STRONG_SELL' ? 'pulse' : ''}" title="Signal: ${level.label}. This is the combined verdict from 4 technical indicators (RSI, MACD, Moving Averages, Bollinger Bands).">
@@ -450,11 +468,42 @@ const Dashboard = {
   },
 
   // ─── Trade Quality Tier Calculator ────────────────────────────────────────────
-  _tradeQuality(score, confidence) {
-    if (score >= 2.5 && confidence >= 60) return { label: 'Golden Entry', icon: '✅', cls: 'golden', rank: 1, tip: 'Strong momentum AND most indicators agree. Best possible setup.' };
-    if (score >= 2.5 && confidence < 60)  return { label: 'Risky Momentum', icon: '⚠️', cls: 'risky', rank: 2, tip: 'High score but indicators disagree. Could be a fake-out.' };
-    if (score >= 1.5 && confidence >= 60)  return { label: 'Mild Buy', icon: '🤔', cls: 'mild', rank: 3, tip: 'Indicators agree but movement is gentle. Safe but small upside.' };
-    return { label: 'Weak / Avoid', icon: '❌', cls: 'avoid', rank: 4, tip: 'Low score or bearish. Not a good entry point right now.' };
+  _tradeQuality(signalResult) {
+    const score = signalResult?.score ?? 0;
+    const confidence = signalResult?.confidence ?? 0;
+    const winnerTier = signalResult?.winnerTier ?? 'none';
+    const conviction = signalResult?.conviction ?? 'none';
+    if (winnerTier === 'core' && score >= 1.5 && confidence >= 60) {
+      return {
+        label: conviction === 'strong' ? 'Core Conviction' : 'Core Setup',
+        icon: conviction === 'strong' ? '🏆' : '✅',
+        cls: 'core',
+        rank: 1,
+        tip: 'Validated core winner. This is the best live slice to focus on.'
+      };
+    }
+    if (winnerTier === 'probation' && score >= 1.5 && confidence >= 60) {
+      return { label: 'Probation Setup', icon: '🧪', cls: 'probation', rank: 2, tip: 'Profitable lately, but less robust than the core winners.' };
+    }
+    if (score >= 2.5 && confidence < 60)  return { label: 'Risky Momentum', icon: '⚠️', cls: 'risky', rank: 3, tip: 'High score but indicators disagree. Could be a fake-out.' };
+    if (score >= 1.5 && confidence >= 60)  return { label: 'Mild Buy', icon: '🤔', cls: 'mild', rank: 4, tip: 'Indicators agree but the asset is outside the validated winners focus.' };
+    return { label: 'Weak / Avoid', icon: '❌', cls: 'avoid', rank: 5, tip: 'Low score or bearish. Not a good entry point right now.' };
+  },
+
+  _winnerTierRank(tier) {
+    if (tier === 'core') return 0;
+    if (tier === 'probation') return 1;
+    return 2;
+  },
+
+  _winnerTierBadge(tier) {
+    if (tier === 'core') {
+      return '<span class="winner-tier-badge winner-tier-core" title="Core winner: survived rolling out-of-sample validation.">🏆 Core Winner</span>';
+    }
+    if (tier === 'probation') {
+      return '<span class="winner-tier-badge winner-tier-probation" title="Probation winner: profitable lately, but less robust than the core set.">🧪 Probation</span>';
+    }
+    return '';
   },
 
   // ─── Number formatter ────────────────────────────────────────────────────────
@@ -507,6 +556,8 @@ const Dashboard = {
     const ind   = signalResult?.indicators ?? {};
     const rec   = signalResult?.recommendation ?? '';
     const arrays = signalResult?.arrays ?? {};
+    const winnerTier = signalResult?.winnerTier ?? 'none';
+    const tierBadge = this._winnerTierBadge(winnerTier);
 
     const priceStr = price !== null ? (asset.currency === 'INR' ? '₹' : '$') + this._fmt(price, asset) : 'N/A';
     const chgStr   = change24h !== null ? (change24h >= 0 ? '+' : '') + change24h.toFixed(2) + '%' : '–';
@@ -517,7 +568,7 @@ const Dashboard = {
           <span class="asset-icon lg">${asset.icon}</span>
           <div>
             <h2>${asset.name} <span class="modal-symbol">${asset.symbol}</span></h2>
-            <div class="modal-meta">${{ crypto: '₿ Crypto', stocks: '🇮🇳 NSE Stock', commodities: '🪙 Commodity', forex: '💱 Forex' }[category] ?? category}</div>
+            <div class="modal-meta">${{ crypto: '₿ Crypto', stocks: '🇮🇳 NSE Stock', commodities: '🪙 Commodity', forex: '💱 Forex' }[category] ?? category} ${tierBadge}</div>
           </div>
           <div class="signal-badge signal-${level.cls} lg ${['STRONG_BUY','STRONG_SELL'].includes(sig) ? 'pulse' : ''}">
             ${level.icon} ${level.label}
@@ -738,6 +789,10 @@ const Dashboard = {
 
   _maybeNotify(d) {
     if (!this.state.notifGranted) return;
+    const sig = d.signalResult?.signal;
+    const winnerTier = d.signalResult?.winnerTier ?? 'none';
+    if ((sig === 'BUY' || sig === 'STRONG_BUY') && winnerTier !== 'core') return;
+    if (sig !== 'STRONG_BUY' && sig !== 'STRONG_SELL' && sig !== 'BUY') return;
     const key = `notif_${d.asset.id}_${d.signalResult?.signal}`;
     const NOTIF_TTL_MS = 3600000; // 1h
     try {
