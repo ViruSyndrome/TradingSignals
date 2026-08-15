@@ -14,7 +14,7 @@ const API = {
       const stored = localStorage.getItem(`trading_cache_${key}`);
       if (!stored) return null;
       const entry = JSON.parse(stored);
-      if (Date.now() - entry.ts < entry.ttl) return entry.data;
+      if (Date.now() - entry.ts < Math.min(entry.ttl, 60000)) return entry.data;
       return null;
     } catch(e) { return null; }
   },
