@@ -115,7 +115,7 @@ const API = {
     try {
       const data = await this._fetch(url, 5000); // [[time, o, h, l, c, v, ...], ...]
       if (!Array.isArray(data) || data.length === 0) throw new Error('Empty klines');
-      return this._set(key, data, 14400000); // 4 hours TTL
+      return this._set(key, data, CONFIG.refresh.cacheMs); // 55 seconds TTL
     } catch (e) {
       console.warn(`[API] Binance history failed for ${coinId}:`, e.message);
       return null;
