@@ -75,7 +75,7 @@ const Scanner = {
             let fg = 50;
             try { fg = parseInt(document.getElementById('fearGreedValue').textContent, 10) || 50; } catch(e) {}
             
-            const result = Signals.generate(closes, { highs, lows, volumes, fearGreed: fg, asset: assetInfo });
+            const result = Signals.generate(closes, { highs, lows, volumes, fearGreed: fg, symbol: t.symbol.replace('USDT', ''), asset: assetInfo });
             if (result.signal !== 'BUY' && result.signal !== 'STRONG_BUY') return null;
 
             return {

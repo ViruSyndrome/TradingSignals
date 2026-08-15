@@ -99,10 +99,9 @@ We upgraded the validator with two additional modes:
 3. **Execution Rules:** Use Binance BNB fee discount + Limit orders to keep round-trip costs ≤ 0.40%.
 4. **Monthly Ritual:** Run `node backtest.js --walk-forward-rolling` on the 1st of every month to refresh `provenWinners`.
 
-## Engineering Audit & Roadmap Execution (Week 1) (COMPLETED ?)
+## Engineering Audit & Roadmap Execution (Week 1) (COMPLETED ✅)
 - Successfully executed a full Week 1 infrastructure upgrade based on a senior engineering audit.
-- **Math & Caching Fixes:** Ripped out legacy 4-hour CoinGecko caching logic from dashboard (api.js), forcing live 55-second Binance sync. Upgraded Moonshot scanner to use exactly 250 candles (instead of 50) and ingest Fear & Greed indices, guaranteeing perfect mathematical parity between the scanner and the dashboard.
-- **Config Alignment:** Flipped winnersOnlyBuys and coreOnlyBuys to 	rue to match backtest findings. Removed hardcoded filters from ot.js so it trusts the shared signals.js engine.
-- **Security & Infrastructure:** Replaced dangerous eval() calls in check.js with secure equire() modules. Added a unit testing suite (
-pm test). Created README.md, LICENSE, and .env.example. Renamed portfolio.json to ownedAssets.json.
-- **UI Polish:** Hidden dead asset class tabs (Stocks, Forex, Commodities) and added cache-busting strings to scanner.js.
+- **Math & Caching Fixes:** Ripped out legacy 4-hour CoinGecko caching logic from dashboard (`api.js`), forcing live 55-second Binance sync. Upgraded Moonshot scanner to use exactly 250 candles (instead of 50) and ingest Fear & Greed indices, guaranteeing perfect mathematical parity between the scanner and the dashboard.
+- **Config Alignment:** Flipped `winnersOnlyBuys` and `coreOnlyBuys` to `true` to match backtest findings. Removed hardcoded filters from `bot.js` so it trusts the shared `signals.js` engine.
+- **Security & Infrastructure:** Replaced dangerous `eval()` calls in `check.js` with secure `require()` modules. Added a unit testing suite (`npm test`). Created `README.md`, `LICENSE`, and `.env.example`. Renamed `portfolio.json` to `ownedAssets.json`.
+- **UI Polish:** Hidden dead asset class tabs (Stocks, Forex, Commodities) and added cache-busting strings to `scanner.js`.
