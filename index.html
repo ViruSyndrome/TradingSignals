@@ -41,6 +41,9 @@
       <a href="#" class="nav-link active" data-section="dashboardSection" title="View live market signals, top opportunities, and all tracked assets.">
         <span class="nav-icon">🎯</span> <span class="nav-text">Dashboard</span>
       </a>
+      <a href="#" class="nav-link" data-section="moonshotsSection" title="Scan the entire market for highly volatile opportunities.">
+        <span class="nav-icon">🚀</span> <span class="nav-text">Moonshots</span>
+      </a>
       <a href="#" class="nav-link" data-section="portfolioSection" title="Practice buying and selling with $10,000 of simulated money. No real money is used.">
         <span class="nav-icon">💼</span> <span class="nav-text">Paper Trading</span>
       </a>
@@ -69,10 +72,11 @@
     <header class="topbar">
       <div class="topbar-left">
         <button class="sidebar-toggle" id="sidebarToggle" aria-label="Toggle sidebar">☰</button>
-        <h1 class="page-title">Market Intelligence</h1>
       </div>
       <div class="topbar-right">
+        <span id="liveStatus" class="live-status" title="Live status reflects the last successful market-data refresh."><span class="live-dot" id="liveDot"></span><span id="liveStatusText">Connecting</span></span>
         <span class="clock-badge" title="Current Indian Standard Time. Crypto markets run 24/7.">🕐 IST <span id="liveClock">--:--:--</span></span>
+        <span class="clock-badge eod-timer" style="color:var(--pos)" title="Time until the daily candle closes (UTC 0:00). New signals lock in at this time.">⏳ EOD: <span id="eodClock">--:--:--</span></span>
         <span id="lastUpdated" class="last-updated" title="When the data was last fetched from Binance.">–</span>
         <button id="refreshBtn" class="refresh-btn" aria-label="Refresh data" title="Force refresh all data from Binance. Clears the cache.">
           <span>↻</span> Refresh
@@ -86,6 +90,11 @@
       <!-- Summary Bar -->
       <div class="summary-bar glass" id="summaryBar">
         <!-- populated by JS -->
+      </div>
+
+      <div class="live-tape" aria-label="Live market tape">
+        <div class="live-tape-label"><span class="live-dot"></span> MARKET PULSE</div>
+        <div class="live-tape-window"><div id="liveTapeTrack" class="live-tape-track"></div></div>
       </div>
 
       <!-- Top Opportunities -->
@@ -138,6 +147,7 @@
             <span class="balance-label" title="Your simulated cash balance. Decreases when you buy, increases when you sell.">Available Balance</span>
             <span class="balance-value" id="portfolioBalance">$10,000.00</span>
           </div>
+          <div class="portfolio-risk-summary" id="portfolioRiskSummary" aria-live="polite"></div>
           <button id="resetPortfolioBtn" class="action-btn secondary" title="Wipe all trades and reset your balance back to $10,000.">Reset Account</button>
         </div>
 
@@ -153,6 +163,7 @@
                       <th title="The current live market price, updated every 60 seconds.">Live Price</th>
                       <th title="How much money you invested in this position.">Size ($)</th>
                       <th title="Live Profit & Loss. Green = you're in profit. Red = you're at a loss. Updates every 60 seconds.">Live PnL</th>
+                      <th title="Stored stop-loss and take-profit levels required for this paper trade.">Risk Plan</th>
                       <th title="The AI's current signal recommendation.">Signal</th>
                       <th title="Click 'Close Position' to sell at the current market price and lock in your profit or loss.">Action</th>
                     </tr>
@@ -183,6 +194,23 @@
               </table>
             </div>
           </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- ─── MOONSHOTS SECTION ────────────────────────────────────────────────── -->
+    <section class="main-section" id="moonshotsSection">
+      <div class="section-block">
+        <div class="section-heading">
+          <h2>🚀 Moonshot Scanner</h2>
+          <p class="section-sub">Scans all Binance pairs to find highly explosive, high-risk micro-caps flashing BUY signals.</p>
+        </div>
+        <div class="moonshot-controls" style="margin-bottom: 24px;">
+          <button id="scanMoonshotsBtn" class="btn-primary">Scan Binance Market</button>
+          <span id="scanProgress" style="margin-left: 12px; color: var(--text-muted); font-family: monospace;"></span>
+        </div>
+        <div class="assets-grid" id="moonshotGrid">
+          <p class="no-data">Click the scan button to find setups.</p>
         </div>
       </div>
     </section>
@@ -373,6 +401,7 @@
   <script src="js/signals.js?v=4.3"></script>
   <script src="js/charts.js?v=4.3"></script>
   <script src="js/portfolio.js?v=4.3"></script>
+  <script src="js/scanner.js"></script>
   <script src="js/dashboard.js?v=4.4"></script>
   <script>
     // If signals.js didn't expose the right version, cached old code is running — force reload.

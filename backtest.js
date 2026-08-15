@@ -33,12 +33,16 @@ const WALK_FORWARD_TEST_START_DAY = 150; // Days 150-249 test
 
 function parseArgs() {
   const args = process.argv.slice(2);
-  return {
-    walkForward: args.includes('--walk-forward'),
-    walkForwardRolling: args.includes('--walk-forward-rolling'),
-    costSweep: args.includes('--cost-sweep'),
-  };
+  const walkForward = args.includes('--walk-forward');
+  const walkForwardRolling = args.includes('--walk-forward-rolling');
+  const costSweep = args.includes('--cost-sweep');
+  const intervalArg = args.find(a => a.startsWith('--interval='));
+  const interval = intervalArg ? intervalArg.split('=')[1] : '1d';
+  return { walkForward, walkForwardRolling, costSweep, interval };
 }
+
+const PARSED_ARGS = parseArgs();
+const INTERVAL = PARSED_ARGS.interval;
 
 function getCostScenarios(useSweep) {
   if (!useSweep) {
@@ -70,7 +74,7 @@ function getRollingWindows() {
 
 // ─── Fetch historical data from Binance ────────────────────────────────────────
 async function fetchHistory(symbol, days = 250) {
-  const url = `https://api.binance.com/api/v3/klines?symbol=${symbol}&interval=1d&limit=${days}`;
+  const url = `https://api.binance.com/api/v3/klines?symbol=${symbol}&interval=${INTERVAL}&limit=${days}`;
   const res = await fetch(url);
   const data = await res.json();
   if (!Array.isArray(data) || data.length === 0) throw new Error(`No data for ${symbol}`);

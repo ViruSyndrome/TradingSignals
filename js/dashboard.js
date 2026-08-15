@@ -15,6 +15,9 @@ const Dashboard = {
     loading:       true,
     lastUpdate:    null,
     refreshTimer:  null,
+    countdownTimer: null,
+    refreshDueAt: null,
+    updatedAssetIds: new Set(),
     notifGranted:  false,
     watchlist:     JSON.parse(localStorage.getItem('trading_watchlist') || '[]'),
     fearGreed:     null,
@@ -23,6 +26,33 @@ const Dashboard = {
   // ─── Boot ────────────────────────────────────────────────────────────────────
   async init() {
     if (window.Portfolio) Portfolio.init();
+    
+    // Clean, upgrade, and deduplicate the user's saved watchlist
+    let cleanWatchlist = this.state.watchlist.map(id => {
+      let normId = id.toUpperCase();
+      if (!normId.endsWith('USDT') && !normId.includes('_4H')) normId += 'USDT';
+      // If it's not a core coin and doesn't have _4H yet, upgrade it to the new _4H system
+      if (!normId.includes('_4H') && !CONFIG.assets.crypto.some(a => a.id === normId && !a.grafted)) {
+        normId += '_4H';
+      }
+      return normId;
+    });
+    this.state.watchlist = [...new Set(cleanWatchlist)]; // Remove duplicates
+
+    // Inject dynamic watchlist assets (e.g. starred Moonshots) into CONFIG permanently
+    this.state.watchlist.forEach(normId => {
+      if (!CONFIG.assets.crypto.some(a => a.id === normId)) {
+        CONFIG.assets.crypto.push({
+          id: normId,
+          symbol: normId.replace('USDT_4H', '').replace('USDT', ''),
+          name: normId.replace('USDT_4H', '').replace('USDT', ''),
+          currency: 'USD',
+          icon: '🚀',
+          grafted: true
+        });
+      }
+    });
+
     this._bindUI();
     this._hideEmptyCategoryTabs();
     this._initTooltips();
@@ -108,6 +138,8 @@ const Dashboard = {
 
   // ─── Load all asset data ─────────────────────────────────────────────────────
   async loadAll(silent = false) {
+    this.state.loading = true;
+    this._updateLiveStatus();
     if (!silent) this._setLoading(true);
     try {
       const [crypto, stocks, commodities, forex] = await Promise.allSettled([
@@ -126,17 +158,22 @@ const Dashboard = {
 
       // Signals now receive OHLCV + sentiment + symbol (winners filter).
       const fg = this._fgValue();
+      const previousPrices = new Map(this.state.allAssets.map(a => [a.asset?.id, a.price]));
       this.state.allAssets = all.map(d => ({
         ...d,
         signalResult: d.closes?.length > 0
           ? Signals.generate(d.closes, { highs: d.highs, lows: d.lows, volumes: d.volumes, fearGreed: fg, symbol: d.asset?.symbol || d.asset?.id })
           : null,
       }));
+      this.state.updatedAssetIds = new Set(this.state.allAssets
+        .filter(a => !previousPrices.size || (previousPrices.has(a.asset?.id) && previousPrices.get(a.asset.id) !== a.price))
+        .map(a => a.asset.id));
 
       const anyOk = this.state.allAssets.some(a => a.price != null);
       this.state.dataStale = !anyOk;
 
       this.state.lastUpdate = new Date();
+      this.state.refreshDueAt = Date.now() + CONFIG.refresh.intervalMs;
       this.state.loading = false; // Always clear the internal loading flag
       if (!silent) this._setLoading(false); // Only clear UI spinner if not silent
       this._persistSnapshot();
@@ -147,6 +184,7 @@ const Dashboard = {
       console.error('[Dashboard] loadAll error:', err);
       this.state.dataStale = true;
       this.state.loading = false;
+      this.state.refreshDueAt = Date.now() + CONFIG.refresh.intervalMs;
       if (!silent) this._setLoading(false);
       if (!silent) this._showToast('Some data failed to load — check internet connection', 'warning');
     }
@@ -181,6 +219,7 @@ const Dashboard = {
       }));
       this.state.lastUpdate = new Date(ts);
       this.state.dataStale = true;
+      this.state.updatedAssetIds = new Set(this.state.allAssets.map(a => a.asset.id));
       return true;
     } catch (e) { return false; }
   },
@@ -188,7 +227,11 @@ const Dashboard = {
   // ─── Refresh timer ───────────────────────────────────────────────────────────
   _scheduleRefresh() {
     clearInterval(this.state.refreshTimer);
+    clearInterval(this.state.countdownTimer);
+    this.state.refreshDueAt = Date.now() + CONFIG.refresh.intervalMs;
     this.state.refreshTimer = setInterval(() => this.loadAll(true), CONFIG.refresh.intervalMs);
+    this.state.countdownTimer = setInterval(() => this._updateLiveStatus(), 1000);
+    this._updateLiveStatus();
   },
 
   // ─── Main render ─────────────────────────────────────────────────────────────
@@ -196,7 +239,47 @@ const Dashboard = {
     this._renderSummaryBar();
     this._renderTopOpportunities();
     this._renderAssetGrid();
+    this._renderLiveTape();
     this._updateLastUpdated();
+    this._updateLiveStatus();
+  },
+
+  _renderLiveTape() {
+    const el = document.getElementById('liveTapeTrack');
+    if (!el || !this.state.allAssets.length) return;
+    const seenSymbols = new Set();
+    const uniqueAssets = this.state.allAssets.filter(a => {
+      if (a.price == null) return false;
+      if (seenSymbols.has(a.asset.symbol)) return false;
+      seenSymbols.add(a.asset.symbol);
+      return true;
+    });
+
+    const items = uniqueAssets
+      .sort((a, b) => Math.abs(b.change24h || 0) - Math.abs(a.change24h || 0))
+      .slice(0, 12)
+      .map(a => `<span class="tape-item"><strong>${a.asset.symbol}</strong><span>${a.asset.currency === 'INR' ? '₹' : '$'}${this._fmt(a.price, a.asset)}</span><em class="${a.change24h >= 0 ? 'pos' : 'neg'}">${a.change24h >= 0 ? '+' : ''}${(a.change24h || 0).toFixed(2)}%</em></span>`)
+      .join('');
+    el.innerHTML = items + items;
+    el.classList.toggle('moving', items.length > 0);
+  },
+
+  _updateLiveStatus() {
+    const text = document.getElementById('liveStatusText');
+    const dot = document.querySelector('#liveStatus .live-dot');
+    if (!text) return;
+    if (this.state.loading) {
+      text.textContent = 'Updating';
+      dot?.classList.add('live-loading');
+      return;
+    }
+    dot?.classList.remove('live-loading');
+    if (this.state.dataStale) {
+      text.textContent = 'Stale data';
+      return;
+    }
+    const seconds = Math.max(0, Math.ceil((this.state.refreshDueAt - Date.now()) / 1000));
+    text.textContent = `Live · ${seconds}s`;
   },
 
   // ─── Summary bar at top ──────────────────────────────────────────────────────
@@ -295,20 +378,10 @@ const Dashboard = {
     const el = document.getElementById('topOpportunities');
     if (!el) return;
 
-    // Rank by validated winner tier first, then bullish quality and confidence.
-    const ranked = [...this.state.allAssets]
-      .filter(a => a.signalResult && a.closes?.length > 0)
-      .sort((a, b) => {
-        const tierDiff = this._winnerTierRank(a.signalResult?.winnerTier) - this._winnerTierRank(b.signalResult?.winnerTier);
-        if (tierDiff !== 0) return tierDiff;
-        const qa = this._tradeQuality(a.signalResult).rank;
-        const qb = this._tradeQuality(b.signalResult).rank;
-        if (qa !== qb) return qa - qb;
-        const scoreDiff = (b.signalResult?.score ?? 0) - (a.signalResult?.score ?? 0);
-        if (scoreDiff !== 0) return scoreDiff;
-        return (b.signalResult?.confidence ?? 0) - (a.signalResult?.confidence ?? 0);
-      })
-      .slice(0, 4);
+    // Rank by Absolute Math Score and Confidence
+    const valid = [...this.state.allAssets].filter(a => a.signalResult && a.closes?.length > 0);
+    this._sortAssets(valid);
+    const ranked = valid.slice(0, 4);
 
     if (ranked.length === 0) {
       el.innerHTML = '<p class="no-data">Loading opportunities…</p>';
@@ -348,16 +421,14 @@ const Dashboard = {
       assets = assets.filter(a => {
         const rsi = a.signalResult?.indicators?.rsi?.value;
         const macroBullish = !!a.signalResult?.indicators?.movingAvg?.macroBullish;
-        const tier = a.signalResult?.winnerTier;
-        return rsi < 30 && macroBullish && tier === 'core';
+        return rsi < 30 && macroBullish;
       });
     } else if (cat === 'highconf') {
       const gate = CONFIG.refresh?.strongConfidenceGate || 75;
       assets = assets.filter(a => {
         const conf = a.signalResult?.confidence ?? 0;
         const score = a.signalResult?.score ?? 0;
-        const tier = a.signalResult?.winnerTier;
-        return conf >= gate && score > 0 && tier === 'core';
+        return conf >= gate && score > 0;
       });
     } else if (cat !== 'all') {
       assets = assets.filter(a => a.category === cat);
@@ -370,16 +441,7 @@ const Dashboard = {
     this.state.filtered = assets;
 
     // Sort by validated winner tier first, then trade quality, then confidence.
-    assets.sort((a, b) => {
-      const tierDiff = this._winnerTierRank(a.signalResult?.winnerTier) - this._winnerTierRank(b.signalResult?.winnerTier);
-      if (tierDiff !== 0) return tierDiff;
-      const qa = this._tradeQuality(a.signalResult).rank;
-      const qb = this._tradeQuality(b.signalResult).rank;
-      if (qa !== qb) return qa - qb;
-      const scoreDiff = (b.signalResult?.score ?? 0) - (a.signalResult?.score ?? 0);
-      if (scoreDiff !== 0) return scoreDiff;
-      return (b.signalResult?.confidence ?? 0) - (a.signalResult?.confidence ?? 0);
-    });
+    this._sortAssets(assets);
 
     if (assets.length === 0) {
       el.innerHTML = this.state.loading 
@@ -391,16 +453,39 @@ const Dashboard = {
     el.innerHTML = assets.map(a => this._assetCardHTML(a, false)).join('');
     this._attachCardListeners(el);
 
+    this._initSparklines(assets);
+  },
+
+  _initSparklines(assets, isMoonshot = false) {
     assets.forEach(a => {
       if (a.closes?.length > 0) {
         const isPos = (a.change24h ?? 0) >= 0;
-        Charts.renderSparkline(`spark_${a.asset.id}`, a.closes, isPos);
+        const prefix = isMoonshot ? 'spark_moonshot_' : 'spark_';
+        Charts.renderSparkline(`${prefix}${a.asset.id}`, a.closes, isPos);
       }
     });
   },
 
+  _sortAssets(assets) {
+    assets.sort((a, b) => {
+      // 1. Sort by Absolute Math Score
+      const scoreDiff = (b.signalResult?.score ?? 0) - (a.signalResult?.score ?? 0);
+      if (scoreDiff !== 0) return scoreDiff;
+      
+      // 3. Sort by Confidence
+      const confDiff = (b.signalResult?.confidence ?? 0) - (a.signalResult?.confidence ?? 0);
+      if (confDiff !== 0) return confDiff;
+      
+      // 4. Tie-breaker: Trade Quality (Strong Buy > Buy)
+      const qa = this._tradeQuality(a.signalResult).rank;
+      const qb = this._tradeQuality(b.signalResult).rank;
+      return qa - qb;
+    });
+  },
+
+
   // ─── Generate asset card HTML ────────────────────────────────────────────────
-  _assetCardHTML(d, isTop) {
+  _assetCardHTML(d, isTop = false, isMoonshot = false) {
     const { asset, price, change24h, closes, signalResult, category, error } = d;
     const sig = signalResult?.signal ?? 'NEUTRAL';
     const level = Signals.level(sig);
@@ -408,7 +493,10 @@ const Dashboard = {
     const score = signalResult?.score ?? 0;
     const rsi = signalResult?.indicators?.rsi?.value ?? '–';
     const winnerTier = signalResult?.winnerTier ?? 'none';
-    const sparkId = isTop ? `spark_top_${asset.id}` : `spark_${asset.id}`;
+    
+    let sparkId = `spark_${asset.id}`;
+    if (isTop) sparkId = `spark_top_${asset.id}`;
+    else if (isMoonshot) sparkId = `spark_moonshot_${asset.id}`;
 
     const priceStr = price !== null
       ? (asset.currency === 'INR' ? '₹' : '$') + this._fmt(price, asset)
@@ -420,9 +508,24 @@ const Dashboard = {
     const quality = this._tradeQuality(signalResult);
     const catBadge = { crypto: '₿ Crypto', stocks: '🇮🇳 Stock', commodities: '🪙 Commodity', forex: '💱 Forex' }[category] ?? category;
     const winnerBadge = this._winnerTierBadge(winnerTier);
+    const updateClass = this.state.updatedAssetIds.has(asset.id) ? ' value-updated' : '';
+
+    let quickTargets = '';
+    if ((sig === 'BUY' || sig === 'STRONG_BUY') && signalResult?.stopSuggest) {
+      const tp = signalResult.stopSuggest.takeProfitPrice;
+      const sl = signalResult.stopSuggest.stopPrice;
+      const tpStr = tp < 1 ? tp.toFixed(4) : tp.toFixed(2);
+      const slStr = sl < 1 ? sl.toFixed(4) : sl.toFixed(2);
+      quickTargets = `
+        <div class="quick-targets">
+          <div class="qt-tp" title="Take Profit Target">🎯 $${tpStr}</div>
+          <div class="qt-sl" title="Stop Loss Limit">🛑 $${slStr}</div>
+        </div>
+      `;
+    }
 
     return `
-      <div class="asset-card signal-border-${level.cls} winner-tier-${winnerTier}" data-asset-id="${asset.id}" data-category="${category}" role="button" tabindex="0" aria-label="${asset.name} signal card">
+      <div class="asset-card signal-border-${level.cls} winner-tier-${winnerTier} ${this.state.updatedAssetIds.has(asset.id) ? 'data-updated' : ''}" data-asset-id="${asset.id}" data-category="${category}" role="button" tabindex="0" aria-label="${asset.name} signal card">
         <div class="card-header">
           <div class="card-title-row">
             <span class="asset-icon">${asset.icon}</span>
@@ -442,15 +545,16 @@ const Dashboard = {
         </div>
 
         <div class="card-price-row">
-          <div class="price-main" title="Current live price from Binance, refreshed every 60 seconds.">${priceStr}</div>
-          <div class="price-change ${chgCls}" title="Price change in the last 24 hours. Green = price went up, Red = price went down.">${chgStr}</div>
+          <div class="price-main${updateClass}" title="Current live price from Binance, refreshed every 60 seconds.">${priceStr}</div>
+          <div class="price-change ${chgCls}${updateClass}" title="Price change in the last 24 hours. Green = price went up, Red = price went down.">${chgStr}</div>
         </div>
+        ${quickTargets}
 
-        <div class="sparkline-wrap" title="Mini price chart showing the trend over the last 90 days.">
+        <div class="sparkline-wrap${updateClass}" title="Mini price chart showing the trend over the last 90 days.">
           <canvas id="${sparkId}" height="50"></canvas>
         </div>
 
-        <div class="card-indicators">
+        <div class="card-indicators${updateClass}">
           <div class="ind-chip" title="RSI (Relative Strength Index): Measures if the asset is oversold or overbought. Below 30 = oversold (good to buy), Above 70 = overbought (consider selling). Range: 0–100.">
             <span class="ind-label">RSI</span>
             <span class="ind-val">${rsi}</span>
@@ -472,8 +576,24 @@ const Dashboard = {
         </div>
 
         ${error ? `<div class="card-error">⚠️ ${error}</div>` : ''}
+        ${this._stopLevelsHTML(signalResult, asset)}
         <div class="trade-quality-badge quality-${quality.cls}" title="${quality.tip}">${quality.icon} ${quality.label}</div>
         <div class="card-footer">Click for full analysis →</div>
+      </div>
+    `;
+  },
+
+  // ─── Render stop-loss / take-profit levels for actionable signals ──────────
+  _stopLevelsHTML(signalResult, asset) {
+    const s = signalResult?.stopSuggest;
+    if (!s || !['BUY', 'STRONG_BUY'].includes(signalResult?.signal)) return '';
+    const cur = (v) => (asset.currency === 'INR' ? '₹' : '$') + this._fmt(v, asset);
+    return `
+      <div class="stop-levels" title="Place these as real orders on your exchange the moment you enter. Skipping the stop-loss is the #1 cause of large losses.">
+        <div class="stop-levels-row">
+          <span class="stop-chip stop-chip-sl">🛑 Stop: ${cur(s.stopPrice)} (-${s.distancePct}%)</span>
+          <span class="stop-chip stop-chip-tp">🎯 Target: ${cur(s.takeProfitPrice)} (+${s.takeProfitPct}%)</span>
+        </div>
       </div>
     `;
   },
@@ -527,12 +647,56 @@ const Dashboard = {
   },
 
   _toggleWatchlist(id) {
+    // Normalize old IDs (e.g. 'eden' -> 'EDENUSDT') just in case
+    // If it's a 4H Moonshot, it already ends in _4H so we leave it alone
+    if (!id.toUpperCase().endsWith('USDT') && !id.toUpperCase().includes('_4H')) {
+      id = id.toUpperCase() + 'USDT';
+    } else {
+      id = id.toUpperCase();
+    }
+
     if (this.state.watchlist.includes(id)) {
       this.state.watchlist = this.state.watchlist.filter(x => x !== id);
+      
+      // If we are un-starring a grafted Moonshot, remove it completely from tracking
+      const cfgIdx = CONFIG.assets.crypto.findIndex(a => a.id === id);
+      if (cfgIdx !== -1 && CONFIG.assets.crypto[cfgIdx].grafted) {
+        CONFIG.assets.crypto.splice(cfgIdx, 1); // Stop fetching it
+        this.state.allAssets = this.state.allAssets.filter(a => a.asset.id !== id); // Remove from current UI state
+      }
     } else {
       this.state.watchlist.push(id);
+      
+      // If we are starring a Moonshot coin that isn't tracked yet, graft it in!
+      if (!CONFIG.assets.crypto.some(a => a.id === id)) {
+        CONFIG.assets.crypto.push({
+          id: id,
+          symbol: id.replace('USDT_4H', '').replace('USDT', ''),
+          name: id.replace('USDT_4H', '').replace('USDT', ''),
+          currency: 'USD',
+          icon: '🚀',
+          grafted: true // Flag it so we know it can be deleted later
+        });
+        // Trigger a background load to instantly fetch its history for the main dash
+        setTimeout(() => this.loadAll(true), 10);
+      }
     }
     localStorage.setItem('trading_watchlist', JSON.stringify(this.state.watchlist));
+    
+    // Instantly update the visual star state on any visible cards (especially Moonshots)
+    const isNowStarred = this.state.watchlist.includes(id);
+    document.querySelectorAll(`.star-btn[data-star-id="${id}"]`).forEach(btn => {
+      if (isNowStarred) {
+        btn.classList.add('active');
+        btn.style.opacity = '1';
+        btn.innerHTML = '⭐';
+      } else {
+        btn.classList.remove('active');
+        btn.style.opacity = '0.3';
+        btn.innerHTML = '⭐';
+      }
+    });
+
     this._renderTopOpportunities();
     this._renderAssetGrid();
   },
@@ -552,8 +716,8 @@ const Dashboard = {
   },
 
   // ─── Detail modal ────────────────────────────────────────────────────────────
-  _openModal(assetId) {
-    const d = this.state.allAssets.find(a => a.asset.id === assetId);
+  _openModal(id) {
+    const d = this.state.allAssets.find(a => a.asset.id === id) || (this.state.moonshots && this.state.moonshots.find(a => a.asset.id === id));
     if (!d) return;
     this.state.selectedAsset = d;
 
@@ -569,6 +733,7 @@ const Dashboard = {
     const arrays = signalResult?.arrays ?? {};
     const winnerTier = signalResult?.winnerTier ?? 'none';
     const tierBadge = this._winnerTierBadge(winnerTier);
+    const ocoHTML = this._ocoHTML(d);
 
     const priceStr = price !== null ? (asset.currency === 'INR' ? '₹' : '$') + this._fmt(price, asset) : 'N/A';
     const chgStr   = change24h !== null ? (change24h >= 0 ? '+' : '') + change24h.toFixed(2) + '%' : '–';
@@ -595,6 +760,7 @@ const Dashboard = {
           <input type="number" id="modalBuyAmount" min="10" step="10" value="1000"
             style="width:100px; padding:4px 8px; border-radius:4px; border:1px solid var(--border, #333); background:rgba(0,0,0,0.25); color:inherit;" />
         </div>
+        ${ocoHTML}
       </div>
 
       <div class="modal-recommendation">
@@ -761,8 +927,22 @@ const Dashboard = {
   // ─── Clock ────────────────────────────────────────────────────────────────────
   _startClock() {
     const update = () => {
+      const now = new Date();
       const el = document.getElementById('liveClock');
-      if (el) el.textContent = new Date().toLocaleTimeString('en-IN', { timeZone: 'Asia/Kolkata', hour: '2-digit', minute: '2-digit', second: '2-digit' });
+      if (el) el.textContent = now.toLocaleTimeString('en-IN', { timeZone: 'Asia/Kolkata', hour: '2-digit', minute: '2-digit', second: '2-digit' });
+
+      // EOD countdown to UTC midnight
+      const eodEl = document.getElementById('eodClock');
+      if (eodEl) {
+        const nextMidnight = new Date(now);
+        nextMidnight.setUTCHours(24, 0, 0, 0);
+        let diffSecs = Math.floor((nextMidnight.getTime() - now.getTime()) / 1000);
+        if (diffSecs < 0) diffSecs = 0;
+        const h = Math.floor(diffSecs / 3600).toString().padStart(2, '0');
+        const m = Math.floor((diffSecs % 3600) / 60).toString().padStart(2, '0');
+        const s = (diffSecs % 60).toString().padStart(2, '0');
+        eodEl.textContent = `${h}h ${m}m ${s}s`;
+      }
     };
     update();
     setInterval(update, 1000);
@@ -902,6 +1082,43 @@ const Dashboard = {
       }
     });
 
+    // Moonshots
+    document.getElementById('scanMoonshotsBtn')?.addEventListener('click', async () => {
+      const btn = document.getElementById('scanMoonshotsBtn');
+      const progress = document.getElementById('scanProgress');
+      const grid = document.getElementById('moonshotGrid');
+      
+      btn.disabled = true;
+      grid.innerHTML = '';
+      
+      try {
+        const setups = await Scanner.scanMarket(msg => {
+          progress.textContent = msg;
+        });
+        
+        progress.textContent = `Found ${setups.length} volatile setups!`;
+        
+        if (setups.length === 0) {
+          grid.innerHTML = '<p class="no-data">No explosive setups found right now. Try again later.</p>';
+        } else {
+          this.state.moonshots = setups;
+          this._sortAssets(setups);
+          // If we have a massive amount of volatile setups, pack them tightly
+          if (setups.length > 12) grid.classList.add('dense-grid');
+          else grid.classList.remove('dense-grid');
+          
+          grid.innerHTML = setups.map(s => this._assetCardHTML(s, false, true)).join('');
+          this._attachCardListeners(grid);
+          this._initSparklines(setups, true);
+        }
+      } catch (err) {
+        progress.textContent = `Scan failed: ${err.message || err}`;
+        console.error(err);
+      } finally {
+        btn.disabled = false;
+      }
+    });
+
     // Delegate portfolio sell buttons
     document.getElementById('openPositionsTable')?.addEventListener('click', e => {
       if (e.target.classList.contains('sell-btn')) {
@@ -927,7 +1144,14 @@ const Dashboard = {
 
         const input = document.getElementById('modalBuyAmount');
         const cost = Math.max(10, parseFloat(input?.value) || 1000);
-        const res = Portfolio.buy(liveAsset.asset, liveAsset.price, cost);
+        const result = liveAsset.signalResult;
+        const risk = result?.stopSuggest;
+        const res = Portfolio.buy(liveAsset.asset, liveAsset.price, cost, {
+          stopPrice: risk?.stopPrice,
+          takeProfitPrice: risk?.takeProfitPrice,
+          signal: result?.signal,
+          winnerTier: result?.winnerTier,
+        });
         if (res.success) {
           this._showToast(`Bought $${cost.toLocaleString()} of ${liveAsset.asset.symbol} (Paper Trade)`, 'success');
           this._closeModal();
@@ -945,11 +1169,22 @@ const Dashboard = {
     const state = Portfolio.getState();
     
     document.getElementById('portfolioBalance').textContent = '$' + state.balance.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+    const totalRisk = state.positions.reduce((sum, pos) => sum + (pos.riskAmount || 0), 0);
+    const accountValue = state.balance + state.positions.reduce((sum, pos) => {
+      const live = this.state.allAssets.find(a => a.asset.id === pos.assetId)?.price ?? pos.buyPrice;
+      return sum + pos.amount * live;
+    }, 0);
+    const riskPct = accountValue > 0 ? (totalRisk / accountValue) * 100 : 0;
+    const riskEl = document.getElementById('portfolioRiskSummary');
+    if (riskEl) {
+      riskEl.innerHTML = `<span>Open risk <strong>$${totalRisk.toFixed(2)}</strong> (${riskPct.toFixed(2)}%)</span><small>${riskPct > 2 ? 'Above 2% account-risk limit' : 'Within 2% account-risk limit'}</small>`;
+      riskEl.className = `portfolio-risk-summary ${riskPct > 2 ? 'risk-warning' : 'risk-ok'}`;
+    }
 
     const openTbody = document.querySelector('#openPositionsTable tbody');
     if (openTbody) {
       if (state.positions.length === 0) {
-        openTbody.innerHTML = '<tr><td colspan="6" style="text-align:center; padding:20px; color:var(--text-muted)">No open positions. Buy an asset from the dashboard to start!</td></tr>';
+        openTbody.innerHTML = '<tr><td colspan="7" style="text-align:center; padding:20px; color:var(--text-muted)">No open positions. Buy an asset from the dashboard to start!</td></tr>';
       } else {
         openTbody.innerHTML = state.positions.map(pos => {
           const liveAsset = this.state.allAssets.find(a => a.asset.id === pos.assetId);
@@ -966,6 +1201,7 @@ const Dashboard = {
               <td>$${currentPrice.toFixed(4)}</td>
               <td>$${pos.cost.toFixed(2)}</td>
               <td><span class="pnl-badge ${pnlCls}">${pnlStr}</span></td>
+              <td><span class="risk-levels">SL $${(pos.stopPrice ?? pos.buyPrice).toFixed(4)}<br>TP $${(pos.takeProfitPrice ?? pos.buyPrice).toFixed(4)}</span></td>
               <td><span class="pnl-badge" style="background:var(--bg-app); border: 1px solid var(--border); color: #fff;">${liveAsset?.signalResult?.signal ?? 'HOLD'}</span></td>
               <td><button class="action-btn sell-btn" data-trade="${pos.tradeId}" data-price="${currentPrice}" style="padding:4px 8px; font-size:12px; border:1px solid var(--accent); color:var(--accent); border-radius:4px">Close Position</button></td>
             </tr>
@@ -995,6 +1231,34 @@ const Dashboard = {
         }).join('');
       }
     }
+  },
+
+  _ocoHTML(d) {
+    const s = d.signalResult?.stopSuggest;
+    if (!s || !['BUY', 'STRONG_BUY'].includes(d.signalResult?.signal)) {
+      return '<div class="oco-panel oco-muted">No OCO levels: wait for a core Buy setup with a valid stop and target.</div>';
+    }
+    const price = d.price;
+    const valid = price > s.stopPrice && s.stopPrice > 0 && s.takeProfitPrice > price;
+    const staleMinutes = d.fetchedAt ? (Date.now() - new Date(d.fetchedAt).getTime()) / 60000 : Infinity;
+    const stale = !Number.isFinite(staleMinutes) || staleMinutes > 15;
+    const status = !valid ? 'Invalid price relationship' : stale ? 'Refresh before placing: levels are stale' : 'OCO levels ready to review';
+    const statusClass = !valid || stale ? 'oco-warning' : 'oco-ready';
+    const symbol = d.asset.symbol;
+    const rules = d.rules || {};
+    const ruleText = rules.minNotional ? `Binance minimum order value: $${rules.minNotional}. Quantity step: ${rules.stepSize}. Price tick: ${rules.tickSize}.` : 'Binance will enforce the pair minimum value and price/quantity precision.';
+    return `
+      <div class="oco-panel">
+        <div class="oco-title">OCO order for ${symbol}</div>
+        <div class="oco-status ${statusClass}">${status}</div>
+        <div class="oco-grid">
+          <span>Price / TP <strong>${this._fmt(s.takeProfitPrice, d.asset)}</strong></span>
+          <span>Stop price <strong>${this._fmt(s.stopPrice, d.asset)}</strong></span>
+          <span>Stop-limit <strong>${this._fmt(s.stopPrice * 0.998, d.asset)}</strong></span>
+        </div>
+        <small>Use these as a sell OCO on Binance. Enter your available ${symbol} amount. ${ruleText}</small>
+      </div>
+    `;
   },
 };
 

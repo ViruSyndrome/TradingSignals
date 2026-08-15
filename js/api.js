@@ -52,6 +52,30 @@ const API = {
   // CRYPTO — Binance
   // ══════════════════════════════════════════════════════════════════════════════
 
+  async getCryptoSymbolRules() {
+    const key = 'crypto_symbol_rules';
+    const cached = this._get(key);
+    if (cached) return cached;
+    try {
+      const symbols = JSON.stringify(CONFIG.assets.crypto.map(a => a.id));
+      const data = await this._fetch(`https://api.binance.com/api/v3/exchangeInfo?symbols=${encodeURIComponent(symbols)}`, 8000);
+      const rules = {};
+      for (const item of data.symbols || []) {
+        const filters = Object.fromEntries((item.filters || []).map(f => [f.filterType, f]));
+        rules[item.symbol] = {
+          tickSize: parseFloat(filters.PRICE_FILTER?.tickSize || 0),
+          stepSize: parseFloat(filters.LOT_SIZE?.stepSize || 0),
+          minQty: parseFloat(filters.LOT_SIZE?.minQty || 0),
+          minNotional: parseFloat(filters.NOTIONAL?.minNotional || filters.MIN_NOTIONAL?.minNotional || 0),
+        };
+      }
+      return this._set(key, rules, 86400000);
+    } catch (e) {
+      console.warn('[API] Binance symbol rules failed:', e.message);
+      return {};
+    }
+  },
+
   /**
    * Fetch current prices for all crypto in one call (Binance).
    */
@@ -60,7 +84,9 @@ const API = {
     const cached = this._get(key);
     if (cached) return cached;
 
-    const symbols = JSON.stringify(CONFIG.assets.crypto.map(a => a.id));
+    const rawSymbols = CONFIG.assets.crypto.map(a => a.id.replace('_4H', ''));
+    const uniqueSymbols = [...new Set(rawSymbols)];
+    const symbols = JSON.stringify(uniqueSymbols);
     const url = `https://api.binance.com/api/v3/ticker/24hr?symbols=${encodeURIComponent(symbols)}`;
     try {
       const data = await this._fetch(url, 5000);
@@ -78,13 +104,14 @@ const API = {
    * Fetch historical OHLC for a single crypto asset (Binance).
    * Returns array of [timestamp_ms, open, high, low, close, volume]
    */
-  async getCryptoOHLC(coinId) {
-    const key = `crypto_hist_${coinId}`;
+  async getCryptoOHLC(coinId, interval = '1d') {
+    const key = `crypto_hist_${coinId}_${interval}`;
     const cached = this._get(key);
     if (cached) return cached;
 
+    const binanceSymbol = coinId.replace('_4H', '');
     const days = CONFIG.refresh.historyDays;
-    const url = `https://api.binance.com/api/v3/klines?symbol=${coinId}&interval=1d&limit=${days}`;
+    const url = `https://api.binance.com/api/v3/klines?symbol=${binanceSymbol}&interval=${interval}&limit=${days}`;
     try {
       const data = await this._fetch(url, 5000); // [[time, o, h, l, c, v, ...], ...]
       if (!Array.isArray(data) || data.length === 0) throw new Error('Empty klines');
@@ -102,10 +129,13 @@ const API = {
    */
   async getAllCrypto() {
     const prices = await this.getCryptoPrices();
+    const rules = await this.getCryptoSymbolRules();
 
     const promises = CONFIG.assets.crypto.map(async (asset) => {
-      const hist = await this.getCryptoOHLC(asset.id);
-      const priceInfo = prices?.[asset.id] ?? {};
+      const interval = asset.grafted ? '4h' : '1d';
+      const hist = await this.getCryptoOHLC(asset.id, interval);
+      const binanceSymbol = asset.id.replace('_4H', '');
+      const priceInfo = prices?.[binanceSymbol] ?? {};
       const livePrice = priceInfo.lastPrice ? parseFloat(priceInfo.lastPrice) : null;
 
       const closes     = hist ? hist.map(r => parseFloat(r[4])) : [];
@@ -125,6 +155,7 @@ const API = {
 
       return {
         asset,
+          rules: rules[asset.id] || null,
         price:      livePrice,
         change24h:  priceInfo.priceChangePercent != null ? parseFloat(priceInfo.priceChangePercent) : null,
         volume:     priceInfo.quoteVolume ? parseFloat(priceInfo.quoteVolume) : null,

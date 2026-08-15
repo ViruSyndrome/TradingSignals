@@ -367,7 +367,7 @@ const Charts = {
         }],
       },
       options: {
-        animation:  { duration: 0 },
+        animation:  { duration: 2400, easing: 'easeOutQuart' },
         responsive: true,
         maintainAspectRatio: false,
         plugins: { legend: { display: false }, tooltip: { enabled: false } },

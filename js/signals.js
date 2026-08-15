@@ -266,7 +266,9 @@ const Signals = {
       }
     }
 
-    // ── ATR-based stop-loss suggestion ──────────────────────────────────────
+    // ── ATR-based stop-loss + take-profit suggestion ────────────────────────
+    // Take-profit at 2R matches the backtest's exit model — the edge only
+    // holds up if both legs are actually placed, not just the stop.
     const curAtr = atrArr ? Indicators.last(atrArr) : null;
     let stopSuggest = null;
     if (curAtr && price) {
@@ -274,10 +276,15 @@ const Signals = {
       const bearish = ['SELL', 'STRONG_SELL'].includes(signal);
       if (bullish || bearish) {
         const mult = 2; // 2×ATR is a standard swing-trading stop
+        const risk = mult * curAtr;
+        const stopPrice = bullish ? price - risk : price + risk;
+        const takeProfitPrice = bullish ? price + 2 * risk : price - 2 * risk;
         stopSuggest = {
           atr: +curAtr.toFixed(8),
-          stopPrice: +(bullish ? price - mult * curAtr : price + mult * curAtr).toFixed(8),
-          distancePct: +((mult * curAtr / price) * 100).toFixed(2),
+          stopPrice: +stopPrice.toFixed(8),
+          takeProfitPrice: +takeProfitPrice.toFixed(8),
+          distancePct: +((risk / price) * 100).toFixed(2),
+          takeProfitPct: +((2 * risk / price) * 100).toFixed(2),
           side: bullish ? 'long' : 'short',
         };
       }

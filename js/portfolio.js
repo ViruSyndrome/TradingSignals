@@ -45,9 +45,12 @@ const Portfolio = {
   /**
    * Buy an asset
    */
-  buy(asset, price, cost) {
+  buy(asset, price, cost, risk = {}) {
     if (cost <= 0 || cost > this._state.balance) {
       return { success: false, error: 'Invalid or insufficient balance' };
+    }
+    if (!(risk.stopPrice > 0) || !(risk.takeProfitPrice > 0)) {
+      return { success: false, error: 'Paper trades require both a stop-loss and take-profit' };
     }
 
     const amount = cost / price;
@@ -61,6 +64,11 @@ const Portfolio = {
       buyPrice: price,
       amount: amount,
       cost: cost,
+      stopPrice: risk.stopPrice,
+      takeProfitPrice: risk.takeProfitPrice,
+      riskAmount: Math.abs(price - risk.stopPrice) * amount,
+      signal: risk.signal || 'BUY',
+      winnerTier: risk.winnerTier || 'none',
       date: new Date().toISOString()
     });
 

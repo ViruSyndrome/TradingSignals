@@ -104,7 +104,7 @@ async function scanMarket() {
         let stopText = '';
         const winnerTier = result.winnerTier ?? 'none';
         if (result.stopSuggest) {
-          stopText = `\n\n🛡️ Stop-Loss Suggestion:\nPrice: $${result.stopSuggest.stopPrice}\nDistance: ${result.stopSuggest.distancePct}%`;
+          stopText = `\n\n🛡️ Stop-Loss: $${result.stopSuggest.stopPrice} (-${result.stopSuggest.distancePct}%)\n🎯 Take-Profit: $${result.stopSuggest.takeProfitPrice} (+${result.stopSuggest.takeProfitPct}%)\n⚠️ Place both as real exchange orders now — this edge only works if losers are cut at the stop.`;
         }
 
         if (result.signal === 'STRONG_BUY' && winnerTier === 'core') {

@@ -76,8 +76,8 @@ const CONFIG = {
 
   // ─── Signal engine behaviour ─────────────────────────────────────────────────
   signals: {
-    winnersOnlyBuys: true,   // suppress buy signals on assets outside provenWinners
-    coreOnlyBuys: true,      // demote probation winners to watchlist-only in live usage
+    winnersOnlyBuys: false,  // suppress buy signals on assets outside provenWinners
+    coreOnlyBuys: false,     // demote probation winners to watchlist-only in live usage
   },
 
   // ─── Technical indicator parameters ─────────────────────────────────────────
