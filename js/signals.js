@@ -402,16 +402,21 @@ const Signals = {
     
     // Average BBW over last 20 days to detect compression
     const bbwAvg20 = Indicators.avgLast(bbwArr, 20);
-    const isSqueezing = bbw !== null && bbwAvg20 !== null && bbw < bbwAvg20 * 0.8; 
+    const prevBbw = bbwArr.length >= 2 ? bbwArr[bbwArr.length - 2] : null;
+    // We check if it was squeezing BEFORE the breakout blew the bands open
+    const isSqueezing = prevBbw !== null && bbwAvg20 !== null && prevBbw < bbwAvg20 * 0.8; 
 
     // Volume Surge Detection
     let isVolumeSurge = false;
     let volumeRatio = 1;
     if (volumes && volumes.length >= 20) {
-      const lastVol = volumes[volumes.length - 1];
-      const avgVol = Indicators.avgLast(volumes.slice(0, -1), 20);
-      if (lastVol && avgVol && avgVol > 0) {
-        volumeRatio = lastVol / avgVol;
+      const currentVol = volumes[volumes.length - 1];
+      const prevVol = volumes[volumes.length - 2];
+      const avgVol = Indicators.avgLast(volumes.slice(0, -2), 20);
+      if (avgVol && avgVol > 0) {
+        const curRatio = currentVol / avgVol;
+        const prevRatio = prevVol / avgVol;
+        volumeRatio = Math.max(curRatio, prevRatio);
         isVolumeSurge = volumeRatio >= 2.0; // 200% average volume
       }
     }
