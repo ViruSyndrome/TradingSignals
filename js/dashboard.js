@@ -543,7 +543,7 @@ const Dashboard = {
         quickTargets = `
           <div class="quick-targets">
             <div class="qt-tp" title="Trailing Stop (No Limit)">🎯 Let it ride</div>
-            <div class="qt-sl" title="Trailing Stop Loss">🛑 $${slStr}</div>
+            <div class="qt-sl" title="Trailing Delta for Binance">🛑 Delta: -${signalResult.stopSuggest.distancePct}%</div>
           </div>
         `;
       }
