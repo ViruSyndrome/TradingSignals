@@ -4,7 +4,8 @@
   "description": "",
   "main": "check.js",
   "scripts": {
-    "start": "node bot.js"
+    "start": "node bot.js",
+    "test": "node test/indicators.test.js"
   },
   "keywords": [],
   "author": "",

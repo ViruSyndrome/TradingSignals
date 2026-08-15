@@ -1,13 +1,12 @@
 const fs = require('fs');
 
-const configStr = fs.readFileSync('js/config.js', 'utf8').replace('const CONFIG =', 'global.CONFIG =');
-eval(configStr);
+const CONFIG     = require('./js/config.js');
+const Indicators = require('./js/indicators.js');
+const Signals    = require('./js/signals.js');
 
-const indStr = fs.readFileSync('js/indicators.js', 'utf8').replace('const Indicators =', 'global.Indicators =');
-eval(indStr);
-
-const sigStr = fs.readFileSync('js/signals.js', 'utf8').replace('const Signals =', 'global.Signals =');
-eval(sigStr);
+global.CONFIG = CONFIG;
+global.Indicators = Indicators;
+global.Signals = Signals;
 
 async function checkScores() {
   const symbols = CONFIG.assets.crypto.map(c => c.id);

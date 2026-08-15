@@ -3,8 +3,8 @@
 /**
  * api.js — Data fetching with in-memory caching and rate limiting.
  * Sources:
- *   - CoinGecko (free, CORS-enabled) for crypto OHLC + prices
- *   - Yahoo Finance via allorigins CORS proxy for stocks, commodities, forex
+ *   - Binance (high rate limits, CORS-enabled) for crypto OHLC + prices
+ *   - Yahoo Finance via allorigins CORS proxy for stocks, commodities, forex (currently disabled)
  */
 const API = {
 

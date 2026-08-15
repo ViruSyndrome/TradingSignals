@@ -20,7 +20,7 @@ if (!token || !chatId) {
 const bot = new TelegramBot(token, { polling: true });
 
 // --- Portfolio Management ---
-const PORTFOLIO_FILE = 'portfolio.json';
+const PORTFOLIO_FILE = 'ownedAssets.json';
 function loadPortfolio() {
   if (!fs.existsSync(PORTFOLIO_FILE)) return {};
   return JSON.parse(fs.readFileSync(PORTFOLIO_FILE, 'utf8'));
@@ -107,11 +107,11 @@ async function scanMarket() {
           stopText = `\n\n🛡️ Stop-Loss: $${result.stopSuggest.stopPrice} (-${result.stopSuggest.distancePct}%)\n🎯 Take-Profit: $${result.stopSuggest.takeProfitPrice} (+${result.stopSuggest.takeProfitPct}%)\n⚠️ Place both as real exchange orders now — this edge only works if losers are cut at the stop.`;
         }
 
-        if (result.signal === 'STRONG_BUY' && winnerTier === 'core') {
+        if (result.signal === 'STRONG_BUY') {
           const tierLabel = winnerTier === 'core' ? 'Core Winner' : winnerTier === 'probation' ? 'Probation Winner' : 'Watchlist';
           message = `🚀 STRONG BUY ALERT: ${asset.symbol} (${tierLabel})\nScore: +${result.score}\nPrice: $${price.toFixed(4)}\n\n${result.recommendation}${stopText}\n\nIf you buy this, reply /buy ${asset.symbol}`;
-        } else if (result.signal === 'BUY' && winnerTier === 'core') {
-          message = `👀 CORE BUY SETUP: ${asset.symbol}\nScore: +${result.score}\nPrice: $${price.toFixed(4)}\n\nIndicators are leaning bullish on a core validated asset. Good time to research for an entry.${stopText}\n\nIf you buy this, reply /buy ${asset.symbol}`;
+        } else if (result.signal === 'BUY') {
+          message = `👀 BUY SETUP: ${asset.symbol}\nScore: +${result.score}\nPrice: $${price.toFixed(4)}\n\nIndicators are leaning bullish. Good time to research for an entry.${stopText}\n\nIf you buy this, reply /buy ${asset.symbol}`;
         } else if (result.signal === 'SELL' && owned) {
           message = `⚠️ EARLY WARNING: ${asset.symbol}\nScore: ${result.score}\nPrice: $${price.toFixed(4)}\n\nThis asset is losing momentum. If you are in profit, consider taking some off the table.`;
         } else if (result.signal === 'STRONG_SELL' && owned) {
