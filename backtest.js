@@ -88,6 +88,83 @@ async function fetchHistory(symbol, days = 250) {
   };
 }
 
+function backtestSymbol(asset, ohlcv, btcHistory, windowDef, feeRate, slippage) {
+  const { closes, highs, lows, volumes } = ohlcv;
+  let position = null;
+  const trades = [];
+
+  const startDay = windowDef.trainStart;
+  const endDay = windowDef.testEnd;
+
+  for (let i = startDay; i <= endDay; i++) {
+    // ─── DAILY RECALCULATION (avoid look-ahead bias) ──────────────────────────
+    const slicedCloses = closes.slice(0, i + 1);
+    const slicedHighs  = highs ? highs.slice(0, i + 1) : undefined;
+    const slicedLows   = lows ? lows.slice(0, i + 1) : undefined;
+    const slicedVols   = volumes ? volumes.slice(0, i + 1) : undefined;
+
+    let marketRegime = 'flat';
+    if (btcHistory && btcHistory.closes && i < btcHistory.closes.length) {
+      const btcSlicedCloses = btcHistory.closes.slice(0, i + 1);
+      if (btcSlicedCloses.length >= 50) {
+        const btcSma50Arr = Indicators.sma(btcSlicedCloses, 50);
+        const btcSma50 = Indicators.last(btcSma50Arr);
+        const btcPrice = btcSlicedCloses[btcSlicedCloses.length - 1];
+        if (btcSma50) marketRegime = btcPrice > btcSma50 ? 'bull' : 'bear';
+      }
+    }
+
+    const result = Signals.generate(slicedCloses, { 
+      highs: slicedHighs, 
+      lows: slicedLows, 
+      volumes: slicedVols, 
+      symbol: asset.symbol,
+      marketRegime
+    });
+
+    const price = closes[i];
+    const sig   = result.signal;
+    const nextOpenDay = i + 1;
+    const costPerSide = feeRate + slippage;
+
+    // EXIT LOGIC
+    if (position) {
+      const holdDays = i - position.entryDay;
+      let exitReason = null;
+      if (position.stopLoss && lows[i] <= position.stopLoss) exitReason = 'STOP_LOSS';
+      else if (position.takeProfit && highs[i] >= position.takeProfit) exitReason = 'TAKE_PROFIT';
+      else if (sig === 'SELL' || sig === 'STRONG_SELL') exitReason = sig;
+      else if (holdDays >= HOLD_LIMIT) exitReason = 'HOLD_LIMIT';
+
+      if (exitReason) {
+        const rawExit = ohlcv.opens[nextOpenDay];
+        if (rawExit) {
+          const netEntry = position.entryPrice * (1 + costPerSide);
+          const netExit = rawExit * (1 - costPerSide);
+          const returnPct = ((netExit - netEntry) / netEntry) * 100;
+          trades.push({ ...position, exitPrice: rawExit, exitReason, returnPct, win: returnPct > 0, holdDays });
+          position = null;
+        }
+      }
+    }
+
+    // ENTRY LOGIC
+    if (!position && (sig === 'BUY' || sig === 'STRONG_BUY')) {
+      const entryPrice = ohlcv.opens[nextOpenDay];
+      if (entryPrice) {
+        const atrArr = Indicators.atr(slicedHighs, slicedLows, slicedCloses, 14);
+        const atr = atrArr ? Indicators.last(atrArr) : null;
+        position = { 
+          entryPrice, entryDay: nextOpenDay, signal: sig, 
+          stopLoss: atr ? entryPrice - (atr * STOP_MULT) : null,
+          takeProfit: atr ? entryPrice + (atr * RRR) : null 
+        };
+      }
+    }
+  }
+  return trades;
+}
+
 // ─── Run backtest on a single asset ────────────────────────────────────────────
 function backtestAsset(name, symbol, ohlcv, opts = {}) {
   const { opens, closes, highs, lows, volumes } = ohlcv;
@@ -346,18 +423,17 @@ function printCostLine(feeRate, slippage) {
 function runWalkForwardWindow(histories, assets, windowDef, feeRate, slippage) {
   const trainAssetResults = [];
   const trainTrades = [];
+  const btcHistory = histories['BTC'];
 
   console.log(`─── ${windowDef.name} Train: days ${windowDef.trainStart}-${windowDef.trainEnd} (all assets) ─`);
   for (const asset of assets) {
     const ohlcv = histories[asset.symbol];
-    if (!ohlcv) continue;
+    if (!ohlcv || ohlcv.closes.length < MIN_HISTORY) continue;
     process.stdout.write(`Train ${asset.symbol.padEnd(8)}...`);
-    const trades = backtestAsset(asset.name, asset.symbol, ohlcv, {
-      startDay: windowDef.trainStart,
-      endDay: windowDef.trainEnd,
-      feeRate,
-      slippage,
-    });
+    const trades = backtestSymbol(asset, ohlcv, btcHistory, {
+      trainStart: windowDef.trainStart,
+      testEnd: windowDef.trainEnd
+    }, feeRate, slippage);
     trades.forEach(t => { t.symbol = asset.symbol; });
     trainTrades.push(...trades);
     const summary = summarizeAssetTrades(asset.symbol, trades);
@@ -375,12 +451,10 @@ function runWalkForwardWindow(histories, assets, windowDef, feeRate, slippage) {
     const ohlcv = histories[asset.symbol];
     if (!ohlcv) continue;
     process.stdout.write(`Test  ${asset.symbol.padEnd(8)}...`);
-    const trades = backtestAsset(asset.name, asset.symbol, ohlcv, {
-      startDay: windowDef.testStart,
-      endDay: Math.min(windowDef.testEnd, ohlcv.closes.length - 2),
-      feeRate,
-      slippage,
-    });
+    const trades = backtestSymbol(asset, ohlcv, btcHistory, {
+      trainStart: windowDef.testStart,
+      testEnd: Math.min(windowDef.testEnd, ohlcv.closes.length - 2),
+    }, feeRate, slippage);
     trades.forEach(t => { t.symbol = asset.symbol; });
     testTrades.push(...trades);
     const summary = summarizeAssetTrades(asset.symbol, trades);
