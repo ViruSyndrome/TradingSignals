@@ -372,6 +372,123 @@ const Signals = {
     return text.join(' ');
   },
 
+
+  // ─── Dedicated Breakout Engine (Moonshots / High-Gain Runners) ─────────────
+  // Looks for Bollinger Squeezes followed by volume surges and price breakouts.
+  // Ignores standard mean-reversion metrics.
+  generateBreakout(closes, opts = {}) {
+    const EMPTY = (reason = 'Insufficient data') => ({
+      signal: 'NEUTRAL', confidence: 0, score: 0, indicators: {},
+      recommendation: reason, arrays: {}, calculatedAt: new Date().toISOString(),
+    });
+
+    if (!closes || closes.length < 30) return EMPTY();
+    const { highs, lows, volumes, marketRegime } = opts;
+
+    // ── Calculate required indicator arrays ───────────────────────
+    const bbData = Indicators.bollingerBands(closes, 20, 2);
+    const bbwArr = bbData.bandWidth; // Normalized BBW array
+    const sma50Arr = Indicators.sma(closes, 50);
+    const ema9Arr = Indicators.ema(closes, 9);
+    
+    // ── Current Values ───────────────────────────────────────────
+    const price = Indicators.last(closes);
+    const bbUpper = Indicators.last(bbData.upper);
+    const bbLower = Indicators.last(bbData.lower);
+    const bbw = Indicators.last(bbwArr);
+    const ema9 = Indicators.last(ema9Arr);
+    
+    // Average BBW over last 20 days to detect compression
+    const bbwAvg20 = Indicators.avgLast(bbwArr, 20);
+    const isSqueezing = bbw !== null && bbwAvg20 !== null && bbw < bbwAvg20 * 0.8; 
+
+    // Volume Surge Detection
+    let isVolumeSurge = false;
+    let volumeRatio = 1;
+    if (volumes && volumes.length >= 20) {
+      const lastVol = volumes[volumes.length - 1];
+      const avgVol = Indicators.avgLast(volumes.slice(0, -1), 20);
+      if (lastVol && avgVol && avgVol > 0) {
+        volumeRatio = lastVol / avgVol;
+        isVolumeSurge = volumeRatio >= 2.0; // 200% average volume
+      }
+    }
+
+    let score = 0;
+    let desc = [];
+    
+    // 1. Core Breakout logic (Price crossing above Upper Band)
+    const isBreakingOut = price > bbUpper;
+    if (isBreakingOut) {
+      score += 2;
+      desc.push("Price has broken above the upper Bollinger Band.");
+    }
+    
+    // 2. Squeeze condition (Coiled Spring)
+    if (isSqueezing && isBreakingOut) {
+      score += 2;
+      desc.push("Volatility Squeeze detected: Breakout is occurring after extreme consolidation.");
+    }
+    
+    // 3. Volume Anomaly (Whale Buying)
+    if (isVolumeSurge && isBreakingOut) {
+      score += 1.5;
+      desc.push(`Volume Anomaly: ${volumeRatio.toFixed(1)}x average volume confirming the move.`);
+    }
+
+    // 4. Trend Alignment (Don't buy falling knives)
+    if (price > ema9) {
+      score += 0.5;
+    } else {
+      score -= 2;
+      desc.push("Price is below 9 EMA. Breakout failed.");
+    }
+
+    // 5. Market Regime Filter (Protect against BTC dumps)
+    if (marketRegime === 'bear' && opts.symbol !== 'BTC' && opts.symbol !== 'BTCUSDT') {
+      score -= 3; // Huge penalty for breakout attempts during a market crash
+      desc.push("Market Regime is Bearish (BTC < 50 SMA). Breakouts are likely fakeouts.");
+    }
+
+    let signal = 'NEUTRAL';
+    if (score >= 5.0) signal = 'STRONG_BUY';
+    else if (score >= 3.5) signal = 'BUY';
+    else if (score <= -2.0) signal = 'SELL';
+
+    // Chandelier Exit Trailing Stop (Instead of fixed ATR)
+    // We calculate it and pass it to the dashboard for rendering
+    let stopSuggest = null;
+    const chandExit = Indicators.chandelierExit(highs, lows, closes, 22, 3);
+    const trailingStop = Indicators.last(chandExit);
+    
+    if (trailingStop && signal.includes('BUY')) {
+      const distPct = Indicators.pct(price, trailingStop).toFixed(2);
+      stopSuggest = {
+        stopPrice: +trailingStop.toFixed(8),
+        distancePct: distPct,
+        side: 'long'
+      };
+      desc.push(`Suggested Chandelier Trailing Stop: ${trailingStop.toFixed(8)} (${distPct}% away). Let the winner ride.`);
+    }
+
+    return {
+      signal,
+      conviction: signal === 'STRONG_BUY' ? 'strong' : (signal === 'BUY' ? 'standard' : 'none'),
+      confidence: score >= 5.0 ? 100 : (score >= 3.5 ? 75 : 0),
+      score: +score.toFixed(2),
+      indicators: {
+        breakout: { isSqueezing, isBreakingOut, volumeRatio, isVolumeSurge }
+      },
+      recommendation: desc.join(' ') || 'No breakout setup detected.',
+      stopSuggest,
+      winnersFiltered: false, // Moonshots bypass this
+      coreOnlyFiltered: false,
+      winnerTier: 'none',
+      arrays: { closes, highs, lows, bb: bbData, chandelier: chandExit },
+      calculatedAt: new Date().toISOString(),
+    };
+  },
+
   /** Return the LEVEL object for a given signal key */
   level(signalKey) {
     return this.LEVELS[signalKey] || this.LEVELS.NEUTRAL;

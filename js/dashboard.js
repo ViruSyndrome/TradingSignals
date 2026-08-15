@@ -524,14 +524,24 @@ const Dashboard = {
     if ((sig === 'BUY' || sig === 'STRONG_BUY') && signalResult?.stopSuggest) {
       const tp = signalResult.stopSuggest.takeProfitPrice;
       const sl = signalResult.stopSuggest.stopPrice;
-      const tpStr = tp < 1 ? tp.toFixed(4) : tp.toFixed(2);
       const slStr = sl < 1 ? sl.toFixed(4) : sl.toFixed(2);
-      quickTargets = `
-        <div class="quick-targets">
-          <div class="qt-tp" title="Take Profit Target">🎯 $${tpStr}</div>
-          <div class="qt-sl" title="Stop Loss Limit">🛑 $${slStr}</div>
-        </div>
-      `;
+      
+      if (tp) {
+        const tpStr = tp < 1 ? tp.toFixed(4) : tp.toFixed(2);
+        quickTargets = `
+          <div class="quick-targets">
+            <div class="qt-tp" title="Take Profit Target">🎯 $${tpStr}</div>
+            <div class="qt-sl" title="Stop Loss Limit">🛑 $${slStr}</div>
+          </div>
+        `;
+      } else {
+        quickTargets = `
+          <div class="quick-targets">
+            <div class="qt-tp" title="Trailing Stop (No Limit)">🎯 Let it ride</div>
+            <div class="qt-sl" title="Trailing Stop Loss">🛑 $${slStr}</div>
+          </div>
+        `;
+      }
     }
 
     return `
@@ -602,7 +612,7 @@ const Dashboard = {
       <div class="stop-levels" title="Place these as real orders on your exchange the moment you enter. Skipping the stop-loss is the #1 cause of large losses.">
         <div class="stop-levels-row">
           <span class="stop-chip stop-chip-sl">🛑 Stop: ${cur(s.stopPrice)} (-${s.distancePct}%)</span>
-          <span class="stop-chip stop-chip-tp">🎯 Target: ${cur(s.takeProfitPrice)} (+${s.takeProfitPct}%)</span>
+          <span class="stop-chip stop-chip-tp">🎯 Target: ${s.takeProfitPrice ? cur(s.takeProfitPrice) + ' (+' + s.takeProfitPct + '%)' : 'Trailing'}</span>
         </div>
       </div>
     `;

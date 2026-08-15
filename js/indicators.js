@@ -107,6 +107,7 @@ const Indicators = {
     const upper    = new Array(closes.length).fill(null);
     const lower    = new Array(closes.length).fill(null);
     const percentB = new Array(closes.length).fill(null);
+    const outBandWidth = new Array(closes.length).fill(null);
 
     for (let i = period - 1; i < closes.length; i++) {
       if (middle[i] === null) continue;
@@ -118,8 +119,35 @@ const Indicators = {
       lower[i]    = middle[i] - mult * sd;
       const bandWidth = upper[i] - lower[i];
       percentB[i] = bandWidth > 0 ? (closes[i] - lower[i]) / bandWidth : 0.5;
+      if (outBandWidth) outBandWidth[i] = bandWidth / middle[i]; // Normalized BBW
     }
-    return { upper, middle, lower, percentB };
+    return { upper, middle, lower, percentB, bandWidth: outBandWidth };
+  },
+
+  // ─── Chandelier Exit (Long Trailing Stop) ──────────────────────────────────
+  chandelierExit(highs, lows, closes, period = 22, mult = 3) {
+    const atr = this.atr(highs, lows, closes, period);
+    const out = new Array(closes.length).fill(null);
+    let prevExit = null;
+    
+    for (let i = period - 1; i < closes.length; i++) {
+      let highestHigh = -Infinity;
+      for (let j = i - period + 1; j <= i; j++) {
+        if (highs[j] > highestHigh) highestHigh = highs[j];
+      }
+      if (atr[i] == null) continue;
+      
+      let currentExit = highestHigh - (atr[i] * mult);
+      
+      // Ratchet logic: if we were in a long trend (close > prevExit), the stop can only go up
+      if (prevExit !== null && closes[i-1] > prevExit) {
+        currentExit = Math.max(currentExit, prevExit);
+      }
+      
+      out[i] = currentExit;
+      prevExit = currentExit;
+    }
+    return out;
   },
 
   // ─── Helpers ────────────────────────────────────────────────────────────────

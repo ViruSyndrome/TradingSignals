@@ -75,7 +75,8 @@ const Scanner = {
             let fg = 50;
             try { fg = parseInt(document.getElementById('fearGreedValue').textContent, 10) || 50; } catch(e) {}
             
-            const result = Signals.generate(closes, { highs, lows, volumes, fearGreed: fg, symbol: t.symbol.replace('USDT', ''), asset: assetInfo, ignoreWinnersFilter: true });
+            // Call the new Breakout Engine for the Moonshot scanner
+            const result = Signals.generateBreakout(closes, { highs, lows, volumes, fearGreed: fg, symbol: t.symbol.replace('USDT', ''), asset: assetInfo, ignoreWinnersFilter: true });
             if (result.signal !== 'BUY' && result.signal !== 'STRONG_BUY') return null;
 
             return {
