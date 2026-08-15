@@ -169,12 +169,14 @@ const Dashboard = {
       }
 
       const previousPrices = new Map(this.state.allAssets.map(a => [a.asset?.id, a.price]));
-      this.state.allAssets = all.map(d => ({
-        ...d,
-        signalResult: d.closes?.length > 0
-          ? Signals.generate(d.closes, { highs: d.highs, lows: d.lows, volumes: d.volumes, fearGreed: fg, symbol: d.asset?.symbol || d.asset?.id, marketRegime })
-          : null,
-      }));
+      this.state.allAssets = all.map(d => {
+        let signalResult = null;
+        if (d.closes?.length > 0) {
+          const opts = { highs: d.highs, lows: d.lows, volumes: d.volumes, fearGreed: fg, symbol: d.asset?.symbol || d.asset?.id, marketRegime };
+          signalResult = d.asset?.isMoonshot ? Signals.generateBreakout(d.closes, opts) : Signals.generate(d.closes, opts);
+        }
+        return { ...d, signalResult };
+      });
       this.state.updatedAssetIds = new Set(this.state.allAssets
         .filter(a => !previousPrices.size || (previousPrices.has(a.asset?.id) && previousPrices.get(a.asset.id) !== a.price))
         .map(a => a.asset.id));
@@ -221,12 +223,14 @@ const Dashboard = {
       const { ts, assets } = JSON.parse(raw);
       if (!Array.isArray(assets) || !assets.length) return false;
       const fg = this._fgValue();
-      this.state.allAssets = assets.map(d => ({
-        ...d,
-        signalResult: d.closes?.length > 0
-          ? Signals.generate(d.closes, { highs: d.highs, lows: d.lows, volumes: d.volumes, fearGreed: fg, symbol: d.asset?.symbol || d.asset?.id })
-          : null,
-      }));
+      this.state.allAssets = assets.map(d => {
+        let signalResult = null;
+        if (d.closes?.length > 0) {
+          const opts = { highs: d.highs, lows: d.lows, volumes: d.volumes, fearGreed: fg, symbol: d.asset?.symbol || d.asset?.id };
+          signalResult = d.asset?.isMoonshot ? Signals.generateBreakout(d.closes, opts) : Signals.generate(d.closes, opts);
+        }
+        return { ...d, signalResult };
+      });
       this.state.lastUpdate = new Date(ts);
       this.state.dataStale = true;
       this.state.updatedAssetIds = new Set(this.state.allAssets.map(a => a.asset.id));
@@ -695,7 +699,8 @@ const Dashboard = {
           name: id.replace('USDT_4H', '').replace('USDT', ''),
           currency: 'USD',
           icon: '🚀',
-          grafted: true // Flag it so we know it can be deleted later
+          grafted: true, // Flag it so we know it can be deleted later
+          isMoonshot: true // Ensures it gets scored by the Breakout engine on the main dash
         });
         // Trigger a background load to instantly fetch its history for the main dash
         setTimeout(() => this.loadAll(true), 10);
