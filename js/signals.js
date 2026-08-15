@@ -195,6 +195,18 @@ const Signals = {
       }
     }
 
+    // ── 7. Market Regime (BTC) Gate (dampener, max −1.5) ─────────────
+    // If the broader market (BTC) is in a macro downtrend, altcoin buy signals are highly risky.
+    if (opts.marketRegime === 'bear' && symbol !== 'BTC' && symbol !== 'BTCUSDT' && score > 0) {
+      const s = -1.5;
+      score += s;
+      indDetails.regime = {
+        signal: 'SELL',
+        description: 'Market Regime is Bearish (BTC < 50 SMA). Altcoin breakouts are likely traps.',
+        score: s
+      };
+    }
+
     // ── Confidence: % of sub-indicators agreeing with direction ──────────────
     const dir = score > 0.5 ? 'bull' : score < -0.5 ? 'bear' : 'flat';
     const indArr = Object.values(indDetails);

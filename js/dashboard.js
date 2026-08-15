@@ -156,13 +156,23 @@ const Dashboard = {
         ...(forex.value       || []).map(d => ({ ...d, category: 'forex'       })),
       ];
 
-      // Signals now receive OHLCV + sentiment + symbol (winners filter).
+      // Signals now receive OHLCV + sentiment + symbol + marketRegime
       const fg = this._fgValue();
+      
+      let marketRegime = 'flat';
+      const btc = all.find(a => (a.asset?.symbol === 'BTCUSDT' || a.asset?.id === 'BTCUSDT') && a.closes?.length >= 50);
+      if (btc) {
+        const sma50Arr = Indicators.sma(btc.closes, 50);
+        const btcSma50 = Indicators.last(sma50Arr);
+        const btcPrice = btc.closes[btc.closes.length - 1];
+        if (btcSma50) marketRegime = btcPrice > btcSma50 ? 'bull' : 'bear';
+      }
+
       const previousPrices = new Map(this.state.allAssets.map(a => [a.asset?.id, a.price]));
       this.state.allAssets = all.map(d => ({
         ...d,
         signalResult: d.closes?.length > 0
-          ? Signals.generate(d.closes, { highs: d.highs, lows: d.lows, volumes: d.volumes, fearGreed: fg, symbol: d.asset?.symbol || d.asset?.id })
+          ? Signals.generate(d.closes, { highs: d.highs, lows: d.lows, volumes: d.volumes, fearGreed: fg, symbol: d.asset?.symbol || d.asset?.id, marketRegime })
           : null,
       }));
       this.state.updatedAssetIds = new Set(this.state.allAssets
