@@ -390,6 +390,7 @@ const Signals = {
     const bbwArr = bbData.bandWidth; // Normalized BBW array
     const sma50Arr = Indicators.sma(closes, 50);
     const ema9Arr = Indicators.ema(closes, 9);
+    const rsiArr = Indicators.rsi(closes, 14);
     
     // ── Current Values ───────────────────────────────────────────
     const price = Indicators.last(closes);
@@ -397,6 +398,7 @@ const Signals = {
     const bbLower = Indicators.last(bbData.lower);
     const bbw = Indicators.last(bbwArr);
     const ema9 = Indicators.last(ema9Arr);
+    const rsiVal = Indicators.last(rsiArr);
     
     // Average BBW over last 20 days to detect compression
     const bbwAvg20 = Indicators.avgLast(bbwArr, 20);
@@ -477,14 +479,15 @@ const Signals = {
       confidence: score >= 5.0 ? 100 : (score >= 3.5 ? 75 : 0),
       score: +score.toFixed(2),
       indicators: {
-        breakout: { isSqueezing, isBreakingOut, volumeRatio, isVolumeSurge }
+        breakout: { isSqueezing, isBreakingOut, volumeRatio, isVolumeSurge },
+        rsi: { value: rsiVal !== null ? Math.round(rsiVal) : null }
       },
       recommendation: desc.join(' ') || 'No breakout setup detected.',
       stopSuggest,
       winnersFiltered: false, // Moonshots bypass this
       coreOnlyFiltered: false,
       winnerTier: 'none',
-      arrays: { closes, highs, lows, bb: bbData, chandelier: chandExit },
+      arrays: { closes, highs, lows, bb: bbData, chandelier: chandExit, rsi: rsiArr },
       calculatedAt: new Date().toISOString(),
     };
   },
