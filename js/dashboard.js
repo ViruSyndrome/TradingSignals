@@ -48,7 +48,8 @@ const Dashboard = {
           name: normId.replace('USDT_4H', '').replace('USDT', ''),
           currency: 'USD',
           icon: '🚀',
-          grafted: true
+          grafted: true,
+          isMoonshot: true
         });
       }
     });
@@ -584,7 +585,7 @@ const Dashboard = {
             <span class="ind-val">${rsi}</span>
           </div>
           <div class="ind-chip" title="Composite Score: Weighted blend of trend, momentum, volatility and volume. Positive = bullish bias, negative = bearish bias.">
-            <span class="ind-label">Score</span>
+            <span class="ind-label">${asset.isMoonshot || asset.id.includes('_4H') ? 'Breakout' : 'Score'}</span>
             <span class="ind-val">${score > 0 ? '+' : ''}${score}</span>
           </div>
           <div class="ind-chip" title="Confidence: % of directional indicators that agree with the current signal direction. Higher is better.">
