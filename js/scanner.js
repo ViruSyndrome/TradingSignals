@@ -74,7 +74,7 @@ const Scanner = {
           try {
             const klinesRes = await fetch(`https://api.binance.com/api/v3/klines?symbol=${t.symbol}&interval=4h&limit=250`);
             const klines = await klinesRes.json();
-            const closedKlines = Array.isArray(klines) ? klines.slice(0, -1) : [];
+            const closedKlines = Array.isArray(klines) ? klines : [];
             
             if (closedKlines.length < 200) return null; // Ignore if not enough closed history
             
