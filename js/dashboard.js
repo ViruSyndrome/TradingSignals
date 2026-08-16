@@ -593,6 +593,9 @@ const Dashboard = {
         const score = a.signalResult?.score ?? 0;
         return conf >= gate && score > 0;
       });
+    } else if (cat === 'trending') {
+      // 24h positive trend, sorted by highest change
+      assets = assets.filter(a => a.change24h > 0).sort((a, b) => b.change24h - a.change24h);
     } else if (cat !== 'all') {
       assets = assets.filter(a => a.category === cat);
     }
