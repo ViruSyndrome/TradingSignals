@@ -65,6 +65,11 @@ const Dashboard = {
     await this._fetchFearGreed();  // sentiment feeds the signal engine — fetch first
     await this.loadAll(true);
     this._scheduleRefresh();
+
+    // Auto-scan moonshots in the background every 5 minutes (300,000 ms)
+    this.state.moonshotTimer = setInterval(() => this._autoScanMoonshots(), 5 * 60 * 1000);
+    // Kick off an initial background scan 5 seconds after the app loads
+    setTimeout(() => this._autoScanMoonshots(), 5000);
   },
 
   // Hide filter tabs for asset categories that are empty in CONFIG.
@@ -247,6 +252,51 @@ const Dashboard = {
       this.state.updatedAssetIds = new Set(this.state.allAssets.map(a => a.asset.id));
       return true;
     } catch (e) { return false; }
+  },
+
+  // ─── Background Auto-Scanner ────────────────────────────────────────────────
+  async _autoScanMoonshots() {
+    try {
+      console.log('[Moonshots] Background scan starting...');
+      // Run the scanner silently (no progress callback needed)
+      const setups = await Scanner.scanMarket();
+      if (!setups || setups.length === 0) {
+        console.log('[Moonshots] Background scan complete: 0 setups found.');
+        return;
+      }
+      
+      let newlyAdded = false;
+      setups.forEach(s => {
+        const id = s.asset.id;
+        if (!this.state.watchlist.includes(id)) {
+          this.state.watchlist.push(id);
+          newlyAdded = true;
+          
+          // Inject into CONFIG immediately so the next loadAll() picks it up
+          if (!CONFIG.assets.crypto.some(a => a.id === id)) {
+            CONFIG.assets.crypto.push({
+              id: id,
+              symbol: s.asset.symbol,
+              name: s.asset.name,
+              currency: 'USD',
+              icon: '🚀',
+              grafted: true,
+              isMoonshot: true
+            });
+          }
+        }
+      });
+      
+      if (newlyAdded) {
+        this._saveWatchlist();
+        this.loadAll(); // Re-render the dashboard to show the new coins
+        console.log(`[Moonshots] Background scan found ${setups.length} setups and added new ones to the dashboard!`);
+      } else {
+        console.log('[Moonshots] Background scan complete: No new setups (already tracking existing ones).');
+      }
+    } catch (err) {
+      console.error('[Moonshots] Auto-scan failed:', err);
+    }
   },
 
   // ─── Refresh timer ───────────────────────────────────────────────────────────
