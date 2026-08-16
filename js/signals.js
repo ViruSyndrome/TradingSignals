@@ -429,7 +429,8 @@ const Signals = {
     
     // 1. Core Breakout logic (Price crossing above Upper Band)
     const breakoutBuffer = price > bbUpper ? (price - bbUpper) / bbUpper : 0;
-    const isBreakingOut = price > bbUpper && priorClose !== null && previousBbUpper !== null && priorClose > previousBbUpper && breakoutBuffer >= 0.005 && (priorSwingHigh === null || price > priorSwingHigh);
+    // We want the PREVIOUS close to be inside the bands, and the CURRENT close to break out above them.
+    const isBreakingOut = price > bbUpper && priorClose !== null && previousBbUpper !== null && priorClose <= previousBbUpper && breakoutBuffer >= 0.005 && (priorSwingHigh === null || price > priorSwingHigh);
     if (isBreakingOut) {
       score += 2;
       desc.push("Closed above the upper Bollinger Band and prior swing high.");
