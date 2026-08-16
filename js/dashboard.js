@@ -1122,7 +1122,7 @@ const Dashboard = {
           progress.textContent = msg;
         });
         
-        progress.textContent = `Found ${setups.length} volatile setups!`;
+        progress.textContent = `Found ${setups.length} experimental setups. Paper-test before trading.`;
         
         if (setups.length === 0) {
           grid.innerHTML = '<p class="no-data">No explosive setups found right now. Try again later.</p>';

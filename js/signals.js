@@ -395,10 +395,15 @@ const Signals = {
     // ── Current Values ───────────────────────────────────────────
     const price = Indicators.last(closes);
     const bbUpper = Indicators.last(bbData.upper);
+    const previousBbUpper = bbData.upper.length >= 2 ? bbData.upper[bbData.upper.length - 2] : null;
     const bbLower = Indicators.last(bbData.lower);
     const bbw = Indicators.last(bbwArr);
     const ema9 = Indicators.last(ema9Arr);
     const rsiVal = Indicators.last(rsiArr);
+    const lookbackStart = Math.max(0, closes.length - 21);
+    const priorHighs = highs?.slice(lookbackStart, -1).filter(Number.isFinite) || [];
+    const priorSwingHigh = priorHighs.length ? Math.max(...priorHighs) : null;
+    const priorClose = closes.length >= 2 ? closes[closes.length - 2] : null;
     
     // Average BBW over last 20 days to detect compression
     const bbwAvg20 = Indicators.avgLast(bbwArr, 20);
@@ -411,13 +416,11 @@ const Signals = {
     let volumeRatio = 1;
     if (volumes && volumes.length >= 20) {
       const currentVol = volumes[volumes.length - 1];
-      const prevVol = volumes[volumes.length - 2];
       const avgVol = Indicators.avgLast(volumes.slice(0, -2), 20);
       if (avgVol && avgVol > 0) {
         const curRatio = currentVol / avgVol;
-        const prevRatio = prevVol / avgVol;
-        volumeRatio = Math.max(curRatio, prevRatio);
-        isVolumeSurge = volumeRatio >= 2.0; // 200% average volume
+        volumeRatio = curRatio;
+        isVolumeSurge = volumeRatio >= 1.5; // 150% average volume
       }
     }
 
@@ -425,10 +428,11 @@ const Signals = {
     let desc = [];
     
     // 1. Core Breakout logic (Price crossing above Upper Band)
-    const isBreakingOut = price > bbUpper;
+    const breakoutBuffer = price > bbUpper ? (price - bbUpper) / bbUpper : 0;
+    const isBreakingOut = price > bbUpper && priorClose !== null && previousBbUpper !== null && priorClose > previousBbUpper && breakoutBuffer >= 0.005 && (priorSwingHigh === null || price > priorSwingHigh);
     if (isBreakingOut) {
       score += 2;
-      desc.push("Price has broken above the upper Bollinger Band.");
+      desc.push("Closed above the upper Bollinger Band and prior swing high.");
     }
     
     // 2. Squeeze condition (Coiled Spring)
@@ -444,7 +448,8 @@ const Signals = {
     }
 
     // 4. Trend Alignment (Don't buy falling knives)
-    if (price > ema9) {
+    const healthyBreakoutCandle = priorClose !== null && price > priorClose;
+    if (price > ema9 && healthyBreakoutCandle) {
       score += 0.5;
     } else {
       score -= 2;
@@ -470,12 +475,16 @@ const Signals = {
     
     if (trailingStop && signal.includes('BUY')) {
       const distPct = Indicators.pct(price, trailingStop).toFixed(2);
+      const riskDistance = price - trailingStop;
       stopSuggest = {
         stopPrice: +trailingStop.toFixed(8),
+        takeProfitPrice: +(price + riskDistance * 2).toFixed(8),
         distancePct: distPct,
+        takeProfitPct: +((riskDistance * 2 / price) * 100).toFixed(2),
+        riskMultiple: 2,
         side: 'long'
       };
-      desc.push(`Suggested Chandelier Trailing Stop: ${trailingStop.toFixed(8)} (${distPct}% away). Let the winner ride.`);
+      desc.push(`Suggested Chandelier stop: ${trailingStop.toFixed(8)} (${distPct}% away) with a 2R partial-profit target.`);
     }
 
     return {
@@ -484,11 +493,18 @@ const Signals = {
       confidence: score >= 5.0 ? 100 : (score >= 3.5 ? 75 : 0),
       score: +score.toFixed(2),
       indicators: {
-        breakout: { isSqueezing, isBreakingOut, volumeRatio, isVolumeSurge },
+        breakout: { isSqueezing, isBreakingOut, breakoutBuffer: +(breakoutBuffer * 100).toFixed(2), priorSwingHigh, healthyBreakoutCandle, volumeRatio, isVolumeSurge },
         rsi: { value: rsiVal !== null ? Math.round(rsiVal) : null }
       },
       recommendation: desc.join(' ') || 'No breakout setup detected.',
       stopSuggest,
+      riskPlan: stopSuggest ? {
+        riskMultiple: 2,
+        suggestedAccountRiskPct: 1,
+        maxConcurrentPositions: 2,
+        stopPrice: stopSuggest.stopPrice,
+        takeProfitPrice: stopSuggest.takeProfitPrice,
+      } : null,
       winnersFiltered: false, // Moonshots bypass this
       coreOnlyFiltered: false,
       winnerTier: 'none',

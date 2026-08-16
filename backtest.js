@@ -38,8 +38,9 @@ function parseArgs() {
   const costSweep = args.includes('--cost-sweep');
   const intervalArg = args.find(a => a.startsWith('--interval='));
   const interval = intervalArg ? intervalArg.split('=')[1] : '1d';
-  const useTrailingExit = args.includes('--exit=trailing');
-  return { walkForward, walkForwardRolling, costSweep, interval, useTrailingExit };
+  const moonshots = args.includes('--moonshots');
+  const useTrailingExit = args.includes('--exit=trailing') || moonshots;
+  return { walkForward, walkForwardRolling, costSweep, interval, moonshots, useTrailingExit };
 }
 
 const PARSED_ARGS = parseArgs();
@@ -79,13 +80,14 @@ async function fetchHistory(symbol, days = 250) {
   const res = await fetch(url);
   const data = await res.json();
   if (!Array.isArray(data) || data.length === 0) throw new Error(`No data for ${symbol}`);
+  const closedData = data.length > 1 ? data.slice(0, -1) : data;
   return {
-    opens:      data.map(r => parseFloat(r[1])),
-    highs:      data.map(r => parseFloat(r[2])),
-    lows:       data.map(r => parseFloat(r[3])),
-    closes:     data.map(r => parseFloat(r[4])),
-    volumes:    data.map(r => parseFloat(r[5])),
-    timestamps: data.map(r => r[0]),
+    opens:      closedData.map(r => parseFloat(r[1])),
+    highs:      closedData.map(r => parseFloat(r[2])),
+    lows:       closedData.map(r => parseFloat(r[3])),
+    closes:     closedData.map(r => parseFloat(r[4])),
+    volumes:    closedData.map(r => parseFloat(r[5])),
+    timestamps: closedData.map(r => r[0]),
   };
 }
 
@@ -148,6 +150,9 @@ function backtestSymbol(asset, ohlcv, btcHistory, windowDef, feeRate, slippage, 
         if (chandExit && (!position.stopLoss || chandExit > position.stopLoss)) {
           position.stopLoss = chandExit; // Ratchet up
         }
+        if (position.riskDistance && position.maxPriceSeen >= position.entryPrice + position.riskDistance) {
+          position.stopLoss = Math.max(position.stopLoss || 0, position.entryPrice);
+        }
       }
 
       if (position.stopLoss && lows && lows[i] <= position.stopLoss) exitReason = 'STOP_LOSS';
@@ -158,11 +163,12 @@ function backtestSymbol(asset, ohlcv, btcHistory, windowDef, feeRate, slippage, 
       if (exitReason) {
         const rawExit = ohlcv.opens[nextOpenDay];
         if (rawExit) {
+          const grossReturnPct = ((rawExit - position.entryPrice) / position.entryPrice) * 100;
           const netEntry = position.entryPrice * (1 + costPerSide);
           const netExit = rawExit * (1 - costPerSide);
           const returnPct = ((netExit - netEntry) / netEntry) * 100;
           const maxExcursionPct = ((position.maxPriceSeen - position.entryPrice) / position.entryPrice) * 100;
-          trades.push({ ...position, exitPrice: rawExit, exitReason, returnPct, maxExcursionPct, win: returnPct > 0, holdDays });
+          trades.push({ ...position, entrySignal: position.signal, entryScore: position.score, entryConf: position.confidence, exitPrice: rawExit, exitReason, grossReturnPct, returnPct, maxExcursionPct, win: returnPct > 0, holdDays });
           position = null;
         }
       }
@@ -175,10 +181,12 @@ function backtestSymbol(asset, ohlcv, btcHistory, windowDef, feeRate, slippage, 
         const atrArr = Indicators.atr(slicedHighs, slicedLows, slicedCloses, 14);
         const atr = atrArr ? Indicators.last(atrArr) : null;
         position = { 
-          entryPrice, entryDay: nextOpenDay, signal: sig, 
+          entryPrice, entryDay: nextOpenDay, signal: sig, score: result.score, confidence: result.confidence,
           stopLoss: atr ? entryPrice - (atr * STOP_MULT) : null,
-          takeProfit: useTrailingExit ? null : (atr ? entryPrice + (atr * RRR) : null),
-          maxPriceSeen: entryPrice
+          takeProfit: atr ? entryPrice + (atr * RRR) : null,
+          riskDistance: atr ? atr * STOP_MULT : null,
+          maxPriceSeen: entryPrice,
+          entryRegime: marketRegime
         };
       }
     }
@@ -453,6 +461,43 @@ function printCostLine(feeRate, slippage) {
   console.log(`  Costs: ${(feeRate * 100).toFixed(2)}% fee + ${(slippage * 100).toFixed(2)}% slippage per side (${costRoundTripPct}% round-trip)`);
 }
 
+async function runMoonshotBacktest(histories, assets, feeRate, slippage) {
+  const btcHistory = histories.BTC;
+  const trades = [];
+  const assetResults = [];
+  console.log('\n─── Moonshot Breakout Results (closed 4H candles) ─────────────');
+  for (const asset of assets) {
+    const ohlcv = histories[asset.symbol];
+    if (!ohlcv || ohlcv.closes.length < 80) continue;
+    const assetTrades = backtestSymbol(asset, ohlcv, btcHistory, {
+      trainStart: MIN_HISTORY,
+      testEnd: ohlcv.closes.length - 2,
+    }, feeRate, slippage, true);
+    assetTrades.forEach(t => { t.symbol = asset.symbol; });
+    trades.push(...assetTrades);
+    const summary = summarizeAssetTrades(asset.symbol, assetTrades);
+    assetResults.push(summary);
+    if (assetTrades.length) console.log(`  ${asset.symbol.padEnd(8)} | ${summary.trades} trades | Win: ${summary.winRate}% | Avg: ${summary.avgReturn}%`);
+  }
+
+  const stats = computeStats(trades, 'returnPct');
+  if (!stats) {
+    console.log('  No Moonshot trades generated.');
+    return;
+  }
+  printStatsBlock('Moonshot Aggregate', stats, computeStats(trades, 'grossReturnPct'));
+  printBySignalBlock('Moonshot By Entry Signal', stats);
+  console.log('\n  Moonshot By Market Regime');
+  for (const regime of ['bull', 'flat', 'bear']) {
+    const regimeTrades = trades.filter(t => t.entryRegime === regime);
+    const regimeStats = computeStats(regimeTrades, 'returnPct');
+    if (regimeStats) console.log(`  ${regime.padEnd(8)} | ${regimeStats.totalTrades} trades | Win: ${regimeStats.winRate} | Avg: ${regimeStats.avgReturn}`);
+  }
+  assetResults.sort((a, b) => parseFloat(b.avgReturn) - parseFloat(a.avgReturn));
+  console.log('\n  Moonshot Asset Leaderboard');
+  assetResults.forEach(r => console.log(`  ${parseFloat(r.avgReturn) >= 0 ? '🟢' : '🔴'} ${r.symbol.padEnd(8)} | ${r.trades} trades | Win: ${r.winRate}% | Avg: ${r.avgReturn}%`));
+}
+
 function runWalkForwardWindow(histories, assets, windowDef, feeRate, slippage) {
   const trainAssetResults = [];
   const trainTrades = [];
@@ -518,6 +563,9 @@ async function main() {
   console.log('  Replaying 250 days of history against your signal engine');
   console.log('  Entry: BUY/STRONG_BUY signal at close, fill at next-day open');
   console.log('  Exit trigger: SELL/STRONG_SELL/SL/TP/HOLD on day N, fill at day N+1 open');
+  if (args.moonshots) {
+    console.log('  Mode: Moonshot breakout validation on closed 4H candles');
+  }
   if (args.walkForward) {
     console.log('  Mode: Walk-Forward (Train days 0-149, Test days 150-249)');
   } else if (args.walkForwardRolling) {
@@ -536,6 +584,20 @@ async function main() {
       console.log(`Failed to fetch ${asset.symbol}: ${e.message}`);
     }
     await new Promise(r => setTimeout(r, 150));
+  }
+
+  if (args.moonshots) {
+    for (const scenario of scenarios) {
+      console.log('\n═══════════════════════════════════════════════════════════════');
+      console.log(`  Moonshot Scenario: ${scenario.label}`);
+      printCostLine(scenario.feeRate, scenario.slippage);
+      console.log('═══════════════════════════════════════════════════════════════');
+      await runMoonshotBacktest(histories, CONFIG.assets.crypto, scenario.feeRate, scenario.slippage);
+    }
+    console.log('\n═══════════════════════════════════════════════════════════════');
+    console.log('  Moonshot validation complete.');
+    console.log('═══════════════════════════════════════════════════════════════\n');
+    return;
   }
 
   if (args.walkForward || args.walkForwardRolling) {
