@@ -581,11 +581,12 @@ const Dashboard = {
     if (cat === 'watchlist') {
       assets = assets.filter(a => this.state.watchlist.includes(a.asset.id));
     } else if (cat === 'oversold') {
+      // Just check for deeply oversold RSI (<= 35). 
+      // We removed the 'macroBullish' requirement because an asset dropping hard enough to hit 30 RSI will almost always break its 50 SMA.
       assets = assets.filter(a => {
         const rsi = a.signalResult?.indicators?.rsi?.value;
-        const macroBullish = !!a.signalResult?.indicators?.movingAvg?.macroBullish;
-        return rsi < 30 && macroBullish;
-      });
+        return rsi && rsi <= 35;
+      }).sort((a, b) => a.signalResult.indicators.rsi.value - b.signalResult.indicators.rsi.value);
     } else if (cat === 'highconf') {
       const gate = CONFIG.refresh?.strongConfidenceGate || 75;
       assets = assets.filter(a => {
