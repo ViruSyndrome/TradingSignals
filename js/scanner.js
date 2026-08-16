@@ -41,7 +41,7 @@ const Scanner = {
         const score = t => t.volatility * Math.log10(Math.max(parseFloat(t.quoteVolume), 1));
         return score(b) - score(a);
       });
-      const top30 = withVol.slice(0, 60);
+      const top30 = withVol;
 
       let marketRegime = 'flat';
       try {
@@ -63,7 +63,7 @@ const Scanner = {
       const results = [];
       let completed = 0;
 
-      if (onProgress) onProgress(`Deep scanning top ${top30.length} high-volatility pairs...`);
+      if (onProgress) onProgress(`Deep scanning all ${top30.length} high-volatility pairs...`);
 
       // Process in batches of 5 to respect Binance rate limits and browser connections
       const chunkSize = 5;
