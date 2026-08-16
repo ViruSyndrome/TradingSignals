@@ -531,13 +531,23 @@ const Dashboard = {
     const el = document.getElementById('topOpportunities');
     if (!el) return;
 
-    // Rank by Absolute Math Score and Confidence
-    const valid = [...this.state.allAssets].filter(a => a.signalResult && a.closes?.length > 0);
+    // Rank by Absolute Math Score and Confidence, but ONLY show actual BUY signals
+    const valid = [...this.state.allAssets].filter(a => {
+      const s = a.signalResult?.signal;
+      return a.closes?.length > 0 && (s === 'BUY' || s === 'STRONG_BUY');
+    });
+    
     this._sortAssets(valid);
     const ranked = valid.slice(0, 4);
 
     if (ranked.length === 0) {
-      el.innerHTML = '<p class="no-data">Loading opportunities…</p>';
+      el.innerHTML = `
+        <div style="grid-column: 1 / -1; padding: 2rem; text-align: center; color: var(--text-muted); background: var(--surface-2); border-radius: 8px;">
+          <div style="font-size: 2rem; margin-bottom: 1rem;">🛡️</div>
+          <h3 style="margin-bottom: 0.5rem;">No Strong Setups Found</h3>
+          <p>The market is currently hostile or choppy. The algorithm is protecting your capital.<br>Cash (USDT) is the safest position right now.</p>
+        </div>
+      `;
       return;
     }
 
