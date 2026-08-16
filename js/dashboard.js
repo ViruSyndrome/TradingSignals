@@ -256,12 +256,18 @@ const Dashboard = {
 
   // ─── Background Auto-Scanner ────────────────────────────────────────────────
   async _autoScanMoonshots() {
+    const statusEl = document.getElementById('moonshotScanStatus');
     try {
       console.log('[Moonshots] Background scan starting...');
+      if (statusEl) statusEl.innerHTML = '<span class="live-dot" style="background:var(--accent)"></span> Scanning Market...';
+      
       // Run the scanner silently (no progress callback needed)
       const setups = await Scanner.scanMarket();
+      
+      const timeStr = new Date().toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit' });
       if (!setups || setups.length === 0) {
         console.log('[Moonshots] Background scan complete: 0 setups found.');
+        if (statusEl) statusEl.innerHTML = `🚀 Last scan: ${timeStr} (0 found)`;
         return;
       }
       
@@ -291,11 +297,14 @@ const Dashboard = {
         this._saveWatchlist();
         this.loadAll(); // Re-render the dashboard to show the new coins
         console.log(`[Moonshots] Background scan found ${setups.length} setups and added new ones to the dashboard!`);
+        if (statusEl) statusEl.innerHTML = `🚀 Last scan: ${timeStr} (<b style="color:var(--pos)">+${setups.length} found!</b>)`;
       } else {
         console.log('[Moonshots] Background scan complete: No new setups (already tracking existing ones).');
+        if (statusEl) statusEl.innerHTML = `🚀 Last scan: ${timeStr} (${setups.length} found, already tracking)`;
       }
     } catch (err) {
       console.error('[Moonshots] Auto-scan failed:', err);
+      if (statusEl) statusEl.innerHTML = `🚀 Auto-Scan Failed`;
     }
   },
 
