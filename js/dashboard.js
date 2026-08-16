@@ -82,7 +82,7 @@ const Dashboard = {
     };
     document.querySelectorAll('.filter-tab').forEach(tab => {
       const cat = tab.dataset.cat;
-      if (cat && cat !== 'all' && cat !== 'watchlist' && cat !== 'oversold' && cat !== 'highconf' && (!map[cat] || map[cat].length === 0)) {
+      if (cat && cat !== 'all' && cat !== 'watchlist' && cat !== 'oversold' && cat !== 'highconf' && cat !== 'trending' && (!map[cat] || map[cat].length === 0)) {
         tab.style.display = 'none';
       }
     });
