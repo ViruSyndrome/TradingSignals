@@ -1221,11 +1221,11 @@ const Dashboard = {
         this.state.activeSignalFilter = null; // reset filter
       } else {
         this.state.activeSignalFilter = sig;
+        // Auto-scroll to the asset grid ONLY when actively selecting a new filter
+        document.getElementById('assetGrid')?.scrollIntoView({ behavior: 'smooth', block: 'start' });
       }
       this._renderSummaryBar();
       this._renderAssetGrid();
-      // Auto-scroll to the asset grid
-      document.getElementById('assetGrid')?.scrollIntoView({ behavior: 'smooth', block: 'start' });
     });
 
     // Modal close
