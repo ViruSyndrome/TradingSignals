@@ -21,6 +21,7 @@ const Dashboard = {
     notifGranted:  false,
     watchlist:     JSON.parse(localStorage.getItem('trading_watchlist') || '[]'),
     fearGreed:     null,
+    marketRegime: 'unknown',
   },
 
   // ─── Boot ────────────────────────────────────────────────────────────────────
@@ -168,6 +169,7 @@ const Dashboard = {
         const btcPrice = btc.closes[btc.closes.length - 1];
         if (btcSma50) marketRegime = btcPrice > btcSma50 ? 'bull' : 'bear';
       }
+      this.state.marketRegime = marketRegime;
 
       const previousPrices = new Map(this.state.allAssets.map(a => [a.asset?.id, a.price]));
       this.state.allAssets = all.map(d => {
@@ -191,6 +193,8 @@ const Dashboard = {
       if (!silent) this._setLoading(false); // Only clear UI spinner if not silent
       this._persistSnapshot();
       this._render();
+      this._autoResolvePaperPositions();
+      this._updateMoonshotJournal();
       this._refreshOpenModal();
       if (!silent) this._showToast(anyOk ? 'Data refreshed ✓' : 'Fetch failed — showing last known data', anyOk ? 'success' : 'warning');
     } catch (err) {
@@ -224,10 +228,16 @@ const Dashboard = {
       const { ts, assets } = JSON.parse(raw);
       if (!Array.isArray(assets) || !assets.length) return false;
       const fg = this._fgValue();
+      const btc = assets.find(a => (a.asset?.symbol === 'BTCUSDT' || a.asset?.id === 'BTCUSDT') && a.closes?.length >= 50);
+      if (btc) {
+        const btcSma50 = Indicators.last(Indicators.sma(btc.closes, 50));
+        const btcPrice = btc.closes[btc.closes.length - 1];
+        this.state.marketRegime = btcSma50 ? (btcPrice > btcSma50 ? 'bull' : 'bear') : 'flat';
+      }
       this.state.allAssets = assets.map(d => {
         let signalResult = null;
         if (d.closes?.length > 0) {
-          const opts = { highs: d.highs, lows: d.lows, volumes: d.volumes, fearGreed: fg, symbol: d.asset?.symbol || d.asset?.id };
+          const opts = { highs: d.highs, lows: d.lows, volumes: d.volumes, fearGreed: fg, symbol: d.asset?.symbol || d.asset?.id, marketRegime: this.state.marketRegime };
           signalResult = d.asset?.isMoonshot ? Signals.generateBreakout(d.closes, opts) : Signals.generate(d.closes, opts);
         }
         return { ...d, signalResult };
@@ -295,6 +305,8 @@ const Dashboard = {
     }
     const seconds = Math.max(0, Math.ceil((this.state.refreshDueAt - Date.now()) / 1000));
     text.textContent = `Live · ${seconds}s`;
+    const freshness = document.querySelector('.freshness-item .summary-value');
+    if (freshness) freshness.textContent = this._freshnessText();
   },
 
   // ─── Summary bar at top ──────────────────────────────────────────────────────
@@ -356,7 +368,74 @@ const Dashboard = {
         <span class="summary-value" style="color:${this._fgColor(this.state.fearGreed.value)}">${this.state.fearGreed.value_classification}</span>
         <span class="summary-label">Fear & Greed: ${this.state.fearGreed.value}/100</span>
       </div>` : ''}
+      <div class="summary-item regime-item" title="BTC market regime controls how aggressively altcoin Buy signals are trusted.">
+        <span class="summary-value">${this.state.marketRegime === 'bull' ? '🟢 Bull' : this.state.marketRegime === 'bear' ? '🔴 Bear' : '🟡 Flat'}</span>
+        <span class="summary-label">BTC Regime · Altcoins ${this.state.marketRegime === 'bear' ? 'Restricted' : 'Open'}</span>
+      </div>
+      <div class="summary-item freshness-item" title="Age of the latest successful market-data refresh.">
+        <span class="summary-value">${this._freshnessText()}</span>
+        <span class="summary-label">Signal Freshness</span>
+      </div>
     `;
+  },
+
+  _freshnessText() {
+    if (!this.state.lastUpdate) return 'Waiting';
+    const age = Math.max(0, Math.floor((Date.now() - this.state.lastUpdate.getTime()) / 1000));
+    if (this.state.dataStale) return 'Stale';
+    return age < 60 ? `${age}s ago` : `${Math.floor(age / 60)}m ago`;
+  },
+
+  _autoResolvePaperPositions() {
+    if (!window.Portfolio) return;
+    const positions = [...Portfolio.getState().positions];
+    positions.forEach(pos => {
+      const live = this.state.allAssets.find(a => a.asset.id === pos.assetId);
+      const price = live?.price;
+      if (!Number.isFinite(price)) return;
+      let reason = null;
+      if (pos.stopPrice && price <= pos.stopPrice) reason = 'STOP LOSS';
+      else if (pos.takeProfitPrice && price >= pos.takeProfitPrice) reason = 'TAKE PROFIT';
+      if (!reason) return;
+      const result = Portfolio.sell(pos.tradeId, price, reason);
+      if (result.success) this._showToast(`${pos.symbol}: ${reason} recorded (${result.pnl >= 0 ? '+' : ''}$${result.pnl.toFixed(2)})`, result.pnl >= 0 ? 'success' : 'warning');
+    });
+    this._renderPortfolio();
+  },
+
+  async _updateMoonshotJournal() {
+    const key = 'trading_moonshot_journal_v1';
+    let journal;
+    try { journal = JSON.parse(localStorage.getItem(key) || '[]'); } catch (e) { return; }
+    const open = journal.filter(entry => entry.status === 'OPEN_PAPER_TEST');
+    if (!open.length) return;
+    try {
+      const symbols = JSON.stringify([...new Set(open.map(entry => `${entry.symbol}USDT`))]);
+      const res = await fetch(`https://api.binance.com/api/v3/ticker/price?symbols=${encodeURIComponent(symbols)}`);
+      const tickers = await res.json();
+      const prices = new Map((Array.isArray(tickers) ? tickers : []).map(t => [t.symbol.replace('USDT', ''), Number(t.price)]));
+      const now = Date.now();
+      journal = journal.map(entry => {
+        if (entry.status !== 'OPEN_PAPER_TEST') return entry;
+        const current = prices.get(entry.symbol);
+        if (!Number.isFinite(current)) return entry;
+        const ageHours = (now - new Date(entry.scannedAt).getTime()) / 3600000;
+        const returnPct = ((current - entry.entryPrice) / entry.entryPrice) * 100;
+        const outcomes = { ...entry.outcomes };
+        if (ageHours >= 1 && outcomes.oneHour === null) outcomes.oneHour = +returnPct.toFixed(2);
+        if (ageHours >= 4 && outcomes.fourHour === null) outcomes.fourHour = +returnPct.toFixed(2);
+        if (ageHours >= 24 && outcomes.oneDay === null) outcomes.oneDay = +returnPct.toFixed(2);
+        if (ageHours >= 168 && outcomes.sevenDay === null) outcomes.sevenDay = +returnPct.toFixed(2);
+        let status = entry.status;
+        if (entry.stopPrice && current <= entry.stopPrice) status = 'STOPPED_OUT';
+        else if (entry.takeProfitPrice && current >= entry.takeProfitPrice) status = 'TARGET_REACHED';
+        else if (ageHours >= 168) status = 'COMPLETE';
+        return { ...entry, currentPrice: current, lastCheckedAt: new Date(now).toISOString(), outcomes, status };
+      });
+      localStorage.setItem(key, JSON.stringify(journal.slice(0, 500)));
+    } catch (e) {
+      console.warn('[Moonshots] Journal update failed:', e.message);
+    }
   },
 
   // ─── Fear & Greed color helper ────────────────────────────────────────────────
@@ -483,18 +562,20 @@ const Dashboard = {
 
   _sortAssets(assets) {
     assets.sort((a, b) => {
-      // 1. Sort by Absolute Math Score
-      const scoreDiff = (b.signalResult?.score ?? 0) - (a.signalResult?.score ?? 0);
-      if (scoreDiff !== 0) return scoreDiff;
-      
-      // 3. Sort by Confidence
+      const tierDiff = this._winnerTierRank(a.signalResult?.winnerTier) - this._winnerTierRank(b.signalResult?.winnerTier);
+      if (tierDiff !== 0) return tierDiff;
+
+      const signalRank = { STRONG_BUY: 0, BUY: 1, NEUTRAL: 2, SELL: 3, STRONG_SELL: 4 };
+      const signalDiff = (signalRank[a.signalResult?.signal] ?? 5) - (signalRank[b.signalResult?.signal] ?? 5);
+      if (signalDiff !== 0) return signalDiff;
+
       const confDiff = (b.signalResult?.confidence ?? 0) - (a.signalResult?.confidence ?? 0);
       if (confDiff !== 0) return confDiff;
-      
-      // 4. Tie-breaker: Trade Quality (Strong Buy > Buy)
+
       const qa = this._tradeQuality(a.signalResult).rank;
       const qb = this._tradeQuality(b.signalResult).rank;
-      return qa - qb;
+      if (qa !== qb) return qa - qb;
+      return (b.signalResult?.score ?? 0) - (a.signalResult?.score ?? 0);
     });
   },
 
@@ -530,6 +611,10 @@ const Dashboard = {
       const tp = signalResult.stopSuggest.takeProfitPrice;
       const sl = signalResult.stopSuggest.stopPrice;
       const slStr = sl < 1 ? sl.toFixed(4) : sl.toFixed(2);
+      const riskPct = signalResult.stopSuggest.distancePct;
+      const rewardPct = signalResult.stopSuggest.takeProfitPct;
+      const rewardRisk = riskPct > 0 && rewardPct ? (rewardPct / riskPct).toFixed(1) : '–';
+      const suggestedSize = riskPct > 0 ? (10000 / (riskPct / 100)).toFixed(0) : '–';
       
       if (tp) {
         const tpStr = tp < 1 ? tp.toFixed(4) : tp.toFixed(2);
@@ -537,6 +622,7 @@ const Dashboard = {
           <div class="quick-targets">
             <div class="qt-tp" title="Take Profit Target">🎯 $${tpStr}</div>
             <div class="qt-sl" title="Stop Loss Limit">🛑 $${slStr}</div>
+            <div class="qt-meta">${rewardRisk}R · 1% risk on $10k: $${suggestedSize}</div>
           </div>
         `;
       } else {
@@ -1210,7 +1296,7 @@ const Dashboard = {
     const openTbody = document.querySelector('#openPositionsTable tbody');
     if (openTbody) {
       if (state.positions.length === 0) {
-        openTbody.innerHTML = '<tr><td colspan="7" style="text-align:center; padding:20px; color:var(--text-muted)">No open positions. Buy an asset from the dashboard to start!</td></tr>';
+        openTbody.innerHTML = '<tr><td colspan="8" style="text-align:center; padding:20px; color:var(--text-muted)">No open positions. Buy an asset from the dashboard to start!</td></tr>';
       } else {
         openTbody.innerHTML = state.positions.map(pos => {
           const liveAsset = this.state.allAssets.find(a => a.asset.id === pos.assetId);
@@ -1251,7 +1337,7 @@ const Dashboard = {
               <td>$${h.buyPrice.toFixed(4)}</td>
               <td>$${h.sellPrice.toFixed(4)}</td>
               <td><span class="pnl-badge ${pnlCls}">${pnlStr} (${h.pnlPct.toFixed(2)}%)</span></td>
-              <td style="font-size:12px; color:var(--text-muted)">${date}</td>
+              <td style="font-size:12px; color:var(--text-muted)">${h.exitReason || 'MANUAL'}<br>${date}</td>
             </tr>
           `;
         }).join('');
@@ -1266,6 +1352,9 @@ const Dashboard = {
     }
     const price = d.price;
     const valid = price > s.stopPrice && s.stopPrice > 0 && s.takeProfitPrice > price;
+    const riskPct = Number(s.distancePct) || 0;
+    const rewardPct = Number(s.takeProfitPct) || 0;
+    const rewardRisk = riskPct > 0 && rewardPct > 0 ? (rewardPct / riskPct).toFixed(1) : '–';
     const staleMinutes = d.fetchedAt ? (Date.now() - new Date(d.fetchedAt).getTime()) / 60000 : Infinity;
     const stale = !Number.isFinite(staleMinutes) || staleMinutes > 15;
     const status = !valid ? 'Invalid price relationship' : stale ? 'Refresh before placing: levels are stale' : 'OCO levels ready to review';
@@ -1282,7 +1371,7 @@ const Dashboard = {
           <span>Stop price <strong>${this._fmt(s.stopPrice, d.asset)}</strong></span>
           <span>Stop-limit <strong>${this._fmt(s.stopPrice * 0.998, d.asset)}</strong></span>
         </div>
-        <small>Use these as a sell OCO on Binance. Enter your available ${symbol} amount. ${ruleText}</small>
+        <small>Reward/risk: ${rewardRisk}R. Use these as a sell OCO on Binance. Enter your available ${symbol} amount. ${ruleText}</small>
       </div>
     `;
   },

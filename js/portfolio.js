@@ -79,7 +79,7 @@ const Portfolio = {
   /**
    * Sell an open position
    */
-  sell(tradeId, currentPrice) {
+  sell(tradeId, currentPrice, exitReason = 'MANUAL') {
     const posIndex = this._state.positions.findIndex(p => p.tradeId === tradeId);
     if (posIndex === -1) return { success: false, error: 'Position not found' };
 
@@ -100,6 +100,7 @@ const Portfolio = {
       amount: pos.amount,
       pnl: pnl,
       pnlPct: pnlPct,
+      exitReason,
       date: new Date().toISOString()
     });
 
