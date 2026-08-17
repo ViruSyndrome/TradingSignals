@@ -58,16 +58,16 @@ const CONFIG = {
     ],
 
 
-    // ─── Proven winners (backtest-validated) ─────────────────────────────────
+    // ─── Proven winners (backtest-validated, last run: 17 Aug 2026) ────────────
     // Assets that were profitable in the last full backtest (node backtest.js).
     // When signals.winnersOnlyBuys is true, BUY/STRONG_BUY signals on assets
     // NOT in this list are downgraded to NEUTRAL. Re-run the backtest monthly
     // and update this list — it reflects a 250-day window and WILL go stale.
-    // Core trio (NEAR, INJ, TRX) survived rolling walk-forward out-of-sample;
-    // LDO, TAO, UNI are marginal full-window positives kept on probation.
-    coreWinners: ['NEAR', 'INJ', 'TRX'],
-    probationWinners: ['LDO', 'TAO', 'UNI'],
-    provenWinners: ['NEAR', 'INJ', 'TRX', 'LDO', 'TAO', 'UNI'],
+    // Core: consistently profitable with >1% avg return AND >40% win rate.
+    // Probation: profitable but marginal (<1% avg return OR low win rate).
+    coreWinners: ['INJ', 'NEAR', 'TRX'],
+    probationWinners: ['THETA', 'ARB', 'RENDER', 'OP', 'TAO', 'RUNE', 'LDO', 'ETH'],
+    provenWinners: ['INJ', 'NEAR', 'TRX', 'THETA', 'ARB', 'RENDER', 'OP', 'TAO', 'RUNE', 'LDO', 'ETH'],
   },
 
   // ─── Signal engine behaviour ─────────────────────────────────────────────────
