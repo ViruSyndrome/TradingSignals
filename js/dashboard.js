@@ -74,16 +74,21 @@ const Dashboard = {
     if (window.Portfolio) Portfolio.init();
     
     // Clean, upgrade, and deduplicate the user's saved watchlist
-    let cleanWatchlist = this.state.watchlist.map(id => {
-      let normId = id.toUpperCase();
-      if (!normId.endsWith('USDT') && !normId.includes('_4H')) normId += 'USDT';
-      // If it's not a core coin and doesn't have _4H yet, upgrade it to the new _4H system
-      if (!normId.includes('_4H') && !CONFIG.assets.crypto.some(a => a.id === normId && !a.grafted)) {
-        normId += '_4H';
-      }
-      return normId;
-    });
+    // IMPORTANT: Strip out any corrupted scalper IDs (e.g. NILUSDT_5MUSDT) that got accidentally saved
+    let cleanWatchlist = this.state.watchlist
+      .filter(id => !String(id).includes('_5M') && !String(id).includes('_5MUSDT')) // remove scalper garbage
+      .map(id => {
+        let normId = id.toUpperCase();
+        if (!normId.endsWith('USDT') && !normId.includes('_4H')) normId += 'USDT';
+        // If it's not a core coin and doesn't have _4H yet, upgrade it to the new _4H system
+        if (!normId.includes('_4H') && !CONFIG.assets.crypto.some(a => a.id === normId && !a.grafted)) {
+          normId += '_4H';
+        }
+        return normId;
+      });
     this.state.watchlist = [...new Set(cleanWatchlist)]; // Remove duplicates
+    // Persist the cleaned watchlist immediately to prevent re-corruption
+    try { localStorage.setItem('trading_watchlist', JSON.stringify(this.state.watchlist)); } catch(e) {}
 
     // Inject dynamic watchlist assets (e.g. starred Moonshots) into CONFIG permanently
     this.state.watchlist.forEach(normId => {
@@ -303,14 +308,16 @@ const Dashboard = {
   SNAPSHOT_KEY: 'trading_snapshot_v1',
   _persistSnapshot() {
     try {
-      // Strip heavy indicator arrays before saving to keep localStorage small.
-      const slim = this.state.allAssets.map(a => ({
-        asset: a.asset, category: a.category,
-        price: a.price, change24h: a.change24h, change4h: a.change4h, closes: a.closes,
-        closes1D: a.closes1D, closes4H: a.closes4H,
-        highs: a.highs, lows: a.lows, volumes: a.volumes, timestamps: a.timestamps,
-        fetchedAt: a.fetchedAt, error: a.error,
-      }));
+      // Strip heavy indicator arrays and EXCLUDE scalper items (category=scalper) before saving
+      const slim = this.state.allAssets
+        .filter(a => a.category !== 'scalper') // never save scalper items to localStorage
+        .map(a => ({
+          asset: a.asset, category: a.category,
+          price: a.price, change24h: a.change24h, change4h: a.change4h, closes: a.closes,
+          closes1D: a.closes1D, closes4H: a.closes4H,
+          highs: a.highs, lows: a.lows, volumes: a.volumes, timestamps: a.timestamps,
+          fetchedAt: a.fetchedAt, error: a.error,
+        }));
       localStorage.setItem(this.SNAPSHOT_KEY, JSON.stringify({ ts: Date.now(), assets: slim }));
     } catch (e) { /* quota — ignore */ }
   },
@@ -320,14 +327,16 @@ const Dashboard = {
       if (!raw) return false;
       const { ts, assets } = JSON.parse(raw);
       if (!Array.isArray(assets) || !assets.length) return false;
+      // Filter out any scalper garbage that may have been saved by older code versions
+      const cleanAssets = assets.filter(a => a.category !== 'scalper' && !String(a.asset?.id || '').includes('_5M'));
       const fg = this._fgValue();
-      const btc = assets.find(a => (a.asset?.symbol === 'BTCUSDT' || a.asset?.id === 'BTCUSDT') && a.closes?.length >= 50);
+      const btc = cleanAssets.find(a => (a.asset?.symbol === 'BTCUSDT' || a.asset?.id === 'BTCUSDT') && a.closes?.length >= 50);
       if (btc) {
         const btcSma50 = Indicators.last(Indicators.sma(btc.closes, 50));
         const btcPrice = btc.closes[btc.closes.length - 1];
         this.state.marketRegime = btcSma50 ? (btcPrice > btcSma50 ? 'bull' : 'bear') : 'flat';
       }
-      this.state.allAssets = assets.map(d => {
+      this.state.allAssets = cleanAssets.map(d => {
         let signalResult = null;
         if (d.closes?.length > 0) {
           const opts = { highs: d.highs, lows: d.lows, closes4H: d.closes4H, volumes: d.volumes, fearGreed: fg, symbol: d.asset?.symbol || d.asset?.id, marketRegime: this.state.marketRegime, marketCap: d.marketCap, tvl: d.tvl };
