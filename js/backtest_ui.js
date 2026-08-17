@@ -20,10 +20,10 @@ class BacktestUI {
   }
 
   _populateAssets() {
-    if (!this.assetSelect || !window.CONFIG) return;
+    if (!this.assetSelect || typeof CONFIG === 'undefined') return;
     this.assetSelect.innerHTML = '';
     
-    const assets = window.CONFIG.assets.crypto;
+    const assets = CONFIG.assets.crypto;
     assets.forEach(a => {
       const opt = document.createElement('option');
       opt.value = a.id;
@@ -42,7 +42,7 @@ class BacktestUI {
       const interval = this.intervalSelect.value;
       const days = parseInt(this.daysInput.value, 10) || 250;
       
-      const asset = window.CONFIG.assets.crypto.find(a => a.id === symbolId);
+      const asset = CONFIG.assets.crypto.find(a => a.id === symbolId);
       if (!asset) throw new Error('Asset not found');
 
       // Fetch klines
@@ -108,13 +108,13 @@ class BacktestUI {
       let marketRegime = 'flat';
       if (btcCloses.length > i) {
         const btcSliced = btcCloses.slice(0, i + 1);
-        const btcSma50Arr = window.Indicators.sma(btcSliced, 50);
-        const btcSma50 = window.Indicators.last(btcSma50Arr);
+        const btcSma50Arr = Indicators.sma(btcSliced, 50);
+        const btcSma50 = Indicators.last(btcSma50Arr);
         const btcPrice = btcSliced[btcSliced.length - 1];
         if (btcSma50) marketRegime = btcPrice > btcSma50 ? 'bull' : 'bear';
       }
 
-      const result = window.Signals.generate(slicedCloses, {
+      const result = Signals.generate(slicedCloses, {
         highs: slicedHighs,
         lows: slicedLows,
         volumes: slicedVols,
@@ -133,8 +133,8 @@ class BacktestUI {
         let exitReason = null;
         let exitPrice = nextPrice;
 
-        const atrArr = window.Indicators.atr(slicedHighs, slicedLows, slicedCloses, 14);
-        const atr = window.Indicators.last(atrArr) || (todayClose * 0.05);
+        const atrArr = Indicators.atr(slicedHighs, slicedLows, slicedCloses, 14);
+        const atr = Indicators.last(atrArr) || (todayClose * 0.05);
         const stopPrice = position.entryPrice - (atr * 2.0);
         const tpPrice = position.entryPrice + (atr * 2.0 * 2.0); // 1:2 RRR
 
