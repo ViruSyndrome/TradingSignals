@@ -334,6 +334,7 @@ const Dashboard = {
               ...scalp,
               price: liveData.price,
               change24h: liveData.change24h,
+              change4h: liveData.change4h,
               closes4H: liveData.closes4H
             };
           }
