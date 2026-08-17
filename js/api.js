@@ -152,7 +152,8 @@ const API = {
     const llamaMap = new Map();
     if (Array.isArray(llamaData)) {
       for (const p of llamaData) {
-        if (p.symbol && p.tvl > 0) {
+        // Ignore dead/fake protocols with < $100k TVL to prevent them from hijacking L1 tickers (e.g. "Solana Farm" hijacking "SOL")
+        if (p.symbol && p.tvl > 100000) {
           const sym = p.symbol.toUpperCase();
           const existing = llamaMap.get(sym);
           if (!existing || p.tvl > existing.tvl) {
