@@ -25,7 +25,7 @@ const Scanner = {
         t.symbol.endsWith('USDT') && 
         tradingPairs.has(t.symbol) &&
         parseFloat(t.quoteVolume) > 2000000 &&
-        !['USDCUSDT', 'FDUSDUSDT', 'TUSDUSDT', 'EURUSDT'].includes(t.symbol)
+        !['USDCUSDT', 'FDUSDUSDT', 'TUSDUSDT', 'EURUSDT', 'SPCXBUSDT'].includes(t.symbol)
       );
 
       // Calculate daily volatility (High - Low) / Low
