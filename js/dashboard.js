@@ -28,6 +28,7 @@ const Dashboard = {
   // ─── Signal History ─────────────────────────────────────────────────────────
   SIGNAL_HISTORY_KEY: 'signal_history_v1',
   _previousSignals: new Map(),
+  _previousScalps: new Map(),
   
   _trackSignalChanges() {
     const history = this._getSignalHistory();
@@ -59,7 +60,66 @@ const Dashboard = {
     const trimmed = history.slice(0, 100);
     try {
       localStorage.setItem(this.SIGNAL_HISTORY_KEY, JSON.stringify(trimmed));
-    } catch(e) { /* quota */ }
+    } catch (e) {
+      console.warn('Failed to save signal history to localStorage', e);
+    }
+  },
+
+  _trackScalpChanges(setups) {
+    const history = this._getSignalHistory();
+    const now = new Date().toISOString();
+    const currentSetupIds = new Set();
+    
+    // Check for new or changed scalps
+    for (const s of setups) {
+      const id = s.asset?.id;
+      if (!id) continue;
+      currentSetupIds.add(id);
+      
+      const oldSignal = this._previousScalps.get(id);
+      const newSignal = s.signalResult?.signal ?? 'BUY';
+      
+      if (!oldSignal || oldSignal !== newSignal) {
+        history.unshift({
+          time: now,
+          id: id,
+          name: s.asset?.name || id,
+          symbol: (s.asset?.symbol || id) + ' (5m)',
+          icon: '⚡',
+          from: oldSignal || 'NEUTRAL',
+          to: newSignal,
+          score: s.signalResult?.score ?? 0,
+          price: s.price,
+        });
+        this._previousScalps.set(id, newSignal);
+      }
+    }
+
+    // Check for expired scalps
+    for (const [id, oldSignal] of this._previousScalps.entries()) {
+      if (!currentSetupIds.has(id)) {
+        history.unshift({
+          time: now,
+          id: id,
+          name: id,
+          symbol: id.replace('_5M', '').replace('_4H', '') + ' (5m)',
+          icon: '⚡',
+          from: oldSignal,
+          to: 'EXPIRED',
+          score: 0,
+          price: 0,
+        });
+        this._previousScalps.delete(id);
+      }
+    }
+
+    // Keep last 100 entries
+    const trimmed = history.slice(0, 100);
+    try {
+      localStorage.setItem(this.SIGNAL_HISTORY_KEY, JSON.stringify(trimmed));
+    } catch (e) {
+      console.warn('Failed to save scalp history', e);
+    }
   },
   
   _getSignalHistory() {
@@ -410,10 +470,13 @@ const Dashboard = {
       console.log('[Scalper] Background scan starting...');
       const setups = await Scanner.scanScalps();
       
-      if (!setups || setups.length === 0) {
+      if (!setups) setups = [];
+      
+      if (setups.length === 0) {
         console.log('[Scalper] Background scan complete: 0 setups found.');
-        return;
       }
+      
+      this._trackScalpChanges(setups);
       
       this.state.scalps = setups;
       
