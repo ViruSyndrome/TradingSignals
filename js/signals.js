@@ -196,19 +196,19 @@ const Signals = {
     }
 
     // ── 7. Fundamental Analysis (DefiLlama TVL) ─────────────
-    // A low Mcap/TVL ratio means the protocol is undervalued.
-    if (opts.marketCap && opts.tvl && opts.tvl > 0) {
-      const ratio = opts.marketCap / opts.tvl;
-      let s = 0, sig = 'NEUTRAL', desc = `Mcap/TVL Ratio: ${ratio.toFixed(2)}`;
+    // Deep Value = >$1B TVL, Value = >$100M TVL, Speculative = <$10M TVL
+    if (opts.tvl && opts.tvl > 0) {
+      const tvl = opts.tvl;
+      const tvlStr = tvl > 1e9 ? `$${(tvl/1e9).toFixed(1)}B` : tvl > 1e6 ? `$${(tvl/1e6).toFixed(1)}M` : `$${tvl.toFixed(0)}`;
+      let s = 0, sig = 'NEUTRAL', desc = `Locked Value: ${tvlStr}`;
       
-      if (ratio < 1.0) { s = 1.0; sig = 'BUY'; desc = `Deep Value: Mcap/TVL is ${ratio.toFixed(2)} (Undervalued)`; }
-      else if (ratio < 2.0) { s = 0.5; sig = 'BUY'; desc = `Value: Mcap/TVL is ${ratio.toFixed(2)}`; }
-      else if (ratio > 5.0 && ratio <= 10.0) { s = -0.5; sig = 'SELL'; desc = `Speculative: Mcap/TVL is ${ratio.toFixed(2)} (Overvalued)`; }
-      else if (ratio > 10.0) { s = -1.0; sig = 'SELL'; desc = `Highly Speculative: Mcap/TVL is ${ratio.toFixed(2)} (Severely Overvalued)`; }
+      if (tvl >= 1e9) { s = 1.0; sig = 'BUY'; desc = `Deep Value: Over $1 Billion locked (${tvlStr})`; }
+      else if (tvl >= 1e8) { s = 0.5; sig = 'BUY'; desc = `Value: Over $100 Million locked (${tvlStr})`; }
+      else if (tvl < 1e7) { s = -0.5; sig = 'SELL'; desc = `Speculative: Low locked value (${tvlStr})`; }
       
       score += s;
       indDetails.fundamental = {
-        value: ratio,
+        value: tvl,
         signal: sig,
         description: desc, score: s,
       };

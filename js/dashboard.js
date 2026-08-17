@@ -680,15 +680,14 @@ const Dashboard = {
     const updateClass = this.state.updatedAssetIds.has(asset.id) ? ' value-updated' : '';
 
     let fundChip = '';
-    if (d.tvl && d.marketCap) {
+    if (d.tvl && d.tvl > 0) {
       const fundData = signalResult?.indicators?.fundamental;
       const fundScore = fundData?.score ?? 0;
-      const fundRatio = fundData?.value ?? (d.marketCap / d.tvl);
       const tvlStr = d.tvl > 1e9 ? `$${(d.tvl/1e9).toFixed(1)}B` : d.tvl > 1e6 ? `$${(d.tvl/1e6).toFixed(1)}M` : `$${d.tvl.toFixed(0)}`;
       fundChip = `
-        <div class="ind-chip" title="DefiLlama Fundamentals: Total Value Locked is ${tvlStr}. Mcap/TVL Ratio: ${fundRatio.toFixed(2)}. ${fundData?.description || ''}">
-          <span class="ind-label">Mcap/TVL</span>
-          <span class="ind-val ${fundScore > 0 ? 'pos' : fundScore < 0 ? 'neg' : ''}">${fundRatio.toFixed(1)}</span>
+        <div class="ind-chip" title="DefiLlama Fundamentals: Total Value Locked is ${tvlStr}. ${fundData?.description || ''}">
+          <span class="ind-label">TVL</span>
+          <span class="ind-val ${fundScore > 0 ? 'pos' : fundScore < 0 ? 'neg' : ''}">${tvlStr}</span>
         </div>
       `;
     } else {

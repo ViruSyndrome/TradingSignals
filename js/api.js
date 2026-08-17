@@ -148,11 +148,17 @@ const API = {
     const rules = await this.getCryptoSymbolRules();
     const llamaData = await this.getDefiLlamaProtocols();
 
-    // Create a fast lookup map for DefiLlama data by symbol
+    // Create a fast lookup map for DefiLlama data by symbol (keep the one with highest TVL)
     const llamaMap = new Map();
     if (Array.isArray(llamaData)) {
       for (const p of llamaData) {
-        if (p.symbol) llamaMap.set(p.symbol.toUpperCase(), p);
+        if (p.symbol && p.tvl > 0) {
+          const sym = p.symbol.toUpperCase();
+          const existing = llamaMap.get(sym);
+          if (!existing || p.tvl > existing.tvl) {
+            llamaMap.set(sym, p);
+          }
+        }
       }
     }
 
