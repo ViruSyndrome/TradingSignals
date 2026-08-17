@@ -244,7 +244,6 @@ const Signals = {
     }
 
     // ── 8. Market Regime (BTC) Gate (dampener, max −1.5) ─────────────
-    // [TEMPORARILY DISABLED BY USER]
     if (opts.marketRegime === 'bear' && symbol !== 'BTC' && symbol !== 'BTCUSDT' && score > 0) {
       const s = -1.5;
       score += s;
@@ -506,7 +505,6 @@ const Signals = {
     }
 
     // 5. Market Regime Filter (Protect against BTC dumps)
-    // [TEMPORARILY DISABLED BY USER]
     if (marketRegime === 'bear' && opts.symbol !== 'BTC' && opts.symbol !== 'BTCUSDT') {
       score -= 3; // Huge penalty for breakout attempts during a market crash
       desc.push("Market Regime is Bearish (BTC < 50 SMA). Breakouts are likely fakeouts.");

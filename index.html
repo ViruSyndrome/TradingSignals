@@ -47,6 +47,9 @@
       <a href="#" class="nav-link" data-section="portfolioSection" title="Practice buying and selling with $10,000 of simulated money. No real money is used.">
         <span class="nav-icon">💼</span> <span class="nav-text">Paper Trading</span>
       </a>
+      <a href="#" class="nav-link" data-section="backtestSection" title="Test your strategies on historical data.">
+        <span class="nav-icon">🧪</span> <span class="nav-text">Backtester</span>
+      </a>
       <a href="#" class="nav-link" data-section="educationSection" title="Learn how RSI, MACD, Bollinger Bands, and Moving Averages work.">
         <span class="nav-icon">📚</span> <span class="nav-text">Learn Trading</span>
       </a>
@@ -363,6 +366,62 @@
       </div>
     </section>
 
+    <!-- ─── BACKTESTER SECTION ────────────────────────────────────────────────── -->
+    <section class="main-section" id="backtestSection">
+      <div class="section-block">
+        <div class="section-heading">
+          <h2>🧪 Visual Backtester</h2>
+          <p class="section-sub">Test the signal engine against historical data to find the most profitable assets and parameters.</p>
+        </div>
+
+        <div class="backtest-controls">
+          <div class="control-group">
+            <label for="btAsset">Asset</label>
+            <select id="btAsset">
+              <!-- populated by JS -->
+            </select>
+          </div>
+          <div class="control-group">
+            <label for="btInterval">Timeframe</label>
+            <select id="btInterval">
+              <option value="1d" selected>Daily</option>
+              <option value="4h">4 Hours</option>
+              <option value="1h">1 Hour</option>
+              <option value="15m">15 Minutes</option>
+              <option value="5m">5 Minutes</option>
+            </select>
+          </div>
+          <div class="control-group">
+            <label for="btDays">History (Days)</label>
+            <input type="number" id="btDays" value="250" min="50" max="1000" />
+          </div>
+          <button id="runBacktestBtn" class="action-btn">▶ Run Backtest</button>
+        </div>
+
+        <div class="backtest-results" id="btResults" style="display:none;">
+          <div class="stats-row">
+            <div class="stat-box">
+              <span class="stat-lbl">Win Rate</span>
+              <span class="stat-val" id="btWinRate">--%</span>
+            </div>
+            <div class="stat-box">
+              <span class="stat-lbl">Total Trades</span>
+              <span class="stat-val" id="btTotalTrades">--</span>
+            </div>
+            <div class="stat-box">
+              <span class="stat-lbl">Net Return</span>
+              <span class="stat-val" id="btNetReturn">--%</span>
+            </div>
+          </div>
+          
+          <div class="chart-container" style="height: 400px; margin-top: 20px;">
+            <canvas id="btEquityChart"></canvas>
+          </div>
+        </div>
+
+      </div>
+    </section>
+
   </main>
 
   <!-- ═══════════════════════════════════════════════════════════════════════════
@@ -418,6 +477,7 @@
   <script src="js/charts.js?v=5.9"></script>
   <script src="js/portfolio.js?v=5.9"></script>
   <script src="js/scanner.js?v=5.9"></script>
+  <script src="js/backtest_ui.js?v=5.9"></script>
   <script src="js/dashboard.js?v=5.9"></script>
   <script>
     // If signals.js didn't expose the right version, cached old code is running — force reload.
