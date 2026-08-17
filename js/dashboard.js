@@ -364,7 +364,7 @@ const Dashboard = {
       const timeStr = new Date().toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit' });
       if (!setups || setups.length === 0) {
         console.log('[Moonshots] Background scan complete: 0 setups found.');
-        if (statusEl) statusEl.innerHTML = `🚀 Last scan: ${timeStr} (0 found)`;
+        if (statusEl) statusEl.innerHTML = `🚀 ${timeStr} (0 found)`;
         return;
       }
       
@@ -394,10 +394,10 @@ const Dashboard = {
         this._saveWatchlist();
         this.loadAll(); // Re-render the dashboard to show the new coins
         console.log(`[Moonshots] Background scan found ${setups.length} setups and added new ones to the dashboard!`);
-        if (statusEl) statusEl.innerHTML = `🚀 Last scan: ${timeStr} (<b style="color:var(--pos)">+${setups.length} found!</b>)`;
+        if (statusEl) statusEl.innerHTML = `🚀 ${timeStr} (<b style="color:var(--pos)">+${setups.length} new!</b>)`;
       } else {
         console.log('[Moonshots] Background scan complete: No new setups (already tracking existing ones).');
-        if (statusEl) statusEl.innerHTML = `🚀 Last scan: ${timeStr} (${setups.length} found, already tracking)`;
+        if (statusEl) statusEl.innerHTML = `🚀 ${timeStr} (${setups.length} tracked)`;
       }
     } catch (err) {
       console.error('[Moonshots] Auto-scan failed:', err);
