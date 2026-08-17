@@ -144,9 +144,9 @@ const Dashboard = {
     // Kick off an initial background scan 5 seconds after the app loads
     setTimeout(() => this._autoScanMoonshots(), 5000);
 
-    // Auto-scan meme scalps every 5 minutes
+    // Auto-scan meme scalps every 5 minutes, OFFSET by 2.5 min to avoid rate limits
     this.state.scalperTimer = setInterval(() => this._autoScanScalps(), 5 * 60 * 1000);
-    setTimeout(() => this._autoScanScalps(), 8000);
+    setTimeout(() => this._autoScanScalps(), 150000); // 2.5 minutes after load
   },
 
   // Hide filter tabs for asset categories that are empty in CONFIG.
