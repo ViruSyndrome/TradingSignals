@@ -24,6 +24,50 @@ const Dashboard = {
     marketRegime: 'unknown',
   },
 
+  // ─── Signal History ─────────────────────────────────────────────────────────
+  SIGNAL_HISTORY_KEY: 'signal_history_v1',
+  _previousSignals: new Map(),
+  
+  _trackSignalChanges() {
+    const history = this._getSignalHistory();
+    const now = new Date().toISOString();
+    
+    for (const asset of this.state.allAssets) {
+      const id = asset.asset?.id;
+      const newSignal = asset.signalResult?.signal ?? 'NEUTRAL';
+      const newScore = asset.signalResult?.score ?? 0;
+      const oldSignal = this._previousSignals.get(id);
+      
+      if (oldSignal && oldSignal !== newSignal) {
+        history.unshift({
+          time: now,
+          id: id,
+          name: asset.asset?.name || id,
+          symbol: asset.asset?.symbol || id,
+          icon: asset.asset?.icon || '',
+          from: oldSignal,
+          to: newSignal,
+          score: newScore,
+          price: asset.price,
+        });
+      }
+      this._previousSignals.set(id, newSignal);
+    }
+    
+    // Keep last 100 entries
+    const trimmed = history.slice(0, 100);
+    try {
+      localStorage.setItem(this.SIGNAL_HISTORY_KEY, JSON.stringify(trimmed));
+    } catch(e) { /* quota */ }
+  },
+  
+  _getSignalHistory() {
+    try {
+      const raw = localStorage.getItem(this.SIGNAL_HISTORY_KEY);
+      return raw ? JSON.parse(raw) : [];
+    } catch(e) { return []; }
+  },
+
   // ─── Boot ────────────────────────────────────────────────────────────────────
   async init() {
     if (window.Portfolio) Portfolio.init();
@@ -58,6 +102,35 @@ const Dashboard = {
     this._bindUI();
     this._hideEmptyCategoryTabs();
     this._initTooltips();
+    
+    // Mobile hamburger menu
+    const hamburger = document.getElementById('hamburgerBtn');
+    const sidebar = document.querySelector('.sidebar');
+    if (hamburger && sidebar) {
+      // Create overlay element
+      const overlay = document.createElement('div');
+      overlay.className = 'sidebar-overlay';
+      document.body.appendChild(overlay);
+      
+      hamburger.addEventListener('click', () => {
+        sidebar.classList.toggle('open');
+        overlay.classList.toggle('active');
+      });
+      overlay.addEventListener('click', () => {
+        sidebar.classList.remove('open');
+        overlay.classList.remove('active');
+      });
+      // Close sidebar when a nav link is clicked on mobile
+      sidebar.querySelectorAll('a, button').forEach(el => {
+        el.addEventListener('click', () => {
+          if (window.innerWidth <= 768) {
+            sidebar.classList.remove('open');
+            overlay.classList.remove('active');
+          }
+        });
+      });
+    }
+
     this._startClock();
     this._updateMarketStatus();
     // Paint instantly from last-known snapshot while the live fetch runs.
@@ -75,10 +148,7 @@ const Dashboard = {
   // Hide filter tabs for asset categories that are empty in CONFIG.
   _hideEmptyCategoryTabs() {
     const map = {
-      stocks:      CONFIG.assets.indianStocks,
       crypto:      CONFIG.assets.crypto,
-      commodities: CONFIG.assets.commodities,
-      forex:       CONFIG.assets.forex,
     };
     document.querySelectorAll('.filter-tab').forEach(tab => {
       const cat = tab.dataset.cat;
@@ -149,18 +219,10 @@ const Dashboard = {
     this._updateLiveStatus();
     if (!silent) this._setLoading(true);
     try {
-      const [crypto, stocks, commodities, forex] = await Promise.allSettled([
-        API.getAllCrypto(),
-        API.getAllStocks(),
-        API.getAllCommodities(),
-        API.getAllForex(),
-      ]);
+      const crypto = await API.getAllCrypto();
 
       const all = [
-        ...(crypto.value      || []).map(d => ({ ...d, category: 'crypto'      })),
-        ...(stocks.value      || []).map(d => ({ ...d, category: 'stocks'      })),
-        ...(commodities.value || []).map(d => ({ ...d, category: 'commodities' })),
-        ...(forex.value       || []).map(d => ({ ...d, category: 'forex'       })),
+        ...(crypto || []).map(d => ({ ...d, category: 'crypto' })),
       ];
 
       // Signals now receive OHLCV + sentiment + symbol + marketRegime
@@ -180,11 +242,20 @@ const Dashboard = {
       this.state.allAssets = all.map(d => {
         let signalResult = null;
         if (d.closes?.length > 0) {
-          const opts = { highs: d.highs, lows: d.lows, volumes: d.volumes, fearGreed: fg, symbol: d.asset?.symbol || d.asset?.id, marketRegime, marketCap: d.marketCap, tvl: d.tvl };
+          const opts = { highs: d.highs, lows: d.lows, closes4H: d.closes4H, volumes: d.volumes, fearGreed: fg, symbol: d.asset?.symbol || d.asset?.id, marketRegime, marketCap: d.marketCap, tvl: d.tvl };
           signalResult = d.asset?.isMoonshot ? Signals.generateBreakout(d.closes, opts) : Signals.generate(d.closes, opts);
         }
         return { ...d, signalResult };
       });
+
+      if (this._previousSignals.size === 0) {
+        this.state.allAssets.forEach(a => {
+          this._previousSignals.set(a.asset?.id, a.signalResult?.signal ?? 'NEUTRAL');
+        });
+      } else {
+        this._trackSignalChanges();
+      }
+
       this.state.updatedAssetIds = new Set(this.state.allAssets
         .filter(a => !previousPrices.size || (previousPrices.has(a.asset?.id) && previousPrices.get(a.asset.id) !== a.price))
         .map(a => a.asset.id));
@@ -243,7 +314,7 @@ const Dashboard = {
       this.state.allAssets = assets.map(d => {
         let signalResult = null;
         if (d.closes?.length > 0) {
-          const opts = { highs: d.highs, lows: d.lows, volumes: d.volumes, fearGreed: fg, symbol: d.asset?.symbol || d.asset?.id, marketRegime: this.state.marketRegime, marketCap: d.marketCap, tvl: d.tvl };
+          const opts = { highs: d.highs, lows: d.lows, closes4H: d.closes4H, volumes: d.volumes, fearGreed: fg, symbol: d.asset?.symbol || d.asset?.id, marketRegime: this.state.marketRegime, marketCap: d.marketCap, tvl: d.tvl };
           signalResult = d.asset?.isMoonshot ? Signals.generateBreakout(d.closes, opts) : Signals.generate(d.closes, opts);
         }
         return { ...d, signalResult };
@@ -602,6 +673,29 @@ const Dashboard = {
     } else if (cat === 'trending') {
       // 24h positive trend, sorted by highest change
       assets = assets.filter(a => a.change24h > 0).sort((a, b) => b.change24h - a.change24h);
+    } else if (cat === 'history') {
+      const history = this._getSignalHistory();
+      if (history.length === 0) {
+        el.innerHTML = '<p class="no-data">No signal changes recorded yet. Changes will appear here after the next refresh cycle.</p>';
+      } else {
+        el.innerHTML = `<div class="signal-history-list">${history.map(h => {
+          const time = new Date(h.time);
+          const timeStr = time.toLocaleDateString('en-IN', {day:'2-digit', month:'short'}) + ' ' + time.toLocaleTimeString('en-IN', {hour:'2-digit', minute:'2-digit'});
+          const fromLevel = Signals.level(h.from);
+          const toLevel = Signals.level(h.to);
+          const priceStr = h.price ? '$' + (h.price < 1 ? h.price.toFixed(4) : h.price.toFixed(2)) : '';
+          return `<div class="signal-history-entry">
+            <span class="sh-icon">${h.icon}</span>
+            <span class="sh-name">${h.name} <small>${h.symbol}</small></span>
+            <span class="signal-badge signal-${fromLevel.cls}" style="font-size:11px;padding:2px 6px;">${fromLevel.short}</span>
+            <span class="sh-arrow">→</span>
+            <span class="signal-badge signal-${toLevel.cls}" style="font-size:11px;padding:2px 6px;">${toLevel.short}</span>
+            <span class="sh-price">${priceStr}</span>
+            <span class="sh-time">${timeStr}</span>
+          </div>`;
+        }).join('')}</div>`;
+      }
+      return;
     } else if (cat !== 'all') {
       assets = assets.filter(a => a.category === cat);
     }

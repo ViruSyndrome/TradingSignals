@@ -57,10 +57,6 @@ const CONFIG = {
       { id: 'TAOUSDT', symbol: 'TAO', name: 'Bittensor', currency: 'USD', icon: '🧠' }
     ],
 
-    // Temporarily disabled due to Yahoo Finance blocking free public CORS proxies.
-    indianStocks: [],
-    commodities: [],
-    forex: [],
 
     // ─── Proven winners (backtest-validated) ─────────────────────────────────
     // Assets that were profitable in the last full backtest (node backtest.js).
@@ -95,15 +91,12 @@ const CONFIG = {
     intervalMs:  30 * 1000,    // UI refresh every 30 seconds
     cacheMs:     25 * 1000,    // cache data for 25 seconds
     historyDays: 250,          // days of OHLCV history to fetch (>=200 so SMA200 computes)
-    requestDelayMs: 300,       // delay between Yahoo Finance requests
     strongConfidenceGate: 75,  // % confidence required to escalate to STRONG_BUY/SELL
   },
 
   // ─── API endpoints ───────────────────────────────────────────────────────────
   api: {
     // coingecko API removed — migrated to Binance
-    yahooChart:   'https://query1.finance.yahoo.com/v8/finance/chart/',
-    corsProxy:    'https://api.allorigins.win/raw?url=',
   },
 
   // ─── Market hours (IST) ─────────────────────────────────────────────────────

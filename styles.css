@@ -944,11 +944,140 @@ body.modal-open { overflow: hidden; }
      f o n t - s i z e :   1 3 p x ; 
  
      j u s t i f y - c o n t e n t :   s p a c e - b e t w e e n ; 
- 
- } 
- 
- . q t - t p   {   c o l o r :   v a r ( - - c - g r e e n ) ;   } 
- 
- . q t - s l   {   c o l o r :   v a r ( - - c - r e d ) ;   } 
- 
- 
+. q u i c k - t a r g e t s   { 
+ 
+     d i s p l a y :   f l e x ; 
+ 
+     g a p :   8 p x ; 
+ 
+     m a r g i n - t o p :   1 2 p x ; 
+ 
+     p a d d i n g :   8 p x ; 
+ 
+     b a c k g r o u n d :   r g b a ( 0 ,   0 ,   0 ,   0 . 2 ) ; 
+ 
+     b o r d e r - r a d i u s :   8 p x ; 
+ 
+     f o n t - f a m i l y :   m o n o s p a c e ; 
+ 
+     f o n t - s i z e :   1 3 p x ; 
+ 
+     j u s t i f y - c o n t e n t :   s p a c e - b e t w e e n ; 
+ 
+ } 
+ 
+ . q t - t p   {   c o l o r :   v a r ( - - c - g r e e n ) ;   } 
+ 
+ . q t - s l   {   c o l o r :   v a r ( - - c - r e d ) ;   } 
+
+/* Signal History */
+.signal-history-list { display: flex; flex-direction: column; gap: 6px; }
+.signal-history-entry { display: flex; align-items: center; gap: 10px; padding: 10px 14px; background: var(--surface-2); border-radius: var(--radius-sm); border: 1px solid var(--glass-border); font-size: 13px; }
+.sh-icon { font-size: 18px; flex-shrink: 0; }
+.sh-name { font-weight: 600; min-width: 120px; }
+.sh-name small { font-weight: 400; color: var(--text-muted); margin-left: 4px; }
+.sh-arrow { color: var(--text-muted); font-size: 16px; }
+.sh-price { color: var(--text-secondary); margin-left: auto; font-size: 12px; }
+.sh-time { color: var(--text-muted); font-size: 11px; min-width: 100px; text-align: right; }
+/* ─── Mobile Responsiveness ───────────────────────────────────────────────── */
+.hamburger-btn {
+  display: none;
+  position: fixed;
+  top: 12px;
+  left: 12px;
+  z-index: 1001;
+  background: var(--surface-2);
+  border: 1px solid var(--glass-border);
+  color: #fff;
+  font-size: 22px;
+  padding: 6px 10px;
+  border-radius: var(--radius-sm);
+  cursor: pointer;
+  transition: background 0.2s;
+}
+.hamburger-btn:hover { background: var(--accent); }
+
+@media (max-width: 768px) {
+  .hamburger-btn { display: block; }
+  
+  /* Sidebar becomes an overlay */
+  .sidebar {
+    position: fixed;
+    left: -280px;
+    top: 0;
+    height: 100vh;
+    z-index: 1000;
+    transition: left 0.3s ease;
+    width: 260px;
+  }
+  .sidebar.open { left: 0; }
+  
+  /* Main content takes full width */
+  .main-content,
+  main,
+  .content {
+    margin-left: 0 !important;
+    padding: 12px !important;
+    padding-top: 50px !important;
+  }
+  
+  /* Asset grid single column */
+  .asset-grid,
+  #assetGrid,
+  #topOpportunities {
+    grid-template-columns: 1fr !important;
+    gap: 12px !important;
+  }
+  
+  /* Stack sparklines vertically */
+  .sparklines-container {
+    flex-direction: column !important;
+    margin: 0 -8px 12px -8px !important;
+  }
+  .sparkline-col {
+    height: 48px !important;
+  }
+  
+  /* Smaller price text */
+  .price-main { font-size: 22px !important; }
+  
+  /* Stack price changes horizontally */
+  .price-changes { flex-direction: row !important; gap: 6px !important; }
+  
+  /* Indicators wrap */
+  .card-indicators { flex-wrap: wrap !important; }
+  .ind-chip { min-width: 60px; }
+  
+  /* Filter tabs scroll horizontally */
+  .filter-tabs,
+  .category-tabs {
+    overflow-x: auto !important;
+    flex-wrap: nowrap !important;
+    -webkit-overflow-scrolling: touch;
+    scrollbar-width: none;
+  }
+  .filter-tabs::-webkit-scrollbar,
+  .category-tabs::-webkit-scrollbar { display: none; }
+  
+  /* Summary bar wraps */
+  .summary-bar { flex-wrap: wrap !important; gap: 8px !important; }
+  
+  /* Overlay backdrop when sidebar is open */
+  .sidebar-overlay {
+    display: none;
+    position: fixed;
+    inset: 0;
+    background: rgba(0,0,0,0.5);
+    z-index: 999;
+  }
+  .sidebar-overlay.active { display: block; }
+}
+
+@media (max-width: 480px) {
+  .price-main { font-size: 20px !important; letter-spacing: -0.5px !important; }
+  .asset-name { font-size: 14px !important; }
+  .card-header { gap: 8px !important; }
+  .ind-chip { padding: 6px !important; }
+  .ind-val { font-size: 12px !important; }
+  .ind-label { font-size: 8px !important; }
+}

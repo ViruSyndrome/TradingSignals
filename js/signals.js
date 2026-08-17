@@ -214,6 +214,35 @@ const Signals = {
       };
     }
 
+    // ── 9. Intraday Timing Confirmation (4H RSI) ─────────────────────────
+    // Uses the 4-hour RSI to confirm or warn about entry timing.
+    if (opts.closes4H && opts.closes4H.length >= 20) {
+      const rsi4H = Indicators.last(Indicators.rsi(opts.closes4H, 14));
+      if (rsi4H !== null) {
+        let timingScore = 0;
+        let timingDesc = '';
+        if (score > 0 && rsi4H < 40) {
+          timingScore = 0.5;
+          timingDesc = `4H RSI at ${Math.round(rsi4H)} confirms oversold entry window.`;
+        } else if (score > 0 && rsi4H > 70) {
+          timingScore = -0.5;
+          timingDesc = `⏳ 4H RSI at ${Math.round(rsi4H)} is overbought — consider waiting for a pullback before entering.`;
+        } else if (score < 0 && rsi4H > 70) {
+          timingScore = -0.5;
+          timingDesc = `4H RSI at ${Math.round(rsi4H)} confirms overbought exit window.`;
+        }
+        if (timingScore !== 0) {
+          score += timingScore;
+          indDetails.timing4H = {
+            signal: timingScore > 0 ? 'CONFIRM' : 'WAIT',
+            description: timingDesc,
+            score: timingScore,
+            rsi4H: Math.round(rsi4H),
+          };
+        }
+      }
+    }
+
     // ── 8. Market Regime (BTC) Gate (dampener, max −1.5) ─────────────
     // [TEMPORARILY DISABLED BY USER]
     if (false && opts.marketRegime === 'bear' && symbol !== 'BTC' && symbol !== 'BTCUSDT' && score > 0) {
