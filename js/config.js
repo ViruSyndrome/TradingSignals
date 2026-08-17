@@ -92,8 +92,8 @@ const CONFIG = {
 
   // ─── Data refresh & caching ─────────────────────────────────────────────────
   refresh: {
-    intervalMs:  60 * 1000,    // UI refresh every 60 seconds
-    cacheMs:     55 * 1000,    // cache data for 55 seconds
+    intervalMs:  30 * 1000,    // UI refresh every 30 seconds
+    cacheMs:     25 * 1000,    // cache data for 25 seconds
     historyDays: 250,          // days of OHLCV history to fetch (>=200 so SMA200 computes)
     requestDelayMs: 300,       // delay between Yahoo Finance requests
     strongConfidenceGate: 75,  // % confidence required to escalate to STRONG_BUY/SELL
