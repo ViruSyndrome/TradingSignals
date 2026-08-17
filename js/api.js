@@ -59,9 +59,22 @@ const API = {
     if (cached) return cached;
     
     try {
-      const data = await this._fetch('https://api.llama.fi/protocols', 8000);
-      if (!Array.isArray(data)) throw new Error('Invalid format');
-      return this._set(key, data, 3600000); 
+      const [protocolsRes, chainsRes] = await Promise.all([
+        this._fetch('https://api.llama.fi/protocols', 8000),
+        this._fetch('https://api.llama.fi/chains', 8000)
+      ]);
+      
+      const merged = [];
+      if (Array.isArray(protocolsRes)) merged.push(...protocolsRes);
+      if (Array.isArray(chainsRes)) {
+        // Map chain objects to look like protocol objects so the UI parses it correctly
+        merged.push(...chainsRes.map(c => ({
+          symbol: c.tokenSymbol,
+          tvl: c.tvl,
+          name: c.name
+        })));
+      }
+      return this._set(key, merged, 3600000); 
     } catch (e) {
       console.warn('[API] DefiLlama fetch failed:', e.message);
       return [];

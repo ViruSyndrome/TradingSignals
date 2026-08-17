@@ -563,6 +563,106 @@ const Signals = {
     };
   },
 
+  // ─── Scalper Engine (5-minute meme coins) ──────────────────────────────────
+  generateScalp(closes, opts = {}) {
+    const EMPTY = (reason = 'Insufficient data') => ({
+      signal: 'NEUTRAL', confidence: 0, score: 0, indicators: {},
+      recommendation: reason, arrays: {}, calculatedAt: new Date().toISOString(),
+    });
+
+    if (!closes || closes.length < 50) return EMPTY();
+    const { highs, lows, volumes } = opts;
+
+    const sma50Arr = Indicators.sma(closes, 50);
+    const ema9Arr = Indicators.ema(closes, 9);
+    const ema21Arr = Indicators.ema(closes, 21);
+    const rsiArr = Indicators.rsi(closes, 14);
+
+    const price = Indicators.last(closes);
+    const ema9 = Indicators.last(ema9Arr);
+    const ema21 = Indicators.last(ema21Arr);
+    const sma50 = Indicators.last(sma50Arr);
+    const rsiVal = Indicators.last(rsiArr);
+
+    let isVolumeSurge = false;
+    let volumeRatio = 1;
+    if (volumes && volumes.length >= 20) {
+      const currentVol = volumes[volumes.length - 1];
+      const avgVol = Indicators.avgLast(volumes.slice(0, -2), 20);
+      if (avgVol && avgVol > 0) {
+        volumeRatio = currentVol / avgVol;
+        isVolumeSurge = volumeRatio >= 2.0; // Intraday volume must double
+      }
+    }
+
+    let score = 0;
+    let desc = [];
+
+    // 1. Scalp Momentum
+    if (price > ema9 && ema9 > ema21 && price > sma50) {
+      score += 3;
+      desc.push("Full bullish momentum aligned across 9, 21, and 50 periods.");
+    } else {
+      score -= 3;
+      desc.push("Lacking 5m uptrend structure.");
+    }
+
+    // 2. RSI Check (Don't buy the exact top)
+    if (rsiVal >= 45 && rsiVal <= 75) {
+      score += 1;
+      desc.push(`RSI is ${Math.round(rsiVal)}, indicating room to run.`);
+    } else if (rsiVal > 75) {
+      score -= 2;
+      desc.push(`RSI is ${Math.round(rsiVal)} (Overbought). High risk of immediate pullback.`);
+    }
+
+    // 3. Volume Check
+    if (isVolumeSurge) {
+      score += 2;
+      desc.push(`Massive volume surge (${volumeRatio.toFixed(1)}x) confirming intraday interest.`);
+    } else {
+      score -= 2; // Strict scalper requires volume
+    }
+
+    let signal = 'NEUTRAL';
+    if (score >= 5.0) signal = 'STRONG_BUY';
+    else if (score >= 4.0) signal = 'BUY';
+
+    // Very tight Chandelier Exit for scalping (14 period, 1.5 multiplier)
+    let stopSuggest = null;
+    const chandExit = Indicators.chandelierExit(highs, lows, closes, 14, 1.5);
+    const trailingStop = Indicators.last(chandExit);
+
+    if (trailingStop && signal.includes('BUY')) {
+      const distPct = Math.abs(Indicators.pct(price, trailingStop)).toFixed(2);
+      const riskDistance = price - trailingStop;
+      stopSuggest = {
+        stopPrice: +trailingStop.toFixed(8),
+        takeProfitPrice: +(price + riskDistance * 1.5).toFixed(8), // 1.5R target for quick scalps
+        distancePct: +distPct,
+        takeProfitPct: +((riskDistance * 1.5 / price) * 100).toFixed(2),
+        riskMultiple: 1.5,
+        side: 'long'
+      };
+      desc.push(`Scalp stop: ${trailingStop.toFixed(8)} (${distPct}% away) with 1.5R exit target.`);
+    }
+
+    return {
+      signal,
+      conviction: signal === 'STRONG_BUY' ? 'strong' : (signal === 'BUY' ? 'standard' : 'none'),
+      confidence: score >= 5.0 ? 100 : (score >= 4.0 ? 75 : 0),
+      score: +score.toFixed(2),
+      indicators: {
+        scalp: { volumeRatio, isVolumeSurge },
+        rsi: { value: rsiVal !== null ? Math.round(rsiVal) : null }
+      },
+      recommendation: desc.join(' ') || 'No scalp setup detected.',
+      stopSuggest,
+      arrays: { closes, highs, lows, chandelier: chandExit, rsi: rsiArr },
+      calculatedAt: new Date().toISOString(),
+    };
+  },
+
   /** Return the LEVEL object for a given signal key */
   level(signalKey) {
     return this.LEVELS[signalKey] || this.LEVELS.NEUTRAL;

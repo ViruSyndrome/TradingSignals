@@ -22,6 +22,7 @@ const Dashboard = {
     watchlist:     JSON.parse(localStorage.getItem('trading_watchlist') || '[]'),
     fearGreed:     null,
     marketRegime: 'unknown',
+    scalps:        [],       // results from the 5m Meme Scalper
   },
 
   // ─── Signal History ─────────────────────────────────────────────────────────
@@ -102,9 +103,8 @@ const Dashboard = {
     this._bindUI();
     this._hideEmptyCategoryTabs();
     this._initTooltips();
-    
-    // Mobile hamburger menu
-    const hamburger = document.getElementById('hamburgerBtn');
+    // Mobile hamburger menu from Topbar
+    const hamburger = document.getElementById('sidebarToggle');
     const sidebar = document.querySelector('.sidebar');
     if (hamburger && sidebar) {
       // Create overlay element
@@ -143,6 +143,10 @@ const Dashboard = {
     this.state.moonshotTimer = setInterval(() => this._autoScanMoonshots(), 5 * 60 * 1000);
     // Kick off an initial background scan 5 seconds after the app loads
     setTimeout(() => this._autoScanMoonshots(), 5000);
+
+    // Auto-scan meme scalps every 5 minutes
+    this.state.scalperTimer = setInterval(() => this._autoScanScalps(), 5 * 60 * 1000);
+    setTimeout(() => this._autoScanScalps(), 8000);
   },
 
   // Hide filter tabs for asset categories that are empty in CONFIG.
@@ -152,7 +156,7 @@ const Dashboard = {
     };
     document.querySelectorAll('.filter-tab').forEach(tab => {
       const cat = tab.dataset.cat;
-      if (cat && cat !== 'all' && cat !== 'watchlist' && cat !== 'oversold' && cat !== 'highconf' && cat !== 'trending' && (!map[cat] || map[cat].length === 0)) {
+      if (cat && cat !== 'all' && cat !== 'watchlist' && cat !== 'oversold' && cat !== 'highconf' && cat !== 'trending' && cat !== 'scalper' && (!map[cat] || map[cat].length === 0)) {
         tab.style.display = 'none';
       }
     });
@@ -254,6 +258,11 @@ const Dashboard = {
         }
         return { ...d, signalResult };
       });
+
+      // Inject active scalps from background scanner
+      if (this.state.scalps && this.state.scalps.length > 0) {
+        this.state.allAssets.push(...this.state.scalps);
+      }
 
       if (this._previousSignals.size === 0) {
         this.state.allAssets.forEach(a => {
@@ -384,6 +393,27 @@ const Dashboard = {
     } catch (err) {
       console.error('[Moonshots] Auto-scan failed:', err);
       if (statusEl) statusEl.innerHTML = `🚀 Auto-Scan Failed`;
+    }
+  },
+
+  async _autoScanScalps() {
+    try {
+      console.log('[Scalper] Background scan starting...');
+      const setups = await Scanner.scanScalps();
+      
+      if (!setups || setups.length === 0) {
+        console.log('[Scalper] Background scan complete: 0 setups found.');
+        return;
+      }
+      
+      this.state.scalps = setups;
+      
+      // If we are currently on the scalper tab, trigger a re-render
+      if (this.state.activeCategory === 'scalper') {
+        this.loadAll(true);
+      }
+    } catch (e) {
+      console.error('Scalper auto-scan failed:', e);
     }
   },
 
@@ -677,6 +707,8 @@ const Dashboard = {
         const score = a.signalResult?.score ?? 0;
         return conf >= gate && score > 0;
       });
+    } else if (cat === 'scalper') {
+      assets = assets.filter(a => a.category === 'scalper');
     } else if (cat === 'trending') {
       // 4h positive trend, sorted by highest change
       assets = assets.filter(a => a.change4h > 0).sort((a, b) => b.change4h - a.change4h);
@@ -874,20 +906,25 @@ const Dashboard = {
           <div class="price-main${updateClass}" title="Current live price from Binance, refreshed every 60 seconds.">${priceStr}</div>
           <div class="price-changes">
             <div class="price-change ${chg24Cls}${updateClass}" title="Price change in the last 24 hours.">1D: ${chg24Str}</div>
-            <div class="price-change ${chg4Cls}${updateClass}" title="Price change over the last 4-hour candle.">4H: ${chg4Str}</div>
+            ${d.category === 'scalper' 
+              ? `<div class="price-change ${d.change5m >= 0 ? 'pos' : 'neg'}${updateClass}" title="Price change over the last 5-minute candle.">5m: ${d.change5m > 0 ? '+' : ''}${d.change5m.toFixed(2)}%</div>` 
+              : `<div class="price-change ${chg4Cls}${updateClass}" title="Price change over the last 4-hour candle.">4H: ${chg4Str}</div>`
+            }
           </div>
         </div>
         ${quickTargets}
 
         <div class="sparklines-container${updateClass}">
-          <div class="sparkline-col" title="1-Day Chart (Macro Trend over 90 days)">
-            <div class="spark-label">1D Trend</div>
+          <div class="sparkline-col" style="${d.category === 'scalper' ? 'width: 100%' : ''}" title="${d.category === 'scalper' ? '5-Minute Chart' : '1-Day Chart'}">
+            <div class="spark-label">${d.category === 'scalper' ? '5M Trend (Scalp)' : '1D Trend'}</div>
             <canvas id="${sparkId1D}" height="40"></canvas>
           </div>
-          <div class="sparkline-col" title="4-Hour Chart (Intraday Trend over 15 days)">
+          ${d.category !== 'scalper' ? `
+          <div class="sparkline-col" title="4-Hour Chart (Intraday Trend)">
             <div class="spark-label">4H Trend</div>
             <canvas id="${sparkId4H}" height="40"></canvas>
           </div>
+          ` : ''}
         </div>
 
         <div class="card-indicators${updateClass}">
