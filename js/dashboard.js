@@ -219,7 +219,8 @@ const Dashboard = {
       // Strip heavy indicator arrays before saving to keep localStorage small.
       const slim = this.state.allAssets.map(a => ({
         asset: a.asset, category: a.category,
-        price: a.price, change24h: a.change24h, closes: a.closes,
+        price: a.price, change24h: a.change24h, change4h: a.change4h, closes: a.closes,
+        closes1D: a.closes1D, closes4H: a.closes4H,
         highs: a.highs, lows: a.lows, volumes: a.volumes, timestamps: a.timestamps,
         fetchedAt: a.fetchedAt, error: a.error,
       }));
@@ -690,7 +691,7 @@ const Dashboard = {
     const chg24Cls  = change24h == null ? 'flat' : change24h >= 0 ? 'pos' : 'neg';
 
     const change4h = d.change4h;
-    const chg4Str = change4h !== null ? (change4h >= 0 ? '+' : '') + change4h.toFixed(2) + '%' : '–';
+    const chg4Str = change4h != null ? (change4h >= 0 ? '+' : '') + change4h.toFixed(2) + '%' : '–';
     const chg4Cls = change4h == null ? 'flat' : change4h >= 0 ? 'pos' : 'neg';
 
     const isStarred = this.state.watchlist.includes(asset.id);
