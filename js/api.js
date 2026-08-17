@@ -86,7 +86,9 @@ const API = {
     const cached = this._get(key);
     if (cached) return cached;
     try {
-      const symbols = JSON.stringify(CONFIG.assets.crypto.map(a => a.id));
+      const rawSymbols = CONFIG.assets.crypto.map(a => a.id.replace('_4H', '').replace('_5M', ''));
+      const uniqueSymbols = [...new Set(rawSymbols)];
+      const symbols = JSON.stringify(uniqueSymbols);
       const data = await this._fetch(`https://api.binance.com/api/v3/exchangeInfo?symbols=${encodeURIComponent(symbols)}`, 8000);
       const rules = {};
       for (const item of data.symbols || []) {
@@ -113,7 +115,7 @@ const API = {
     const cached = this._get(key);
     if (cached) return cached;
 
-    const rawSymbols = CONFIG.assets.crypto.map(a => a.id.replace('_4H', ''));
+    const rawSymbols = CONFIG.assets.crypto.map(a => a.id.replace('_4H', '').replace('_5M', ''));
     const uniqueSymbols = [...new Set(rawSymbols)];
     const symbols = JSON.stringify(uniqueSymbols);
     const url = `https://api.binance.com/api/v3/ticker/24hr?symbols=${encodeURIComponent(symbols)}`;

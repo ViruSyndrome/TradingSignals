@@ -771,6 +771,31 @@ const Dashboard = {
     this._initSparklines(assets);
   },
 
+  _renderMoonshotGrid() {
+    const grid = document.getElementById('moonshotGrid');
+    if (!grid) return;
+    
+    // Check if the user has manually scanned setups first
+    if (this.state.moonshots && this.state.moonshots.length > 0) return;
+
+    // Otherwise, pull any background-scanned moonshots directly from the live feed
+    const backgroundMoonshots = this.state.allAssets.filter(a => a.asset?.isMoonshot);
+    
+    if (backgroundMoonshots.length === 0) {
+      grid.innerHTML = '<p class="no-data">No explosive setups found right now. Wait for the background scanner or run a manual scan.</p>';
+      return;
+    }
+
+    this._sortAssets(backgroundMoonshots);
+    if (backgroundMoonshots.length > 12) grid.classList.add('dense-grid');
+    else grid.classList.remove('dense-grid');
+    
+    // Moonshot cards are formatted slightly differently (show signal score, hide stars)
+    grid.innerHTML = backgroundMoonshots.map(s => this._assetCardHTML(s, false, true)).join('');
+    this._attachCardListeners(grid);
+    this._initSparklines(backgroundMoonshots, true);
+  },
+
   _initSparklines(assets, isMoonshot = false) {
     assets.forEach(a => {
       const isPos24 = (a.change24h ?? 0) >= 0;
