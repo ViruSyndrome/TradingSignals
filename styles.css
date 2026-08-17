@@ -408,23 +408,25 @@ button:focus-visible { outline: 2px solid var(--accent); border-radius: 4px; }
 .signal-badge.pulse.signal-strong-sell { --rgb: 225, 29, 72; animation: pulseGlow 2s infinite; }
 
 /* Prices */
-.card-price-row { display: flex; align-items: baseline; gap: 12px; margin-bottom: 16px; }
+.card-price-row { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin-bottom: 16px; }
 .price-main { font-size: 28px; font-weight: 700; letter-spacing: -1px; }
-.price-change { font-size: 14px; font-weight: 600; padding: 2px 8px; border-radius: 6px; }
+.price-changes { display: flex; flex-direction: column; gap: 4px; align-items: flex-end; }
+.price-change { font-size: 11px; font-weight: 700; padding: 2px 6px; border-radius: 4px; letter-spacing: 0.5px; }
 .price-change.pos { color: var(--c-green); background: var(--c-green-bg); }
 .price-change.neg { color: var(--c-red); background: var(--c-red-bg); }
 .price-change.flat { color: var(--text-muted); background: rgba(255,255,255,0.05); }
-.price-change.lg { font-size: 16px; padding: 4px 12px; }
 .value-updated { animation: number-pop 1.8s cubic-bezier(0.22, 1, 0.36, 1); transform-origin: center left; }
 .card-indicators.value-updated .ind-chip:nth-child(1) { animation: number-pop 1.4s 0.18s both; }
 .card-indicators.value-updated .ind-chip:nth-child(2) { animation: number-pop 1.4s 0.36s both; }
 .card-indicators.value-updated .ind-chip:nth-child(3) { animation: number-pop 1.4s 0.54s both; }
 @keyframes number-pop { 0% { opacity: 0.55; transform: translateY(4px) scale(0.96); } 55% { opacity: 1; transform: translateY(-1px) scale(1.04); } 100% { opacity: 1; transform: translateY(0) scale(1); } }
 
-/* Sparkline */
-.sparkline-wrap { height: 50px; margin: 0 -20px 16px -20px; }
-.sparkline-wrap.value-updated { animation: chart-refresh 2.8s ease-out; }
-@keyframes chart-refresh { 0% { filter: brightness(1.45); box-shadow: inset 0 0 18px rgba(124, 106, 245, 0.3); } 100% { filter: brightness(1); box-shadow: inset 0 0 0 rgba(124, 106, 245, 0); } }
+/* Sparklines Container */
+.sparklines-container { display: flex; gap: 8px; margin: 0 -12px 16px -12px; }
+.sparkline-col { flex: 1; display: flex; flex-direction: column; background: rgba(0,0,0,0.2); border-radius: var(--radius-sm); padding: 4px; border: 1px solid rgba(255,255,255,0.03); }
+.spark-label { font-size: 9px; text-transform: uppercase; color: var(--text-muted); margin-bottom: 2px; text-align: center; letter-spacing: 1px; font-weight: 600; }
+.sparklines-container.value-updated canvas { animation: chart-refresh 2.8s ease-out; }
+@keyframes chart-refresh { 0% { filter: brightness(1.45); } 100% { filter: brightness(1); } }
 
 /* Indicators */
 .card-indicators { display: flex; gap: 8px; margin-bottom: 16px; }

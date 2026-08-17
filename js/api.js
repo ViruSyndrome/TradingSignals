@@ -164,8 +164,10 @@ const API = {
     }
 
     const promises = CONFIG.assets.crypto.map(async (asset) => {
-      const interval = asset.grafted ? '4h' : '1d';
-      const hist = await this.getCryptoOHLC(asset.id, interval);
+      const [hist1D, hist4H] = await Promise.all([
+        this.getCryptoOHLC(asset.id, '1d'),
+        this.getCryptoOHLC(asset.id, '4h')
+      ]);
       const binanceSymbol = asset.id.replace('_4H', '');
       const baseSymbol = binanceSymbol.replace('USDT', '');
       
@@ -174,12 +176,26 @@ const API = {
       
       const llamaProtocol = llamaMap.get(baseSymbol);
 
+      const hist = asset.grafted ? hist4H : hist1D; // Default engine history
+      
       const closes     = hist ? hist.map(r => parseFloat(r[4])) : [];
       const opens      = hist ? hist.map(r => parseFloat(r[1])) : [];
       const highs      = hist ? hist.map(r => parseFloat(r[2])) : [];
       const lows       = hist ? hist.map(r => parseFloat(r[3])) : [];
       const volumes    = hist ? hist.map(r => parseFloat(r[5])) : [];
       const timestamps = hist ? hist.map(r => r[0]) : [];
+
+      const closes1D   = hist1D ? hist1D.map(r => parseFloat(r[4])) : [];
+      const closes4H   = hist4H ? hist4H.map(r => parseFloat(r[4])) : [];
+
+      // Calculate 4H percentage change (Last 4H close vs Previous 4H close)
+      let change4h = null;
+      if (closes4H.length >= 2 && livePrice != null) {
+        const prev4HClose = closes4H[closes4H.length - 2]; // Previous completed 4H candle
+        if (prev4HClose > 0) {
+          change4h = ((livePrice - prev4HClose) / prev4HClose) * 100;
+        }
+      }
 
       // Patch the still-forming daily candle with the live ticker so indicators aren't stale.
       if (livePrice != null && closes.length > 0) {
@@ -194,6 +210,7 @@ const API = {
         rules: rules[asset.id] || null,
         price:      livePrice,
         change24h:  priceInfo.priceChangePercent != null ? parseFloat(priceInfo.priceChangePercent) : null,
+        change4h,
         volume:     priceInfo.quoteVolume ? parseFloat(priceInfo.quoteVolume) : null,
         marketCap:  llamaProtocol?.mcap || null,
         tvl:        llamaProtocol?.tvl || null,
@@ -203,6 +220,8 @@ const API = {
         lows,
         volumes,
         timestamps,
+        closes1D,
+        closes4H,
         rawOHLC:    hist ?? [],
         source:     'binance',
         fetchedAt:  new Date().toISOString(),

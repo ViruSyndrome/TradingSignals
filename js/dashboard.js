@@ -555,9 +555,13 @@ const Dashboard = {
     this._attachCardListeners(el);
     // Draw sparklines
     ranked.forEach(a => {
-      if (a.closes?.length > 0) {
-        const isPos = (a.change24h ?? 0) >= 0;
-        Charts.renderSparkline(`spark_top_${a.asset.id}`, a.closes, isPos);
+      const isPos24 = (a.change24h ?? 0) >= 0;
+      const isPos4 = (a.change4h ?? 0) >= 0;
+      if (a.closes1D?.length > 0) {
+        Charts.renderSparkline(`spark_top_${a.asset.id}_1d`, a.closes1D, isPos24);
+      }
+      if (a.closes4H?.length > 0) {
+        Charts.renderSparkline(`spark_top_${a.asset.id}_4h`, a.closes4H, isPos4);
       }
     });
 
@@ -625,10 +629,15 @@ const Dashboard = {
 
   _initSparklines(assets, isMoonshot = false) {
     assets.forEach(a => {
-      if (a.closes?.length > 0) {
-        const isPos = (a.change24h ?? 0) >= 0;
-        const prefix = isMoonshot ? 'spark_moonshot_' : 'spark_';
-        Charts.renderSparkline(`${prefix}${a.asset.id}`, a.closes, isPos);
+      const isPos24 = (a.change24h ?? 0) >= 0;
+      const isPos4 = (a.change4h ?? 0) >= 0;
+      const prefix = isMoonshot ? 'spark_moonshot_' : 'spark_';
+      
+      if (a.closes1D?.length > 0) {
+        Charts.renderSparkline(`${prefix}${a.asset.id}_1d`, a.closes1D, isPos24);
+      }
+      if (a.closes4H?.length > 0) {
+        Charts.renderSparkline(`${prefix}${a.asset.id}_4h`, a.closes4H, isPos4);
       }
     });
   },
@@ -663,16 +672,27 @@ const Dashboard = {
     const rsi = signalResult?.indicators?.rsi?.value ?? '–';
     const winnerTier = signalResult?.winnerTier ?? 'none';
     
-    let sparkId = `spark_${asset.id}`;
-    if (isTop) sparkId = `spark_top_${asset.id}`;
-    else if (isMoonshot) sparkId = `spark_moonshot_${asset.id}`;
+    let sparkId1D = `spark_${asset.id}_1d`;
+    let sparkId4H = `spark_${asset.id}_4h`;
+    if (isTop) {
+      sparkId1D = `spark_top_${asset.id}_1d`;
+      sparkId4H = `spark_top_${asset.id}_4h`;
+    } else if (isMoonshot) {
+      sparkId1D = `spark_moonshot_${asset.id}_1d`;
+      sparkId4H = `spark_moonshot_${asset.id}_4h`;
+    }
 
     const priceStr = price !== null
       ? (asset.currency === 'INR' ? '₹' : '$') + this._fmt(price, asset)
       : 'N/A';
 
-    const chgStr  = change24h !== null ? (change24h >= 0 ? '+' : '') + change24h.toFixed(2) + '%' : '–';
-    const chgCls  = change24h == null ? 'flat' : change24h >= 0 ? 'pos' : 'neg';
+    const chg24Str  = change24h !== null ? (change24h >= 0 ? '+' : '') + change24h.toFixed(2) + '%' : '–';
+    const chg24Cls  = change24h == null ? 'flat' : change24h >= 0 ? 'pos' : 'neg';
+
+    const change4h = d.change4h;
+    const chg4Str = change4h !== null ? (change4h >= 0 ? '+' : '') + change4h.toFixed(2) + '%' : '–';
+    const chg4Cls = change4h == null ? 'flat' : change4h >= 0 ? 'pos' : 'neg';
+
     const isStarred = this.state.watchlist.includes(asset.id);
     const quality = this._tradeQuality(signalResult);
     const catBadge = { crypto: '₿ Crypto', stocks: '🇮🇳 Stock', commodities: '🪙 Commodity', forex: '💱 Forex' }[category] ?? category;
@@ -750,12 +770,22 @@ const Dashboard = {
 
         <div class="card-price-row">
           <div class="price-main${updateClass}" title="Current live price from Binance, refreshed every 60 seconds.">${priceStr}</div>
-          <div class="price-change ${chgCls}${updateClass}" title="Price change in the last 24 hours. Green = price went up, Red = price went down.">${chgStr}</div>
+          <div class="price-changes">
+            <div class="price-change ${chg24Cls}${updateClass}" title="Price change in the last 24 hours.">1D: ${chg24Str}</div>
+            <div class="price-change ${chg4Cls}${updateClass}" title="Price change over the last 4-hour candle.">4H: ${chg4Str}</div>
+          </div>
         </div>
         ${quickTargets}
 
-        <div class="sparkline-wrap${updateClass}" title="Mini price chart showing the trend over the last 90 days.">
-          <canvas id="${sparkId}" height="50"></canvas>
+        <div class="sparklines-container${updateClass}">
+          <div class="sparkline-col" title="1-Day Chart (Macro Trend over 90 days)">
+            <div class="spark-label">1D Trend</div>
+            <canvas id="${sparkId1D}" height="40"></canvas>
+          </div>
+          <div class="sparkline-col" title="4-Hour Chart (Intraday Trend over 15 days)">
+            <div class="spark-label">4H Trend</div>
+            <canvas id="${sparkId4H}" height="40"></canvas>
+          </div>
         </div>
 
         <div class="card-indicators${updateClass}">
