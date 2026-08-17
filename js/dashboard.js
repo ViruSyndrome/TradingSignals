@@ -222,7 +222,14 @@ const Dashboard = {
       const crypto = await API.getAllCrypto();
 
       const all = [
-        ...(crypto || []).map(d => ({ ...d, category: 'crypto' })),
+        ...(crypto || [])
+          .filter(d => {
+            if (!d.closes || d.closes.length < 30) return false;
+            const badTokens = ['SNDKBUSDT', 'SPCXBUSDT', 'EULUSDT'];
+            if (badTokens.includes(d.asset?.id)) return false;
+            return true;
+          })
+          .map(d => ({ ...d, category: 'crypto' })),
       ];
 
       // Signals now receive OHLCV + sentiment + symbol + marketRegime
