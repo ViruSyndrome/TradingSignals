@@ -904,7 +904,7 @@ const Dashboard = {
                 ${winnerBadge}
               </div>
             </div>
-            <button class="star-btn ${isStarred ? 'active' : ''}" data-star-id="${asset.id}" title="Toggle Watchlist" style="background:none; border:none; cursor:pointer; font-size:18px; margin-left:auto; opacity:${isStarred ? 1 : 0.3}; transition:0.2s;">⭐</button>
+            ${d.category === 'scalper' ? '' : `<button class="star-btn ${isStarred ? 'active' : ''}" data-star-id="${asset.id}" title="Toggle Watchlist" style="background:none; border:none; cursor:pointer; font-size:18px; margin-left:auto; opacity:${isStarred ? 1 : 0.3}; transition:0.2s;">⭐</button>`}
           </div>
           <div class="signal-badge signal-${level.cls} ${sig === 'STRONG_BUY' || sig === 'STRONG_SELL' ? 'pulse' : ''}" title="Signal: ${level.label}. This is the combined verdict from 4 technical indicators (RSI, MACD, Moving Averages, Bollinger Bands).">
             <span>${level.icon}</span> ${level.short}
