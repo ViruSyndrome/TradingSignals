@@ -71,8 +71,8 @@ const CONFIG = {
   },
 
   signals: {
-    winnersOnlyBuys: true,  // Only allow BUY/STRONG_BUY on provenWinners
-    coreOnlyBuys: true,     // Restrict STRONG_BUY to coreWinners only
+    winnersOnlyBuys: false, // [TEMPORARILY DISABLED BY USER] Only allow BUY/STRONG_BUY on provenWinners
+    coreOnlyBuys: false,    // [TEMPORARILY DISABLED BY USER] Restrict STRONG_BUY to coreWinners only
   },
 
   // ─── Technical indicator parameters ─────────────────────────────────────────
