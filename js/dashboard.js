@@ -180,7 +180,7 @@ const Dashboard = {
       this.state.allAssets = all.map(d => {
         let signalResult = null;
         if (d.closes?.length > 0) {
-          const opts = { highs: d.highs, lows: d.lows, volumes: d.volumes, fearGreed: fg, symbol: d.asset?.symbol || d.asset?.id, marketRegime };
+          const opts = { highs: d.highs, lows: d.lows, volumes: d.volumes, fearGreed: fg, symbol: d.asset?.symbol || d.asset?.id, marketRegime, marketCap: d.marketCap, tvl: d.tvl };
           signalResult = d.asset?.isMoonshot ? Signals.generateBreakout(d.closes, opts) : Signals.generate(d.closes, opts);
         }
         return { ...d, signalResult };
@@ -242,7 +242,7 @@ const Dashboard = {
       this.state.allAssets = assets.map(d => {
         let signalResult = null;
         if (d.closes?.length > 0) {
-          const opts = { highs: d.highs, lows: d.lows, volumes: d.volumes, fearGreed: fg, symbol: d.asset?.symbol || d.asset?.id, marketRegime: this.state.marketRegime };
+          const opts = { highs: d.highs, lows: d.lows, volumes: d.volumes, fearGreed: fg, symbol: d.asset?.symbol || d.asset?.id, marketRegime: this.state.marketRegime, marketCap: d.marketCap, tvl: d.tvl };
           signalResult = d.asset?.isMoonshot ? Signals.generateBreakout(d.closes, opts) : Signals.generate(d.closes, opts);
         }
         return { ...d, signalResult };
@@ -679,6 +679,27 @@ const Dashboard = {
     const winnerBadge = this._winnerTierBadge(winnerTier);
     const updateClass = this.state.updatedAssetIds.has(asset.id) ? ' value-updated' : '';
 
+    let fundChip = '';
+    if (d.tvl && d.marketCap) {
+      const fundData = signalResult?.indicators?.fundamental;
+      const fundScore = fundData?.score ?? 0;
+      const fundRatio = fundData?.value ?? (d.marketCap / d.tvl);
+      const tvlStr = d.tvl > 1e9 ? `$${(d.tvl/1e9).toFixed(1)}B` : d.tvl > 1e6 ? `$${(d.tvl/1e6).toFixed(1)}M` : `$${d.tvl.toFixed(0)}`;
+      fundChip = `
+        <div class="ind-chip" title="DefiLlama Fundamentals: Total Value Locked is ${tvlStr}. Mcap/TVL Ratio: ${fundRatio.toFixed(2)}. ${fundData?.description || ''}">
+          <span class="ind-label">Mcap/TVL</span>
+          <span class="ind-val ${fundScore > 0 ? 'pos' : fundScore < 0 ? 'neg' : ''}">${fundRatio.toFixed(1)}</span>
+        </div>
+      `;
+    } else {
+      fundChip = `
+        <div class="ind-chip" style="opacity: 0.5" title="No DefiLlama 'Locked Value' data available for this asset (usually because it is a Layer-1 like Bitcoin).">
+          <span class="ind-label">TVL</span>
+          <span class="ind-val">N/A</span>
+        </div>
+      `;
+    }
+
     let quickTargets = '';
     if ((sig === 'BUY' || sig === 'STRONG_BUY') && signalResult?.stopSuggest) {
       const tp = signalResult.stopSuggest.takeProfitPrice;
@@ -751,6 +772,7 @@ const Dashboard = {
             <span class="ind-label">Confidence</span>
             <span class="ind-val">${conf}%</span>
           </div>
+          ${fundChip}
         </div>
 
         <div class="confidence-bar-wrap" title="Visual confidence meter. The fuller the bar, the more indicators agree.">

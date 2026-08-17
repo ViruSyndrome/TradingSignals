@@ -49,8 +49,24 @@ const API = {
   _delay(ms) { return new Promise(r => setTimeout(r, ms)); },
 
   // ══════════════════════════════════════════════════════════════════════════════
-  // CRYPTO — Binance
+  // CRYPTO — Binance & DefiLlama (Fundamentals)
   // ══════════════════════════════════════════════════════════════════════════════
+
+  async getDefiLlamaProtocols() {
+    const key = 'defillama_protocols';
+    const cached = this._get(key);
+    // Cache for 1 hour to avoid hitting DefiLlama limits
+    if (cached) return cached;
+    
+    try {
+      const data = await this._fetch('https://api.llama.fi/protocols', 8000);
+      if (!Array.isArray(data)) throw new Error('Invalid format');
+      return this._set(key, data, 3600000); 
+    } catch (e) {
+      console.warn('[API] DefiLlama fetch failed:', e.message);
+      return [];
+    }
+  },
 
   async getCryptoSymbolRules() {
     const key = 'crypto_symbol_rules';
@@ -130,13 +146,26 @@ const API = {
   async getAllCrypto() {
     const prices = await this.getCryptoPrices();
     const rules = await this.getCryptoSymbolRules();
+    const llamaData = await this.getDefiLlamaProtocols();
+
+    // Create a fast lookup map for DefiLlama data by symbol
+    const llamaMap = new Map();
+    if (Array.isArray(llamaData)) {
+      for (const p of llamaData) {
+        if (p.symbol) llamaMap.set(p.symbol.toUpperCase(), p);
+      }
+    }
 
     const promises = CONFIG.assets.crypto.map(async (asset) => {
       const interval = asset.grafted ? '4h' : '1d';
       const hist = await this.getCryptoOHLC(asset.id, interval);
       const binanceSymbol = asset.id.replace('_4H', '');
+      const baseSymbol = binanceSymbol.replace('USDT', '');
+      
       const priceInfo = prices?.[binanceSymbol] ?? {};
       const livePrice = priceInfo.lastPrice ? parseFloat(priceInfo.lastPrice) : null;
+      
+      const llamaProtocol = llamaMap.get(baseSymbol);
 
       const closes     = hist ? hist.map(r => parseFloat(r[4])) : [];
       const opens      = hist ? hist.map(r => parseFloat(r[1])) : [];
@@ -155,11 +184,12 @@ const API = {
 
       return {
         asset,
-          rules: rules[asset.id] || null,
+        rules: rules[asset.id] || null,
         price:      livePrice,
         change24h:  priceInfo.priceChangePercent != null ? parseFloat(priceInfo.priceChangePercent) : null,
         volume:     priceInfo.quoteVolume ? parseFloat(priceInfo.quoteVolume) : null,
-        marketCap:  null,
+        marketCap:  llamaProtocol?.mcap || null,
+        tvl:        llamaProtocol?.tvl || null,
         closes,
         opens,
         highs,

@@ -195,7 +195,26 @@ const Signals = {
       }
     }
 
-    // ── 7. Market Regime (BTC) Gate (dampener, max −1.5) ─────────────
+    // ── 7. Fundamental Analysis (DefiLlama TVL) ─────────────
+    // A low Mcap/TVL ratio means the protocol is undervalued.
+    if (opts.marketCap && opts.tvl && opts.tvl > 0) {
+      const ratio = opts.marketCap / opts.tvl;
+      let s = 0, sig = 'NEUTRAL', desc = `Mcap/TVL Ratio: ${ratio.toFixed(2)}`;
+      
+      if (ratio < 1.0) { s = 1.0; sig = 'BUY'; desc = `Deep Value: Mcap/TVL is ${ratio.toFixed(2)} (Undervalued)`; }
+      else if (ratio < 2.0) { s = 0.5; sig = 'BUY'; desc = `Value: Mcap/TVL is ${ratio.toFixed(2)}`; }
+      else if (ratio > 5.0 && ratio <= 10.0) { s = -0.5; sig = 'SELL'; desc = `Speculative: Mcap/TVL is ${ratio.toFixed(2)} (Overvalued)`; }
+      else if (ratio > 10.0) { s = -1.0; sig = 'SELL'; desc = `Highly Speculative: Mcap/TVL is ${ratio.toFixed(2)} (Severely Overvalued)`; }
+      
+      score += s;
+      indDetails.fundamental = {
+        value: ratio,
+        signal: sig,
+        description: desc, score: s,
+      };
+    }
+
+    // ── 8. Market Regime (BTC) Gate (dampener, max −1.5) ─────────────
     // If the broader market (BTC) is in a macro downtrend, altcoin buy signals are highly risky.
     if (opts.marketRegime === 'bear' && symbol !== 'BTC' && symbol !== 'BTCUSDT' && score > 0) {
       const s = -1.5;
