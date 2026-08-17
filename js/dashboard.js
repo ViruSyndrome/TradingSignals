@@ -1334,6 +1334,7 @@ const Dashboard = {
     const level = Signals.level(d.signalResult.signal);
     new Notification(`${level.icon} ${d.asset.name}: ${level.label}`, {
       body: d.signalResult.recommendation.slice(0, 100) + '…',
+      silent: true
     });
     try { localStorage.setItem(key, Date.now().toString()); } catch (e) { /* ignore */ }
   },
