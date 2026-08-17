@@ -678,8 +678,8 @@ const Dashboard = {
         return conf >= gate && score > 0;
       });
     } else if (cat === 'trending') {
-      // 24h positive trend, sorted by highest change
-      assets = assets.filter(a => a.change24h > 0).sort((a, b) => b.change24h - a.change24h);
+      // 4h positive trend, sorted by highest change
+      assets = assets.filter(a => a.change4h > 0).sort((a, b) => b.change4h - a.change4h);
     } else if (cat === 'history') {
       const history = this._getSignalHistory();
       if (history.length === 0) {
