@@ -423,8 +423,9 @@ button:focus-visible { outline: 2px solid var(--accent); border-radius: 4px; }
 
 /* Sparklines Container */
 .sparklines-container { display: flex; gap: 8px; margin: 0 -12px 16px -12px; }
-.sparkline-col { flex: 1; display: flex; flex-direction: column; background: rgba(0,0,0,0.2); border-radius: var(--radius-sm); padding: 4px; border: 1px solid rgba(255,255,255,0.03); }
-.spark-label { font-size: 9px; text-transform: uppercase; color: var(--text-muted); margin-bottom: 2px; text-align: center; letter-spacing: 1px; font-weight: 600; }
+.sparkline-col { flex: 1; display: flex; flex-direction: column; background: rgba(0,0,0,0.2); border-radius: var(--radius-sm); padding: 4px; border: 1px solid rgba(255,255,255,0.03); height: 56px; overflow: hidden; position: relative; }
+.sparkline-col canvas { position: absolute; left: 4px; right: 4px; bottom: 4px; top: 18px; width: calc(100% - 8px) !important; height: calc(100% - 22px) !important; }
+.spark-label { font-size: 9px; text-transform: uppercase; color: var(--text-muted); margin-bottom: 2px; text-align: center; letter-spacing: 1px; font-weight: 600; position: relative; z-index: 1; }
 .sparklines-container.value-updated canvas { animation: chart-refresh 2.8s ease-out; }
 @keyframes chart-refresh { 0% { filter: brightness(1.45); } 100% { filter: brightness(1); } }
 
