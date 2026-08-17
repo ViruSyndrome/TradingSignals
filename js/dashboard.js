@@ -907,7 +907,7 @@ const Dashboard = {
           <div class="price-changes">
             <div class="price-change ${chg24Cls}${updateClass}" title="Price change in the last 24 hours.">1D: ${chg24Str}</div>
             ${d.category === 'scalper' 
-              ? `<div class="price-change ${d.change5m >= 0 ? 'pos' : 'neg'}${updateClass}" title="Price change over the last 5-minute candle.">5m: ${d.change5m > 0 ? '+' : ''}${d.change5m.toFixed(2)}%</div>` 
+              ? `<div class="price-change ${(d.change5m || 0) >= 0 ? 'pos' : 'neg'}${updateClass}" title="Price change over the last 5-minute candle.">5m: ${(d.change5m || 0) > 0 ? '+' : ''}${(d.change5m || 0).toFixed(2)}%</div>` 
               : `<div class="price-change ${chg4Cls}${updateClass}" title="Price change over the last 4-hour candle.">4H: ${chg4Str}</div>`
             }
           </div>
