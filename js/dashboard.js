@@ -441,6 +441,7 @@ const Dashboard = {
     this._renderSummaryBar();
     this._renderTopOpportunities();
     this._renderAssetGrid();
+    this._renderMoonshotGrid();
     this._renderLiveTape();
     this._updateLastUpdated();
     this._updateLiveStatus();
@@ -716,8 +717,6 @@ const Dashboard = {
         const score = a.signalResult?.score ?? 0;
         return conf >= gate && score > 0;
       });
-    } else if (cat === 'moonshot') {
-      assets = assets.filter(a => a.asset.isMoonshot);
     } else if (cat === 'scalper') {
       assets = assets.filter(a => a.category === 'scalper');
     } else if (cat === 'trending') {
