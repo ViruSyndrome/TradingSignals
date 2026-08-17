@@ -524,12 +524,12 @@ const Signals = {
     const trailingStop = Indicators.last(chandExit);
     
     if (trailingStop && signal.includes('BUY')) {
-      const distPct = Indicators.pct(price, trailingStop).toFixed(2);
+      const distPct = Math.abs(Indicators.pct(price, trailingStop)).toFixed(2);
       const riskDistance = price - trailingStop;
       stopSuggest = {
         stopPrice: +trailingStop.toFixed(8),
         takeProfitPrice: +(price + riskDistance * 2).toFixed(8),
-        distancePct: distPct,
+        distancePct: +distPct,
         takeProfitPct: +((riskDistance * 2 / price) * 100).toFixed(2),
         riskMultiple: 2,
         side: 'long'
