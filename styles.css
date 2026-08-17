@@ -209,7 +209,7 @@ button:focus-visible { outline: 2px solid var(--accent); border-radius: 4px; }
   font-family: monospace;
 }
 .last-updated { font-size: 13px; color: var(--text-muted); white-space: nowrap; }
-#moonshotScanStatus { width: 280px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; display: inline-block; vertical-align: middle; text-align: left; }
+#moonshotScanStatus { width: 340px; min-width: 340px; flex-shrink: 0; text-align: right; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; display: inline-block; vertical-align: middle; }
 
 .refresh-btn {
   display: flex;
