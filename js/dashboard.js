@@ -326,7 +326,20 @@ const Dashboard = {
 
       // Inject active scalps from background scanner
       if (this.state.scalps && this.state.scalps.length > 0) {
-        this.state.allAssets.push(...this.state.scalps);
+        const liveScalps = this.state.scalps.map(scalp => {
+          // Find if we just fetched live 1D/4H data for this coin
+          const liveData = all.find(a => a.asset?.id === scalp.asset?.id);
+          if (liveData) {
+            return {
+              ...scalp,
+              price: liveData.price,
+              change24h: liveData.change24h,
+              closes4H: liveData.closes4H
+            };
+          }
+          return scalp;
+        });
+        this.state.allAssets.push(...liveScalps);
       }
 
       if (this._previousSignals.size === 0) {
@@ -480,7 +493,23 @@ const Dashboard = {
       
       this.state.scalps = setups;
       
+      // Graft scalps into CONFIG so they get live 1D and 4H updates in loadAll()
+      for (const s of setups) {
+        const id = s.asset?.id;
+        if (id && !CONFIG.assets.crypto.some(a => a.id === id)) {
+          CONFIG.assets.crypto.push({
+            id: id,
+            symbol: s.asset?.symbol,
+            name: s.asset?.name,
+            currency: 'USD',
+            icon: '⚡',
+            grafted: true
+          });
+        }
+      }
+
       // If we are currently on the scalper tab, trigger a re-render
+
       if (this.state.activeCategory === 'scalper') {
         this.loadAll(true);
       }
@@ -1004,25 +1033,24 @@ const Dashboard = {
           <div class="price-main${updateClass}" title="Current live price from Binance, refreshed every 60 seconds.">${priceStr}</div>
           <div class="price-changes">
             <div class="price-change ${chg24Cls}${updateClass}" title="Price change in the last 24 hours.">1D: ${chg24Str}</div>
+            <div class="price-change ${chg4Cls}${updateClass}" title="Price change over the last 4-hour candle.">4H: ${chg4Str}</div>
             ${d.category === 'scalper' 
               ? `<div class="price-change ${(d.change5m || 0) >= 0 ? 'pos' : 'neg'}${updateClass}" title="Price change over the last 5-minute candle.">5m: ${(d.change5m || 0) > 0 ? '+' : ''}${(d.change5m || 0).toFixed(2)}%</div>` 
-              : `<div class="price-change ${chg4Cls}${updateClass}" title="Price change over the last 4-hour candle.">4H: ${chg4Str}</div>`
+              : ''
             }
           </div>
         </div>
         ${quickTargets}
 
         <div class="sparklines-container${updateClass}">
-          <div class="sparkline-col" style="${d.category === 'scalper' ? 'width: 100%' : ''}" title="${d.category === 'scalper' ? '5-Minute Chart' : '1-Day Chart'}">
+          <div class="sparkline-col" title="${d.category === 'scalper' ? '5-Minute Chart' : '1-Day Chart'}">
             <div class="spark-label">${d.category === 'scalper' ? '5M Trend (Scalp)' : '1D Trend'}</div>
             <canvas id="${sparkId1D}" height="40"></canvas>
           </div>
-          ${d.category !== 'scalper' ? `
           <div class="sparkline-col" title="4-Hour Chart (Intraday Trend)">
             <div class="spark-label">4H Trend</div>
             <canvas id="${sparkId4H}" height="40"></canvas>
           </div>
-          ` : ''}
         </div>
 
         <div class="card-indicators${updateClass}">
