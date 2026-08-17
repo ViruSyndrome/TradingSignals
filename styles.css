@@ -438,6 +438,8 @@ button:focus-visible { outline: 2px solid var(--accent); border-radius: 4px; }
 }
 .ind-label { display: block; font-size: 10px; color: var(--text-muted); text-transform: uppercase; margin-bottom: 4px; }
 .ind-val { display: block; font-size: 14px; font-weight: 600; color: #fff; }
+.ind-val.pos { color: var(--c-green); }
+.ind-val.neg { color: var(--c-red); }
 
 /* Confidence Bar */
 .confidence-bar-wrap { margin-bottom: 12px; }
