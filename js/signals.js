@@ -524,6 +524,22 @@ const Signals = {
       desc.push("Market Regime is Bearish (BTC < 50 SMA). Breakouts are likely fakeouts.");
     }
 
+    const rawScore = +score.toFixed(2);
+    let tvlData = undefined;
+    if (opts.tvl && opts.tvl > 0) {
+      const tvl = opts.tvl;
+      const tvlStr = tvl > 1e9 ? `$${(tvl/1e9).toFixed(1)}B` : tvl > 1e6 ? `$${(tvl/1e6).toFixed(1)}M` : `$${tvl.toFixed(0)}`;
+      let s = 0, sig = 'NEUTRAL', tDesc = `Locked Value: ${tvlStr}`;
+      
+      if (tvl >= 1e9) { s = 1.0; sig = 'BUY'; tDesc = `Deep Value: Over $1 Billion locked (${tvlStr})`; }
+      else if (tvl >= 1e8) { s = 0.5; sig = 'BUY'; tDesc = `Value: Over $100 Million locked (${tvlStr})`; }
+      else if (tvl < 1e7) { s = -0.5; sig = 'SELL'; tDesc = `Speculative: Low locked value (${tvlStr})`; }
+      
+      score += s;
+      if (s !== 0) desc.push(tDesc);
+      tvlData = { signal: sig, value: tvl, formatted: tvlStr, description: tDesc, score: s };
+    }
+
     let signal = 'NEUTRAL';
     if (score >= 5.0) signal = 'STRONG_BUY';
     else if (score >= 3.0) signal = 'BUY';
@@ -559,9 +575,11 @@ const Signals = {
       conviction: signal === 'STRONG_BUY' ? 'strong' : (signal === 'BUY' ? 'standard' : 'none'),
       confidence: score >= 5.0 ? 100 : (score >= 3.0 ? 75 : 0),
       score: +score.toFixed(2),
+      rawScore: rawScore,
       indicators: {
         breakout: { isSqueezing, isBreakingOut, breakoutBuffer: +(breakoutBuffer * 100).toFixed(2), priorSwingHigh, healthyBreakoutCandle, volumeRatio, isVolumeSurge },
-        rsi: { value: rsiVal !== null ? Math.round(rsiVal) : null }
+        rsi: { value: rsiVal !== null ? Math.round(rsiVal) : null },
+        tvl: tvlData
       },
       recommendation: desc.join(' ') || 'No breakout setup detected.',
       stopSuggest,

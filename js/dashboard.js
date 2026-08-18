@@ -330,19 +330,49 @@ const Dashboard = {
 
       // Inject active scalps from background scanner
       if (this.state.scalps && this.state.scalps.length > 0) {
-        const liveScalps = this.state.scalps.map(scalp => {
-          // Find if we just fetched live 1D data for the BASE coin (e.g. BTCUSDT)
+        const liveScalps = await Promise.all(this.state.scalps.map(async scalp => {
           const baseId = scalp.asset?.id.replace('_5M', 'USDT');
           const liveData = all.find(a => a.asset?.id === baseId);
+          let updatedScalp = { ...scalp };
+          
           if (liveData) {
-            return {
-              ...scalp,
-              price: liveData.price,
-              change24h: liveData.change24h
-            };
+            updatedScalp.price = liveData.price;
+            updatedScalp.change24h = liveData.change24h;
+            updatedScalp.change4h = liveData.change4h;
           }
-          return scalp;
-        });
+          
+          // Fast-fetch fresh 5m klines to keep 5m change and signal accurate every 30s
+          try {
+            const klines = await API._fetch(`https://api.binance.com/api/v3/klines?symbol=${baseId}&interval=5m&limit=100`, 5000, 0);
+            if (Array.isArray(klines) && klines.length >= 50) {
+              const closes = klines.map(k => parseFloat(k[4]));
+              const highs = klines.map(k => parseFloat(k[2]));
+              const lows = klines.map(k => parseFloat(k[3]));
+              const volumes = klines.map(k => parseFloat(k[5]));
+              const timestamps = klines.map(k => k[0]);
+              
+              if (liveData && liveData.price != null) {
+                const lastIdx = closes.length - 1;
+                closes[lastIdx] = liveData.price;
+                if (liveData.price > highs[lastIdx]) highs[lastIdx] = liveData.price;
+                if (liveData.price < lows[lastIdx]) lows[lastIdx] = liveData.price;
+              }
+
+              const result = Signals.generateScalp(closes, { highs, lows, volumes });
+              updatedScalp.closes = closes;
+              updatedScalp.highs = highs;
+              updatedScalp.lows = lows;
+              updatedScalp.timestamps = timestamps;
+              updatedScalp.signalResult = result;
+              updatedScalp.change5m = ((closes[closes.length - 1] - closes[closes.length - 2]) / closes[closes.length - 2]) * 100;
+            }
+          } catch (e) {
+            console.warn(`[Dashboard] Failed to refresh 5m klines for ${baseId}:`, e.message);
+          }
+          return updatedScalp;
+        }));
+        
+        this.state.scalps = liveScalps;
         this.state.allAssets.push(...liveScalps);
       }
 
