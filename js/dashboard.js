@@ -1683,4 +1683,21 @@ const Dashboard = {
 };
 
 // ── Boot on DOM ready ──────────────────────────────────────────────────────────
-document.addEventListener('DOMContentLoaded', () => Dashboard.init());
+document.addEventListener('DOMContentLoaded', () => {
+  Dashboard.init();
+
+  // Browser SPA Anti-Scroll Bug Fix:
+  // Prevent Chrome from aggressively scrolling the overflow:hidden body or main-content
+  // when navigating back to the tab with a focused element off-screen.
+  window.addEventListener('scroll', () => {
+    if (window.scrollY > 0 || window.scrollX > 0) window.scrollTo(0, 0);
+  }, { passive: true });
+  
+  const mainContent = document.querySelector('.main-content');
+  if (mainContent) {
+    mainContent.addEventListener('scroll', function() {
+      if (this.scrollTop > 0) this.scrollTop = 0;
+      if (this.scrollLeft > 0) this.scrollLeft = 0;
+    }, { passive: true });
+  }
+});
