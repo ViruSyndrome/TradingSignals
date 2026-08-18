@@ -529,24 +529,29 @@ const Signals = {
     else if (score >= 3.0) signal = 'BUY';
     else if (score <= -2.0) signal = 'SELL';
 
-    // Chandelier Exit Trailing Stop (Instead of fixed ATR)
-    // We calculate it and pass it to the dashboard for rendering
-    let stopSuggest = null;
+    // Standard ATR-based Stop-Loss (safer than Chandelier which can invert on crashes)
     const chandExit = Indicators.chandelierExit(highs, lows, closes, 22, 3);
-    const trailingStop = Indicators.last(chandExit);
+    let stopSuggest = null;
+    const atrArr = Indicators.atr(highs, lows, closes, 14);
+    const curAtr = Indicators.last(atrArr);
     
-    if (trailingStop && signal.includes('BUY')) {
-      const distPct = Math.abs(Indicators.pct(price, trailingStop)).toFixed(2);
-      const riskDistance = price - trailingStop;
+    if (curAtr && (signal.includes('BUY') || signal.includes('SELL'))) {
+      const isLong = signal.includes('BUY');
+      const mult = 2.5; // Slightly wider stop for highly volatile moonshots
+      const risk = curAtr * mult;
+      const stopPrice = isLong ? price - risk : price + risk;
+      const takeProfitPrice = isLong ? price + risk * 2 : price - risk * 2;
+      const distPct = ((risk / price) * 100).toFixed(2);
+      
       stopSuggest = {
-        stopPrice: +trailingStop.toFixed(8),
-        takeProfitPrice: +(price + riskDistance * 2).toFixed(8),
+        stopPrice: +stopPrice.toFixed(8),
+        takeProfitPrice: +takeProfitPrice.toFixed(8),
         distancePct: +distPct,
-        takeProfitPct: +((riskDistance * 2 / price) * 100).toFixed(2),
+        takeProfitPct: +(((risk * 2) / price) * 100).toFixed(2),
         riskMultiple: 2,
-        side: 'long'
+        side: isLong ? 'long' : 'short'
       };
-      desc.push(`Suggested Chandelier stop: ${trailingStop.toFixed(8)} (${distPct}% away) with a 2R partial-profit target.`);
+      desc.push(`Suggested Stop: ${stopPrice.toFixed(8)} (${distPct}% away) with a 2R partial-profit target.`);
     }
 
     return {
@@ -705,23 +710,28 @@ const Signals = {
     if (score >= 5.5) signal = 'STRONG_BUY';
     else if (score >= 4.0) signal = 'BUY';
 
-    // Chandelier Exit for stop placement
-    let stopSuggest = null;
+    // Standard ATR-based Stop-Loss
     const chandExit = Indicators.chandelierExit(highs, lows, closes, 14, 1.5);
-    const trailingStop = Indicators.last(chandExit);
+    let stopSuggest = null;
+    const atrArr = Indicators.atr(highs, lows, closes, 14);
+    const curAtr = Indicators.last(atrArr);
 
-    if (trailingStop && signal.includes('BUY')) {
-      const distPct = Math.abs(Indicators.pct(price, trailingStop)).toFixed(2);
-      const riskDistance = price - trailingStop;
+    if (curAtr && signal.includes('BUY')) {
+      const mult = 1.5; // Tighter stop for scalps
+      const risk = curAtr * mult;
+      const stopPrice = price - risk;
+      const takeProfitPrice = price + risk * 2.0; // 2R target for pullback trades
+      const distPct = ((risk / price) * 100).toFixed(2);
+      
       stopSuggest = {
-        stopPrice: +trailingStop.toFixed(8),
-        takeProfitPrice: +(price + riskDistance * 2.0).toFixed(8), // 2R target for pullback trades
+        stopPrice: +stopPrice.toFixed(8),
+        takeProfitPrice: +takeProfitPrice.toFixed(8),
         distancePct: +distPct,
-        takeProfitPct: +((riskDistance * 2.0 / price) * 100).toFixed(2),
+        takeProfitPct: +(((risk * 2.0) / price) * 100).toFixed(2),
         riskMultiple: 2.0,
         side: 'long'
       };
-      desc.push(`Scalp stop: ${trailingStop.toFixed(8)} (${distPct}% away) with 2R exit target.`);
+      desc.push(`Scalp stop: ${stopPrice.toFixed(8)} (${distPct}% away) with 2R exit target.`);
     }
 
     return {
