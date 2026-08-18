@@ -159,6 +159,7 @@ button:focus-visible { outline: 2px solid var(--accent); border-radius: 4px; }
 ════════════════════════════════════════════════════════════════════════════ */
 .main-content {
   flex: 1;
+  min-width: 0; /* Prevent flex overflow */
   display: flex;
   flex-direction: column;
   overflow: hidden;
@@ -230,6 +231,7 @@ button:focus-visible { outline: 2px solid var(--accent); border-radius: 4px; }
 .main-section {
   display: none;
   flex: 1;
+  min-height: 0; /* Critical: allows flex child to shrink and enable overflow-y:auto */
   overflow-y: auto;
   padding: 32px;
 }
@@ -998,10 +1000,14 @@ body.modal-open { overflow: hidden; }
 }
 .hamburger-btn:hover { background: var(--accent); }
 
+@media (max-width: 900px) {
+  /* Hide non-essential topbar items on tablets */
+  .clock-badge.eod-timer { display: none; }
+  #lastUpdated { display: none; }
+}
+
 @media (max-width: 768px) {
-  .hamburger-btn { display: block; }
-  
-  /* Sidebar becomes an overlay */
+  /* Sidebar becomes a slide-in overlay */
   .sidebar {
     position: fixed;
     left: -280px;
@@ -1013,17 +1019,27 @@ body.modal-open { overflow: hidden; }
   }
   .sidebar.open { left: 0; }
   
-  /* Main content takes full width */
-  .main-content,
-  main,
-  .content {
-    margin-left: 0 !important;
-    padding: 12px !important;
-    padding-top: 50px !important;
+  /* Main content takes full width — no padding overrides, topbar is inside */
+  .main-content { margin-left: 0 !important; }
+
+  /* Topbar: hide non-essential items, collapse to just the essentials */
+  .topbar {
+    padding: 0 12px;
+    height: 56px;
+    flex-shrink: 0;
   }
+  #moonshotScanStatus { display: none; }
+  .clock-badge { display: none; }
+  #lastUpdated { display: none; }
+  .topbar-right { gap: 10px; }
+  .refresh-btn { padding: 7px 12px; font-size: 13px; }
+  .refresh-btn span { display: none; } /* Hide arrow icon, keep text */
+
+  /* Section content padding */
+  .main-section { padding: 16px 12px; }
   
   /* Asset grid single column */
-  .asset-grid,
+  .assets-grid,
   #assetGrid,
   #topOpportunities {
     grid-template-columns: 1fr !important;
@@ -1035,14 +1051,12 @@ body.modal-open { overflow: hidden; }
     flex-direction: column !important;
     margin: 0 -8px 12px -8px !important;
   }
-  .sparkline-col {
-    height: 48px !important;
-  }
+  .sparkline-col { height: 48px !important; }
   
   /* Smaller price text */
   .price-main { font-size: 22px !important; }
   
-  /* Stack price changes horizontally */
+  /* Stack price changes */
   .price-changes { flex-direction: row !important; gap: 6px !important; }
   
   /* Indicators wrap */
@@ -1072,6 +1086,13 @@ body.modal-open { overflow: hidden; }
     z-index: 999;
   }
   .sidebar-overlay.active { display: block; }
+
+  /* Section headings */
+  .section-heading { flex-direction: column; align-items: flex-start; gap: 4px; }
+  .section-heading h2 { font-size: 18px; }
+
+  /* Mobile close button in sidebar */
+  .mobile-close-btn { display: flex; }
 }
 
 @media (max-width: 480px) {
@@ -1081,6 +1102,9 @@ body.modal-open { overflow: hidden; }
   .ind-chip { padding: 6px !important; }
   .ind-val { font-size: 12px !important; }
   .ind-label { font-size: 8px !important; }
+  /* Summary bar items shrink */
+  .summary-stat { padding: 8px 10px !important; }
+  .summary-stat .stat-value { font-size: 18px !important; }
 }
 
 /* ─── BACKTESTER UI ──────────────────────────────────────────────────────── */

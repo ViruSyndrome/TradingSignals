@@ -171,20 +171,24 @@ const Dashboard = {
     // Mobile hamburger menu from Topbar
     const hamburger = document.getElementById('sidebarToggle');
     const sidebar = document.querySelector('.sidebar');
-    if (hamburger && sidebar) {
-      // Create overlay element
-      const overlay = document.createElement('div');
-      overlay.className = 'sidebar-overlay';
-      document.body.appendChild(overlay);
-      
+    const mobileCloseBtn = document.getElementById('mobileCloseBtn');
+    const overlay = document.getElementById('sidebarOverlay');
+    
+    if (hamburger && sidebar && overlay) {
       hamburger.addEventListener('click', () => {
-        sidebar.classList.toggle('open');
-        overlay.classList.toggle('active');
+        sidebar.classList.add('open');
+        overlay.classList.add('active');
       });
       overlay.addEventListener('click', () => {
         sidebar.classList.remove('open');
         overlay.classList.remove('active');
       });
+      if (mobileCloseBtn) {
+        mobileCloseBtn.addEventListener('click', () => {
+          sidebar.classList.remove('open');
+          overlay.classList.remove('active');
+        });
+      }
       // Close sidebar when a nav link is clicked on mobile
       sidebar.querySelectorAll('a, button').forEach(el => {
         el.addEventListener('click', () => {
