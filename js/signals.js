@@ -332,22 +332,22 @@ const Signals = {
     const curAtr = atrArr ? Indicators.last(atrArr) : null;
     let stopSuggest = null;
     if (curAtr && price) {
-      const bullish = ['BUY', 'STRONG_BUY'].includes(signal);
-      const bearish = ['SELL', 'STRONG_SELL'].includes(signal);
-      if (bullish || bearish) {
-        const mult = 2; // 2×ATR is a standard swing-trading stop
-        const risk = mult * curAtr;
-        const stopPrice = bullish ? price - risk : price + risk;
-        const takeProfitPrice = bullish ? price + 2 * risk : price - 2 * risk;
-        stopSuggest = {
-          atr: +curAtr.toFixed(8),
-          stopPrice: +stopPrice.toFixed(8),
-          takeProfitPrice: +takeProfitPrice.toFixed(8),
-          distancePct: +((risk / price) * 100).toFixed(2),
-          takeProfitPct: +((2 * risk / price) * 100).toFixed(2),
-          side: bullish ? 'long' : 'short',
-        };
-      }
+      // Always generate an OCO bracket so the user can manually paper-trade even neutral/suppressed coins
+      // By default, assume long unless the raw mathematical signal explicitly says SELL
+      const isShort = ['SELL', 'STRONG_SELL'].includes(signal) || score < -2;
+      const mult = 2; // 2×ATR is a standard swing-trading stop
+      const risk = mult * curAtr;
+      const stopPrice = !isShort ? price - risk : price + risk;
+      const takeProfitPrice = !isShort ? price + 2 * risk : price - 2 * risk;
+      
+      stopSuggest = {
+        atr: +curAtr.toFixed(8),
+        stopPrice: +stopPrice.toFixed(8),
+        takeProfitPrice: +takeProfitPrice.toFixed(8),
+        distancePct: +((risk / price) * 100).toFixed(2),
+        takeProfitPct: +((2 * risk / price) * 100).toFixed(2),
+        side: !isShort ? 'long' : 'short',
+      };
     }
 
     // ── Plain-English recommendation ─────────────────────────────────────────
