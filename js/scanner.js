@@ -28,6 +28,11 @@ const Scanner = {
         if (!t.symbol.endsWith('USDT') || !tradingPairs.has(t.symbol) || parseFloat(t.quoteVolume) < 2000000) return false;
         if (stableCoins.has(t.symbol)) return false;
         if (t.symbol.endsWith('BUSDT') && !safeBCryptos.has(t.symbol)) return false;
+        // Avoid duplicating core coins that are already tracked on the dashboard
+        if (typeof CONFIG !== 'undefined' && CONFIG.assets && CONFIG.assets.crypto) {
+          const isCore = CONFIG.assets.crypto.some(a => a.symbol === t.symbol.replace('USDT', '') && !a.isMoonshot);
+          if (isCore) return false;
+        }
         return true;
       });
 

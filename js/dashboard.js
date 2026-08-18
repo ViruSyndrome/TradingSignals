@@ -145,6 +145,15 @@ const Dashboard = {
           normId += '_4H';
         }
         return normId;
+      })
+      .filter(id => {
+        // Strip out duplicated moonshots if the base coin is already tracked as a core coin
+        if (id.endsWith('_4H')) {
+          const baseSymbol = id.replace('USDT_4H', '').replace('_4H', '');
+          const isCore = CONFIG.assets.crypto.some(a => a.symbol === baseSymbol && !a.grafted);
+          if (isCore) return false;
+        }
+        return true;
       });
     this.state.watchlist = [...new Set(cleanWatchlist)]; // Remove duplicates
     // Persist the cleaned watchlist immediately to prevent re-corruption
