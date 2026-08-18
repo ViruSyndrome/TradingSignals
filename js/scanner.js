@@ -28,10 +28,10 @@ const Scanner = {
         if (!t.symbol.endsWith('USDT') || !tradingPairs.has(t.symbol) || parseFloat(t.quoteVolume) < 2000000) return false;
         if (stableCoins.has(t.symbol)) return false;
         if (t.symbol.endsWith('BUSDT') && !safeBCryptos.has(t.symbol)) return false;
-        // Avoid duplicating core coins that are already tracked on the dashboard
+        // Strictly avoid duplicating ANY coin that is already tracked on the dashboard (Core, Scalp, or Moonshot)
         if (typeof CONFIG !== 'undefined' && CONFIG.assets && CONFIG.assets.crypto) {
-          const isCore = CONFIG.assets.crypto.some(a => a.symbol === t.symbol.replace('USDT', '') && !a.isMoonshot);
-          if (isCore) return false;
+          const exists = CONFIG.assets.crypto.some(a => a.symbol === t.symbol.replace('USDT', ''));
+          if (exists) return false;
         }
         return true;
       });
@@ -49,7 +49,7 @@ const Scanner = {
         const score = t => t.volatility * Math.log10(Math.max(parseFloat(t.quoteVolume), 1));
         return score(b) - score(a);
       });
-      const top30 = withVol;
+      const top30 = withVol.slice(0, 30);
 
       let marketRegime = 'flat';
       try {
@@ -199,6 +199,13 @@ const Scanner = {
         if (!t.symbol.endsWith('USDT') || !tradingPairs.has(t.symbol) || parseFloat(t.quoteVolume) < 1000000) return false;
         if (stableCoins.has(t.symbol)) return false;
         if (t.symbol.endsWith('BUSDT') && !safeBCryptos.has(t.symbol)) return false;
+        
+        // Strictly avoid duplicating ANY coin that is already tracked on the dashboard (Core, Scalp, or Moonshot)
+        if (typeof CONFIG !== 'undefined' && CONFIG.assets && CONFIG.assets.crypto) {
+          const exists = CONFIG.assets.crypto.some(a => a.symbol === t.symbol.replace('USDT', ''));
+          if (exists) return false;
+        }
+        
         return true;
       });
 
