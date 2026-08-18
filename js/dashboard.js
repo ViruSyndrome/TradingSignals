@@ -331,15 +331,14 @@ const Dashboard = {
       // Inject active scalps from background scanner
       if (this.state.scalps && this.state.scalps.length > 0) {
         const liveScalps = this.state.scalps.map(scalp => {
-          // Find if we just fetched live 1D/4H data for this coin
-          const liveData = all.find(a => a.asset?.id === scalp.asset?.id);
+          // Find if we just fetched live 1D data for the BASE coin (e.g. BTCUSDT)
+          const baseId = scalp.asset?.id.replace('_5M', 'USDT');
+          const liveData = all.find(a => a.asset?.id === baseId);
           if (liveData) {
             return {
               ...scalp,
               price: liveData.price,
-              change24h: liveData.change24h,
-              change4h: liveData.change4h,
-              closes4H: liveData.closes4H
+              change24h: liveData.change24h
             };
           }
           return scalp;
@@ -486,7 +485,7 @@ const Dashboard = {
   async _autoScanScalps() {
     try {
       console.log('[Scalper] Background scan starting...');
-      const setups = await Scanner.scanScalps();
+      let setups = await Scanner.scanScalps();
       
       if (!setups) setups = [];
       

@@ -140,7 +140,7 @@ const API = {
     const cached = this._get(key);
     if (cached) return cached;
 
-    const binanceSymbol = coinId.replace('_4H', '');
+    const binanceSymbol = coinId.replace('_4H', '').replace('_5M', '');
     const days = CONFIG.refresh.historyDays;
     const url = `https://api.binance.com/api/v3/klines?symbol=${binanceSymbol}&interval=${interval}&limit=${days}`;
     try {
@@ -183,7 +183,7 @@ const API = {
         this.getCryptoOHLC(asset.id, '1d'),
         this.getCryptoOHLC(asset.id, '4h')
       ]);
-      const binanceSymbol = asset.id.replace('_4H', '');
+      const binanceSymbol = asset.id.replace('_4H', '').replace('_5M', '');
       const baseSymbol = binanceSymbol.replace('USDT', '');
       
       const priceInfo = prices?.[binanceSymbol] ?? {};

@@ -11,6 +11,8 @@
  * Usage: node backtest.js
  */
 
+const fs         = require('fs');
+const path       = require('path');
 const CONFIG     = require('./js/config.js');
 const Indicators = require('./js/indicators.js');
 const Signals    = require('./js/signals.js');
@@ -740,11 +742,112 @@ async function main() {
     printBySignalBlock('─── Winners-Only By Entry Signal ───────────────────────────────', wStatsNet);
     printStatsBlock('Core Winners Only:', coreStatsNet, computeStats(coreTrades, 'grossReturnPct'));
     printStatsBlock('Probation Winners Only:', probationStatsNet, computeStats(probationTrades, 'grossReturnPct'));
+
+    // ─── Save Database & Auto-Update Config ─────────────────────────────────────
+    if (!args.walkForward && !args.walkForwardRolling && !args.costSweep && !args.moonshots) {
+      try {
+        const dbPath = path.join(__dirname, 'js', 'backtest_database.json');
+        let db = { meta: { totalRuns: 0 }, runs: [], accumulated: {} };
+        if (fs.existsSync(dbPath)) {
+          db = JSON.parse(fs.readFileSync(dbPath, 'utf8'));
+        }
+
+        // 1. Record this run
+        const runDate = new Date().toISOString();
+        const thisRun = {
+          runDate,
+          engineVersion: '5.13',
+          assets: {}
+        };
+        
+        for (const r of assetResults) {
+          thisRun.assets[r.symbol] = {
+            trades: parseInt(r.trades, 10),
+            winRate: parseFloat(r.winRate),
+            avgReturn: parseFloat(r.avgReturn)
+          };
+        }
+        db.runs.push(thisRun);
+        db.meta.lastRun = runDate;
+        db.meta.totalRuns = db.runs.length;
+
+        // 2. Calculate accumulated averages
+        const acc = {};
+        for (const run of db.runs) {
+          for (const [sym, stats] of Object.entries(run.assets)) {
+            if (!acc[sym]) acc[sym] = { trades: 0, winRateSum: 0, avgRetSum: 0, runs: 0 };
+            acc[sym].trades += stats.trades;
+            acc[sym].winRateSum += stats.winRate;
+            acc[sym].avgRetSum += stats.avgReturn;
+            acc[sym].runs += 1;
+          }
+        }
+
+        const coreWinners = [];
+        const probationWinners = [];
+
+        for (const [sym, data] of Object.entries(acc)) {
+          const avgWinRate = data.winRateSum / data.runs;
+          const avgReturn = data.avgRetSum / data.runs;
+          
+          let classification = 'excluded';
+          if (avgReturn > 1.0 && avgWinRate > 40) {
+            classification = 'core';
+            coreWinners.push(sym);
+          } else if (avgReturn > 0) {
+            classification = 'probation';
+            probationWinners.push(sym);
+          }
+
+          db.accumulated[sym] = {
+            runsIncluded: data.runs,
+            totalTrades: data.trades,
+            avgWinRate: +avgWinRate.toFixed(2),
+            avgReturn: +avgReturn.toFixed(2),
+            classification
+          };
+        }
+
+        // Sort winners alphabetically
+        coreWinners.sort();
+        probationWinners.sort();
+
+        // Write database
+        fs.writeFileSync(dbPath, JSON.stringify(db, null, 2));
+        console.log(`\n  [DATABASE] Saved run to js/backtest_database.json (Total runs: ${db.meta.totalRuns})`);
+
+        // 3. Auto-update config.js
+        const configPath = path.join(__dirname, 'js', 'config.js');
+        let configStr = fs.readFileSync(configPath, 'utf8');
+        
+        const coreRegex = /(coreWinners:\s*\[)(.*?)(\],)/s;
+        const probRegex = /(probationWinners:\s*\[)(.*?)(\],)/s;
+        const provRegex = /(provenWinners:\s*\[)(.*?)(\],)/s;
+        
+        const allWinners = [...coreWinners, ...probationWinners].sort();
+        
+        configStr = configStr.replace(coreRegex, `$1${coreWinners.map(s => `'${s}'`).join(', ')}$3`);
+        configStr = configStr.replace(probRegex, `$1${probationWinners.map(s => `'${s}'`).join(', ')}$3`);
+        configStr = configStr.replace(provRegex, `$1${allWinners.map(s => `'${s}'`).join(', ')}$3`);
+        
+        // Auto-enable winners filters if this is the first real database run
+        if (db.meta.totalRuns >= 1) {
+          configStr = configStr.replace(/(winnersOnlyBuys:\s*)false/, '$1true');
+        }
+
+        fs.writeFileSync(configPath, configStr);
+        console.log(`  [CONFIG] Auto-updated coreWinners (${coreWinners.length}) and probationWinners (${probationWinners.length}) in js/config.js`);
+        
+      } catch (e) {
+        console.error('  [ERROR] Failed to save database or update config:', e);
+      }
+    }
   }
   console.log('\n═══════════════════════════════════════════════════════════════');
   console.log('  Backtest complete. These numbers reflect YOUR signal engine');
   console.log('  running against real historical Binance OHLCV data.');
   console.log('═══════════════════════════════════════════════════════════════\n');
+
 }
 
 main().catch(e => console.error('Fatal error:', e));
