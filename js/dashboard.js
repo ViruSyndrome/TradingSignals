@@ -931,6 +931,7 @@ const Dashboard = {
     const level = Signals.level(sig);
     const conf = signalResult?.confidence ?? 0;
     const score = signalResult?.score ?? 0;
+    const rawScore = signalResult?.rawScore ?? score;
     const rsi = signalResult?.indicators?.rsi?.value ?? '–';
     const winnerTier = signalResult?.winnerTier ?? 'none';
     
@@ -1059,9 +1060,9 @@ const Dashboard = {
             <span class="ind-label">RSI</span>
             <span class="ind-val">${rsi}</span>
           </div>
-          <div class="ind-chip" title="Composite Score: Weighted blend of trend, momentum, volatility and volume. Positive = bullish bias, negative = bearish bias.">
+          <div class="ind-chip" title="Composite Score: Weighted blend of trend, momentum, volatility and volume. Positive = bullish bias, negative = bearish bias.${rawScore !== score ? ' Raw score before TVL adjustment: ' + (rawScore > 0 ? '+' : '') + rawScore : ''}">
             <span class="ind-label">${asset.isMoonshot || asset.id.includes('_4H') ? 'Breakout' : 'Score'}</span>
-            <span class="ind-val">${score > 0 ? '+' : ''}${score}</span>
+            <span class="ind-val">${rawScore !== score ? '<span style="opacity:0.5;font-size:0.85em">' + (rawScore > 0 ? '+' : '') + rawScore + ' →</span> ' : ''}${score > 0 ? '+' : ''}${score}</span>
           </div>
           <div class="ind-chip" title="Confidence: % of directional indicators that agree with the current signal direction. Higher is better.">
             <span class="ind-label">Confidence</span>

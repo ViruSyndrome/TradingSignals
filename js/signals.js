@@ -197,6 +197,7 @@ const Signals = {
 
     // ── 7. Fundamental Analysis (DefiLlama TVL) ─────────────
     // Deep Value = >$1B TVL, Value = >$100M TVL, Speculative = <$10M TVL
+    const rawScore = +score.toFixed(2); // Capture score BEFORE TVL adjustment
     if (opts.tvl && opts.tvl > 0) {
       const tvl = opts.tvl;
       const tvlStr = tvl > 1e9 ? `$${(tvl/1e9).toFixed(1)}B` : tvl > 1e6 ? `$${(tvl/1e6).toFixed(1)}M` : `$${tvl.toFixed(0)}`;
@@ -362,6 +363,7 @@ const Signals = {
       conviction,
       confidence,
       score: +score.toFixed(2),
+      rawScore: typeof rawScore !== 'undefined' ? rawScore : +score.toFixed(2),
       indicators: indDetails,
       recommendation,
       stopSuggest,
@@ -477,10 +479,22 @@ const Signals = {
     // 1. Core Breakout logic (Price crossing above Upper Band)
     const breakoutBuffer = price > bbUpper ? (price - bbUpper) / bbUpper : 0;
     // We want the PREVIOUS close to be inside the bands, and the CURRENT close to break out above them.
-    const isBreakingOut = price > bbUpper && priorClose !== null && previousBbUpper !== null && priorClose <= previousBbUpper && breakoutBuffer >= 0.005 && (priorSwingHigh === null || price > priorSwingHigh);
+    const isBreakingOut = price > bbUpper && breakoutBuffer >= 0.005 && (
+      // Check current candle: prior close was inside bands
+      (priorClose !== null && previousBbUpper !== null && priorClose <= previousBbUpper) ||
+      // OR check 2nd-to-last candle (breakout happened 1 candle ago, still holding)
+      (closes.length >= 3 && bbData.upper.length >= 3 &&
+        closes[closes.length - 3] <= bbData.upper[bbData.upper.length - 3] &&
+        closes[closes.length - 2] > bbData.upper[bbData.upper.length - 2])
+    );
     if (isBreakingOut) {
       score += 2;
-      desc.push("Closed above the upper Bollinger Band and prior swing high.");
+      desc.push("Closed above the upper Bollinger Band.");
+      // Bonus for also exceeding prior swing high
+      if (priorSwingHigh !== null && price > priorSwingHigh) {
+        score += 0.5;
+        desc.push("Also exceeded the prior 20-bar swing high.");
+      }
     }
     
     // 2. Squeeze condition (Coiled Spring)
@@ -512,7 +526,7 @@ const Signals = {
 
     let signal = 'NEUTRAL';
     if (score >= 5.0) signal = 'STRONG_BUY';
-    else if (score >= 3.5) signal = 'BUY';
+    else if (score >= 3.0) signal = 'BUY';
     else if (score <= -2.0) signal = 'SELL';
 
     // Chandelier Exit Trailing Stop (Instead of fixed ATR)
@@ -538,7 +552,7 @@ const Signals = {
     return {
       signal,
       conviction: signal === 'STRONG_BUY' ? 'strong' : (signal === 'BUY' ? 'standard' : 'none'),
-      confidence: score >= 5.0 ? 100 : (score >= 3.5 ? 75 : 0),
+      confidence: score >= 5.0 ? 100 : (score >= 3.0 ? 75 : 0),
       score: +score.toFixed(2),
       indicators: {
         breakout: { isSqueezing, isBreakingOut, breakoutBuffer: +(breakoutBuffer * 100).toFixed(2), priorSwingHigh, healthyBreakoutCandle, volumeRatio, isVolumeSurge },
@@ -571,62 +585,127 @@ const Signals = {
     if (!closes || closes.length < 50) return EMPTY();
     const { highs, lows, volumes } = opts;
 
-    const sma50Arr = Indicators.sma(closes, 50);
     const ema9Arr = Indicators.ema(closes, 9);
     const ema21Arr = Indicators.ema(closes, 21);
+    const sma50Arr = Indicators.sma(closes, 50);
     const rsiArr = Indicators.rsi(closes, 14);
+    const bbData = Indicators.bollingerBands(closes, 20, 2);
 
     const price = Indicators.last(closes);
     const ema9 = Indicators.last(ema9Arr);
     const ema21 = Indicators.last(ema21Arr);
     const sma50 = Indicators.last(sma50Arr);
     const rsiVal = Indicators.last(rsiArr);
+    const bbUpper = Indicators.last(bbData.upper);
 
-    let isVolumeSurge = false;
+    let score = 0;
+    let desc = [];
+
+    // ── 1. Uptrend Structure (EMA stack must be bullish) ─────────────
+    const uptrendAligned = ema9 > ema21 && price > sma50;
+    if (uptrendAligned) {
+      score += 1;
+      desc.push("Uptrend intact: EMA9 > EMA21 and price above SMA50.");
+    } else {
+      score -= 3;
+      desc.push("No uptrend structure — skipping.");
+    }
+
+    // ── 2. Pullback Detection (price near EMA support, not chasing) ──
+    // Price should be within 0.5% of EMA9 or between EMA9 and EMA21
+    const distFromEma9 = ema9 > 0 ? ((price - ema9) / ema9) * 100 : 999;
+    const distFromEma21 = ema21 > 0 ? ((price - ema21) / ema21) * 100 : 999;
+
+    if (distFromEma9 >= -0.3 && distFromEma9 <= 0.5) {
+      // Touching or just above EMA9 — ideal shallow pullback
+      score += 2.5;
+      desc.push(`Price at EMA9 support (${distFromEma9.toFixed(2)}% away) — ideal shallow pullback entry.`);
+    } else if (distFromEma9 > 0.5 && distFromEma9 <= 1.0 && distFromEma21 >= 0) {
+      // Slightly above EMA9 but still reasonable
+      score += 1.5;
+      desc.push(`Price near EMA9 (${distFromEma9.toFixed(2)}% above) — acceptable entry window.`);
+    } else if (distFromEma21 >= -0.3 && distFromEma21 <= 0.5 && distFromEma9 < 0) {
+      // Deeper pullback to EMA21 — still valid if uptrend holds
+      score += 2;
+      desc.push(`Price at EMA21 support (${distFromEma21.toFixed(2)}% away) — deeper pullback entry.`);
+    } else if (distFromEma9 > 1.0) {
+      // Too far above EMAs — you're chasing
+      score -= 2;
+      desc.push(`Price is ${distFromEma9.toFixed(2)}% above EMA9 — too extended, don't chase.`);
+    } else {
+      score -= 1;
+      desc.push("Price not near any EMA support level.");
+    }
+
+    // ── 3. RSI Cooling Check ──────────────────────────────────────────
+    // We want RSI to have cooled down to a "room to run" zone, not overbought
+    if (rsiVal >= 40 && rsiVal <= 60) {
+      score += 1.5;
+      desc.push(`RSI at ${Math.round(rsiVal)} — cooled and ready to bounce.`);
+    } else if (rsiVal > 60 && rsiVal <= 70) {
+      score += 0.5;
+      desc.push(`RSI at ${Math.round(rsiVal)} — momentum present but watch for exhaustion.`);
+    } else if (rsiVal > 70) {
+      score -= 2;
+      desc.push(`RSI at ${Math.round(rsiVal)} — OVERBOUGHT. High risk of immediate reversal.`);
+    } else if (rsiVal < 40 && rsiVal >= 30) {
+      score += 0.5;
+      desc.push(`RSI at ${Math.round(rsiVal)} — oversold, potential bounce zone.`);
+    }
+
+    // ── 4. Recent Impulse Check (was this coin hot recently?) ─────────
+    // Check if price touched or exceeded upper BB within last 5 candles
+    const recentHighs = closes.slice(-6, -1);
+    const recentBBUpper = bbData.upper.slice(-6, -1);
+    let hadRecentImpulse = false;
+    for (let i = 0; i < recentHighs.length; i++) {
+      if (recentBBUpper[i] && recentHighs[i] >= recentBBUpper[i] * 0.995) {
+        hadRecentImpulse = true;
+        break;
+      }
+    }
+    if (hadRecentImpulse) {
+      score += 1;
+      desc.push("Recent impulse detected — price touched upper BB within last 5 candles.");
+    }
+
+    // ── 5. Bullish Candle Confirmation ────────────────────────────────
+    // Current candle should be green (close > open approximation using close vs prior close)
+    const prevClose = closes.length >= 2 ? closes[closes.length - 2] : price;
+    const isBullishCandle = price > prevClose;
+    if (isBullishCandle && uptrendAligned) {
+      score += 0.5;
+      desc.push("Current candle is bullish — bounce confirmation.");
+    }
+
+    // ── 6. Volume Check (settling, not surging) ──────────────────────
     let volumeRatio = 1;
+    let isVolumeSurge = false;
     if (volumes && volumes.length >= 20) {
       const currentVol = volumes[volumes.length - 1];
       const avgVol = Indicators.avgLast(volumes.slice(0, -2), 20);
       if (avgVol && avgVol > 0) {
         volumeRatio = currentVol / avgVol;
-        isVolumeSurge = volumeRatio >= 2.0; // Intraday volume must double
+        isVolumeSurge = volumeRatio >= 2.0;
+        // We WANT volume to have settled (pullback on low volume = healthy)
+        if (volumeRatio < 1.0) {
+          score += 0.5;
+          desc.push(`Volume settling (${volumeRatio.toFixed(1)}x avg) — healthy pullback.`);
+        } else if (volumeRatio >= 1.0 && volumeRatio < 2.0) {
+          // Normal volume, neutral
+        } else {
+          // Surge on pullback = panic selling, not ideal
+          score -= 0.5;
+          desc.push(`High volume on pullback (${volumeRatio.toFixed(1)}x avg) — may indicate selling pressure.`);
+        }
       }
     }
 
-    let score = 0;
-    let desc = [];
-
-    // 1. Scalp Momentum
-    if (price > ema9 && ema9 > ema21 && price > sma50) {
-      score += 3;
-      desc.push("Full bullish momentum aligned across 9, 21, and 50 periods.");
-    } else {
-      score -= 3;
-      desc.push("Lacking 5m uptrend structure.");
-    }
-
-    // 2. RSI Check (Don't buy the exact top)
-    if (rsiVal >= 45 && rsiVal <= 75) {
-      score += 1;
-      desc.push(`RSI is ${Math.round(rsiVal)}, indicating room to run.`);
-    } else if (rsiVal > 75) {
-      score -= 2;
-      desc.push(`RSI is ${Math.round(rsiVal)} (Overbought). High risk of immediate pullback.`);
-    }
-
-    // 3. Volume Check
-    if (isVolumeSurge) {
-      score += 2;
-      desc.push(`Massive volume surge (${volumeRatio.toFixed(1)}x) confirming intraday interest.`);
-    } else {
-      score -= 2; // Strict scalper requires volume
-    }
-
     let signal = 'NEUTRAL';
-    if (score >= 5.0) signal = 'STRONG_BUY';
+    if (score >= 5.5) signal = 'STRONG_BUY';
     else if (score >= 4.0) signal = 'BUY';
 
-    // Very tight Chandelier Exit for scalping (14 period, 1.5 multiplier)
+    // Chandelier Exit for stop placement
     let stopSuggest = null;
     const chandExit = Indicators.chandelierExit(highs, lows, closes, 14, 1.5);
     const trailingStop = Indicators.last(chandExit);
@@ -636,22 +715,22 @@ const Signals = {
       const riskDistance = price - trailingStop;
       stopSuggest = {
         stopPrice: +trailingStop.toFixed(8),
-        takeProfitPrice: +(price + riskDistance * 1.5).toFixed(8), // 1.5R target for quick scalps
+        takeProfitPrice: +(price + riskDistance * 2.0).toFixed(8), // 2R target for pullback trades
         distancePct: +distPct,
-        takeProfitPct: +((riskDistance * 1.5 / price) * 100).toFixed(2),
-        riskMultiple: 1.5,
+        takeProfitPct: +((riskDistance * 2.0 / price) * 100).toFixed(2),
+        riskMultiple: 2.0,
         side: 'long'
       };
-      desc.push(`Scalp stop: ${trailingStop.toFixed(8)} (${distPct}% away) with 1.5R exit target.`);
+      desc.push(`Scalp stop: ${trailingStop.toFixed(8)} (${distPct}% away) with 2R exit target.`);
     }
 
     return {
       signal,
       conviction: signal === 'STRONG_BUY' ? 'strong' : (signal === 'BUY' ? 'standard' : 'none'),
-      confidence: score >= 5.0 ? 100 : (score >= 4.0 ? 75 : 0),
+      confidence: score >= 5.5 ? 100 : (score >= 4.0 ? 75 : 0),
       score: +score.toFixed(2),
       indicators: {
-        scalp: { volumeRatio, isVolumeSurge },
+        scalp: { volumeRatio, isVolumeSurge, hadRecentImpulse, distFromEma9: +distFromEma9.toFixed(2) },
         rsi: { value: rsiVal !== null ? Math.round(rsiVal) : null }
       },
       recommendation: desc.join(' ') || 'No scalp setup detected.',
