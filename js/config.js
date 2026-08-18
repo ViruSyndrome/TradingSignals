@@ -65,13 +65,13 @@ const CONFIG = {
     // and update this list — it reflects a 250-day window and WILL go stale.
     // Core: consistently profitable with >1% avg return AND >40% win rate.
     // Probation: profitable but marginal (<1% avg return OR low win rate).
-    coreWinners: ['INJ', 'NEAR', 'TRX'],
-    probationWinners: ['THETA', 'ARB', 'RENDER', 'OP', 'TAO', 'RUNE', 'LDO', 'ETH'],
-    provenWinners: ['INJ', 'NEAR', 'TRX', 'THETA', 'ARB', 'RENDER', 'OP', 'TAO', 'RUNE', 'LDO', 'ETH'],
+    coreWinners: ['INJ', 'NEAR', 'RENDER', 'TRX'],
+    probationWinners: ['ARB', 'ETH', 'LDO', 'OP', 'RUNE', 'TAO', 'THETA'],
+    provenWinners: ['ARB', 'ETH', 'INJ', 'LDO', 'NEAR', 'OP', 'RENDER', 'RUNE', 'TAO', 'THETA', 'TRX'],
   },
 
   signals: {
-    winnersOnlyBuys: false, // [TEMPORARILY DISABLED BY USER] Only allow BUY/STRONG_BUY on provenWinners
+    winnersOnlyBuys: true, // [TEMPORARILY DISABLED BY USER] Only allow BUY/STRONG_BUY on provenWinners
     coreOnlyBuys: false,    // [TEMPORARILY DISABLED BY USER] Restrict STRONG_BUY to coreWinners only
   },
 
