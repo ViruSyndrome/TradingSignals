@@ -131,8 +131,6 @@ const Dashboard = {
 
   // ─── Boot ────────────────────────────────────────────────────────────────────
   async init() {
-    if (window.Portfolio) Portfolio.init();
-    
     // Clean, upgrade, and deduplicate the user's saved watchlist
     // IMPORTANT: Strip out any corrupted scalper IDs (e.g. NILUSDT_5MUSDT) that got accidentally saved
     let cleanWatchlist = this.state.watchlist
@@ -1294,16 +1292,10 @@ const Dashboard = {
           <div class="signal-badge signal-${level.cls} lg ${['STRONG_BUY','STRONG_SELL'].includes(sig) ? 'pulse' : ''}">
             ${level.icon} ${level.label}
           </div>
-          <button class="action-btn" id="modalPaperBuyBtn" data-asset="${asset.id}" style="background:var(--accent); color:#fff; border-radius:4px; padding:6px 12px; margin-left: auto;">Buy (Paper Trade)</button>
         </div>
         <div class="modal-prices">
           <div class="modal-price">${priceStr}</div>
           <div class="price-change ${change24h == null ? 'flat' : change24h >= 0 ? 'pos' : 'neg'} lg">${chgStr} (24h)</div>
-        </div>
-        <div class="modal-buy-row" style="display:flex; gap:8px; align-items:center; margin-top:8px; font-size:13px;">
-          <label for="modalBuyAmount" style="color:var(--text-muted)">Paper-buy amount ($)</label>
-          <input type="number" id="modalBuyAmount" min="10" step="10" value="1000"
-            style="width:100px; padding:4px 8px; border-radius:4px; border:1px solid var(--border, #333); background:rgba(0,0,0,0.25); color:inherit;" />
         </div>
         ${ocoHTML}
       </div>
@@ -1616,16 +1608,7 @@ const Dashboard = {
         const section = link.dataset.section;
         document.querySelectorAll('.main-section').forEach(s => s.classList.toggle('active', s.id === section));
         document.querySelectorAll('.nav-link').forEach(l => l.classList.toggle('active', l === link));
-        if (section === 'portfolioSection') this._renderPortfolio();
       };
-    });
-
-    // Portfolio
-    document.getElementById('resetPortfolioBtn')?.addEventListener('click', () => {
-      if (confirm('Are you sure you want to reset your Paper Trading account to $10,000?')) {
-        Portfolio.reset();
-        this._renderPortfolio();
-      }
     });
 
     // Moonshots
@@ -1665,118 +1648,6 @@ const Dashboard = {
       }
     });
 
-    // Delegate portfolio sell buttons
-    document.getElementById('openPositionsTable')?.addEventListener('click', e => {
-      if (e.target.classList.contains('sell-btn')) {
-        const tradeId = e.target.dataset.trade;
-        const currentPrice = parseFloat(e.target.dataset.price);
-        const res = Portfolio.sell(tradeId, currentPrice);
-        if (res.success) {
-          this._showToast(`Sold position. PnL: $${res.pnl.toFixed(2)}`, res.pnl >= 0 ? 'success' : 'warning');
-          this._renderPortfolio();
-        }
-      }
-    });
-
-    // Delegate paper buy button in modal
-    document.getElementById('assetModal')?.addEventListener('click', e => {
-      if (e.target.id === 'modalPaperBuyBtn') {
-        const assetId = e.target.dataset.asset;
-        const liveAsset = this.state.allAssets.find(a => a.asset.id === assetId);
-        if (!liveAsset || !liveAsset.price) {
-          this._showToast('Price unavailable', 'warning');
-          return;
-        }
-
-        const input = document.getElementById('modalBuyAmount');
-        const cost = Math.max(10, parseFloat(input?.value) || 1000);
-        const result = liveAsset.signalResult;
-        const risk = result?.stopSuggest;
-        const res = Portfolio.buy(liveAsset.asset, liveAsset.price, cost, {
-          stopPrice: risk?.stopPrice,
-          takeProfitPrice: risk?.takeProfitPrice,
-          signal: result?.signal,
-          winnerTier: result?.winnerTier,
-        });
-        if (res.success) {
-          this._showToast(`Bought $${cost.toLocaleString()} of ${liveAsset.asset.symbol} (Paper Trade)`, 'success');
-          this._closeModal();
-          this._renderPortfolio();
-        } else {
-          this._showToast(res.error, 'error');
-        }
-      }
-    });
-  },
-
-  // ─── Portfolio Render ────────────────────────────────────────────────────────
-  _renderPortfolio() {
-    if (!window.Portfolio) return;
-    const state = Portfolio.getState();
-    
-    document.getElementById('portfolioBalance').textContent = '$' + state.balance.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 });
-    const totalRisk = state.positions.reduce((sum, pos) => sum + (pos.riskAmount || 0), 0);
-    const accountValue = state.balance + state.positions.reduce((sum, pos) => {
-      const live = this.state.allAssets.find(a => a.asset.id === pos.assetId)?.price ?? pos.buyPrice;
-      return sum + pos.amount * live;
-    }, 0);
-    const riskPct = accountValue > 0 ? (totalRisk / accountValue) * 100 : 0;
-    const riskEl = document.getElementById('portfolioRiskSummary');
-    if (riskEl) {
-      riskEl.innerHTML = `<span>Open risk <strong>$${totalRisk.toFixed(2)}</strong> (${riskPct.toFixed(2)}%)</span><small>${riskPct > 2 ? 'Above 2% account-risk limit' : 'Within 2% account-risk limit'}</small>`;
-      riskEl.className = `portfolio-risk-summary ${riskPct > 2 ? 'risk-warning' : 'risk-ok'}`;
-    }
-
-    const openTbody = document.querySelector('#openPositionsTable tbody');
-    if (openTbody) {
-      if (state.positions.length === 0) {
-        openTbody.innerHTML = '<tr><td colspan="8" style="text-align:center; padding:20px; color:var(--text-muted)">No open positions. Buy an asset from the dashboard to start!</td></tr>';
-      } else {
-        openTbody.innerHTML = state.positions.map(pos => {
-          const liveAsset = this.state.allAssets.find(a => a.asset.id === pos.assetId);
-          const currentPrice = liveAsset?.price ?? pos.buyPrice;
-          const liveVal = pos.amount * currentPrice;
-          const pnl = liveVal - pos.cost;
-          const pnlCls = pnl >= 0 ? 'pos' : 'neg';
-          const pnlStr = pnl >= 0 ? '+$' + pnl.toFixed(2) : '-$' + Math.abs(pnl).toFixed(2);
-          
-          return `
-            <tr>
-              <td><strong>${pos.name}</strong> <span style="font-size:12px; color:var(--text-muted)">${pos.symbol}</span></td>
-              <td>$${pos.buyPrice.toFixed(4)}</td>
-              <td>$${currentPrice.toFixed(4)}</td>
-              <td>$${pos.cost.toFixed(2)}</td>
-              <td><span class="pnl-badge ${pnlCls}">${pnlStr}</span></td>
-              <td><span class="risk-levels">SL $${(pos.stopPrice ?? pos.buyPrice).toFixed(4)}<br>TP $${(pos.takeProfitPrice ?? pos.buyPrice).toFixed(4)}</span></td>
-              <td><span class="pnl-badge" style="background:var(--bg-app); border: 1px solid var(--border); color: #fff;">${liveAsset?.signalResult?.signal ?? 'HOLD'}</span></td>
-              <td><button class="action-btn sell-btn" data-trade="${pos.tradeId}" data-price="${currentPrice}" style="padding:4px 8px; font-size:12px; border:1px solid var(--accent); color:var(--accent); border-radius:4px">Close Position</button></td>
-            </tr>
-          `;
-        }).join('');
-      }
-    }
-
-    const histTbody = document.querySelector('#tradeHistoryTable tbody');
-    if (histTbody) {
-      if (state.history.length === 0) {
-        histTbody.innerHTML = '<tr><td colspan="5" style="text-align:center; padding:20px; color:var(--text-muted)">No trade history yet.</td></tr>';
-      } else {
-        histTbody.innerHTML = state.history.map(h => {
-          const pnlCls = h.pnl >= 0 ? 'pos' : 'neg';
-          const pnlStr = h.pnl >= 0 ? '+$' + h.pnl.toFixed(2) : '-$' + Math.abs(h.pnl).toFixed(2);
-          const date = new Date(h.date).toLocaleDateString('en-IN') + ' ' + new Date(h.date).toLocaleTimeString('en-IN', { hour: '2-digit', minute:'2-digit' });
-          return `
-            <tr>
-              <td><strong>${h.name}</strong></td>
-              <td>$${h.buyPrice.toFixed(4)}</td>
-              <td>$${h.sellPrice.toFixed(4)}</td>
-              <td><span class="pnl-badge ${pnlCls}">${pnlStr} (${h.pnlPct.toFixed(2)}%)</span></td>
-              <td style="font-size:12px; color:var(--text-muted)">${h.exitReason || 'MANUAL'}<br>${date}</td>
-            </tr>
-          `;
-        }).join('');
-      }
-    }
   },
 
   _ocoHTML(d) {

@@ -44,9 +44,7 @@
       <a href="#" class="nav-link" data-section="moonshotsSection" title="Scan the entire market for highly volatile opportunities.">
         <span class="nav-icon">🚀</span> <span class="nav-text">Moonshots</span>
       </a>
-      <a href="#" class="nav-link" data-section="portfolioSection" title="Practice buying and selling with $10,000 of simulated money. No real money is used.">
-        <span class="nav-icon">💼</span> <span class="nav-text">Paper Trading</span>
-      </a>
+
       <a href="#" class="nav-link" data-section="backtestSection" title="Test your strategies on historical data.">
         <span class="nav-icon">🧪</span> <span class="nav-text">Backtester</span>
       </a>
@@ -143,69 +141,7 @@
 
     </section>
 
-    <!-- ─── PORTFOLIO SECTION ────────────────────────────────────────────────── -->
-    <section class="main-section" id="portfolioSection">
-      <div class="section-block">
-        <div class="section-heading">
-          <h2>💼 Paper Trading Portfolio</h2>
-          <p class="section-sub">Practice trading with a simulated $10,000 balance. No real money is used.</p>
-        </div>
-        
-        <div class="portfolio-header">
-          <div class="balance-card">
-            <span class="balance-label" title="Your simulated cash balance. Decreases when you buy, increases when you sell.">Available Balance</span>
-            <span class="balance-value" id="portfolioBalance">$10,000.00</span>
-          </div>
-          <div class="portfolio-risk-summary" id="portfolioRiskSummary" aria-live="polite"></div>
-          <button id="resetPortfolioBtn" class="action-btn secondary" title="Wipe all trades and reset your balance back to $10,000.">Reset Account</button>
-        </div>
 
-        <div class="portfolio-content">
-          <div class="portfolio-col">
-            <h3>Open Positions</h3>
-            <div class="table-wrap">
-              <table class="portfolio-table" id="openPositionsTable">
-                  <thead>
-                    <tr>
-                      <th title="The crypto asset you bought.">Asset</th>
-                      <th title="The price you paid when you bought.">Buy Price</th>
-                      <th title="The current live market price, updated every 60 seconds.">Live Price</th>
-                      <th title="How much money you invested in this position.">Size ($)</th>
-                      <th title="Live Profit & Loss. Green = you're in profit. Red = you're at a loss. Updates every 60 seconds.">Live PnL</th>
-                      <th title="Stored stop-loss and take-profit levels required for this paper trade.">Risk Plan</th>
-                      <th title="The AI's current signal recommendation.">Signal</th>
-                      <th title="Click 'Close Position' to sell at the current market price and lock in your profit or loss.">Action</th>
-                    </tr>
-                  </thead>
-                <tbody>
-                  <!-- Filled by JS -->
-                </tbody>
-              </table>
-            </div>
-          </div>
-
-          <div class="portfolio-col">
-            <h3>Trade History</h3>
-            <div class="table-wrap">
-              <table class="portfolio-table" id="tradeHistoryTable">
-                <thead>
-                  <tr>
-                    <th title="The asset you traded.">Asset</th>
-                    <th title="The price at which you originally bought.">Buy Price</th>
-                    <th title="The price at which you sold (closed the position).">Sell Price</th>
-                    <th title="Your total Profit or Loss from this trade. The % shows how much you gained or lost relative to your investment.">PnL</th>
-                    <th title="When you closed this trade.">Date</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  <!-- Filled by JS -->
-                </tbody>
-              </table>
-            </div>
-          </div>
-        </div>
-      </div>
-    </section>
 
     <!-- ─── MOONSHOTS SECTION ────────────────────────────────────────────────── -->
     <section class="main-section" id="moonshotsSection">
@@ -478,7 +414,7 @@
   <script src="js/indicators.js?v=5.12"></script>
   <script src="js/signals.js?v=5.12"></script>
   <script src="js/charts.js?v=5.12"></script>
-  <script src="js/portfolio.js?v=5.12"></script>
+
   <script src="js/scanner.js?v=5.12"></script>
   <script src="js/backtest_ui.js?v=5.12"></script>
   <script src="js/dashboard.js?v=5.12"></script>
