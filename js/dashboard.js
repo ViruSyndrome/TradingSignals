@@ -832,7 +832,15 @@ const Dashboard = {
     if (!el) return;
 
     const cat = this.state.activeCategory;
-    let assets = this.state.allAssets;
+    let assets = [...this.state.allAssets];
+
+    if (this.state.searchQuery) {
+      const q = this.state.searchQuery.trim();
+      assets = assets.filter(a => 
+        a.asset.symbol.toLowerCase().includes(q) || 
+        (a.asset.name && a.asset.name.toLowerCase().includes(q))
+      );
+    }
 
     if (cat === 'watchlist') {
       assets = assets.filter(a => this.state.watchlist.includes(a.asset.id));
@@ -1585,6 +1593,12 @@ const Dashboard = {
         document.getElementById('assetGrid')?.scrollIntoView({ behavior: 'smooth', block: 'start' });
       }
       this._renderSummaryBar();
+      this._renderAssetGrid();
+    });
+
+    // Asset Search
+    document.getElementById('assetSearchInput')?.addEventListener('input', (e) => {
+      this.state.searchQuery = e.target.value.toLowerCase();
       this._renderAssetGrid();
     });
 
