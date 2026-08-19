@@ -20,6 +20,7 @@ const Dashboard = {
     updatedAssetIds: new Set(),
     notifGranted:  false,
     watchlist:     JSON.parse(localStorage.getItem('trading_watchlist') || '[]'),
+    invested:      JSON.parse(localStorage.getItem('trading_invested') || '[]'),
     fearGreed:     null,
     marketRegime: 'unknown',
     scalps:        [],       // results from the 5m Meme Scalper
@@ -504,11 +505,12 @@ const Dashboard = {
         }
       });
       
-      if (newlyAdded) {
+      let cleanedAny = this._cleanStaleMoonshots();
+      if (newlyAdded || cleanedAny) {
         try { localStorage.setItem('trading_watchlist', JSON.stringify(this.state.watchlist)); } catch(e) {}
-        this.loadAll(); // Re-render the dashboard to show the new coins
+        this.loadAll(); // Re-render the dashboard to show the new/cleaned coins
         console.log(`[Moonshots] Background scan found ${setups.length} setups and added new ones to the dashboard!`);
-        if (statusEl) statusEl.innerHTML = `🚀 ${timeStr} (<b style="color:var(--pos)">+${setups.length} new!</b>)`;
+        if (statusEl) statusEl.innerHTML = `🚀 ${timeStr} (<b style="color:var(--pos)">+${setups.length} new / cleaned!</b>)`;
       } else {
         console.log('[Moonshots] Background scan complete: No new setups (already tracking existing ones).');
         if (statusEl) statusEl.innerHTML = `🚀 ${timeStr} (${setups.length} tracked)`;
@@ -517,6 +519,31 @@ const Dashboard = {
       console.error('[Moonshots] Auto-scan failed:', err);
       if (statusEl) statusEl.innerHTML = `🚀 Auto-Scan Failed`;
     }
+  },
+
+  _cleanStaleMoonshots() {
+    let removedAny = false;
+    for (let i = CONFIG.assets.crypto.length - 1; i >= 0; i--) {
+      const asset = CONFIG.assets.crypto[i];
+      if (asset.grafted && asset.isMoonshot) {
+        if (this.state.invested.includes(asset.id)) continue;
+        
+        const d = this.state.allAssets.find(a => a.asset.id === asset.id);
+        const sig = d?.signalResult?.signal ?? 'NEUTRAL';
+        
+        // Remove if it loses BUY/STRONG_BUY status
+        if (sig !== 'BUY' && sig !== 'STRONG_BUY') {
+          console.log(`[Moonshots] Auto-cleaning stale moonshot: ${asset.id} (Signal: ${sig})`);
+          this.state.watchlist = this.state.watchlist.filter(id => id !== asset.id);
+          CONFIG.assets.crypto.splice(i, 1);
+          if (this.state.allAssets) {
+            this.state.allAssets = this.state.allAssets.filter(a => a.asset.id !== asset.id);
+          }
+          removedAny = true;
+        }
+      }
+    }
+    return removedAny;
   },
 
   async _autoScanScalps() {
@@ -1015,6 +1042,7 @@ const Dashboard = {
     const chg4Cls = change4h == null ? 'flat' : change4h >= 0 ? 'pos' : 'neg';
 
     const isStarred = this.state.watchlist.includes(asset.id);
+    const isLocked = this.state.invested.includes(asset.id);
     const quality = this._tradeQuality(signalResult);
     const catBadge = { crypto: '₿ Crypto', stocks: '🇮🇳 Stock', commodities: '🪙 Commodity', forex: '💱 Forex' }[category] ?? category;
     const winnerBadge = this._winnerTierBadge(winnerTier);
@@ -1082,7 +1110,12 @@ const Dashboard = {
                 ${winnerBadge}
               </div>
             </div>
-            ${d.category === 'scalper' ? '' : `<button class="star-btn ${isStarred ? 'active' : ''}" data-star-id="${asset.id}" title="Toggle Watchlist" style="background:none; border:none; cursor:pointer; font-size:18px; margin-left:auto; opacity:${isStarred ? 1 : 0.3}; transition:0.2s;">⭐</button>`}
+            ${d.category === 'scalper' ? '' : `
+              <div style="display:flex; gap: 4px; margin-left:auto;">
+                <button class="lock-btn ${isLocked ? 'active' : ''}" data-lock-id="${asset.id}" title="${isLocked ? 'Locked (Invested). Will not be auto-removed.' : 'Lock this coin (I have invested). Prevents auto-cleanup.'}" style="background:none; border:none; cursor:pointer; font-size:16px; opacity:${isLocked ? 1 : 0.25}; transition:0.2s; padding: 0;">🔒</button>
+                <button class="star-btn ${isStarred ? 'active' : ''}" data-star-id="${asset.id}" title="Toggle Watchlist" style="background:none; border:none; cursor:pointer; font-size:18px; opacity:${isStarred ? 1 : 0.3}; transition:0.2s; padding: 0;">⭐</button>
+              </div>
+            `}
           </div>
           <div class="signal-badge signal-${level.cls} ${sig === 'STRONG_BUY' || sig === 'STRONG_SELL' ? 'pulse' : ''}" title="Signal: ${level.label}. This is the combined verdict from 4 technical indicators (RSI, MACD, Moving Averages, Bollinger Bands).">
             <span>${level.icon}</span> ${level.short}
@@ -1206,6 +1239,34 @@ const Dashboard = {
     return price.toFixed(6);
   },
 
+  _toggleInvested(id) {
+    if (!id.toUpperCase().endsWith('USDT') && !id.toUpperCase().includes('_4H')) {
+      id = id.toUpperCase() + 'USDT';
+    } else {
+      id = id.toUpperCase();
+    }
+
+    if (this.state.invested.includes(id)) {
+      this.state.invested = this.state.invested.filter(x => x !== id);
+    } else {
+      this.state.invested.push(id);
+    }
+    localStorage.setItem('trading_invested', JSON.stringify(this.state.invested));
+
+    const isLocked = this.state.invested.includes(id);
+    document.querySelectorAll(`.lock-btn[data-lock-id="${id}"]`).forEach(btn => {
+      if (isLocked) {
+        btn.classList.add('active');
+        btn.style.opacity = '1';
+        btn.title = 'Locked (Invested). Will not be auto-removed.';
+      } else {
+        btn.classList.remove('active');
+        btn.style.opacity = '0.25';
+        btn.title = "Lock this coin (I've invested). Prevents auto-cleanup.";
+      }
+    });
+  },
+
   _toggleWatchlist(id) {
     // Normalize old IDs (e.g. 'eden' -> 'EDENUSDT') just in case
     // If it's a 4H Moonshot, it already ends in _4H so we leave it alone
@@ -1264,6 +1325,12 @@ const Dashboard = {
 
   // ─── Card click → open detail modal ─────────────────────────────────────────
   _attachCardListeners(container) {
+    container.querySelectorAll('.lock-btn').forEach(btn => {
+      btn.onclick = (e) => {
+        e.stopPropagation();
+        this._toggleInvested(btn.dataset.lockId);
+      };
+    });
     container.querySelectorAll('.star-btn').forEach(btn => {
       btn.onclick = (e) => {
         e.stopPropagation(); // prevent modal opening
