@@ -430,10 +430,13 @@ const Dashboard = {
         .filter(a => a.category !== 'scalper') // never save scalper items to localStorage
         .map(a => ({
           asset: a.asset, category: a.category,
-          price: a.price, change24h: a.change24h, change4h: a.change4h, closes: a.closes,
+          price: a.price, change24h: a.change24h, change4h: a.change4h, 
+          closes: a.closes?.slice(-100),
           closes1D: a.closes1D, closes4H: a.closes4H,
-          highs: a.highs, lows: a.lows, volumes: a.volumes, timestamps: a.timestamps,
+          highs: a.highs?.slice(-100), lows: a.lows?.slice(-100), 
+          volumes: a.volumes?.slice(-100), timestamps: a.timestamps?.slice(-100),
           fetchedAt: a.fetchedAt, error: a.error,
+          signalResult: a.signalResult
         }));
       localStorage.setItem(this.SNAPSHOT_KEY, JSON.stringify({ ts: Date.now(), assets: slim }));
     } catch (e) { /* quota — ignore */ }
@@ -454,11 +457,8 @@ const Dashboard = {
         this.state.marketRegime = btcSma50 ? (btcPrice > btcSma50 ? 'bull' : 'bear') : 'flat';
       }
       this.state.allAssets = cleanAssets.map(d => {
-        let signalResult = null;
-        if (d.closes?.length > 0) {
-          const opts = { highs: d.highs, lows: d.lows, closes4H: d.closes4H, volumes: d.volumes, fearGreed: fg, symbol: d.asset?.symbol || d.asset?.id, marketRegime: this.state.marketRegime, marketCap: d.marketCap, tvl: d.tvl };
-          signalResult = d.asset?.isMoonshot ? Signals.generateBreakout(d.closes, opts) : Signals.generate(d.closes, opts);
-        }
+        // Use the saved signalResult instead of recalculating on truncated arrays
+        const signalResult = d.signalResult || { signal: 'NEUTRAL', score: 0 };
         return { ...d, signalResult };
       });
       this.state.lastUpdate = new Date(ts);
