@@ -74,7 +74,8 @@
       <div class="topbar-left">
         <button class="sidebar-toggle" id="sidebarToggle" aria-label="Toggle sidebar">☰</button>
         <div class="search-box">
-          <input type="text" id="assetSearchInput" placeholder="🔍 Search coins..." />
+          <input type="text" id="assetSearchInput" list="coinSuggestions" placeholder="🔍 Search coins..." />
+          <datalist id="coinSuggestions"></datalist>
         </div>
         <span id="moonshotScanStatus" class="last-updated" title="Status of the background Moonshot scanner" style="color:var(--accent)">🚀 Auto-Scan: Idle</span>
       </div>

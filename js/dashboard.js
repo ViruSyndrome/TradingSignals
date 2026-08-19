@@ -831,6 +831,13 @@ const Dashboard = {
     const el = document.getElementById('assetGrid');
     if (!el) return;
 
+    // Populate datalist with all unique symbols for autocomplete
+    const datalist = document.getElementById('coinSuggestions');
+    if (datalist) {
+      const symbols = Array.from(new Set(this.state.allAssets.map(a => a.asset.symbol)));
+      datalist.innerHTML = symbols.map(sym => `<option value="${sym}">`).join('');
+    }
+
     const cat = this.state.activeCategory;
     let assets = [...this.state.allAssets];
 
@@ -1599,7 +1606,11 @@ const Dashboard = {
     // Asset Search
     document.getElementById('assetSearchInput')?.addEventListener('input', (e) => {
       this.state.searchQuery = e.target.value.toLowerCase();
-      this._renderAssetGrid();
+      if (this.state.searchQuery && this.state.activeCategory !== 'all') {
+        this._setCategory('all');
+      } else {
+        this._renderAssetGrid();
+      }
     });
 
     // Modal close
