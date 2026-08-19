@@ -178,73 +178,81 @@ const API = {
       }
     }
 
-    const promises = CONFIG.assets.crypto.map(async (asset) => {
-      const [hist1D, hist4H] = await Promise.all([
-        this.getCryptoOHLC(asset.id, '1d'),
-        this.getCryptoOHLC(asset.id, '4h')
-      ]);
-      const binanceSymbol = asset.id.replace('_4H', '').replace('_5M', '');
-      const baseSymbol = binanceSymbol.replace('USDT', '');
-      
-      const priceInfo = prices?.[binanceSymbol] ?? {};
-      const livePrice = priceInfo.lastPrice ? parseFloat(priceInfo.lastPrice) : null;
-      
-      const llamaProtocol = llamaMap.get(baseSymbol);
+    const results = [];
+    const chunkSize = 5;
+    for (let i = 0; i < CONFIG.assets.crypto.length; i += chunkSize) {
+      const chunk = CONFIG.assets.crypto.slice(i, i + chunkSize);
+      const promises = chunk.map(async (asset) => {
+        const [hist1D, hist4H] = await Promise.all([
+          this.getCryptoOHLC(asset.id, '1d'),
+          this.getCryptoOHLC(asset.id, '4h')
+        ]);
+        const binanceSymbol = asset.id.replace('_4H', '').replace('_5M', '');
+        const baseSymbol = binanceSymbol.replace('USDT', '');
+        
+        const priceInfo = prices?.[binanceSymbol] ?? {};
+        const livePrice = priceInfo.lastPrice ? parseFloat(priceInfo.lastPrice) : null;
+        
+        const llamaProtocol = llamaMap.get(baseSymbol);
 
-      const hist = asset.grafted ? hist4H : hist1D; // Default engine history
-      
-      const closes     = hist ? hist.map(r => parseFloat(r[4])) : [];
-      const opens      = hist ? hist.map(r => parseFloat(r[1])) : [];
-      const highs      = hist ? hist.map(r => parseFloat(r[2])) : [];
-      const lows       = hist ? hist.map(r => parseFloat(r[3])) : [];
-      const volumes    = hist ? hist.map(r => parseFloat(r[5])) : [];
-      const timestamps = hist ? hist.map(r => r[0]) : [];
+        const hist = asset.grafted ? hist4H : hist1D; // Default engine history
+        
+        const closes     = hist ? hist.map(r => parseFloat(r[4])) : [];
+        const opens      = hist ? hist.map(r => parseFloat(r[1])) : [];
+        const highs      = hist ? hist.map(r => parseFloat(r[2])) : [];
+        const lows       = hist ? hist.map(r => parseFloat(r[3])) : [];
+        const volumes    = hist ? hist.map(r => parseFloat(r[5])) : [];
+        const timestamps = hist ? hist.map(r => r[0]) : [];
 
-      const closes1D   = hist1D ? hist1D.map(r => parseFloat(r[4])) : [];
-      const closes4H   = hist4H ? hist4H.map(r => parseFloat(r[4])) : [];
+        const closes1D   = hist1D ? hist1D.map(r => parseFloat(r[4])) : [];
+        const closes4H   = hist4H ? hist4H.map(r => parseFloat(r[4])) : [];
 
-      // Calculate 4H percentage change (Last 4H close vs Previous 4H close)
-      let change4h = null;
-      if (closes4H.length >= 2 && livePrice != null) {
-        const prev4HClose = closes4H[closes4H.length - 2]; // Previous completed 4H candle
-        if (prev4HClose > 0) {
-          change4h = ((livePrice - prev4HClose) / prev4HClose) * 100;
+        // Calculate 4H percentage change (Last 4H close vs Previous 4H close)
+        let change4h = null;
+        if (closes4H.length >= 2 && livePrice != null) {
+          const prev4HClose = closes4H[closes4H.length - 2]; // Previous completed 4H candle
+          if (prev4HClose > 0) {
+            change4h = ((livePrice - prev4HClose) / prev4HClose) * 100;
+          }
         }
-      }
 
-      // Patch the still-forming daily candle with the live ticker so indicators aren't stale.
-      if (livePrice != null && closes.length > 0) {
-        const lastIdx = closes.length - 1;
-        closes[lastIdx] = livePrice;
-        if (highs[lastIdx] != null && livePrice > highs[lastIdx]) highs[lastIdx] = livePrice;
-        if (lows[lastIdx]  != null && livePrice < lows[lastIdx])  lows[lastIdx]  = livePrice;
-      }
+        // Patch the still-forming daily candle with the live ticker so indicators aren't stale.
+        if (livePrice != null && closes.length > 0) {
+          const lastIdx = closes.length - 1;
+          closes[lastIdx] = livePrice;
+          if (highs[lastIdx] != null && livePrice > highs[lastIdx]) highs[lastIdx] = livePrice;
+          if (lows[lastIdx]  != null && livePrice < lows[lastIdx])  lows[lastIdx]  = livePrice;
+        }
 
-      return {
-        asset,
-        rules: rules[asset.id] || null,
-        price:      livePrice,
-        change24h:  priceInfo.priceChangePercent != null ? parseFloat(priceInfo.priceChangePercent) : null,
-        change4h,
-        volume:     priceInfo.quoteVolume ? parseFloat(priceInfo.quoteVolume) : null,
-        marketCap:  llamaProtocol?.mcap || null,
-        tvl:        llamaProtocol?.tvl || null,
-        closes,
-        opens,
-        highs,
-        lows,
-        volumes,
-        timestamps,
-        closes1D,
-        closes4H,
-        rawOHLC:    hist ?? [],
-        source:     'binance',
-        fetchedAt:  new Date().toISOString(),
-        error:      hist ? null : 'Data unavailable',
-      };
-    });
+        return {
+          asset,
+          rules: rules[asset.id] || null,
+          price:      livePrice,
+          change24h:  priceInfo.priceChangePercent != null ? parseFloat(priceInfo.priceChangePercent) : null,
+          change4h,
+          volume:     priceInfo.quoteVolume ? parseFloat(priceInfo.quoteVolume) : null,
+          marketCap:  llamaProtocol?.mcap || null,
+          tvl:        llamaProtocol?.tvl || null,
+          closes,
+          opens,
+          highs,
+          lows,
+          volumes,
+          timestamps,
+          closes1D,
+          closes4H,
+          rawOHLC:    hist ?? [],
+          source:     'binance',
+          fetchedAt:  new Date().toISOString(),
+          error:      hist ? null : 'Data unavailable',
+        };
+      });
+      const chunkResults = await Promise.all(promises);
+      results.push(...chunkResults);
+      if (i + chunkSize < CONFIG.assets.crypto.length) await this._delay(100);
+    }
 
-    return Promise.all(promises);
+    return results;
   },
 
   // ══════════════════════════════════════════════════════════════════════════════

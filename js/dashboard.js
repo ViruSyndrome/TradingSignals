@@ -477,8 +477,8 @@ const Dashboard = {
       
       const timeStr = new Date().toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit' });
       if (!setups || setups.length === 0) {
-        console.log('[Moonshots] Background scan complete: 0 setups found.');
-        if (statusEl) statusEl.innerHTML = `🚀 ${timeStr} (0 found)`;
+        console.log('[Moonshots] Background scan complete: 0 new setups found.');
+        if (statusEl) statusEl.innerHTML = `🚀 ${timeStr} (0 new found)`;
         return;
       }
       
@@ -505,7 +505,7 @@ const Dashboard = {
       });
       
       if (newlyAdded) {
-        this._saveWatchlist();
+        try { localStorage.setItem('trading_watchlist', JSON.stringify(this.state.watchlist)); } catch(e) {}
         this.loadAll(); // Re-render the dashboard to show the new coins
         console.log(`[Moonshots] Background scan found ${setups.length} setups and added new ones to the dashboard!`);
         if (statusEl) statusEl.innerHTML = `🚀 ${timeStr} (<b style="color:var(--pos)">+${setups.length} new!</b>)`;
@@ -889,7 +889,10 @@ const Dashboard = {
     this.state.filtered = assets;
 
     // Sort by validated winner tier first, then trade quality, then confidence.
-    this._sortAssets(assets);
+    // Skip this sort if we're on the 'trending' tab, which has its own percentage-based sort.
+    if (cat !== 'trending') {
+      this._sortAssets(assets);
+    }
 
     if (assets.length === 0) {
       el.innerHTML = this.state.loading 
@@ -1004,7 +1007,7 @@ const Dashboard = {
 
     let fundChip = '';
     if (d.tvl && d.tvl > 0) {
-      const fundData = signalResult?.indicators?.fundamental;
+      const fundData = signalResult?.indicators?.fundamental || signalResult?.indicators?.tvl;
       const fundScore = fundData?.score ?? 0;
       const tvlStr = d.tvl > 1e9 ? `$${(d.tvl/1e9).toFixed(1)}B` : d.tvl > 1e6 ? `$${(d.tvl/1e6).toFixed(1)}M` : `$${d.tvl.toFixed(0)}`;
       fundChip = `
