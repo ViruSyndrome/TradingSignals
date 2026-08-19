@@ -59,6 +59,7 @@ const Dashboard = {
     
     // Keep last 100 entries
     const trimmed = history.slice(0, 100);
+    this.state.latestSignalHistory = trimmed;
     try {
       localStorage.setItem(this.SIGNAL_HISTORY_KEY, JSON.stringify(trimmed));
     } catch (e) {
@@ -132,6 +133,7 @@ const Dashboard = {
 
   // ─── Boot ────────────────────────────────────────────────────────────────────
   async init() {
+    this.state.latestSignalHistory = this._getSignalHistory();
     // Clean, upgrade, and deduplicate the user's saved watchlist
     // IMPORTANT: Strip out any corrupted scalper IDs (e.g. NILUSDT_5MUSDT) that got accidentally saved
     let cleanWatchlist = this.state.watchlist
@@ -1020,6 +1022,18 @@ const Dashboard = {
     const rsi = signalResult?.indicators?.rsi?.value ?? '–';
     const winnerTier = signalResult?.winnerTier ?? 'none';
     
+    let momentumIcon = '';
+    let momentumTitle = '';
+    if (this.state.latestSignalHistory) {
+      const lastChange = this.state.latestSignalHistory.find(h => h.id === asset.id);
+      if (lastChange && lastChange.to === sig) {
+        if (sig === 'STRONG_BUY' && ['BUY', 'NEUTRAL', 'SELL', 'STRONG_SELL'].includes(lastChange.from)) { momentumIcon = ' ↗️'; momentumTitle = ' (Upgraded from ' + lastChange.from + ')' }
+        if (sig === 'BUY' && lastChange.from === 'STRONG_BUY') { momentumIcon = ' ↘️'; momentumTitle = ' (Downgraded from ' + lastChange.from + ')' }
+        if (sig === 'STRONG_SELL' && ['SELL', 'NEUTRAL', 'BUY', 'STRONG_BUY'].includes(lastChange.from)) { momentumIcon = ' ↘️'; momentumTitle = ' (Downgraded from ' + lastChange.from + ')' }
+        if (sig === 'SELL' && lastChange.from === 'STRONG_SELL') { momentumIcon = ' ↗️'; momentumTitle = ' (Upgraded from ' + lastChange.from + ')' }
+      }
+    }
+    
     let sparkId1D = `spark_${asset.id}_1d`;
     let sparkId4H = `spark_${asset.id}_4h`;
     if (isTop) {
@@ -1117,8 +1131,8 @@ const Dashboard = {
               </div>
             `}
           </div>
-          <div class="signal-badge signal-${level.cls} ${sig === 'STRONG_BUY' || sig === 'STRONG_SELL' ? 'pulse' : ''}" title="Signal: ${level.label}. This is the combined verdict from 4 technical indicators (RSI, MACD, Moving Averages, Bollinger Bands).">
-            <span>${level.icon}</span> ${level.short}
+          <div class="signal-badge signal-${level.cls} ${sig === 'STRONG_BUY' || sig === 'STRONG_SELL' ? 'pulse' : ''}" title="Signal: ${level.label}. This is the combined verdict from 4 technical indicators (RSI, MACD, Moving Averages, Bollinger Bands).${momentumTitle}">
+            <span>${level.icon}</span> ${level.short}${momentumIcon}
           </div>
         </div>
 
