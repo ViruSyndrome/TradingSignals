@@ -1605,8 +1605,21 @@ const Dashboard = {
 
     // Asset Search
     document.getElementById('assetSearchInput')?.addEventListener('input', (e) => {
-      this.state.searchQuery = e.target.value.toLowerCase();
-      if (this.state.searchQuery && this.state.activeCategory !== 'all') {
+      const q = e.target.value.toLowerCase();
+      this.state.searchQuery = q;
+      
+      const isSearching = !!q;
+      
+      // Hide other sections for a clean search experience
+      const summaryBar = document.getElementById('summaryBar');
+      const liveTape = document.querySelector('.live-tape');
+      const topOppBlock = document.getElementById('topOpportunities')?.closest('.section-block');
+      
+      if (summaryBar) summaryBar.style.display = isSearching ? 'none' : 'flex';
+      if (liveTape) liveTape.style.display = isSearching ? 'none' : 'flex';
+      if (topOppBlock) topOppBlock.style.display = isSearching ? 'none' : 'block';
+
+      if (isSearching && this.state.activeCategory !== 'all') {
         this._setCategory('all');
       } else {
         this._renderAssetGrid();
