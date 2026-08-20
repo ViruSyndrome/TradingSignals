@@ -49,7 +49,7 @@ const Scanner = {
         const score = t => t.volatility * Math.log10(Math.max(parseFloat(t.quoteVolume), 1));
         return score(b) - score(a);
       });
-      const top30 = withVol.slice(0, 30);
+      const topScan = withVol.slice(0, 150);
 
       let marketRegime = 'flat';
       try {
@@ -71,12 +71,12 @@ const Scanner = {
       const results = [];
       let completed = 0;
 
-      if (onProgress) onProgress(`Deep scanning all ${top30.length} high-volatility pairs...`);
+      if (onProgress) onProgress(`Deep scanning top ${topScan.length} high-volatility pairs...`);
 
       // Process in batches of 5 to respect Binance rate limits and browser connections
       const chunkSize = 5;
-      for (let i = 0; i < top30.length; i += chunkSize) {
-        const chunk = top30.slice(i, i + chunkSize);
+      for (let i = 0; i < topScan.length; i += chunkSize) {
+        const chunk = topScan.slice(i, i + chunkSize);
         
         const promises = chunk.map(async t => {
           try {
@@ -219,16 +219,16 @@ const Scanner = {
 
       // Sort strictly by volatility for meme coins
       withVol.sort((a, b) => b.volatility - a.volatility);
-      const top30 = withVol.slice(0, 30);
+      const topScan = withVol.slice(0, 100);
 
       const results = [];
       let completed = 0;
 
-      if (onProgress) onProgress(`Deep scanning all ${top30.length} meme coins on 5-Minute charts...`);
+      if (onProgress) onProgress(`Deep scanning top ${topScan.length} meme coins on 5-Minute charts...`);
 
       const chunkSize = 5;
-      for (let i = 0; i < top30.length; i += chunkSize) {
-        const chunk = top30.slice(i, i + chunkSize);
+      for (let i = 0; i < topScan.length; i += chunkSize) {
+        const chunk = topScan.slice(i, i + chunkSize);
         
         const promises = chunk.map(async t => {
           try {
