@@ -53,7 +53,7 @@ const Scanner = {
 
       let marketRegime = 'flat';
       try {
-        const btcRes = await fetch('https://api.binance.com/api/v3/klines?symbol=BTCUSDT&interval=4h&limit=251');
+        const btcRes = await fetch('https://api.binance.com/api/v3/klines?symbol=BTCUSDT&interval=1d&limit=251');
         const btcKlines = await btcRes.json();
         const btcClosed = Array.isArray(btcKlines) ? btcKlines.slice(0, -1) : [];
         const btcCloses = btcClosed.map(k => parseFloat(k[4]));

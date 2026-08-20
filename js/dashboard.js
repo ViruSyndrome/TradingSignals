@@ -321,10 +321,13 @@ const Dashboard = {
       let marketRegime = 'flat';
       const btc = all.find(a => (a.asset?.symbol === 'BTCUSDT' || a.asset?.id === 'BTCUSDT') && a.closes?.length >= 50);
       if (btc) {
-        const sma50Arr = Indicators.sma(btc.closes, 50);
-        const btcSma50 = Indicators.last(sma50Arr);
+        const btcSma50 = Indicators.last(Indicators.sma(btc.closes, 50));
+        const btcEma9 = Indicators.last(Indicators.ema(btc.closes, 9));
+        const btcEma21 = Indicators.last(Indicators.ema(btc.closes, 21));
         const btcPrice = btc.closes[btc.closes.length - 1];
-        if (btcSma50) marketRegime = btcPrice > btcSma50 ? 'bull' : 'bear';
+        if (btcSma50) {
+          marketRegime = btcPrice > btcSma50 && btcEma9 > btcEma21 ? 'bull' : btcPrice < btcSma50 && btcEma9 < btcEma21 ? 'bear' : 'flat';
+        }
       }
       this.state.marketRegime = marketRegime;
 
