@@ -512,12 +512,11 @@ const Dashboard = {
         }
       });
       
-      let cleanedAny = this._cleanStaleMoonshots();
-      if (newlyAdded || cleanedAny) {
+      if (newlyAdded) {
         try { localStorage.setItem('trading_watchlist', JSON.stringify(this.state.watchlist)); } catch(e) {}
-        this.loadAll(true); // Re-render the dashboard to show the new/cleaned coins
+        this.loadAll(true); // Re-render the dashboard to show the new coins (which also runs cleanup at the end)
         console.log(`[Moonshots] Background scan found ${setups.length} setups and added new ones to the dashboard!`);
-        if (statusEl) statusEl.innerHTML = `🚀 ${timeStr} (<b style="color:var(--pos)">+${setups.length} new / cleaned!</b>)`;
+        if (statusEl) statusEl.innerHTML = `🚀 ${timeStr} (<b style="color:var(--pos)">+${setups.length} new!</b>)`;
       } else {
         console.log('[Moonshots] Background scan complete: No new setups (already tracking existing ones).');
         if (statusEl) statusEl.innerHTML = `🚀 ${timeStr} (${setups.length} tracked)`;
