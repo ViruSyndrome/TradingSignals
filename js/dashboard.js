@@ -406,6 +406,7 @@ const Dashboard = {
       this.state.loading = false; // Always clear the internal loading flag
       if (!silent) this._setLoading(false); // Only clear UI spinner if not silent
       this._cleanStaleMoonshots(); // Instantly remove any moonshots that dropped below BUY
+      this._cleanStaleScalps(); // Instantly remove any scalps that dropped below STRONG_BUY
       this._persistSnapshot();
       this._render();
       this._autoResolvePaperPositions();
@@ -549,6 +550,36 @@ const Dashboard = {
     return removedAny;
   },
 
+  _cleanStaleScalps() {
+    let removedAny = false;
+    for (let i = CONFIG.assets.crypto.length - 1; i >= 0; i--) {
+      const asset = CONFIG.assets.crypto[i];
+      if (asset.grafted && asset.isScalp) {
+        if (this.state.invested.includes(asset.id)) continue;
+        
+        const d = this.state.allAssets.find(a => a.asset.id === asset.id);
+        const sig = d?.signalResult?.signal ?? 'NEUTRAL';
+        
+        if (sig !== 'STRONG_BUY') {
+          console.log(`[Scalper] Auto-cleaning stale scalp: ${asset.id} (Signal: ${sig})`);
+          this.state.watchlist = this.state.watchlist.filter(id => id !== asset.id);
+          CONFIG.assets.crypto.splice(i, 1);
+          if (this.state.allAssets) {
+            this.state.allAssets = this.state.allAssets.filter(a => a.asset.id !== asset.id);
+          }
+          removedAny = true;
+        }
+      }
+    }
+    if (removedAny && this.state.scalps) {
+      this.state.scalps = this.state.scalps.filter(s => {
+        const d = this.state.allAssets.find(a => a.asset.id === s.asset?.id);
+        return d && d.signalResult?.signal === 'STRONG_BUY';
+      });
+    }
+    return removedAny;
+  },
+
   async _autoScanScalps() {
     try {
       console.log('[Scalper] Background scan starting...');
@@ -574,7 +605,8 @@ const Dashboard = {
             name: s.asset?.name,
             currency: 'USD',
             icon: '⚡',
-            grafted: true
+            grafted: true,
+            isScalp: true
           });
         }
       }
