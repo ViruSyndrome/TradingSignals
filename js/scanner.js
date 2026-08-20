@@ -127,10 +127,10 @@ const Scanner = {
         results.push(...chunkResults.filter(r => r !== null));
         
         completed += chunk.length;
-        if (onProgress) onProgress(`Deep scanning... ${Math.min(completed, top30.length)} / ${top30.length}`);
+        if (onProgress) onProgress(`Deep scanning... ${Math.min(completed, topScan.length)} / ${topScan.length}`);
         
         // Small delay between chunks
-        if (i + chunkSize < top30.length) {
+        if (i + chunkSize < topScan.length) {
           await new Promise(r => setTimeout(r, 200));
         }
       }
@@ -274,9 +274,9 @@ const Scanner = {
         results.push(...chunkResults.filter(r => r !== null));
         
         completed += chunk.length;
-        if (onProgress) onProgress(`Deep scanning... ${Math.min(completed, top30.length)} / ${top30.length}`);
+        if (onProgress) onProgress(`Deep scanning... ${Math.min(completed, topScan.length)} / ${topScan.length}`);
         
-        if (i + chunkSize < top30.length) {
+        if (i + chunkSize < topScan.length) {
           await new Promise(r => setTimeout(r, 200));
         }
       }
