@@ -405,6 +405,7 @@ const Dashboard = {
       this.state.refreshDueAt = Date.now() + CONFIG.refresh.intervalMs;
       this.state.loading = false; // Always clear the internal loading flag
       if (!silent) this._setLoading(false); // Only clear UI spinner if not silent
+      this._cleanStaleMoonshots(); // Instantly remove any moonshots that dropped below BUY
       this._persistSnapshot();
       this._render();
       this._autoResolvePaperPositions();
