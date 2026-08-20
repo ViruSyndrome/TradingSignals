@@ -1027,10 +1027,16 @@ const Dashboard = {
     if (this.state.latestSignalHistory) {
       const lastChange = this.state.latestSignalHistory.find(h => h.id === asset.id);
       if (lastChange && lastChange.to === sig) {
-        if (sig === 'STRONG_BUY' && ['BUY', 'NEUTRAL', 'SELL', 'STRONG_SELL'].includes(lastChange.from)) { momentumIcon = ' ↗️'; momentumTitle = ' (Upgraded from ' + lastChange.from + ')' }
-        if (sig === 'BUY' && lastChange.from === 'STRONG_BUY') { momentumIcon = ' ↘️'; momentumTitle = ' (Downgraded from ' + lastChange.from + ')' }
-        if (sig === 'STRONG_SELL' && ['SELL', 'NEUTRAL', 'BUY', 'STRONG_BUY'].includes(lastChange.from)) { momentumIcon = ' ↘️'; momentumTitle = ' (Downgraded from ' + lastChange.from + ')' }
-        if (sig === 'SELL' && lastChange.from === 'STRONG_SELL') { momentumIcon = ' ↗️'; momentumTitle = ' (Upgraded from ' + lastChange.from + ')' }
+        const rank = { STRONG_BUY: 4, BUY: 3, NEUTRAL: 2, SELL: 1, STRONG_SELL: 0 };
+        const fromRank = rank[lastChange.from] ?? 2;
+        const toRank = rank[lastChange.to] ?? 2;
+        if (toRank > fromRank) {
+          momentumIcon = ' ↗️';
+          momentumTitle = ` (Upgraded from ${lastChange.from})`;
+        } else if (toRank < fromRank) {
+          momentumIcon = ' ↘️';
+          momentumTitle = ` (Downgraded from ${lastChange.from})`;
+        }
       }
     }
     
