@@ -512,7 +512,7 @@ const Dashboard = {
       let cleanedAny = this._cleanStaleMoonshots();
       if (newlyAdded || cleanedAny) {
         try { localStorage.setItem('trading_watchlist', JSON.stringify(this.state.watchlist)); } catch(e) {}
-        this.loadAll(); // Re-render the dashboard to show the new/cleaned coins
+        this.loadAll(true); // Re-render the dashboard to show the new/cleaned coins
         console.log(`[Moonshots] Background scan found ${setups.length} setups and added new ones to the dashboard!`);
         if (statusEl) statusEl.innerHTML = `🚀 ${timeStr} (<b style="color:var(--pos)">+${setups.length} new / cleaned!</b>)`;
       } else {
