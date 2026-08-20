@@ -117,6 +117,7 @@ const Dashboard = {
 
     // Keep last 100 entries
     const trimmed = history.slice(0, 100);
+    this.state.latestSignalHistory = trimmed;
     try {
       localStorage.setItem(this.SIGNAL_HISTORY_KEY, JSON.stringify(trimmed));
     } catch (e) {
