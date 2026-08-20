@@ -56,9 +56,18 @@ const Dashboard = {
       }
       this._previousSignals.set(id, newSignal);
     }
+    // Deduplicate to keep only the most recent event per asset, so arrows don't vanish due to spam
+    const uniqueHistory = [];
+    const seenIds = new Set();
+    for (const h of history) {
+      if (!seenIds.has(h.id)) {
+        seenIds.add(h.id);
+        uniqueHistory.push(h);
+      }
+    }
     
-    // Keep last 100 entries
-    const trimmed = history.slice(0, 100);
+    // Keep last 300 unique entries (plenty for all tracked assets)
+    const trimmed = uniqueHistory.slice(0, 300);
     this.state.latestSignalHistory = trimmed;
     try {
       localStorage.setItem(this.SIGNAL_HISTORY_KEY, JSON.stringify(trimmed));
@@ -115,8 +124,18 @@ const Dashboard = {
       }
     }
 
-    // Keep last 100 entries
-    const trimmed = history.slice(0, 100);
+    // Deduplicate to keep only the most recent event per asset
+    const uniqueHistory = [];
+    const seenIds = new Set();
+    for (const h of history) {
+      if (!seenIds.has(h.id)) {
+        seenIds.add(h.id);
+        uniqueHistory.push(h);
+      }
+    }
+
+    // Keep last 300 unique entries
+    const trimmed = uniqueHistory.slice(0, 300);
     this.state.latestSignalHistory = trimmed;
     try {
       localStorage.setItem(this.SIGNAL_HISTORY_KEY, JSON.stringify(trimmed));
