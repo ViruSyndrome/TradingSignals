@@ -391,10 +391,10 @@ button:focus-visible { outline: 2px solid var(--accent); border-radius: 4px; }
 .asset-icon.lg { font-size: 36px; min-width: 64px; height: 64px; }
 .asset-meta { min-width: 0; flex: 1; overflow: hidden; }
 .asset-name { font-weight: 600; font-size: 16px; color: #fff; line-height: 1.2; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-.asset-symbol { font-size: 13px; color: var(--text-muted); }
-.card-badges { display:flex; align-items:center; gap:6px; flex-wrap:wrap; margin-top: 6px; }
+.asset-symbol { font-size: 13px; color: var(--text-muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.card-badges { display:flex; align-items:center; gap:6px; margin-top: 6px; overflow: hidden; white-space: nowrap; }
 .cat-badge-inline,
-.winner-tier-badge { font-size: 10px; padding: 2px 8px; border-radius: 10px; color: var(--text-dark); }
+.winner-tier-badge { font-size: 10px; padding: 2px 8px; border-radius: 10px; color: var(--text-dark); white-space: nowrap; flex-shrink: 0; }
 .cat-badge-inline { background: rgba(0,0,0,0.4); }
 .winner-tier-core { background: rgba(16, 185, 129, 0.18); color: #6ee7b7; border: 1px solid rgba(16, 185, 129, 0.35); }
 .winner-tier-probation { background: rgba(245, 158, 11, 0.18); color: #fcd34d; border: 1px solid rgba(245, 158, 11, 0.35); }

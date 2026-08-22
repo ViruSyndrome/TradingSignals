@@ -18,7 +18,7 @@
   <!-- Chart.js -->
   <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.4/dist/chart.umd.min.js"></script>
 
-  <link rel="stylesheet" href="styles.css?v=5.13" />
+  <link rel="stylesheet" href="styles.css?v=5.26" />
 </head>
 <body>
 
@@ -398,7 +398,7 @@
   <!-- Scripts -->
   <!-- Version guard: if signals.js loaded is older than expected, force a full reload -->
   <script>
-    window.__APP_VERSION__ = '5.25';
+    window.__APP_VERSION__ = '5.26';
     try {
       // Bulletproof scrub of corrupted data from localStorage before the app boots
       const wlStr = localStorage.getItem('trading_watchlist');
@@ -413,15 +413,15 @@
       localStorage.removeItem('trading_snapshot_v1');
     } catch(e) {}
   </script>
-  <script src="js/config.js?v=5.25"></script>
-  <script src="js/api.js?v=5.25"></script>
-  <script src="js/indicators.js?v=5.25"></script>
-  <script src="js/signals.js?v=5.25"></script>
-  <script src="js/charts.js?v=5.25"></script>
+  <script src="js/config.js?v=5.26"></script>
+  <script src="js/api.js?v=5.26"></script>
+  <script src="js/indicators.js?v=5.26"></script>
+  <script src="js/signals.js?v=5.26"></script>
+  <script src="js/charts.js?v=5.26"></script>
   
-  <script src="js/scanner.js?v=5.25"></script>
-  <script src="js/backtest_ui.js?v=5.25"></script>
-  <script src="js/dashboard.js?v=5.25"></script>
+  <script src="js/scanner.js?v=5.26"></script>
+  <script src="js/backtest_ui.js?v=5.26"></script>
+  <script src="js/dashboard.js?v=5.26"></script>
   <script>
     // If signals.js didn't expose the right version, cached old code is running — force reload.
     if (typeof Signals === 'undefined' || Signals._version !== window.__APP_VERSION__) {

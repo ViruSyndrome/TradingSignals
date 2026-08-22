@@ -1197,15 +1197,17 @@ const Dashboard = {
                 ${winnerBadge}
               </div>
             </div>
+          </div>
+          <div style="display:flex; flex-direction:column; align-items:flex-end; gap:6px;">
             ${d.category === 'scalper' ? '' : `
-              <div style="display:flex; gap: 4px; margin-left:auto;">
+              <div style="display:flex; gap: 4px;">
                 <button class="lock-btn ${isLocked ? 'active' : ''}" data-lock-id="${asset.id}" title="${isLocked ? 'Locked (Invested). Will not be auto-removed.' : 'Lock this coin (I have invested). Prevents auto-cleanup.'}" style="background:none; border:none; cursor:pointer; font-size:16px; opacity:${isLocked ? 1 : 0.25}; transition:0.2s; padding: 0;">🔒</button>
                 <button class="star-btn ${isStarred ? 'active' : ''}" data-star-id="${asset.id}" title="Toggle Watchlist" style="background:none; border:none; cursor:pointer; font-size:18px; opacity:${isStarred ? 1 : 0.3}; transition:0.2s; padding: 0;">⭐</button>
               </div>
             `}
-          </div>
-          <div class="signal-badge signal-${level.cls} ${sig === 'STRONG_BUY' || sig === 'STRONG_SELL' ? 'pulse' : ''}" title="Signal: ${level.label}. This is the combined verdict from 4 technical indicators (RSI, MACD, Moving Averages, Bollinger Bands).${momentumTitle}">
-            <span>${level.icon}</span> ${level.short}${momentumIcon}
+            <div class="signal-badge signal-${level.cls} ${sig === 'STRONG_BUY' || sig === 'STRONG_SELL' ? 'pulse' : ''}" title="Signal: ${level.label}. This is the combined verdict from 4 technical indicators (RSI, MACD, Moving Averages, Bollinger Bands).${momentumTitle}">
+              <span>${level.icon}</span> ${level.short}${momentumIcon}
+            </div>
           </div>
         </div>
 
