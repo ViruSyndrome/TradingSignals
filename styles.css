@@ -350,6 +350,9 @@ button:focus-visible { outline: 2px solid var(--accent); border-radius: 4px; }
   flex-direction: column;
   gap: 10px;
 }
+.assets-grid.dense-grid .card-title-row {
+  width: 100%;
+}
 .assets-grid.dense-grid .signal-badge {
   align-self: flex-start;
 }
