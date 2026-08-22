@@ -1,0 +1,35 @@
+<!DOCTYPE html>
+<html>
+<head>
+<style>
+.card-header { display: flex; justify-content: space-between; align-items: flex-start; margin-bottom: 16px; gap: 10px; }
+.card-title-row { display: flex; align-items: flex-start; gap: 12px; flex: 1; min-width: 0; }
+.asset-icon { font-size: 24px; min-width: 40px; height: 40px; border-radius: 50%; background: red; display: flex; align-items: center; justify-content: center; }
+.asset-meta { min-width: 0; flex: 1; overflow: hidden; background: yellow; }
+.asset-name { font-weight: 600; font-size: 16px; line-height: 1.2; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+
+/* Dense */
+.dense-grid .card-header { flex-direction: column; gap: 10px; align-items: stretch; }
+.dense-grid .card-title-row { width: 100%; }
+.dense-grid .signal-badge { align-self: flex-start; }
+
+.asset-card { width: 220px; border: 1px solid black; padding: 14px; }
+</style>
+</head>
+<body>
+<div class='dense-grid'>
+  <div class='asset-card'>
+    <div class='card-header'>
+      <div class='card-title-row'>
+        <span class='asset-icon'>BTC</span>
+        <div class='asset-meta'>
+          <div class='asset-name'>Bitcoin But with a very long name that overflows</div>
+        </div>
+        <button style='min-width: 24px'>🔒</button>
+      </div>
+      <div class='signal-badge' style='background: green;'>STRONG BUY</div>
+    </div>
+  </div>
+</div>
+</body>
+</html>

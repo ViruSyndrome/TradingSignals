@@ -349,6 +349,7 @@ button:focus-visible { outline: 2px solid var(--accent); border-radius: 4px; }
 .assets-grid.dense-grid .card-header {
   flex-direction: column;
   gap: 10px;
+  align-items: stretch;
 }
 .assets-grid.dense-grid .card-title-row {
   width: 100%;
