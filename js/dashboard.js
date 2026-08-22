@@ -354,11 +354,21 @@ const Dashboard = {
       const previousPrices = new Map(this.state.allAssets.map(a => [a.asset?.id, a.price]));
       this.state.allAssets = all.map(d => {
         let signalResult = null;
-        if (d.closes?.length > 0) {
+        let prevSignalResult = null;
+        if (d.closes?.length > 1) {
           const opts = { highs: d.highs, lows: d.lows, closes4H: d.closes4H, volumes: d.volumes, fearGreed: fg, symbol: d.asset?.symbol || d.asset?.id, marketRegime, marketCap: d.marketCap, tvl: d.tvl };
           signalResult = d.asset?.isMoonshot ? Signals.generateBreakout(d.closes, opts) : Signals.generate(d.closes, opts);
+          
+          const prevOpts = {
+            highs: d.highs.slice(0, -1),
+            lows: d.lows.slice(0, -1),
+            closes4H: d.closes4H ? d.closes4H.slice(0, -1) : [],
+            volumes: d.volumes.slice(0, -1),
+            fearGreed: fg, symbol: opts.symbol, marketRegime, marketCap: opts.marketCap, tvl: opts.tvl
+          };
+          prevSignalResult = d.asset?.isMoonshot ? Signals.generateBreakout(d.closes.slice(0, -1), prevOpts) : Signals.generate(d.closes.slice(0, -1), prevOpts);
         }
-        return { ...d, signalResult };
+        return { ...d, signalResult, prevSignalResult };
       });
 
       // Inject active scalps from background scanner
@@ -392,11 +402,13 @@ const Dashboard = {
               }
 
               const result = Signals.generateScalp(closes, { highs, lows, volumes });
+              const prevResult = Signals.generateScalp(closes.slice(0, -1), { highs: highs.slice(0, -1), lows: lows.slice(0, -1), volumes: volumes.slice(0, -1) });
               updatedScalp.closes = closes;
               updatedScalp.highs = highs;
               updatedScalp.lows = lows;
               updatedScalp.timestamps = timestamps;
               updatedScalp.signalResult = result;
+              updatedScalp.prevSignalResult = prevResult;
               updatedScalp.change5m = ((closes[closes.length - 1] - closes[closes.length - 2]) / closes[closes.length - 2]) * 100;
             }
           } catch (e) {
@@ -1079,18 +1091,18 @@ const Dashboard = {
     
     let momentumIcon = '';
     let momentumTitle = '';
-    if (this.state.latestSignalHistory) {
-      const lastChange = this.state.latestSignalHistory.find(h => h.id === asset.id);
-      if (lastChange && lastChange.to === sig) {
+    if (d.prevSignalResult) {
+      const prevSig = d.prevSignalResult.signal ?? 'NEUTRAL';
+      if (prevSig !== sig) {
         const rank = { STRONG_BUY: 4, BUY: 3, NEUTRAL: 2, SELL: 1, STRONG_SELL: 0 };
-        const fromRank = rank[lastChange.from] ?? 2;
-        const toRank = rank[lastChange.to] ?? 2;
+        const fromRank = rank[prevSig] ?? 2;
+        const toRank = rank[sig] ?? 2;
         if (toRank > fromRank) {
           momentumIcon = ' ↗️';
-          momentumTitle = ` (Upgraded from ${lastChange.from})`;
+          momentumTitle = ` (Upgraded from ${prevSig} since last candle)`;
         } else if (toRank < fromRank) {
           momentumIcon = ' ↘️';
-          momentumTitle = ` (Downgraded from ${lastChange.from})`;
+          momentumTitle = ` (Downgraded from ${prevSig} since last candle)`;
         }
       }
     }
