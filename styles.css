@@ -381,12 +381,12 @@ button:focus-visible { outline: 2px solid var(--accent); border-radius: 4px; }
 .signal-border-strong-sell { border-top: 3px solid var(--s-strong-sell); }
 
 /* Card Header */
-.card-header { display: flex; justify-content: space-between; align-items: flex-start; margin-bottom: 16px; }
-.card-title-row { display: flex; align-items: flex-start; gap: 12px; width: 100%; }
-.asset-icon { font-size: 24px; width: 40px; height: 40px; border-radius: 50%; background: rgba(255,255,255,0.05); display: flex; align-items: center; justify-content: center; }
-.asset-icon.lg { font-size: 36px; width: 64px; height: 64px; }
-.asset-meta { min-width: 0; flex: 1; }
-.asset-name { font-weight: 600; font-size: 16px; color: #fff; line-height: 1.2; }
+.card-header { display: flex; justify-content: space-between; align-items: flex-start; margin-bottom: 16px; gap: 10px; }
+.card-title-row { display: flex; align-items: flex-start; gap: 12px; flex: 1; min-width: 0; }
+.asset-icon { font-size: 24px; min-width: 40px; height: 40px; border-radius: 50%; background: rgba(255,255,255,0.05); display: flex; align-items: center; justify-content: center; }
+.asset-icon.lg { font-size: 36px; min-width: 64px; height: 64px; }
+.asset-meta { min-width: 0; flex: 1; overflow: hidden; }
+.asset-name { font-weight: 600; font-size: 16px; color: #fff; line-height: 1.2; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .asset-symbol { font-size: 13px; color: var(--text-muted); }
 .card-badges { display:flex; align-items:center; gap:6px; flex-wrap:wrap; margin-top: 6px; }
 .cat-badge-inline,
