@@ -2,38 +2,41 @@
 <html>
 <head>
 <style>
+body { background: #121212; color: #fff; font-family: sans-serif; }
 .card-header { display: flex; justify-content: space-between; align-items: flex-start; margin-bottom: 16px; gap: 10px; }
 .card-title-row { display: flex; align-items: flex-start; gap: 12px; flex: 1; min-width: 0; }
 .asset-icon { font-size: 24px; min-width: 40px; height: 40px; border-radius: 50%; background: red; display: flex; align-items: center; justify-content: center; }
-.asset-meta { min-width: 0; flex: 1; overflow: hidden; background: yellow; }
+.asset-meta { min-width: 0; flex: 1; overflow: hidden; }
 .asset-name { font-weight: 600; font-size: 16px; line-height: 1.2; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .asset-symbol { font-size: 13px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 
-.asset-card { width: 320px; border: 1px solid black; padding: 20px; box-sizing: border-box; }
-.signal-badge { background: green; padding: 6px 12px; display: inline-flex; align-items: center; white-space: nowrap; font-size: 12px;}
-.card-badges { display: flex; gap: 4px; overflow: hidden; white-space: nowrap; }
-.cat-badge-inline { font-size: 10px; }
+.asset-card { width: 320px; border: 1px solid #333; padding: 20px; box-sizing: border-box; }
+.signal-badge { background: green; padding: 6px 12px; display: inline-flex; align-items: center; white-space: nowrap; font-size: 12px; border-radius: 20px;}
+.card-badges { display: flex; gap: 4px; flex-wrap: wrap; margin-top: 6px; }
+.cat-badge-inline, .winner-tier-badge { font-size: 10px; background: #222; padding: 2px 8px; border-radius: 10px; white-space: nowrap; }
+button { background: none; border: none; font-size: 16px; cursor: pointer; padding: 0; }
 </style>
 </head>
 <body>
   <div class='asset-card'>
     <div class='card-header'>
       <div class='card-title-row'>
-        <span class='asset-icon'>BTC</span>
+        <span class='asset-icon'>LDO</span>
         <div class='asset-meta'>
-          <div class='asset-name'>NEIRO (Neiro on Ethereum)</div>
-          <div class='asset-symbol'>NEIROUSDT</div>
+          <div class='asset-name'>Lido DAO</div>
+          <div class='asset-symbol'>LDOUSDT</div>
           <div class='card-badges'>
              <span class='cat-badge-inline'>₿ Crypto</span>
+             <span class='winner-tier-badge'>🧪 Probation</span>
           </div>
         </div>
       </div>
-      <div style="display:flex; flex-direction:column; align-items:flex-end; gap:8px;">
+      <div style="display:flex; flex-direction:column; align-items:flex-end; gap:6px; flex-shrink: 0;">
         <div style="display:flex; gap: 4px;">
-          <button style='min-width: 24px'>🔒</button>
-          <button style='min-width: 24px'>⭐</button>
+          <button>🔒</button>
+          <button>⭐</button>
         </div>
-        <div class='signal-badge'>🚀 STRONG BUY ↗️</div>
+        <div class='signal-badge'>🚀 S.BUY ↗️</div>
       </div>
     </div>
   </div>
