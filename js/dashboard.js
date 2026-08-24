@@ -302,6 +302,10 @@ const Dashboard = {
         y = e.clientY - tooltip.offsetHeight - 15;
       }
 
+      // Clamp to left and top edges
+      if (x < 10) x = 10;
+      if (y < 10) y = 10;
+
       tooltip.style.left = x + 'px';
       tooltip.style.top = y + 'px';
     });
