@@ -316,6 +316,12 @@ const Dashboard = {
         activeEl = null;
       }
     });
+
+    // Dismiss tooltip immediately on scroll or touch (critical for mobile)
+    const dismissTooltip = () => { tooltip.classList.remove('visible'); activeEl = null; };
+    window.addEventListener('scroll', dismissTooltip, true);   // capture phase catches all scrollable containers
+    document.addEventListener('touchstart', dismissTooltip);
+    document.addEventListener('click', dismissTooltip);
     
     // Re-bind dynamically created elements by listening on body (which we do)
   },
