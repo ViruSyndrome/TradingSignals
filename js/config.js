@@ -58,16 +58,16 @@ const CONFIG = {
     ],
 
 
-    // ─── Proven winners (backtest-validated, last run: 17 Aug 2026) ────────────
+    // ─── Proven winners (backtest-validated, last run: 26 Aug 2026) ────────────
     // Assets that were profitable in the last full backtest (node backtest.js).
     // When signals.winnersOnlyBuys is true, BUY/STRONG_BUY signals on assets
     // NOT in this list are downgraded to NEUTRAL. Re-run the backtest monthly
     // and update this list — it reflects a 250-day window and WILL go stale.
     // Core: consistently profitable with >1% avg return AND >40% win rate.
     // Probation: profitable but marginal (<1% avg return OR low win rate).
-    coreWinners: ['INJ', 'NEAR', 'RENDER', 'TRX'],
-    probationWinners: ['ARB', 'ETH', 'LDO', 'OP', 'RUNE', 'TAO', 'THETA'],
-    provenWinners: ['ARB', 'ETH', 'INJ', 'LDO', 'NEAR', 'OP', 'RENDER', 'RUNE', 'TAO', 'THETA', 'TRX'],
+    coreWinners: ['ARB', 'ETH', 'INJ', 'NEAR', 'RENDER', 'TRX'],
+    probationWinners: ['BTC', 'LDO', 'LINK', 'OP', 'RUNE', 'TAO', 'THETA'],
+    provenWinners: ['ARB', 'BTC', 'ETH', 'INJ', 'LDO', 'LINK', 'NEAR', 'OP', 'RENDER', 'RUNE', 'TAO', 'THETA', 'TRX'],
   },
 
   signals: {
