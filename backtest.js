@@ -93,6 +93,59 @@ async function fetchHistory(symbol, days = 250) {
   };
 }
 
+// ─── Fetch historical Fear & Greed Index ───────────────────────────────────────
+// Returns a Map<dateString, { value, classification }> keyed by 'YYYY-MM-DD'
+async function fetchFearGreedHistory(days = 250) {
+  const url = `https://api.alternative.me/fng/?limit=${days}&format=json`;
+  try {
+    const res = await fetch(url);
+    const json = await res.json();
+    if (!json || !json.data || json.data.length === 0) {
+      console.log('  [WARN] Fear & Greed API returned no data. Regime analysis will be skipped.');
+      return null;
+    }
+    const map = new Map();
+    for (const entry of json.data) {
+      const date = new Date(parseInt(entry.timestamp) * 1000);
+      const key = date.toISOString().slice(0, 10); // 'YYYY-MM-DD'
+      map.set(key, {
+        value: parseInt(entry.value),
+        classification: entry.value_classification,
+      });
+    }
+    console.log(`  [F&G] Fetched ${map.size} days of Fear & Greed history`);
+    return map;
+  } catch (e) {
+    console.log(`  [WARN] Failed to fetch Fear & Greed history: ${e.message}`);
+    return null;
+  }
+}
+
+// ─── Classify F&G value into regime bucket ─────────────────────────────────────
+const FG_REGIMES = [
+  { name: 'extreme_fear',  min: 0,  max: 24, label: 'Extreme Fear (0-24)' },
+  { name: 'fear',          min: 25, max: 44, label: 'Fear (25-44)' },
+  { name: 'neutral',       min: 45, max: 55, label: 'Neutral (45-55)' },
+  { name: 'greed',         min: 56, max: 74, label: 'Greed (56-74)' },
+  { name: 'extreme_greed', min: 75, max: 100, label: 'Extreme Greed (75-100)' },
+];
+
+function classifyFG(value) {
+  if (value == null || isNaN(value)) return 'unknown';
+  for (const r of FG_REGIMES) {
+    if (value >= r.min && value <= r.max) return r.name;
+  }
+  return 'unknown';
+}
+
+// Look up F&G value for a given Binance candle timestamp (ms)
+function getFGForTimestamp(fgMap, timestampMs) {
+  if (!fgMap) return null;
+  const key = new Date(timestampMs).toISOString().slice(0, 10);
+  const entry = fgMap.get(key);
+  return entry ? entry.value : null;
+}
+
 function backtestSymbol(asset, ohlcv, btcHistory, windowDef, feeRate, slippage, useTrailingExit) {
   const { closes, highs, lows, volumes } = ohlcv;
   let position = null;
@@ -198,13 +251,14 @@ function backtestSymbol(asset, ohlcv, btcHistory, windowDef, feeRate, slippage, 
 
 // ─── Run backtest on a single asset ────────────────────────────────────────────
 function backtestAsset(name, symbol, ohlcv, opts = {}) {
-  const { opens, closes, highs, lows, volumes } = ohlcv;
+  const { opens, closes, highs, lows, volumes, timestamps } = ohlcv;
   const {
     startDay = MIN_HISTORY,
     endDay = closes.length - 2,
     feeRate = FEE_RATE,
     slippage = SLIPPAGE,
     ignoreWinnersFilter = true,
+    fgMap = null,
   } = opts;
 
   const costPerSide = feeRate + slippage;
@@ -235,6 +289,8 @@ function backtestAsset(name, symbol, ohlcv, opts = {}) {
       grossReturnPct,
       returnPct,
       win: returnPct > 0,
+      entryFG: position.entryFG,
+      entryFGRegime: position.entryFGRegime,
     });
 
     position = null;
@@ -247,12 +303,16 @@ function backtestAsset(name, symbol, ohlcv, opts = {}) {
     const slicedLows    = lows.slice(0, day + 1);
     const slicedVolumes = volumes.slice(0, day + 1);
 
+    // Look up Fear & Greed for this day
+    const dayFG = timestamps ? getFGForTimestamp(fgMap, timestamps[day]) : null;
+
     const result = Signals.generate(slicedCloses, {
       highs: slicedHighs,
       lows: slicedLows,
       volumes: slicedVolumes,
       symbol,
       ignoreWinnersFilter,
+      fearGreed: dayFG,  // Now the backtest uses the SAME F&G gate as the live engine
     });
 
     const price = closes[day];
@@ -308,6 +368,8 @@ function backtestAsset(name, symbol, ohlcv, opts = {}) {
         confidence: conf,
         stopLoss,
         takeProfit,
+        entryFG: dayFG,
+        entryFGRegime: classifyFG(dayFG),
       };
     }
   }
@@ -330,6 +392,8 @@ function backtestAsset(name, symbol, ohlcv, opts = {}) {
       grossReturnPct,
       returnPct,
       win: returnPct > 0,
+      entryFG: position.entryFG,
+      entryFGRegime: position.entryFGRegime,
     });
   }
 
@@ -383,6 +447,25 @@ function computeStats(trades, returnField = 'returnPct') {
   const reached20 = trades.filter(t => t.maxExcursionPct >= 20).length;
   const reached30 = trades.filter(t => t.maxExcursionPct >= 30).length;
 
+  // Breakdown by F&G Regime
+  const byRegime = {};
+  for (const t of trades) {
+    const regime = t.entryFGRegime || 'unknown';
+    if (!byRegime[regime]) byRegime[regime] = [];
+    byRegime[regime].push(t);
+  }
+
+  const regimeStats = {};
+  for (const [r, rTrades] of Object.entries(byRegime)) {
+    const rWins = rTrades.filter(t => t.win);
+    const rReturns = rTrades.map(t => t[returnField]);
+    regimeStats[r] = {
+      trades: rTrades.length,
+      winRate: ((rWins.length / rTrades.length) * 100).toFixed(1) + '%',
+      avgReturn: (rReturns.reduce((a, b) => a + b, 0) / rReturns.length).toFixed(2) + '%'
+    };
+  }
+
   return {
     totalTrades: trades.length,
     wins:        wins.length,
@@ -397,6 +480,7 @@ function computeStats(trades, returnField = 'returnPct') {
     reached30:   ((reached30 / trades.length) * 100).toFixed(1) + '%',
     bySignal:    signalStats,
     byExit,
+    byRegime:    regimeStats,
     highConfidence: highConf.length > 0 ? {
       trades:   highConf.length,
       winRate:  ((highConf.filter(t => t.win).length / highConf.length) * 100).toFixed(1) + '%',
@@ -587,6 +671,8 @@ async function main() {
     }
     await new Promise(r => setTimeout(r, 150));
   }
+  
+  const fgMap = await fetchFearGreedHistory(250);
 
   if (args.moonshots) {
     for (const scenario of scenarios) {
@@ -662,6 +748,7 @@ async function main() {
         const trades = backtestAsset(asset.name, asset.symbol, ohlcv, {
           feeRate: scenario.feeRate,
           slippage: scenario.slippage,
+          fgMap,
         });
         trades.forEach(t => { t.symbol = asset.symbol; });
         allTrades.push(...trades);
@@ -705,6 +792,15 @@ async function main() {
     console.log('\n─── By Exit Reason ────────────────────────────────────────────');
     for (const [reason, count] of Object.entries(statsNet.byExit)) {
       console.log(`  ${reason.padEnd(14)} | ${count} trades`);
+    }
+
+    console.log('\n─── By Fear & Greed Regime ────────────────────────────────────');
+    if (statsNet.byRegime && Object.keys(statsNet.byRegime).length > 0) {
+      for (const [regime, rStats] of Object.entries(statsNet.byRegime)) {
+        console.log(`  ${regime.padEnd(14)} | ${rStats.trades} trades | Win: ${rStats.winRate} | Avg: ${rStats.avgReturn}`);
+      }
+    } else {
+      console.log('  No F&G data available (or fetch failed).');
     }
 
     console.log('\n─── Confidence Analysis ───────────────────────────────────────');
