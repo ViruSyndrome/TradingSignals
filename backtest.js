@@ -24,11 +24,11 @@ global.Indicators = Indicators;
 
 // ─── Configuration ─────────────────────────────────────────────────────────────
 const MIN_HISTORY  = 50;   // Minimum days of data before generating first signal
-const HOLD_LIMIT   = 14;   // Max days to hold if no exit signal fires
+const HOLD_LIMIT   = 3;    // Tuned down from 14 to 3 (matching user's eager 1.22 avg hold time)
 const STOP_MULT    = 2.0;  // ATR multiplier for stop-loss (same as live dashboard)
 const RRR          = 2.0;  // Take-profit at 2× risk (matches the 1:2 RRR education)
-const FEE_RATE     = 0.001; // 0.1% entry + 0.1% exit (taker-style)
-const SLIPPAGE     = 0.001; // 0.1% entry + 0.1% exit execution friction
+const FEE_RATE     = 0.00075; // Tuned down to 0.075% (reflects BNB fee discount from user's CSV)
+const SLIPPAGE     = 0.0005;  // Tuned down to 0.05% (reflects minimal slippage on their $80 position size)
 
 const WALK_FORWARD_TRAIN_END_DAY = 149; // Days 0-149 train
 const WALK_FORWARD_TEST_START_DAY = 150; // Days 150-249 test

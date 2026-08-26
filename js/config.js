@@ -65,9 +65,9 @@ const CONFIG = {
     // and update this list — it reflects a 250-day window and WILL go stale.
     // Core: consistently profitable with >1% avg return AND >40% win rate.
     // Probation: profitable but marginal (<1% avg return OR low win rate).
-    coreWinners: ['ARB', 'ETH', 'INJ', 'NEAR', 'RENDER', 'TRX'],
-    probationWinners: ['BTC', 'LDO', 'LINK', 'OP', 'RUNE', 'TAO', 'THETA'],
-    provenWinners: ['ARB', 'BTC', 'ETH', 'INJ', 'LDO', 'LINK', 'NEAR', 'OP', 'RENDER', 'RUNE', 'TAO', 'THETA', 'TRX'],
+    coreWinners: ['ARB', 'ETH', 'INJ', 'NEAR'],
+    probationWinners: ['BTC', 'LDO', 'LINK', 'OP', 'POL', 'RENDER', 'RUNE', 'TAO', 'THETA', 'TRX'],
+    provenWinners: ['ARB', 'BTC', 'ETH', 'INJ', 'LDO', 'LINK', 'NEAR', 'OP', 'POL', 'RENDER', 'RUNE', 'TAO', 'THETA', 'TRX'],
   },
 
   signals: {
