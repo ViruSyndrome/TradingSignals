@@ -24,7 +24,7 @@ global.Indicators = Indicators;
 
 // ─── Configuration ─────────────────────────────────────────────────────────────
 const MIN_HISTORY  = 50;   // Minimum days of data before generating first signal
-// HOLD_LIMIT is now read dynamically from CONFIG.activeParams.holdLimit
+const HOLD_LIMIT   = 3;    // Tuned down from 14 to 3 (matching user's eager 1.22 avg hold time)
 const STOP_MULT    = 2.0;  // ATR multiplier for stop-loss (same as live dashboard)
 const RRR          = 2.0;  // Take-profit at 2× risk (matches the 1:2 RRR education)
 const FEE_RATE     = 0.00075; // Tuned down to 0.075% (reflects BNB fee discount from user's CSV)
@@ -213,7 +213,7 @@ function backtestSymbol(asset, ohlcv, btcHistory, windowDef, feeRate, slippage, 
       if (position.stopLoss && lows && lows[i] <= position.stopLoss) exitReason = 'STOP_LOSS';
       else if (position.takeProfit && highs && highs[i] >= position.takeProfit) exitReason = 'TAKE_PROFIT';
       else if (sig === 'SELL' || sig === 'STRONG_SELL') exitReason = sig;
-      else if (!useTrailingExit && holdDays >= (CONFIG.activeParams.holdLimit || 3)) exitReason = 'HOLD_LIMIT';
+      else if (!useTrailingExit && holdDays >= HOLD_LIMIT) exitReason = 'HOLD_LIMIT';
 
       if (exitReason) {
         const rawExit = ohlcv.opens[nextOpenDay];
@@ -339,7 +339,7 @@ function backtestAsset(name, symbol, ohlcv, opts = {}) {
         exitReason = sig;
       }
       // Held too long without a signal
-      else if (holdDays >= (CONFIG.activeParams.holdLimit || 3)) {
+      else if (holdDays >= HOLD_LIMIT) {
         exitReason = 'HOLD_LIMIT';
       }
 
@@ -634,85 +634,9 @@ function runWalkForwardWindow(histories, assets, windowDef, feeRate, slippage) {
     trainNet: computeStats(trainTrades, 'returnPct'),
     trainGross: computeStats(trainTrades, 'grossReturnPct'),
     testNet: computeStats(testTrades, 'returnPct'),
-testGross: computeStats(testTrades, 'grossReturnPct'),
+    testGross: computeStats(testTrades, 'grossReturnPct'),
     testAssetResults,
   };
-}
-
-async function runParameterSweep(histories, fgMap) {
-  console.log('\n═══════════════════════════════════════════════════════════════');
-  console.log('  🔍 RUNNING PARAMETER SWEEP (AUTO-OPTIMIZATION)');
-  console.log('═══════════════════════════════════════════════════════════════');
-  
-  const holdLimits = [1, 2, 3, 5];
-  const emaFastList = [7, 9, 12];
-  const emaSlowList = [21, 26];
-  const rsiPeriods = [10, 14];
-
-  let bestParams = null;
-  let bestScore = -Infinity;
-
-  let totalCombs = holdLimits.length * emaFastList.length * emaSlowList.length * rsiPeriods.length;
-  let currentComb = 0;
-
-  process.stdout.write(`  Testing ${totalCombs} combinations... `);
-
-  for (const hLimit of holdLimits) {
-    for (const eFast of emaFastList) {
-      for (const eSlow of emaSlowList) {
-        for (const rPeriod of rsiPeriods) {
-          currentComb++;
-          if (currentComb % 10 === 0) process.stdout.write('.');
-          
-          CONFIG.activeParams = {
-            holdLimit: hLimit,
-            emaFast: eFast,
-            emaSlow: eSlow,
-            rsiPeriod: rPeriod
-          };
-
-          let totalNetReturn = 0;
-          let totalTradesCount = 0;
-
-          // Quick evaluate on top volume assets to save time, or all if preferred.
-          // Using the first 20 assets for speed of sweep
-          const sweepAssets = CONFIG.assets.crypto.slice(0, 20);
-
-          for (const asset of sweepAssets) {
-            const ohlcv = histories[asset.symbol];
-            if (!ohlcv) continue;
-            
-            const trades = backtestAsset(asset.name, asset.symbol, ohlcv, {
-              feeRate: FEE_RATE,
-              slippage: SLIPPAGE,
-              fgMap,
-            });
-            
-            const stats = computeStats(trades, 'returnPct');
-            if (stats) {
-              // Score based on average return * winRate penalty, etc. Simple net return is fine.
-              totalNetReturn += parseFloat(stats.avgReturn) * stats.totalTrades;
-              totalTradesCount += stats.totalTrades;
-            }
-          }
-
-          const avgNet = totalTradesCount > 0 ? (totalNetReturn / totalTradesCount) : -Infinity;
-          
-          if (avgNet > bestScore) {
-            bestScore = avgNet;
-            bestParams = { ...CONFIG.activeParams };
-          }
-        }
-      }
-    }
-  }
-
-  console.log('\n  ✅ Sweep Complete!');
-  console.log(`  🏆 Best Parameters Found: HOLD=${bestParams.holdLimit}d | EMA Fast=${bestParams.emaFast} | EMA Slow=${bestParams.emaSlow} | RSI=${bestParams.rsiPeriod}`);
-  
-  // Set the best params globally
-  CONFIG.activeParams = bestParams;
-  return bestParams;
 }
 
 // ─── Main ──────────────────────────────────────────────────────────────────────
@@ -749,11 +673,6 @@ async function main() {
   }
   
   const fgMap = await fetchFearGreedHistory(250);
-  
-  // Run Auto-Optimization Sweep (unless in moonshot mode which is highly specific)
-  if (!args.moonshots) {
-    await runParameterSweep(histories, fgMap);
-  }
 
   if (args.moonshots) {
     for (const scenario of scenarios) {
@@ -1012,13 +931,9 @@ async function main() {
           configStr = configStr.replace(/(winnersOnlyBuys:\s*)false/, '$1true');
         }
 
-        // Write activeParams
-        const paramsStr = `activeParams: {\n    holdLimit: ${CONFIG.activeParams.holdLimit},\n    emaFast: ${CONFIG.activeParams.emaFast},\n    emaSlow: ${CONFIG.activeParams.emaSlow},\n    rsiPeriod: ${CONFIG.activeParams.rsiPeriod}\n  },`;
-        configStr = configStr.replace(/activeParams:\s*\{[\s\S]*?\},/, paramsStr);
-
         fs.writeFileSync(configPath, configStr);
         console.log(`  [CONFIG] Auto-updated coreWinners (${coreWinners.length}) and probationWinners (${probationWinners.length}) in js/config.js`);
-        console.log(`  [CONFIG] Saved optimized parameters: HOLD=${CONFIG.activeParams.holdLimit}, RSI=${CONFIG.activeParams.rsiPeriod}, EMA=${CONFIG.activeParams.emaFast}/${CONFIG.activeParams.emaSlow}`);
+        
       } catch (e) {
         console.error('  [ERROR] Failed to save database or update config:', e);
       }

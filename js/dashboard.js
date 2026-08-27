@@ -789,6 +789,10 @@ const Dashboard = {
         <span class="summary-value">${this.state.marketRegime === 'bull' ? '🟢 Bull' : this.state.marketRegime === 'bear' ? '🔴 Bear' : '🟡 Flat'}</span>
         <span class="summary-label">BTC Regime · Altcoins ${this.state.marketRegime === 'bear' ? 'Restricted' : 'Open'}</span>
       </div>
+      <div class="summary-item" title="The algorithm's parameters are automatically optimized by Sunday backtests to find the most profitable settings for current market conditions.">
+        <span class="summary-value" style="color:#29b6f6">⚙️ HOLD=${CONFIG.activeParams.holdLimit}d | RSI=${CONFIG.activeParams.rsiPeriod}</span>
+        <span class="summary-label">Auto-Optimized (EMA ${CONFIG.activeParams.emaFast}/${CONFIG.activeParams.emaSlow})</span>
+      </div>
       <div class="summary-item freshness-item" title="Age of the latest successful market-data refresh.">
         <span class="summary-value">${this._freshnessText()}</span>
         <span class="summary-label">Signal Freshness</span>

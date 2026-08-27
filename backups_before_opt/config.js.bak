@@ -65,8 +65,8 @@ const CONFIG = {
     // and update this list — it reflects a 250-day window and WILL go stale.
     // Core: consistently profitable with >1% avg return AND >40% win rate.
     // Probation: profitable but marginal (<1% avg return OR low win rate).
-    coreWinners: ['ARB', 'ETH', 'INJ', 'LDO', 'NEAR', 'POL'],
-    probationWinners: ['BTC', 'LINK', 'OP', 'RENDER', 'RUNE', 'TAO', 'THETA', 'TRX'],
+    coreWinners: ['ARB', 'ETH', 'INJ', 'NEAR'],
+    probationWinners: ['BTC', 'LDO', 'LINK', 'OP', 'POL', 'RENDER', 'RUNE', 'TAO', 'THETA', 'TRX'],
     provenWinners: ['ARB', 'BTC', 'ETH', 'INJ', 'LDO', 'LINK', 'NEAR', 'OP', 'POL', 'RENDER', 'RUNE', 'TAO', 'THETA', 'TRX'],
   },
 
@@ -75,15 +75,14 @@ const CONFIG = {
     coreOnlyBuys: false,    // [TEMPORARILY DISABLED BY USER] Restrict STRONG_BUY to coreWinners only
   },
 
-  // ─── Dynamic Optimization Parameters ───────────────────────────────────────
-  // These parameters are auto-updated by the backtester parameter sweep.
-  // The live dashboard reads these to adjust its mathematical engine.
-  activeParams: {
-    holdLimit: 3,
-    emaFast: 12,
-    emaSlow: 26,
-    rsiPeriod: 14
+  // ─── Technical indicator parameters ─────────────────────────────────────────
+  indicators: {
+    rsi:  { period: 14, overbought: 70, oversold: 30 },
+    macd: { fast: 12,   slow: 26,       signal: 9    },
+    sma:  { periods: [20, 50]                         },
+    bb:   { period: 20, multiplier: 2                 },
   },
+
   // Signal thresholds are defined in signals.js LEVELS object.
 
   // ─── Data refresh & caching ─────────────────────────────────────────────────
