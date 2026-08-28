@@ -54,7 +54,10 @@ const CONFIG = {
       { id: 'TIAUSDT', symbol: 'TIA', name: 'Celestia', currency: 'USD', icon: '🌌' },
       { id: 'SEIUSDT', symbol: 'SEI', name: 'Sei', currency: 'USD', icon: '🌊' },
       { id: 'STXUSDT', symbol: 'STX', name: 'Stacks', currency: 'USD', icon: '🥞' },
-      { id: 'TAOUSDT', symbol: 'TAO', name: 'Bittensor', currency: 'USD', icon: '🧠' }
+      { id: 'TAOUSDT', symbol: 'TAO', name: 'Bittensor', currency: 'USD', icon: '🧠' },
+      
+      // User specific holdings / Moonshots
+      { id: 'KERNELUSDT', symbol: 'KERNEL', name: 'Kernel', currency: 'USD', icon: '🚀', isMoonshot: true }
     ],
 
 
