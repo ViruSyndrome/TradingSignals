@@ -1354,7 +1354,7 @@ const Dashboard = {
     } else {
       this.state.invested.push(id);
     }
-    localStorage.setItem('trading_invested', JSON.stringify(this.state.invested));
+    try { localStorage.setItem('trading_invested', JSON.stringify(this.state.invested)); } catch(e) { console.warn('Failed to save lock status', e); }
 
     const isLocked = this.state.invested.includes(id);
     document.querySelectorAll(`.lock-btn[data-lock-id="${id}"]`).forEach(btn => {
@@ -1406,7 +1406,7 @@ const Dashboard = {
         setTimeout(() => this.loadAll(true), 10);
       }
     }
-    localStorage.setItem('trading_watchlist', JSON.stringify(this.state.watchlist));
+    try { localStorage.setItem('trading_watchlist', JSON.stringify(this.state.watchlist)); } catch(e) { console.warn('Failed to save watchlist', e); }
     
     // Instantly update the visual star state on any visible cards (especially Moonshots)
     const isNowStarred = this.state.watchlist.includes(id);

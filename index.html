@@ -398,30 +398,32 @@
   <!-- Scripts -->
   <!-- Version guard: if signals.js loaded is older than expected, force a full reload -->
   <script>
-    window.__APP_VERSION__ = '5.30';
+    window.__APP_VERSION__ = '5.34';
     try {
       // Bulletproof scrub of corrupted data from localStorage before the app boots
       const wlStr = localStorage.getItem('trading_watchlist');
       if (wlStr) {
         let wl = JSON.parse(wlStr);
-        let clean = wl.filter(id => !String(id).includes('_5M'));
-        if (clean.length !== wl.length) {
-          localStorage.setItem('trading_watchlist', JSON.stringify(clean));
+        if (Array.isArray(wl)) {
+          let clean = wl.filter(id => !String(id).includes('_5M'));
+          if (clean.length !== wl.length) localStorage.setItem('trading_watchlist', JSON.stringify(clean));
         }
       }
-      // Nuke the snapshot completely to force a fresh fetch
+      // Nuke bloated caches that are causing QuotaExceededError
       localStorage.removeItem('trading_snapshot_v1');
+      localStorage.removeItem('signal_history_v1');
+      localStorage.removeItem('trading_moonshot_journal_v1');
     } catch(e) {}
   </script>
-  <script src="js/config.js?v=5.31"></script>
-  <script src="js/api.js?v=5.30"></script>
-  <script src="js/indicators.js?v=5.30"></script>
-  <script src="js/signals.js?v=5.30"></script>
-  <script src="js/charts.js?v=5.30"></script>
+  <script src="js/config.js?v=5.34"></script>
+  <script src="js/api.js?v=5.34"></script>
+  <script src="js/indicators.js?v=5.34"></script>
+  <script src="js/signals.js?v=5.34"></script>
+  <script src="js/charts.js?v=5.34"></script>
   
-  <script src="js/scanner.js?v=5.30"></script>
-  <script src="js/backtest_ui.js?v=5.30"></script>
-  <script src="js/dashboard.js?v=5.33"></script>
+  <script src="js/scanner.js?v=5.34"></script>
+  <script src="js/backtest_ui.js?v=5.34"></script>
+  <script src="js/dashboard.js?v=5.34"></script>
   <script>
     // If signals.js didn't expose the right version, cached old code is running — force reload.
     if (typeof Signals === 'undefined' || Signals._version !== window.__APP_VERSION__) {
