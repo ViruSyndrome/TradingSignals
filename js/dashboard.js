@@ -19,8 +19,8 @@ const Dashboard = {
     refreshDueAt: null,
     updatedAssetIds: new Set(),
     notifGranted:  false,
-    watchlist:     JSON.parse(localStorage.getItem('trading_watchlist') || '[]'),
-    invested:      JSON.parse(localStorage.getItem('trading_invested') || '[]'),
+    watchlist:     (() => { try { const v = JSON.parse(localStorage.getItem('trading_watchlist')); return Array.isArray(v) ? v : []; } catch { return []; } })(),
+    invested:      (() => { try { const v = JSON.parse(localStorage.getItem('trading_invested')); return Array.isArray(v) ? v : []; } catch { return []; } })(),
     fearGreed:     null,
     marketRegime: 'unknown',
     scalps:        [],       // results from the 5m Meme Scalper
