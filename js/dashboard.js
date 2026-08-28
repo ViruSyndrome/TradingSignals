@@ -1429,16 +1429,22 @@ const Dashboard = {
   // ─── Card click → open detail modal ─────────────────────────────────────────
   _attachCardListeners(container) {
     container.querySelectorAll('.lock-btn').forEach(btn => {
-      btn.onclick = (e) => {
+      btn.addEventListener('click', (e) => {
+        e.preventDefault();
         e.stopPropagation();
-        this._toggleInvested(btn.dataset.lockId);
-      };
+        const id = btn.getAttribute('data-lock-id') || btn.dataset.lockId;
+        console.log('[Lock] Clicked:', id);
+        this._toggleInvested(id);
+      });
     });
     container.querySelectorAll('.star-btn').forEach(btn => {
-      btn.onclick = (e) => {
-        e.stopPropagation(); // prevent modal opening
-        this._toggleWatchlist(btn.dataset.starId);
-      };
+      btn.addEventListener('click', (e) => {
+        e.preventDefault();
+        e.stopPropagation();
+        const id = btn.getAttribute('data-star-id') || btn.dataset.starId;
+        console.log('[Star] Clicked:', id);
+        this._toggleWatchlist(id);
+      });
     });
     container.querySelectorAll('.asset-card').forEach(card => {
       card.onclick     = () => this._openModal(card.dataset.assetId);
