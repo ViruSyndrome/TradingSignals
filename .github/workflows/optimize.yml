@@ -1,0 +1,36 @@
+name: Auto-Optimize Trading Engine
+
+on:
+  schedule:
+    - cron: "0 0 * * *"
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  optimize:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout Repository
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+
+      - name: Run Engine Optimization
+        run: node backtest.js
+
+      - name: Commit and Push Changes
+        run: |
+          git config --global user.name "github-actions[bot]"
+          git config --global user.email "github-actions[bot]@users.noreply.github.com"
+          git add js/config.js
+          # Also bump index.html to force users browsers to download the newly optimized config
+          sed -i -E "s/(js\/config\.js\?v=[0-9]+)\.([0-9]+)/\1.\$((\2 + 1))/" index.html
+          git add index.html
+          git commit -m "bot: auto-optimize trading parameters based on latest market data" || echo "No optimization changes needed today."
+          git push
