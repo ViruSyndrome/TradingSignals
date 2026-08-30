@@ -58,8 +58,7 @@ const CONFIG = {
       
       // User specific holdings / Moonshots
       { id: 'KERNELUSDT', symbol: 'KERNEL', name: 'Kernel', currency: 'USD', icon: '🚀', isMoonshot: true },
-      { id: 'GIGGLEUSDT', symbol: 'GIGGLE', name: 'Giggle', currency: 'USD', icon: '🚀', isMoonshot: true },
-      { id: 'POLUSDT', symbol: 'POL', name: 'Polygon', currency: 'USD', icon: '🟣' },
+      { id: 'GIGGLEUSDT', symbol: 'GIGGLE', name: 'Giggle', currency: 'USD', icon: '🚀', isMoonshot: true }
     ],
 
 
