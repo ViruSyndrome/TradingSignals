@@ -1205,7 +1205,7 @@ const Dashboard = {
             <span class="asset-icon">${asset.icon}</span>
             <div class="asset-meta">
               <div class="asset-name">${asset.name}</div>
-              <div class="asset-symbol">${asset.symbol}</div>
+              <a href="https://www.binance.com/en/trade/${asset.symbol}_USDT?type=spot" target="_blank" class="asset-symbol" style="text-decoration:none; color:var(--text-secondary); pointer-events: auto;" title="Trade on Binance">${asset.symbol}USDT ↗</a>
               <div class="card-badges">
                 <span class="cat-badge-inline">${catBadge}</span>
                 ${winnerBadge}
