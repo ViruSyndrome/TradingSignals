@@ -107,7 +107,7 @@
       </div>
 
       <!-- Live News Ticker -->
-      <div class="news-ticker glass" style="margin: 0 20px 20px 20px; border-radius: 8px; overflow: hidden; height: 35px; display: flex; align-items: center;">
+      <div class="news-ticker glass" style="margin: 0 20px 20px 20px; border-radius: 8px; overflow: hidden; min-height: 55px; position: relative;">
         <a href="https://cryptopanic.com/" target="_blank" data-news_feed="recent" data-font_family="Outfit" data-bg_color="#1a1c23" data-text_color="#ffffff" data-link_color="#29b6f6" data-header_bg_color="#1a1c23" data-header_text_color="#a0a4b8" data-posts_limit="1" data-ticker="true" class="CryptoPanicWidget">Latest News</a>
         <script src="https://static.cryptopanic.com/static/js/widgets.min.js"></script>
       </div>
@@ -405,7 +405,7 @@
   <!-- Version guard: if signals.js loaded is older than expected, force a full reload -->
   <script>
     // Version bumper to defeat GitHub Pages aggressive caching
-    window.__APP_VERSION__ = '5.45';
+    window.__APP_VERSION__ = '5.46';
     try {
       // Bulletproof scrub of corrupted data from localStorage before the app boots
       const wlStr = localStorage.getItem('trading_watchlist');
