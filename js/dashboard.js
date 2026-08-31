@@ -230,6 +230,7 @@ const Dashboard = {
       });
     }
 
+    this._initNewsTape();
     this._startClock();
     this._updateMarketStatus();
     // Paint instantly from last-known snapshot while the live fetch runs.
@@ -704,6 +705,34 @@ const Dashboard = {
       .join('');
     el.innerHTML = items + items;
     el.classList.toggle('moving', items.length > 0);
+  },
+
+  async _initNewsTape() {
+    const el = document.getElementById('newsTapeTrack');
+    if (!el) return;
+    const fetchNews = async () => {
+      try {
+        const res = await fetch('https://api.rss2json.com/v1/api.json?rss_url=https://www.coindesk.com/arc/outboundfeeds/rss/');
+        const data = await res.json();
+        if (!data.items) return;
+        const twentyFourHoursAgo = new Date(Date.now() - 24 * 60 * 60 * 1000);
+        const validItems = data.items.filter(item => new Date(item.pubDate) > twentyFourHoursAgo);
+        
+        if (validItems.length === 0) {
+          el.innerHTML = '<span class="tape-item" style="color:var(--text-muted);">Waiting for new breaking stories today...</span>';
+          el.classList.remove('moving');
+          return;
+        }
+
+        const itemsStr = validItems.map(item => `<span class="tape-item"><a href="${item.link}" target="_blank" style="color: var(--text-main); text-decoration: none; font-weight: 500;">${item.title}</a> <em style="color: var(--text-muted); font-size: 10px; font-weight: normal; margin-left: 6px;">[${new Date(item.pubDate).toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'})}]</em></span>`).join('');
+        el.innerHTML = itemsStr + itemsStr;
+        el.classList.add('moving');
+      } catch (e) {
+        console.error('News Tape Error:', e);
+      }
+    };
+    fetchNews();
+    setInterval(fetchNews, 15 * 60 * 1000); // 15 mins
   },
 
   _updateLiveStatus() {
