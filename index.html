@@ -399,7 +399,7 @@
   <!-- Version guard: if signals.js loaded is older than expected, force a full reload -->
   <script>
     // Version bumper to defeat GitHub Pages aggressive caching
-    window.__APP_VERSION__ = '5.42';
+    window.__APP_VERSION__ = '5.43';
     try {
       // Bulletproof scrub of corrupted data from localStorage before the app boots
       const wlStr = localStorage.getItem('trading_watchlist');
@@ -416,7 +416,7 @@
       localStorage.removeItem('trading_moonshot_journal_v1');
     } catch(e) {}
   </script>
-  <script src="js/config.js?v=5.42"></script>
+  <script src="js/config.js?v=5.43"></script>
   <script src="js/api.js?v=5.34"></script>
   <script src="js/indicators.js?v=5.34"></script>
   <script src="js/signals.js?v=5.34"></script>
