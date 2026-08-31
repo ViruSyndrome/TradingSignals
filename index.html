@@ -17,13 +17,13 @@
 
   <!-- Chart.js -->
   <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.4/dist/chart.umd.min.js"></script>
-
-  <link rel="stylesheet" href="styles.css?v=5.28" />
+  <link rel="stylesheet" href="styles.css?v=5.52" />
   
-  <!-- PWA Manifest & App Icons -->
+  <!-- Favicon & PWA Manifest -->
+  <link rel="icon" type="image/png" href="icon-192.png">
+  <link rel="apple-touch-icon" href="icon-192.png">
   <link rel="manifest" href="manifest.json">
   <meta name="theme-color" content="#080a14">
-  <link rel="apple-touch-icon" href="icon-192.png">
 
   <!-- Register Service Worker -->
   <script>
@@ -44,7 +44,7 @@
   <aside class="sidebar" id="sidebar">
     <div class="sidebar-logo">
       <div class="sidebar-brand">
-        <div class="logo-icon">📈</div>
+        <div class="logo-icon" style="background: none; font-size: initial; display: flex; align-items: center;"><img src="icon-192.png" alt="TrendRunner Logo" style="width: 32px; height: 32px; border-radius: 8px; box-shadow: 0 4px 12px rgba(0,0,0,0.5);"></div>
         <div>
           <div class="logo-title">TrendRunner</div>
           <div class="logo-sub">Crypto Dashboard</div>
@@ -439,7 +439,7 @@
   <!-- Version guard: if signals.js loaded is older than expected, force a full reload -->
   <script>
     // Version bumper to defeat GitHub Pages aggressive caching
-    window.__APP_VERSION__ = '5.51';
+    window.__APP_VERSION__ = '5.52';
     try {
       // Bulletproof scrub of corrupted data from localStorage before the app boots
       const wlStr = localStorage.getItem('trading_watchlist');
