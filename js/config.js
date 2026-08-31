@@ -84,8 +84,8 @@ const CONFIG = {
   // The live dashboard reads these to adjust its mathematical engine.
   activeParams: {
     holdLimit: 3,
-    emaFast: 12,
-    emaSlow: 26,
+    emaFast: 9,
+    emaSlow: 21,
     rsiPeriod: 14
   },
   // Signal thresholds are defined in signals.js LEVELS object.

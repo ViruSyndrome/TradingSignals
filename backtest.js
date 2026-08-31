@@ -752,7 +752,7 @@ async function main() {
   
   // Run Auto-Optimization Sweep (unless in moonshot mode which is highly specific)
   if (!args.moonshots) {
-    await runParameterSweep(histories, fgMap);
+    // await runParameterSweep(histories, fgMap); // User requested 9/21 EMA permanently
   }
 
   if (args.moonshots) {
