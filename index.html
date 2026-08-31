@@ -42,10 +42,14 @@
        SIDEBAR
   ════════════════════════════════════════════════════════════════════════════ -->
   <aside class="sidebar" id="sidebar">
-    <div class="sidebar-logo" style="padding: 16px 24px; display: flex; justify-content: center;">
-      <div class="sidebar-brand" style="padding: 0; width: 100%; text-align: center;">
-        <img src="sidebar_logo.png" alt="TrendRunner Logo" style="width: 100%; max-width: 160px; height: auto; object-fit: contain;">
-      </div>
+    <div class="sidebar-logo">
+      <a href="index.html" class="sidebar-brand" style="display: flex; align-items: center; gap: 10px; text-decoration: none; padding: 0;">
+        <img src="icon-transparent.png" alt="Logo" style="width: 38px; height: auto; object-fit: contain; filter: drop-shadow(0 2px 4px rgba(0,229,255,0.2));">
+        <div style="display: flex; flex-direction: column; align-items: flex-start;">
+          <div style="font-size: 18px; font-weight: 700; color: #ffffff; letter-spacing: -0.5px;">trendrunner<span style="color: #00e5ff;">.app</span></div>
+          <div style="font-size: 10px; color: var(--text-muted); text-transform: uppercase; letter-spacing: 1px; margin-top: 2px;">Crypto Dashboard</div>
+        </div>
+      </a>
       <button class="mobile-close-btn" id="mobileCloseBtn" aria-label="Close sidebar">&times;</button>
     </div>
 
@@ -435,7 +439,7 @@
   <!-- Version guard: if signals.js loaded is older than expected, force a full reload -->
   <script>
     // Version bumper to defeat GitHub Pages aggressive caching
-    window.__APP_VERSION__ = '5.54';
+    window.__APP_VERSION__ = '5.55';
     try {
       // Bulletproof scrub of corrupted data from localStorage before the app boots
       const wlStr = localStorage.getItem('trading_watchlist');
