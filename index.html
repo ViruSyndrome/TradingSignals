@@ -398,7 +398,8 @@
   <!-- Scripts -->
   <!-- Version guard: if signals.js loaded is older than expected, force a full reload -->
   <script>
-    window.__APP_VERSION__ = '5.34';
+    // Version bumper to defeat GitHub Pages aggressive caching
+    window.__APP_VERSION__ = '5.41';
     try {
       // Bulletproof scrub of corrupted data from localStorage before the app boots
       const wlStr = localStorage.getItem('trading_watchlist');
