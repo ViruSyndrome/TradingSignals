@@ -106,10 +106,23 @@
         <div class="live-tape-window"><div id="liveTapeTrack" class="live-tape-track"></div></div>
       </div>
 
-      <!-- Live News Ticker -->
-      <div class="news-ticker glass" style="margin: 0 20px 20px 20px; border-radius: 8px; padding: 5px;">
-        <a href="https://cryptopanic.com/" target="_blank" data-news_feed="recent" data-font_family="Outfit" data-bg_color="#1a1c23" data-text_color="#ffffff" data-link_color="#29b6f6" data-header_bg_color="#1a1c23" data-header_text_color="#a0a4b8" data-posts_limit="5" class="CryptoPanicWidget">Latest News</a>
-        <script src="https://static.cryptopanic.com/static/js/widgets.min.js"></script>
+      <!-- Live News Ticker (TradingView) -->
+      <div class="news-ticker glass" style="margin: 0 20px 20px 20px; border-radius: 8px; padding: 10px;">
+        <div class="tradingview-widget-container">
+          <div class="tradingview-widget-container__widget"></div>
+          <script type="text/javascript" src="https://s3.tradingview.com/external-embedding/embed-widget-timeline.js" async>
+          {
+            "feedMode": "market",
+            "market": "crypto",
+            "colorTheme": "dark",
+            "isTransparent": true,
+            "displayMode": "regular",
+            "width": "100%",
+            "height": 300,
+            "locale": "en"
+          }
+          </script>
+        </div>
       </div>
 
       <!-- Top Opportunities -->
@@ -405,7 +418,7 @@
   <!-- Version guard: if signals.js loaded is older than expected, force a full reload -->
   <script>
     // Version bumper to defeat GitHub Pages aggressive caching
-    window.__APP_VERSION__ = '5.47';
+    window.__APP_VERSION__ = '5.48';
     try {
       // Bulletproof scrub of corrupted data from localStorage before the app boots
       const wlStr = localStorage.getItem('trading_watchlist');
