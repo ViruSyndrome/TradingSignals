@@ -226,7 +226,7 @@ const API = {
 
         return {
           asset,
-          rules: rules[asset.id] || null,
+          rules: rules[binanceSymbol] || null,
           price:      livePrice,
           change24h:  priceInfo.priceChangePercent != null ? parseFloat(priceInfo.priceChangePercent) : null,
           change4h,

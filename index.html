@@ -420,21 +420,18 @@
           if (clean.length !== wl.length) localStorage.setItem('trading_watchlist', JSON.stringify(clean));
         }
       }
-      // Nuke bloated caches that are causing QuotaExceededError
-      localStorage.removeItem('trading_snapshot_v1');
-      localStorage.removeItem('signal_history_v1');
-      localStorage.removeItem('trading_moonshot_journal_v1');
+      // Nuke bloated caches that are causing QuotaExceededError (Removed to allow instant paint)
     } catch(e) {}
   </script>
-  <script src="js/config.js?v=5.44"></script>
-  <script src="js/api.js?v=5.34"></script>
-  <script src="js/indicators.js?v=5.34"></script>
-  <script src="js/signals.js?v=5.34"></script>
-  <script src="js/charts.js?v=5.34"></script>
+  <script src="js/config.js?v=5.49"></script>
+  <script src="js/api.js?v=5.49"></script>
+  <script src="js/indicators.js?v=5.49"></script>
+  <script src="js/signals.js?v=5.49"></script>
+  <script src="js/charts.js?v=5.49"></script>
   
-  <script src="js/scanner.js?v=5.34"></script>
-  <script src="js/backtest_ui.js?v=5.34"></script>
-  <script src="js/dashboard.js?v=5.41"></script>
+  <script src="js/scanner.js?v=5.49"></script>
+  <script src="js/backtest_ui.js?v=5.49"></script>
+  <script src="js/dashboard.js?v=5.49"></script>
   <script>
     // If signals.js didn't expose the right version, cached old code is running — force reload.
     if (typeof Signals === 'undefined' || Signals._version !== window.__APP_VERSION__) {
@@ -482,29 +479,6 @@
       `;
     });
 
-    // Sidebar toggle (Open)
-    document.getElementById('sidebarToggle')?.addEventListener('click', () => {
-      const sidebar = document.getElementById('sidebar');
-      if (window.innerWidth <= 768) {
-        sidebar.classList.add('open');
-      } else {
-        sidebar.classList.toggle('collapsed');
-      }
-    });
-
-    // Mobile Close Button (Close)
-    document.getElementById('mobileCloseBtn')?.addEventListener('click', () => {
-      document.getElementById('sidebar').classList.remove('open');
-    });
-    
-    // Close sidebar on mobile when a nav link is clicked
-    document.querySelectorAll('.nav-link').forEach(link => {
-      link.addEventListener('click', () => {
-        if (window.innerWidth <= 768) {
-          document.getElementById('sidebar').classList.remove('open');
-        }
-      });
-    });
   </script>
 
 </body>

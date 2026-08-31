@@ -124,7 +124,7 @@ const Charts = {
     if (!ctx || closes.length === 0) return;
 
     const labels  = this._labels(timestamps);
-    const { ema9, ema21, sma50, sma200, bb } = signalArrays; console.log('ema9 data length:', ema9 ? ema9.length : 0); console.log('closes length:', closes.length);
+    const { ema9, ema21, sma50, sma200, bb } = signalArrays;
 
     const datasets = [
       // Price area
