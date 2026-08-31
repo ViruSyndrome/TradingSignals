@@ -57,7 +57,6 @@ const CONFIG = {
       { id: 'TAOUSDT', symbol: 'TAO', name: 'Bittensor', currency: 'USD', icon: '🧠' },
       
       // User specific holdings / Moonshots
-      { id: 'KERNELUSDT', symbol: 'KERNEL', name: 'Kernel', currency: 'USD', icon: '🚀', isMoonshot: true },
       { id: 'DASHUSDT', symbol: 'DASH', name: 'Dash', currency: 'USD', icon: '💨' }
     ],
 
