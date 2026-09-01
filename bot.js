@@ -82,6 +82,16 @@ function saveAlertState(state) {
 }
 const lastAlerted = loadAlertState();
 
+// Persist Twitter deduplication and rate limits
+const TWITTER_STATE_FILE = 'twitterState.json';
+function loadTwitterState() {
+  try { return JSON.parse(fs.readFileSync(TWITTER_STATE_FILE, 'utf8')); } catch { return { lastGlobalTweet: 0, coins: {} }; }
+}
+function saveTwitterState(state) {
+  fs.writeFileSync(TWITTER_STATE_FILE, JSON.stringify(state, null, 2));
+}
+const twitterState = loadTwitterState();
+
 // Fetch the Crypto Fear & Greed index (0-100). Returns undefined on failure
 // so the engine simply skips the sentiment adjustment.
 async function fetchFearGreed() {
@@ -137,16 +147,30 @@ async function scanMarket() {
           message = `🚨 STRONG SELL ALERT: ${asset.symbol}\nScore: ${result.score}\nPrice: $${price.toFixed(4)}\n\nThe indicators have crashed into a Strong Sell. Cut losses or exit your position.\n\nIf you sell, reply /sell ${asset.symbol}`;
         }
 
-        if (message && !alreadyAlerted) {
+          if (message && !alreadyAlerted) {
           bot.sendMessage(chatId, message).catch(err => console.error('Send failed:', err.message));
           
-          // Post to Twitter if it's a new strong buy and client is configured
+          // --- TWITTER SPAM CONTROL ---
           if (tweetMessage && twitterClient) {
-            twitterClient.v2.tweet(tweetMessage).then(() => {
-              console.log(`🐦 Tweeted STRONG BUY for ${asset.symbol}`);
-            }).catch(err => {
-              console.error('Twitter post failed:', err);
-            });
+            const now = Date.now();
+            const TWO_HOURS = 2 * 60 * 60 * 1000;
+            const FORTY_EIGHT_HOURS = 48 * 60 * 60 * 1000;
+
+            const timeSinceGlobal = now - (twitterState.lastGlobalTweet || 0);
+            const timeSinceCoin = now - (twitterState.coins[asset.symbol] || 0);
+
+            if (timeSinceGlobal > TWO_HOURS && timeSinceCoin > FORTY_EIGHT_HOURS) {
+              twitterClient.v2.tweet(tweetMessage).then(() => {
+                console.log(`🐦 Tweeted STRONG BUY for ${asset.symbol}`);
+                twitterState.lastGlobalTweet = now;
+                twitterState.coins[asset.symbol] = now;
+                saveTwitterState(twitterState);
+              }).catch(err => {
+                console.error('Twitter post failed:', err);
+              });
+            } else {
+              console.log(`🐦 Skipped tweet for ${asset.symbol} due to rate limiting (Global: ${Math.round(timeSinceGlobal/1000/60)}m ago, Coin: ${Math.round(timeSinceCoin/1000/60/60)}h ago).`);
+            }
           }
 
           lastAlerted[asset.symbol] = alertKey;
