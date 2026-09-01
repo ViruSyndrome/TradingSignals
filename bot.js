@@ -12,6 +12,22 @@ global.Indicators = Indicators; // signals.js references Indicators as a global
 const token = process.env.TELEGRAM_BOT_TOKEN;
 const chatId = process.env.TELEGRAM_CHAT_ID;
 
+const { TwitterApi } = require('twitter-api-v2');
+
+// Initialize Twitter Client (if keys are provided)
+let twitterClient = null;
+if (process.env.TWITTER_API_KEY && process.env.TWITTER_API_SECRET && process.env.TWITTER_ACCESS_TOKEN && process.env.TWITTER_ACCESS_SECRET) {
+  twitterClient = new TwitterApi({
+    appKey: process.env.TWITTER_API_KEY,
+    appSecret: process.env.TWITTER_API_SECRET,
+    accessToken: process.env.TWITTER_ACCESS_TOKEN,
+    accessSecret: process.env.TWITTER_ACCESS_SECRET,
+  }).readWrite;
+  console.log("🐦 Twitter client initialized successfully.");
+} else {
+  console.log("⚠️ Twitter keys missing from .env, Twitter posting disabled.");
+}
+
 if (!token || !chatId) {
   console.error("Missing TELEGRAM_BOT_TOKEN or TELEGRAM_CHAT_ID in .env");
   process.exit(1);
@@ -101,6 +117,7 @@ async function scanMarket() {
         const alreadyAlerted = lastAlerted[asset.symbol] === alertKey;
 
         let message = null;
+        let tweetMessage = null;
         let stopText = '';
         const winnerTier = result.winnerTier ?? 'none';
         if (result.stopSuggest) {
@@ -110,6 +127,8 @@ async function scanMarket() {
         if (result.signal === 'STRONG_BUY') {
           const tierLabel = winnerTier === 'core' ? 'Core Winner' : winnerTier === 'probation' ? 'Probation Winner' : 'Watchlist';
           message = `🚀 STRONG BUY ALERT: ${asset.symbol} (${tierLabel})\nScore: +${result.score}\nPrice: $${price.toFixed(4)}\n\n${result.recommendation}${stopText}\n\nIf you buy this, reply /buy ${asset.symbol}`;
+          
+          tweetMessage = `🚨 TrendRunner Alert: $${asset.symbol.replace('USDT','')} just triggered a STRONG BUY signal!\n\nScore: +${result.score}\nConfidence: ${result.confidence}%\n\nView live data → https://trendrunner.app`;
         } else if (result.signal === 'BUY') {
           message = `👀 BUY SETUP: ${asset.symbol}\nScore: +${result.score}\nPrice: $${price.toFixed(4)}\n\nIndicators are leaning bullish. Good time to research for an entry.${stopText}\n\nIf you buy this, reply /buy ${asset.symbol}`;
         } else if (result.signal === 'SELL' && owned) {
@@ -120,6 +139,16 @@ async function scanMarket() {
 
         if (message && !alreadyAlerted) {
           bot.sendMessage(chatId, message).catch(err => console.error('Send failed:', err.message));
+          
+          // Post to Twitter if it's a new strong buy and client is configured
+          if (tweetMessage && twitterClient) {
+            twitterClient.v2.tweet(tweetMessage).then(() => {
+              console.log(`🐦 Tweeted STRONG BUY for ${asset.symbol}`);
+            }).catch(err => {
+              console.error('Twitter post failed:', err);
+            });
+          }
+
           lastAlerted[asset.symbol] = alertKey;
           saveAlertState(lastAlerted);
         } else if (!message) {
