@@ -140,9 +140,10 @@ async function scanMarket() {
 
         if (result.signal === 'STRONG_BUY') {
           const tierLabel = winnerTier === 'core' ? 'Core Winner' : winnerTier === 'probation' ? 'Probation Winner' : 'Watchlist';
-          message = `🚀 STRONG BUY ALERT: ${asset.symbol} (${tierLabel})\nScore: +${result.score}\nPrice: $${price.toFixed(4)}\n\n${result.recommendation}${stopText}\n\nIf you buy this, reply /buy ${asset.symbol}`;
+          message = `🟢 STRONG BUY ALERT: ${asset.symbol} (${tierLabel})\nScore: +${result.score}\nPrice: $${price.toFixed(4)}\n\n${result.recommendation}${stopText}\n\nIf you buy this, reply /buy ${asset.symbol}`;
           
-          tweetMessage = `🚨 TrendRunner Alert: $${asset.symbol.replace('USDT','')} just triggered a STRONG BUY signal!\n\nScore: +${result.score}\nConfidence: ${result.confidence}%\n\nView live data → https://trendrunner.app`;
+          const cleanSymbol = asset.symbol.replace('USDT','');
+          tweetMessage = `🚨 ALGORITHMIC ALERT: $${cleanSymbol} just triggered a flawless STRONG BUY signal on the daily timeframe!\n\n📈 Trend Score: +${result.score}/10\n🎯 Confidence: ${result.confidence}%\n\nGet the exact Stop-Loss & Take-Profit targets free 👇\nhttps://trendrunner.app\n\n#CryptoTrading #${cleanSymbol} #TradingSignals`;
         } else if (result.signal === 'BUY') {
           message = `👀 BUY SETUP: ${asset.symbol}\nScore: +${result.score}\nPrice: $${price.toFixed(4)}\n\nIndicators are leaning bullish. Good time to research for an entry.${stopText}\n\nIf you buy this, reply /buy ${asset.symbol}`;
         } else if (result.signal === 'SELL' && owned) {
