@@ -59,7 +59,6 @@ const CONFIG = {
       // User specific holdings / Moonshots
       { id: 'DASHUSDT', symbol: 'DASH', name: 'Dash', currency: 'USD', icon: '💨' },
       { id: 'CAKEUSDT', symbol: 'CAKE', name: 'PancakeSwap', currency: 'USD', icon: '🥞' },
-      { id: 'AXLUSDT', symbol: 'AXL', name: 'Axelar', currency: 'USD', icon: '🪐', isMoonshot: true }
     ],
 
 
