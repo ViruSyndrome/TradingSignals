@@ -549,7 +549,7 @@
     if (typeof Signals === 'undefined' || Signals._version !== window.__APP_VERSION__) {
       if (!sessionStorage.getItem('reloaded_' + window.__APP_VERSION__)) {
         sessionStorage.setItem('reloaded_' + window.__APP_VERSION__, '1');
-        location.reload(true);
+        location.reload();
       }
     }
   </script>
