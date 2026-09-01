@@ -4,3 +4,17 @@ ownedAssets.json
 lastAlerted.json
 *.log
 .DS_Store
+
+# Personal trading data - never commit
+Binance_Data/
+Binance_Data
+*.zip
+download.csv
+bStocks.json
+zero_perms.json
+logo.png
+twitter_profile.png
+sidebar_logo.png
+icon-transparent.png
+twitterState.json
+lastAlerted.json
