@@ -1714,16 +1714,6 @@ const Dashboard = {
     }
   },
 
-  _updateMarketStatus() {
-    const status = API.getMarketStatus();
-    const el = document.getElementById('marketStatus');
-    if (!el) return;
-    el.innerHTML = `
-      <span class="mkt-dot ${status.nse.open ? 'green' : 'red'}"></span> ${status.nse.label}
-      &nbsp;&nbsp;
-      <span class="mkt-dot green"></span> ${status.crypto.label}
-    `;
-  },
 
   // ─── Browser notifications ───────────────────────────────────────────────────
   // Chrome blocks Notification.requestPermission() outside a user gesture, so

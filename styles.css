@@ -1204,3 +1204,33 @@ body.modal-open { overflow: hidden; }
   font-weight: 700;
   color: var(--text-main);
 }
+
+/* --- PHASE 2 VISUAL POLISH --- */
+.summary-bar {
+  border: 1px solid rgba(0, 242, 254, 0.15) !important;
+  box-shadow: 0 4px 30px rgba(0, 242, 254, 0.05), inset 0 0 20px rgba(0, 242, 254, 0.02) !important;
+  background: linear-gradient(145deg, rgba(30, 41, 59, 0.4) 0%, rgba(15, 23, 42, 0.6) 100%) !important;
+}
+
+.live-tape {
+  -webkit-mask-image: linear-gradient(to right, transparent, black 10%, black 90%, transparent);
+  mask-image: linear-gradient(to right, transparent, black 10%, black 90%, transparent);
+}
+
+.section-heading h2 {
+  background: linear-gradient(90deg, #ffffff, #00f2fe);
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+  display: inline-block;
+}
+
+.signal-strong-buy {
+  box-shadow: 0 0 15px rgba(16, 185, 129, 0.3) !important;
+  background: linear-gradient(90deg, rgba(16,185,129,0.15) 0%, rgba(16,185,129,0.25) 100%) !important;
+}
+
+.signal-strong-sell {
+  box-shadow: 0 0 15px rgba(225, 29, 72, 0.3) !important;
+  background: linear-gradient(90deg, rgba(225,29,72,0.15) 0%, rgba(225,29,72,0.25) 100%) !important;
+}
+
