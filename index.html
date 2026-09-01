@@ -36,7 +36,7 @@
 
   <!-- Chart.js -->
   <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.4/dist/chart.umd.min.js"></script>
-  <link rel="stylesheet" href="styles.css?v=5.60" />
+  <link rel="stylesheet" href="styles.css?v=5.61" />
   
   <!-- Favicon & PWA Manifest -->
   <link rel="icon" type="image/png" href="icon-192.png">
@@ -236,7 +236,11 @@
           <span id="scanProgress" style="margin-left: 12px; color: var(--text-muted); font-family: monospace;"></span>
         </div>
         <div class="assets-grid" id="moonshotGrid">
-          <p class="no-data">Click the scan button to find setups.</p>
+          <div class="moonshot-empty-state">
+            <div class="moonshot-empty-icon">🔭</div>
+            <p class="moonshot-empty-title">No setups found yet</p>
+            <p class="moonshot-empty-sub">Hit <strong>Scan Binance Market</strong> above — the scan takes 30–60 seconds.<br>In bearish markets, zero results is completely normal. The algorithm only surfaces <strong>high-conviction breakouts</strong>.</p>
+          </div>
         </div>
       </div>
     </section>
@@ -521,7 +525,7 @@
   <!-- Version guard: if signals.js loaded is older than expected, force a full reload -->
   <script>
     // Version bumper to defeat GitHub Pages aggressive caching
-    window.__APP_VERSION__ = '5.60';
+    window.__APP_VERSION__ = '5.61';
     try {
       // Bulletproof scrub of corrupted data from localStorage before the app boots
       const wlStr = localStorage.getItem('trading_watchlist');
@@ -535,21 +539,23 @@
       // Nuke bloated caches that are causing QuotaExceededError (Removed to allow instant paint)
     } catch(e) {}
   </script>
-  <script src="js/config.js?v=5.60"></script>
-  <script src="js/api.js?v=5.60"></script>
-  <script src="js/indicators.js?v=5.60"></script>
-  <script src="js/signals.js?v=5.60"></script>
-  <script src="js/charts.js?v=5.60"></script>
+  <script src="js/config.js?v=5.61"></script>
+  <script src="js/api.js?v=5.61"></script>
+  <script src="js/indicators.js?v=5.61"></script>
+  <script src="js/signals.js?v=5.61"></script>
+  <script src="js/charts.js?v=5.61"></script>
   
-  <script src="js/scanner.js?v=5.60"></script>
-  <script src="js/backtest_ui.js?v=5.60"></script>
-  <script src="js/dashboard.js?v=5.60"></script>
+  <script src="js/scanner.js?v=5.61"></script>
+  <script src="js/backtest_ui.js?v=5.61"></script>
+  <script src="js/dashboard.js?v=5.61"></script>
   <script>
     // If signals.js didn't expose the right version, cached old code is running — force reload.
     if (typeof Signals === 'undefined' || Signals._version !== window.__APP_VERSION__) {
       if (!sessionStorage.getItem('reloaded_' + window.__APP_VERSION__)) {
         sessionStorage.setItem('reloaded_' + window.__APP_VERSION__, '1');
-        location.reload();
+        // Show a friendly splash instead of a silent/jarring reload
+        document.body.innerHTML = '<div style="position:fixed;inset:0;background:#0c101a;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:16px;z-index:9999;font-family:-apple-system,BlinkMacSystemFont,sans-serif;"><img src=\"icon-192.png\" width=\"64\" height=\"64\" style=\"border-radius:16px\"><p style=\"color:#00f2fe;font-size:18px;font-weight:700;margin:0\">Updating TrendRunner…</p><p style=\"color:#94a3b8;font-size:14px;margin:0\">Loading the latest version</p><div style=\"width:200px;height:3px;background:#1e293b;border-radius:2px;overflow:hidden\"><div style=\"height:100%;background:linear-gradient(90deg,#00f2fe,#0ea5e9);animation:bar 1s ease-in-out infinite alternate;border-radius:2px\"></div></div></div><style>@keyframes bar{from{width:20%}to{width:100%}}</style>';
+        setTimeout(() => location.reload(), 800);
       }
     }
   </script>

@@ -1233,3 +1233,55 @@ body.modal-open { overflow: hidden; }
   box-shadow: 0 0 15px rgba(225, 29, 72, 0.3) !important;
   background: linear-gradient(90deg, rgba(225,29,72,0.15) 0%, rgba(225,29,72,0.25) 100%) !important;
 }
+
+/* ── Mobile Summary Bar: 2-row compact mode (≤420px) ── */
+@media (max-width: 420px) {
+  .summary-bar {
+    display: grid !important;
+    grid-template-columns: 1fr 1fr 1fr !important;
+    gap: 8px !important;
+    padding: 12px !important;
+  }
+  .summary-item {
+    flex: unset !important;
+    min-width: unset !important;
+    text-align: center;
+    background: rgba(255,255,255,0.03);
+    border-radius: 10px;
+    padding: 8px 4px;
+  }
+  .summary-value { font-size: 18px !important; }
+  .summary-label { font-size: 9px !important; }
+  /* Freshness and regime take full width on small screens */
+  .freshness-item, .regime-item, .stale-banner {
+    grid-column: 1 / -1;
+  }
+}
+
+/* ── Moonshot empty state ── */
+.moonshot-empty-state {
+  text-align: center;
+  padding: 48px 24px;
+  color: var(--text-muted);
+}
+.moonshot-empty-icon {
+  font-size: 48px;
+  margin-bottom: 16px;
+  opacity: 0.6;
+}
+.moonshot-empty-title {
+  font-size: 18px;
+  font-weight: 700;
+  color: var(--text-main);
+  margin: 0 0 10px;
+}
+.moonshot-empty-sub {
+  font-size: 14px;
+  line-height: 1.7;
+  max-width: 380px;
+  margin: 0 auto;
+  color: var(--text-muted);
+}
+.moonshot-empty-sub strong {
+  color: var(--accent);
+}
