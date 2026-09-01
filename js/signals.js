@@ -1,21 +1,21 @@
-﻿'use strict';
+'use strict';
 
 /**
- * signals.js â€” Composite signal generation from technical indicators.
+ * signals.js — Composite signal generation from technical indicators.
  * Scores each indicator, combines them, and outputs a Buy/Sell/Hold signal
  * with a confidence percentage and a plain-English recommendation.
  */
 const Signals = {
 
   LEVELS: {
-    STRONG_BUY:  { label: 'Strong Buy',  short: 'S.BUY',  cls: 'strong-buy',  icon: 'ðŸš€', minScore:  2.5 },
-    BUY:         { label: 'Buy',          short: 'BUY',    cls: 'buy',          icon: 'ðŸ“ˆ', minScore:  1.5 },
-    NEUTRAL:     { label: 'Hold / Watch', short: 'HOLD',   cls: 'neutral',      icon: 'â¸ï¸',  minScore: -1.5 },
-    SELL:        { label: 'Sell',         short: 'SELL',   cls: 'sell',         icon: 'ðŸ“‰', minScore: -2.5 },
-    STRONG_SELL: { label: 'Strong Sell', short: 'S.SELL', cls: 'strong-sell',  icon: 'ðŸ”»', minScore: -3.5 },
+    STRONG_BUY:  { label: 'Strong Buy',  short: 'S.BUY',  cls: 'strong-buy',  icon: '🚀', minScore:  2.5 },
+    BUY:         { label: 'Buy',          short: 'BUY',    cls: 'buy',          icon: '📈', minScore:  1.5 },
+    NEUTRAL:     { label: 'Hold / Watch', short: 'HOLD',   cls: 'neutral',      icon: '⏸️',  minScore: -1.5 },
+    SELL:        { label: 'Sell',         short: 'SELL',   cls: 'sell',         icon: '📉', minScore: -2.5 },
+    STRONG_SELL: { label: 'Strong Sell', short: 'S.SELL', cls: 'strong-sell',  icon: '🔻', minScore: -3.5 },
   },
 
-  // â”€â”€â”€ Main entry point â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+  // ─── Main entry point ──────────────────────────────────────────────────────
   // opts: { highs, lows, volumes, fearGreed, symbol, ignoreWinnersFilter }
   // fearGreed: 0-100 market sentiment; symbol: enables the backtested-winners filter.
   generate(closes, opts = {}) {
@@ -30,12 +30,12 @@ const Signals = {
 
     const { highs, lows, volumes, fearGreed, symbol, ignoreWinnersFilter } = opts;
 
-    // â”€â”€ Get Dynamic Parameters â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+    // ── Get Dynamic Parameters ─────────────────────────────────────
     const params = (typeof CONFIG !== 'undefined' && CONFIG.activeParams) || {
       emaFast: 9, emaSlow: 21, rsiPeriod: 14
     };
 
-    // â”€â”€ Calculate indicator arrays â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+    // ── Calculate indicator arrays ────────────────────────────────
     const rsiArr  = Indicators.rsi(closes, params.rsiPeriod);
     const sma50Period = closes.length >= 50 ? 50 : Math.max(10, Math.floor(closes.length / 2));
     const sma50   = Indicators.sma(closes, sma50Period);
@@ -46,7 +46,7 @@ const Signals = {
     const bbData  = Indicators.bollingerBands(closes);
     const atrArr  = (highs && lows) ? Indicators.atr(highs, lows, closes, 14) : null;
 
-    // â”€â”€ Get current (latest) values â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+    // ── Get current (latest) values ─────────────────────────────────────────
     const price     = Indicators.last(closes);
     const rsi       = Indicators.last(rsiArr);
     const macdLine  = Indicators.last(macdData.macdLine);
@@ -69,37 +69,37 @@ const Signals = {
     const trendRef  = curSma200 !== null && curSma200 !== undefined ? curSma200 : curSma50;
     const inUptrend = trendRef !== null && trendRef !== undefined ? price > trendRef : true;
 
-    // â”€â”€ 1. RSI scoring (max Â±1.5, trend-aware) â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+    // ── 1. RSI scoring (max ±1.5, trend-aware) ──────────────────────────────
     // Oversold only earns buy points in an uptrend (pullback). In a downtrend,
     // oversold is a falling knife and earns nothing.
     if (rsi !== null) {
       let s = 0, sig = 'NEUTRAL', desc = '';
       if (inUptrend) {
-        if      (rsi < 30)  { s =  1.5; sig = 'BUY';     desc = 'Oversold pullback within an uptrend â€” classic dip-buy zone'; }
-        else if (rsi < 40)  { s =  1.0; sig = 'BUY';     desc = 'Cooling dip in an uptrend â€” favourable entry'; }
+        if      (rsi < 30)  { s =  1.5; sig = 'BUY';     desc = 'Oversold pullback within an uptrend — classic dip-buy zone'; }
+        else if (rsi < 40)  { s =  1.0; sig = 'BUY';     desc = 'Cooling dip in an uptrend — favourable entry'; }
         else if (rsi <= 65) { s =  0.0; sig = 'NEUTRAL'; desc = 'Neutral momentum within an uptrend'; }
-        else if (rsi <= 80) { s = -0.5; sig = 'NEUTRAL'; desc = 'Hot but uptrends can stay overbought â€” caution, not panic'; }
-        else                { s = -1.0; sig = 'SELL';    desc = 'Extremely overbought even for an uptrend â€” pullback likely'; }
+        else if (rsi <= 80) { s = -0.5; sig = 'NEUTRAL'; desc = 'Hot but uptrends can stay overbought — caution, not panic'; }
+        else                { s = -1.0; sig = 'SELL';    desc = 'Extremely overbought even for an uptrend — pullback likely'; }
       } else {
-        if      (rsi < 30)  { s =  0.0; sig = 'NEUTRAL'; desc = 'âš ï¸ Oversold in a DOWNTREND â€” falling knife, no buy points awarded'; }
-        else if (rsi < 40)  { s =  0.0; sig = 'NEUTRAL'; desc = 'Weak momentum in a downtrend â€” no edge'; }
-        else if (rsi <= 60) { s = -0.5; sig = 'NEUTRAL'; desc = 'Downtrend with neutral RSI â€” trend still points down'; }
-        else if (rsi <= 70) { s = -1.0; sig = 'SELL';    desc = 'Bear-market rally losing steam â€” common exit zone'; }
-        else                { s = -1.5; sig = 'SELL';    desc = 'Overbought inside a downtrend â€” high reversal risk'; }
+        if      (rsi < 30)  { s =  0.0; sig = 'NEUTRAL'; desc = '⚠️ Oversold in a DOWNTREND — falling knife, no buy points awarded'; }
+        else if (rsi < 40)  { s =  0.0; sig = 'NEUTRAL'; desc = 'Weak momentum in a downtrend — no edge'; }
+        else if (rsi <= 60) { s = -0.5; sig = 'NEUTRAL'; desc = 'Downtrend with neutral RSI — trend still points down'; }
+        else if (rsi <= 70) { s = -1.0; sig = 'SELL';    desc = 'Bear-market rally losing steam — common exit zone'; }
+        else                { s = -1.5; sig = 'SELL';    desc = 'Overbought inside a downtrend — high reversal risk'; }
       }
       score += s;
       indDetails.rsi = { value: +rsi.toFixed(1), inUptrend, signal: sig, description: desc, score: s };
     }
 
-    // â”€â”€ 2. MACD scoring (max Â±2) â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+    // ── 2. MACD scoring (max ±2) ────────────────────────────────────────────
     if (macdLine !== null && macdSig !== null) {
       let s = 0, sig = 'NEUTRAL', desc = '';
-      if      (crossover === 'bullish')             { s =  2.0; sig = 'STRONG_BUY';  desc = 'ðŸ”” Bullish crossover! MACD just crossed above signal line'; }
-      else if (crossover === 'bearish')             { s = -2.0; sig = 'STRONG_SELL'; desc = 'ðŸ”” Bearish crossover! MACD just crossed below signal line'; }
-      else if (macdLine > 0 && macdLine > macdSig) { s =  1.0; sig = 'BUY';         desc = 'MACD above zero and above signal â€” uptrend momentum confirmed'; }
-      else if (macdLine > 0 && macdLine < macdSig) { s =  0.0; sig = 'NEUTRAL';     desc = 'MACD positive but losing steam â€” momentum fading'; }
-      else if (macdLine < 0 && macdLine > macdSig) { s =  0.0; sig = 'NEUTRAL';     desc = 'MACD negative but recovering â€” early recovery signs'; }
-      else                                          { s = -1.0; sig = 'SELL';        desc = 'MACD below zero and below signal â€” downtrend momentum'; }
+      if      (crossover === 'bullish')             { s =  2.0; sig = 'STRONG_BUY';  desc = '🔔 Bullish crossover! MACD just crossed above signal line'; }
+      else if (crossover === 'bearish')             { s = -2.0; sig = 'STRONG_SELL'; desc = '🔔 Bearish crossover! MACD just crossed below signal line'; }
+      else if (macdLine > 0 && macdLine > macdSig) { s =  1.0; sig = 'BUY';         desc = 'MACD above zero and above signal — uptrend momentum confirmed'; }
+      else if (macdLine > 0 && macdLine < macdSig) { s =  0.0; sig = 'NEUTRAL';     desc = 'MACD positive but losing steam — momentum fading'; }
+      else if (macdLine < 0 && macdLine > macdSig) { s =  0.0; sig = 'NEUTRAL';     desc = 'MACD negative but recovering — early recovery signs'; }
+      else                                          { s = -1.0; sig = 'SELL';        desc = 'MACD below zero and below signal — downtrend momentum'; }
       score += s;
       indDetails.macd = {
         value: +macdLine.toFixed(8), signalValue: +macdSig.toFixed(8),
@@ -108,8 +108,8 @@ const Signals = {
       };
     }
 
-    // â”€â”€ 3. Dual Moving Average (SMA & EMA) scoring (max Â±2, heaviest weight) â”€â”€
-    // Trend-following is the primary edge in crypto â€” weighted above RSI.
+    // ── 3. Dual Moving Average (SMA & EMA) scoring (max ±2, heaviest weight) ──
+    // Trend-following is the primary edge in crypto — weighted above RSI.
     if (price !== null && curEmaFast !== null && curEmaSlow !== null) {
       let s = 0, sig = 'NEUTRAL', desc = '';
       
@@ -140,18 +140,18 @@ const Signals = {
       };
     }
 
-    // â”€â”€ 4. Bollinger Bands scoring (max Â±1) â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+    // ── 4. Bollinger Bands scoring (max ±1) ──────────────────────────────────
     // Lower-band touches only earn buy points in an uptrend. In a downtrend,
     // hugging the lower band is normal falling-knife behaviour.
     if (bbPctB !== null) {
       let s = 0, sig = 'NEUTRAL', desc = '';
       if (inUptrend) {
-        if      (bbPctB < 0.2)   { s =  1.0; sig = 'BUY';     desc = 'Dip to lower Bollinger Band within an uptrend â€” support bounce zone'; }
-        else if (bbPctB > 0.95)  { s = -0.5; sig = 'NEUTRAL'; desc = 'Riding the upper band â€” strong but stretched'; }
+        if      (bbPctB < 0.2)   { s =  1.0; sig = 'BUY';     desc = 'Dip to lower Bollinger Band within an uptrend — support bounce zone'; }
+        else if (bbPctB > 0.95)  { s = -0.5; sig = 'NEUTRAL'; desc = 'Riding the upper band — strong but stretched'; }
         else                      { s =  0.0; sig = 'NEUTRAL'; desc = `Price within Bollinger range (${(bbPctB * 100).toFixed(0)}% of band width)`; }
       } else {
-        if      (bbPctB < 0.2)   { s =  0.0; sig = 'NEUTRAL'; desc = 'âš ï¸ Hugging lower band in a downtrend â€” knife behaviour, no buy points'; }
-        else if (bbPctB > 0.8)   { s = -1.0; sig = 'SELL';    desc = 'Rally to upper band inside a downtrend â€” likely resistance rejection'; }
+        if      (bbPctB < 0.2)   { s =  0.0; sig = 'NEUTRAL'; desc = '⚠️ Hugging lower band in a downtrend — knife behaviour, no buy points'; }
+        else if (bbPctB > 0.8)   { s = -1.0; sig = 'SELL';    desc = 'Rally to upper band inside a downtrend — likely resistance rejection'; }
         else                      { s =  0.0; sig = 'NEUTRAL'; desc = `Price within Bollinger range (${(bbPctB * 100).toFixed(0)}% of band width)`; }
       }
       score += s;
@@ -162,7 +162,7 @@ const Signals = {
       };
     }
 
-    // â”€â”€ 5. Volume confirmation nudge (max Â±0.5) â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+    // ── 5. Volume confirmation nudge (max ±0.5) ─────────────────────────────
     // Rising volume in the direction of the score confirms it; weak volume weakens it.
     if (volumes && volumes.length >= 20 && score !== 0) {
       const lastVol = volumes[volumes.length - 1];
@@ -170,9 +170,9 @@ const Signals = {
       if (lastVol != null && avg20 && avg20 > 0) {
         const ratio = lastVol / avg20;
         let s = 0, desc = '';
-        if      (ratio >= 1.5) { s = score > 0 ?  0.5 : -0.5; desc = `Volume ${ratio.toFixed(1)}Ã— the 20-day avg confirms the move.`; }
-        else if (ratio <= 0.5) { s = score > 0 ? -0.3 :  0.3; desc = `Volume only ${ratio.toFixed(1)}Ã— the 20-day avg â€” weak conviction.`; }
-        else                   { desc = `Volume roughly average (${ratio.toFixed(1)}Ã— 20-day avg).`; }
+        if      (ratio >= 1.5) { s = score > 0 ?  0.5 : -0.5; desc = `Volume ${ratio.toFixed(1)}× the 20-day avg confirms the move.`; }
+        else if (ratio <= 0.5) { s = score > 0 ? -0.3 :  0.3; desc = `Volume only ${ratio.toFixed(1)}× the 20-day avg — weak conviction.`; }
+        else                   { desc = `Volume roughly average (${ratio.toFixed(1)}× 20-day avg).`; }
         score += s;
         indDetails.volume = {
           last: lastVol, avg20: +avg20.toFixed(2), ratio: +ratio.toFixed(2),
@@ -182,14 +182,14 @@ const Signals = {
       }
     }
 
-    // â”€â”€ 6. Fear & Greed sentiment gate (dampener, max âˆ’1.0) â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+    // ── 6. Fear & Greed sentiment gate (dampener, max −1.0) ─────────────
     // Extreme greed = crowded trade, late entry risk. Extreme fear = market-wide
     // crash where individual buy signals are unreliable. Both dampen buys only.
     if (typeof fearGreed === 'number' && isFinite(fearGreed) && score > 0) {
       let s = 0, desc = '';
-      if      (fearGreed >= 75) { s = -1.0; desc = `Market in Extreme Greed (${fearGreed}) â€” crowded trade, buy signals discounted`; }
-      else if (fearGreed <= 20) { s = -0.5; desc = `Market in Extreme Fear (${fearGreed}) â€” broad sell-off, buy signals less reliable`; }
-      else                      { desc = `Market sentiment ${fearGreed}/100 â€” no adjustment`; }
+      if      (fearGreed >= 75) { s = -1.0; desc = `Market in Extreme Greed (${fearGreed}) — crowded trade, buy signals discounted`; }
+      else if (fearGreed <= 20) { s = -0.5; desc = `Market in Extreme Fear (${fearGreed}) — broad sell-off, buy signals less reliable`; }
+      else                      { desc = `Market sentiment ${fearGreed}/100 — no adjustment`; }
       if (s !== 0) {
         score += s;
         indDetails.sentiment = {
@@ -200,7 +200,7 @@ const Signals = {
       }
     }
 
-    // â”€â”€ 7. Fundamental Analysis (DefiLlama TVL) â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+    // ── 7. Fundamental Analysis (DefiLlama TVL) ─────────────
     // Deep Value = >$1B TVL, Value = >$100M TVL, Speculative = <$10M TVL
     const rawScore = +score.toFixed(2); // Capture score BEFORE TVL adjustment
     if (opts.tvl && opts.tvl > 0) {
@@ -220,7 +220,7 @@ const Signals = {
       };
     }
 
-    // â”€â”€ 9. Intraday Timing Confirmation (4H RSI) â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+    // ── 9. Intraday Timing Confirmation (4H RSI) ─────────────────────────
     // Uses the 4-hour RSI to confirm or warn about entry timing.
     if (opts.closes4H && opts.closes4H.length >= 20) {
       const rsi4H = Indicators.last(Indicators.rsi(opts.closes4H, 14));
@@ -232,7 +232,7 @@ const Signals = {
           timingDesc = `4H RSI at ${Math.round(rsi4H)} confirms oversold entry window.`;
         } else if (score > 0 && rsi4H > 70) {
           timingScore = -0.5;
-          timingDesc = `â³ 4H RSI at ${Math.round(rsi4H)} is overbought â€” consider waiting for a pullback before entering.`;
+          timingDesc = `⏳ 4H RSI at ${Math.round(rsi4H)} is overbought — consider waiting for a pullback before entering.`;
         } else if (score < 0 && rsi4H > 70) {
           timingScore = -0.5;
           timingDesc = `4H RSI at ${Math.round(rsi4H)} confirms overbought exit window.`;
@@ -249,7 +249,7 @@ const Signals = {
       }
     }
 
-    // â”€â”€ 8. Market Regime (BTC) Gate (dampener, max âˆ’1.5) â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+    // ── 8. Market Regime (BTC) Gate (dampener, max −1.5) ─────────────
     if (opts.marketRegime === 'bear' && symbol !== 'BTC' && symbol !== 'BTCUSDT' && score > 0) {
       const s = -1.5;
       score += s;
@@ -260,7 +260,7 @@ const Signals = {
       };
     }
 
-    // â”€â”€ Confidence: % of sub-indicators agreeing with direction â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+    // ── Confidence: % of sub-indicators agreeing with direction ──────────────
     const dir = score > 0.5 ? 'bull' : score < -0.5 ? 'bear' : 'flat';
     const indArr = Object.values(indDetails);
     const directionalIndicators = indArr.filter(ind => Math.abs(ind.score || 0) > 0.05);
@@ -272,7 +272,7 @@ const Signals = {
     }).length;
     const confidence = confidencePool.length > 0 ? Math.round((agree / confidencePool.length) * 100) : 0;
 
-    // â”€â”€ Determine composite signal via base action + conviction â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+    // ── Determine composite signal via base action + conviction ──────────────
     // Strong tiers are conviction badges on top of Buy/Sell, not separate
     // score buckets triggered by one dominant indicator.
     const CONF_GATE = (typeof CONFIG !== 'undefined' && CONFIG.refresh?.strongConfidenceGate) || 60;
@@ -306,7 +306,7 @@ const Signals = {
         ? 'standard'
         : 'none';
 
-    // â”€â”€ Proven-winners filter (config-driven, re-validate via backtest.js) â”€â”€â”€
+    // ── Proven-winners filter (config-driven, re-validate via backtest.js) ───
     // Buy signals on assets that historically lose money with this engine are
     // downgraded to NEUTRAL. Backtests can bypass via opts.ignoreWinnersFilter.
     let winnersFiltered = false;
@@ -331,8 +331,8 @@ const Signals = {
       }
     }
 
-    // â”€â”€ ATR-based stop-loss + take-profit suggestion â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
-    // Take-profit at 2R matches the backtest's exit model â€” the edge only
+    // ── ATR-based stop-loss + take-profit suggestion ────────────────────────
+    // Take-profit at 2R matches the backtest's exit model — the edge only
     // holds up if both legs are actually placed, not just the stop.
     const curAtr = atrArr ? Indicators.last(atrArr) : null;
     let stopSuggest = null;
@@ -340,7 +340,7 @@ const Signals = {
       // Always generate an OCO bracket so the user can manually paper-trade even neutral/suppressed coins
       // By default, assume long unless the raw mathematical signal explicitly says SELL
       const isShort = ['SELL', 'STRONG_SELL'].includes(signal) || score < -2;
-      const mult = 2; // 2Ã—ATR is a standard swing-trading stop
+      const mult = 2; // 2×ATR is a standard swing-trading stop
       const risk = mult * curAtr;
       const stopPrice = !isShort ? price - risk : price + risk;
       const takeProfitPrice = !isShort ? price + 2 * risk : price - 2 * risk;
@@ -355,12 +355,12 @@ const Signals = {
       };
     }
 
-    // â”€â”€ Plain-English recommendation â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+    // ── Plain-English recommendation ─────────────────────────────────────────
     let recommendation = this._recommend(signal, score, indDetails, stopSuggest, params);
     if (winnersFiltered) {
-      recommendation = 'âš ï¸ Buy signal suppressed â€” this asset has a losing track record in backtests with this engine. ' + recommendation;
+      recommendation = '⚠️ Buy signal suppressed — this asset has a losing track record in backtests with this engine. ' + recommendation;
     } else if (coreOnlyFiltered) {
-      recommendation = 'ðŸ§ª Watchlist-only setup â€” this asset is on probation, so bullish signals are hidden until it proves robust enough to join the core winners. ' + recommendation;
+      recommendation = '🧪 Watchlist-only setup — this asset is on probation, so bullish signals are hidden until it proves robust enough to join the core winners. ' + recommendation;
     }
 
     return {
@@ -380,7 +380,7 @@ const Signals = {
     };
   },
 
-  // â”€â”€â”€ Recommendation text â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+  // ─── Recommendation text ───────────────────────────────────────────────────
   _recommend(signal, score, ind, stop, params) {
     const rsi  = ind.rsi?.value;
     const cross = ind.macd?.crossover;
@@ -390,45 +390,45 @@ const Signals = {
     let text = [];
     switch (signal) {
       case 'STRONG_BUY':
-        text.push('ðŸš€ Strong buying conditions detected.');
+        text.push('🚀 Strong buying conditions detected.');
         if (rsi && rsi < 35) text.push(`RSI at ${rsi} signals deeply oversold levels.`);
-        if (cross === 'bullish') text.push('A MACD bullish crossover just fired â€” a classic entry trigger.');
+        if (cross === 'bullish') text.push('A MACD bullish crossover just fired — a classic entry trigger.');
         if (ma?.macroBullish && ma?.microBullish) text.push(`Dual Bullish Alignment: ${params.emaFast} EMA > ${params.emaSlow} EMA (Day Trend) and Price > 50 SMA (Macro Trend).`);
         text.push('Consider entering with a defined stop-loss below nearest support. Risk only 1-2% of capital.');
         break;
       case 'BUY':
-        text.push('ðŸ“ˆ Favorable conditions to accumulate.');
+        text.push('📈 Favorable conditions to accumulate.');
         if (bb?.percentB < 0.2) text.push('Price is hugging the lower Bollinger Band, suggesting a potential bounce.');
         if (ma?.macroBullish && ma?.microBullish) text.push(`Both short-term (${params.emaFast}/${params.emaSlow} EMA) and long-term (50 SMA) trends are bullish.`);
         if (ma?.microBullish && !ma?.macroBullish) text.push(`Note: Day trend is bullish (${params.emaFast} EMA > ${params.emaSlow} EMA), but Macro Trend is bearish. Proceed with caution.`);
         text.push('Look for confirmation on lower timeframes before entering a full position.');
         break;
       case 'NEUTRAL':
-        text.push('â¸ï¸ Mixed signals â€” no clear directional edge.');
+        text.push('⏸️ Mixed signals — no clear directional edge.');
         text.push('Sit on the sidelines or hold existing positions. Avoid new entries until a clearer setup forms.');
         text.push('Watch for a breakout above resistance or a breakdown below support.');
         break;
       case 'SELL':
-        text.push('ðŸ“‰ Conditions lean bearish â€” consider reducing exposure.');
+        text.push('📉 Conditions lean bearish — consider reducing exposure.');
         if (rsi && rsi > 60) text.push(`RSI at ${rsi} suggests the asset may be running out of steam.`);
-        if (ma && !ma.macroBullish) text.push('Price has broken below the 50-day moving average â€” a warning sign.');
+        if (ma && !ma.macroBullish) text.push('Price has broken below the 50-day moving average — a warning sign.');
         text.push('If holding a long position, consider tightening your stop-loss.');
         break;
       case 'STRONG_SELL':
-        text.push('ðŸ”» Strong selling conditions. High risk for longs.');
+        text.push('🔻 Strong selling conditions. High risk for longs.');
         if (rsi && rsi > 70) text.push(`RSI at ${rsi} is in extreme overbought territory.`);
         if (cross === 'bearish') text.push('A MACD bearish crossover confirms selling pressure.');
-        text.push('âš ï¸ Do NOT average down against this signal. Protect your capital first.');
+        text.push('⚠️ Do NOT average down against this signal. Protect your capital first.');
         break;
     }
     if (stop) {
-      text.push(`ðŸ›¡ï¸ Suggested ${stop.side === 'long' ? 'stop-loss' : 'stop-out'}: ${stop.stopPrice} (2Ã—ATR = ${stop.distancePct}% away).`);
+      text.push(`🛡️ Suggested ${stop.side === 'long' ? 'stop-loss' : 'stop-out'}: ${stop.stopPrice} (2×ATR = ${stop.distancePct}% away).`);
     }
     return text.join(' ');
   },
 
 
-  // â”€â”€â”€ Dedicated Breakout Engine (Moonshots / High-Gain Runners) â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+  // ─── Dedicated Breakout Engine (Moonshots / High-Gain Runners) ─────────────
   // Looks for Bollinger Squeezes followed by volume surges and price breakouts.
   // Ignores standard mean-reversion metrics.
   generateBreakout(closes, opts = {}) {
@@ -440,14 +440,14 @@ const Signals = {
     if (!closes || closes.length < 30) return EMPTY();
     const { highs, lows, volumes, marketRegime } = opts;
 
-    // â”€â”€ Calculate required indicator arrays â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+    // ── Calculate required indicator arrays ───────────────────────
     const bbData = Indicators.bollingerBands(closes, 20, 2);
     const bbwArr = bbData.bandWidth; // Normalized BBW array
     const sma50Arr = Indicators.sma(closes, 50);
     const ema9Arr = Indicators.ema(closes, 9);
     const rsiArr = Indicators.rsi(closes, 14);
     
-    // â”€â”€ Current Values â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+    // ── Current Values ───────────────────────────────────────────
     const price = Indicators.last(closes);
     const bbUpper = Indicators.last(bbData.upper);
     const previousBbUpper = bbData.upper.length >= 2 ? bbData.upper[bbData.upper.length - 2] : null;
@@ -604,7 +604,7 @@ const Signals = {
     };
   },
 
-  // â”€â”€â”€ Scalper Engine (5-minute meme coins) â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+  // ─── Scalper Engine (5-minute meme coins) ──────────────────────────────────
   generateScalp(closes, opts = {}) {
     const EMPTY = (reason = 'Insufficient data') => ({
       signal: 'NEUTRAL', confidence: 0, score: 0, indicators: {},
@@ -630,59 +630,59 @@ const Signals = {
     let score = 0;
     let desc = [];
 
-    // â”€â”€ 1. Uptrend Structure (EMA stack must be bullish) â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+    // ── 1. Uptrend Structure (EMA stack must be bullish) ─────────────
     const uptrendAligned = ema9 > ema21 && price > sma50;
     if (uptrendAligned) {
       score += 1;
       desc.push("Uptrend intact: EMA9 > EMA21 and price above SMA50.");
     } else {
       score -= 3;
-      desc.push("No uptrend structure â€” skipping.");
+      desc.push("No uptrend structure — skipping.");
     }
 
-    // â”€â”€ 2. Pullback Detection (price near EMA support, not chasing) â”€â”€
+    // ── 2. Pullback Detection (price near EMA support, not chasing) ──
     // Price should be within 0.5% of EMA9 or between EMA9 and EMA21
     const distFromEma9 = ema9 > 0 ? ((price - ema9) / ema9) * 100 : 999;
     const distFromEma21 = ema21 > 0 ? ((price - ema21) / ema21) * 100 : 999;
 
     if (distFromEma9 >= -0.3 && distFromEma9 <= 0.5) {
-      // Touching or just above EMA9 â€” ideal shallow pullback
+      // Touching or just above EMA9 — ideal shallow pullback
       score += 2.5;
-      desc.push(`Price at EMA9 support (${distFromEma9.toFixed(2)}% away) â€” ideal shallow pullback entry.`);
+      desc.push(`Price at EMA9 support (${distFromEma9.toFixed(2)}% away) — ideal shallow pullback entry.`);
     } else if (distFromEma9 > 0.5 && distFromEma9 <= 1.0 && distFromEma21 >= 0) {
       // Slightly above EMA9 but still reasonable
       score += 1.5;
-      desc.push(`Price near EMA9 (${distFromEma9.toFixed(2)}% above) â€” acceptable entry window.`);
+      desc.push(`Price near EMA9 (${distFromEma9.toFixed(2)}% above) — acceptable entry window.`);
     } else if (distFromEma21 >= -0.3 && distFromEma21 <= 0.5 && distFromEma9 < 0) {
-      // Deeper pullback to EMA21 â€” still valid if uptrend holds
+      // Deeper pullback to EMA21 — still valid if uptrend holds
       score += 2;
-      desc.push(`Price at EMA21 support (${distFromEma21.toFixed(2)}% away) â€” deeper pullback entry.`);
+      desc.push(`Price at EMA21 support (${distFromEma21.toFixed(2)}% away) — deeper pullback entry.`);
     } else if (distFromEma9 > 1.0) {
-      // Too far above EMAs â€” you're chasing
+      // Too far above EMAs — you're chasing
       score -= 2;
-      desc.push(`Price is ${distFromEma9.toFixed(2)}% above EMA9 â€” too extended, don't chase.`);
+      desc.push(`Price is ${distFromEma9.toFixed(2)}% above EMA9 — too extended, don't chase.`);
     } else {
       score -= 1;
       desc.push("Price not near any EMA support level.");
     }
 
-    // â”€â”€ 3. RSI Cooling Check â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+    // ── 3. RSI Cooling Check ──────────────────────────────────────────
     // We want RSI to have cooled down to a "room to run" zone, not overbought
     if (rsiVal >= 40 && rsiVal <= 60) {
       score += 1.5;
-      desc.push(`RSI at ${Math.round(rsiVal)} â€” cooled and ready to bounce.`);
+      desc.push(`RSI at ${Math.round(rsiVal)} — cooled and ready to bounce.`);
     } else if (rsiVal > 60 && rsiVal <= 70) {
       score += 0.5;
-      desc.push(`RSI at ${Math.round(rsiVal)} â€” momentum present but watch for exhaustion.`);
+      desc.push(`RSI at ${Math.round(rsiVal)} — momentum present but watch for exhaustion.`);
     } else if (rsiVal > 70) {
       score -= 2;
-      desc.push(`RSI at ${Math.round(rsiVal)} â€” OVERBOUGHT. High risk of immediate reversal.`);
+      desc.push(`RSI at ${Math.round(rsiVal)} — OVERBOUGHT. High risk of immediate reversal.`);
     } else if (rsiVal < 40 && rsiVal >= 30) {
       score += 0.5;
-      desc.push(`RSI at ${Math.round(rsiVal)} â€” oversold, potential bounce zone.`);
+      desc.push(`RSI at ${Math.round(rsiVal)} — oversold, potential bounce zone.`);
     }
 
-    // â”€â”€ 4. Recent Impulse Check (was this coin hot recently?) â”€â”€â”€â”€â”€â”€â”€â”€â”€
+    // ── 4. Recent Impulse Check (was this coin hot recently?) ─────────
     // Check if price touched or exceeded upper BB within last 5 candles
     const recentHighs = closes.slice(-6, -1);
     const recentBBUpper = bbData.upper.slice(-6, -1);
@@ -695,19 +695,19 @@ const Signals = {
     }
     if (hadRecentImpulse) {
       score += 1;
-      desc.push("Recent impulse detected â€” price touched upper BB within last 5 candles.");
+      desc.push("Recent impulse detected — price touched upper BB within last 5 candles.");
     }
 
-    // â”€â”€ 5. Bullish Candle Confirmation â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+    // ── 5. Bullish Candle Confirmation ────────────────────────────────
     // Current candle should be green (close > open approximation using close vs prior close)
     const prevClose = closes.length >= 2 ? closes[closes.length - 2] : price;
     const isBullishCandle = price > prevClose;
     if (isBullishCandle && uptrendAligned) {
       score += 0.5;
-      desc.push("Current candle is bullish â€” bounce confirmation.");
+      desc.push("Current candle is bullish — bounce confirmation.");
     }
 
-    // â”€â”€ 6. Volume Check (settling, not surging) â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+    // ── 6. Volume Check (settling, not surging) ──────────────────────
     let volumeRatio = 1;
     let isVolumeSurge = false;
     if (volumes && volumes.length >= 20) {
@@ -719,13 +719,13 @@ const Signals = {
         // We WANT volume to have settled (pullback on low volume = healthy)
         if (volumeRatio < 1.0) {
           score += 0.5;
-          desc.push(`Volume settling (${volumeRatio.toFixed(1)}x avg) â€” healthy pullback.`);
+          desc.push(`Volume settling (${volumeRatio.toFixed(1)}x avg) — healthy pullback.`);
         } else if (volumeRatio >= 1.0 && volumeRatio < 2.0) {
           // Normal volume, neutral
         } else {
           // Surge on pullback = panic selling, not ideal
           score -= 0.5;
-          desc.push(`High volume on pullback (${volumeRatio.toFixed(1)}x avg) â€” may indicate selling pressure.`);
+          desc.push(`High volume on pullback (${volumeRatio.toFixed(1)}x avg) — may indicate selling pressure.`);
         }
       }
     }
