@@ -28,12 +28,13 @@ if (process.env.TWITTER_API_KEY && process.env.TWITTER_API_SECRET && process.env
   console.log("⚠️ Twitter keys missing from .env, Twitter posting disabled.");
 }
 
-if (!token || !chatId) {
-  console.error("Missing TELEGRAM_BOT_TOKEN or TELEGRAM_CHAT_ID in .env");
-  process.exit(1);
+let bot = null;
+if (token && chatId) {
+  bot = new TelegramBot(token, { polling: true });
+  console.log("📱 Telegram bot initialized successfully.");
+} else {
+  console.log("⚠️ Telegram keys missing from .env. Running in Twitter-only/Headless mode.");
 }
-
-const bot = new TelegramBot(token, { polling: true });
 
 // --- Portfolio Management ---
 const PORTFOLIO_FILE = 'ownedAssets.json';
@@ -45,31 +46,34 @@ function savePortfolio(data) {
   fs.writeFileSync(PORTFOLIO_FILE, JSON.stringify(data, null, 2));
 }
 
-bot.onText(/\/buy (.+)/, (msg, match) => {
-  if (msg.chat.id.toString() !== chatId) return;
-  const symbol = match[1].toUpperCase();
-  const port = loadPortfolio();
-  port[symbol] = true;
-  savePortfolio(port);
-  bot.sendMessage(chatId, `✅ Added ${symbol} to your owned assets. I will now track this for sell signals!`);
-});
+// --- Interactive Commands (Telegram Only) ---
+if (bot) {
+  bot.onText(/\/buy (.+)/, (msg, match) => {
+    if (msg.chat.id.toString() !== chatId) return;
+    const symbol = match[1].toUpperCase().replace('USDT', '') + 'USDT';
+    const port = loadPortfolio();
+    port[symbol] = true;
+    savePortfolio(port);
+    bot.sendMessage(chatId, `✅ Added ${symbol} to your owned assets. I will now track this for sell signals!`);
+  });
 
-bot.onText(/\/sell (.+)/, (msg, match) => {
-  if (msg.chat.id.toString() !== chatId) return;
-  const symbol = match[1].toUpperCase();
-  const port = loadPortfolio();
-  delete port[symbol];
-  savePortfolio(port);
-  bot.sendMessage(chatId, `❌ Removed ${symbol} from your owned assets. No more sell alerts for this.`);
-});
+  bot.onText(/\/sell (.+)/, (msg, match) => {
+    if (msg.chat.id.toString() !== chatId) return;
+    const symbol = match[1].toUpperCase().replace('USDT', '') + 'USDT';
+    const port = loadPortfolio();
+    delete port[symbol];
+    savePortfolio(port);
+    bot.sendMessage(chatId, `🛑 Removed ${symbol} from your owned assets. No more sell alerts for this.`);
+  });
 
-bot.onText(/\/status/, (msg) => {
-  if (msg.chat.id.toString() !== chatId) return;
-  const port = loadPortfolio();
-  const assets = Object.keys(port).join(', ') || 'None';
-  const count = CONFIG.assets.crypto.length;
-  bot.sendMessage(chatId, `📊 Currently scanning ${count} assets.\n\n🎒 Owned assets you are tracking for sells: ${assets}\n\nType /buy BTC to add to tracked assets.`);
-});
+  bot.onText(/\/status/, (msg) => {
+    if (msg.chat.id.toString() !== chatId) return;
+    const port = loadPortfolio();
+    const assets = Object.keys(port).join(', ') || 'None';
+    const count = CONFIG.assets.crypto.length;
+    bot.sendMessage(chatId, `📊 Currently scanning ${count} assets.\n\n💼 Owned assets you are tracking for sells: ${assets}\n\nType /buy BTC to add to tracked assets.`);
+  });
+}
 
 // --- Market Scanner ---
 // Persist dedup state so restarts don't re-fire alerts
@@ -148,7 +152,9 @@ async function scanMarket() {
         }
 
           if (message && !alreadyAlerted) {
-          bot.sendMessage(chatId, message).catch(err => console.error('Send failed:', err.message));
+          if (bot) {
+            bot.sendMessage(chatId, message).catch(err => console.error('Send failed:', err.message));
+          }
           
           // --- TWITTER SPAM CONTROL ---
           if (tweetMessage && twitterClient) {
@@ -195,9 +201,11 @@ setInterval(scanMarket, 3600000);
 setTimeout(scanMarket, 5000);
 
 // Send welcome message, but catch error if user hasn't clicked Start yet
-bot.sendMessage(chatId, "🤖 Trade Signals Bot is now online! Scanning every 1 hour.\n\nUse /buy BTC to track a coin you own for sell alerts.\nUse /status to see your owned coins.").catch(e => {
-  console.log("Could not send welcome message. User needs to click Start on Telegram first.");
-});
+if (bot) {
+  bot.sendMessage(chatId, "🤖 Trade Signals Bot is now online! Scanning every 1 hour.\n\nUse /buy BTC to track a coin you own for sell alerts.\nUse /status to see your owned coins.").catch(e => {
+    console.log("Could not send welcome message. User needs to click Start on Telegram first.");
+  });
+}
 
 
 // --- Cloud Keep-Alive Server ---
