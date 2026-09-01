@@ -38,6 +38,25 @@
 </head>
 <body>
 
+  <!-- iOS PWA Install Banner (only shows on Safari iOS, once per device) -->
+  <div id="iosBanner" style="display:none; position:fixed; bottom:0; left:0; right:0; z-index:9999; background:linear-gradient(135deg,#1e2030,#12162a); border-top:2px solid #00e5ff; padding:14px 20px; text-align:center; font-size:13px; color:#ccc; box-shadow:0 -4px 20px rgba(0,0,0,0.5);">
+    <div style="max-width:600px; margin:0 auto;">
+      📲 <strong style="color:#fff;">Install TrendRunner:</strong> Tap the <span style="font-size:16px;">⬆️</span> <strong style="color:#00e5ff;">Share</strong> button below, then tap <strong style="color:#00e5ff;">"Add to Home Screen"</strong>
+      <button onclick="document.getElementById('iosBanner').style.display='none'; localStorage.setItem('ios_banner_dismissed','1');" style="display:block; margin:10px auto 0; background:#00e5ff; color:#000; border:none; border-radius:8px; padding:8px 24px; font-weight:700; font-size:13px; cursor:pointer;">Got it!</button>
+    </div>
+  </div>
+  <script>
+    // Show iOS install banner only on Safari iOS and only if not already installed as PWA
+    (function() {
+      const isIOS = /iPad|iPhone|iPod/.test(navigator.userAgent);
+      const isStandalone = window.navigator.standalone === true;
+      const dismissed = localStorage.getItem('ios_banner_dismissed');
+      if (isIOS && !isStandalone && !dismissed) {
+        document.getElementById('iosBanner').style.display = 'block';
+      }
+    })();
+  </script>
+
   <!-- ═══════════════════════════════════════════════════════════════════════════
        SIDEBAR
   ════════════════════════════════════════════════════════════════════════════ -->
@@ -439,7 +458,7 @@
   <!-- Version guard: if signals.js loaded is older than expected, force a full reload -->
   <script>
     // Version bumper to defeat GitHub Pages aggressive caching
-    window.__APP_VERSION__ = '5.55';
+    window.__APP_VERSION__ = '5.56';
     try {
       // Bulletproof scrub of corrupted data from localStorage before the app boots
       const wlStr = localStorage.getItem('trading_watchlist');
