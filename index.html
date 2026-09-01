@@ -5,6 +5,24 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>TrendRunner — Algorithmic Crypto Intelligence</title>
   <meta name="description" content="Real-time buy/sell signals for cryptocurrencies and moonshots using a proprietary 9-factor algorithm." />
+  
+  <!-- Open Graph / Facebook -->
+  <meta property="og:type" content="website">
+  <meta property="og:url" content="https://trendrunner.app/">
+  <meta property="og:title" content="TrendRunner | Algorithmic Crypto Dashboard">
+  <meta property="og:description" content="Real-time buy/sell signals for cryptocurrencies and moonshots using a proprietary 9-factor algorithm.">
+  <meta property="og:image" content="https://trendrunner.app/og-preview.png">
+
+  <!-- Twitter -->
+  <meta name="twitter:card" content="summary_large_image">
+  <meta name="twitter:url" content="https://trendrunner.app/">
+  <meta name="twitter:title" content="TrendRunner | Algorithmic Crypto Dashboard">
+  <meta name="twitter:description" content="Real-time buy/sell signals for cryptocurrencies and moonshots using a proprietary 9-factor algorithm.">
+  <meta name="twitter:image" content="https://trendrunner.app/og-preview.png">
+  
+  <link rel="canonical" href="https://trendrunner.app/" />
+
+  <!-- Cache Control (Aggressive for static SPA) -->
   <!-- Prevent ALL browsers from caching this HTML file -->
   <meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate" />
   <meta http-equiv="Pragma" content="no-cache" />
@@ -92,7 +110,6 @@
     </nav>
 
     <div class="sidebar-footer">
-      <div id="marketStatus" class="market-status-box"></div>
       <div class="sidebar-disclaimer">
         ⚠️ Signals are for educational purposes only. Not financial advice.
       </div>
@@ -458,7 +475,7 @@
   <!-- Version guard: if signals.js loaded is older than expected, force a full reload -->
   <script>
     // Version bumper to defeat GitHub Pages aggressive caching
-    window.__APP_VERSION__ = '5.56';
+    window.__APP_VERSION__ = '5.57';
     try {
       // Bulletproof scrub of corrupted data from localStorage before the app boots
       const wlStr = localStorage.getItem('trading_watchlist');

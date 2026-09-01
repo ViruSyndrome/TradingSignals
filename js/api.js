@@ -254,25 +254,4 @@ const API = {
 
     return results;
   },
-
-  // ══════════════════════════════════════════════════════════════════════════════
-  // MARKET STATUS
-  // ══════════════════════════════════════════════════════════════════════════════
-  getMarketStatus() {
-    const now = new Date();
-    const ist = new Date(now.toLocaleString('en-US', { timeZone: 'Asia/Kolkata' }));
-    const day = ist.getDay(); // 0=Sun 6=Sat
-    const h   = ist.getHours();
-    const m   = ist.getMinutes();
-    const hm  = h * 60 + m;
-
-    const nseOpen  = 9 * 60 + 15;
-    const nseClose = 15 * 60 + 30;
-    const nseOpen_ = day >= 1 && day <= 5 && hm >= nseOpen && hm <= nseClose;
-
-    return {
-      nse:    { open: nseOpen_,   label: nseOpen_ ? 'NSE Open' : 'NSE Closed' },
-      crypto: { open: true,       label: 'Crypto 24/7' },
-    };
-  },
 };

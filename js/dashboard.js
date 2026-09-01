@@ -232,7 +232,6 @@ const Dashboard = {
 
     this._initNewsTape();
     this._startClock();
-    this._updateMarketStatus();
     // Paint instantly from last-known snapshot while the live fetch runs.
     if (this._restoreSnapshot()) this._render();
     await this._fetchFearGreed();  // sentiment feeds the signal engine — fetch first
