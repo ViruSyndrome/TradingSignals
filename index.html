@@ -250,6 +250,51 @@
 
         <div class="edu-full-grid">
 
+          <div class="edu-full-card highlight-card">
+            <div class="edu-header"><span>📱</span><h3>How to Use TrendRunner</h3></div>
+            <p>TrendRunner is not a magic crystal ball. It is a highly-tuned mathematical engine that scans the market 24/7 for specific technical setups.</p>
+            <ul>
+              <li><strong>The Score:</strong> Ranges from deep negative to +5.5. A positive score means multiple indicators (RSI, MACD, EMA) are turning bullish.</li>
+              <li><strong>Confidence Bar:</strong> Shows what percentage of the underlying indicators agree with the main signal.</li>
+              <li><strong>The 🔒 Lock Icon:</strong> Tap this when you buy a coin! It saves it to your device and prevents the dashboard from auto-hiding it when the signal fades, so you can track your exits.</li>
+              <li><strong>Moonshots Tab:</strong> This is a separate engine. It scans the 4-Hour charts (instead of Daily) looking for extreme volume spikes and volatility squeezes. High risk, high reward.</li>
+            </ul>
+          </div>
+
+          <div class="edu-full-card">
+            <div class="edu-header"><span>⏱️</span><h3>The 8-Day Hold Rule</h3></div>
+            <p>Patience pays. Through extensive backtesting and live trading, we discovered a consistent pattern in how altcoins behave after a Daily Strong Buy signal.</p>
+            <ul>
+              <li><strong>The Delay:</strong> Standard crypto assets rarely explode the very second a daily signal flashes. They often consolidate or pull back slightly to shake out weak hands.</li>
+              <li><strong>The 8-Day Sweet Spot:</strong> On average, it takes about <strong>8 days</strong> for a daily trend reversal to fully play out and hit peak profitability.</li>
+              <li><strong>The Lesson:</strong> Do not panic sell on day 2 just because it's down 3%. Trust the higher timeframe. Let the algorithmic trend develop.</li>
+            </ul>
+            <div class="edu-tip">💡 <strong>Strategy:</strong> Set your OCO order immediately after buying, close the app, and walk away.</div>
+          </div>
+
+          <div class="edu-full-card">
+            <div class="edu-header"><span>🛡️</span><h3>Automating Exits with OCO Orders</h3></div>
+            <p>OCO stands for <strong>One-Cancels-the-Other</strong>. It is the single most important tool on Binance to protect your capital and lock in profits while you sleep.</p>
+            <ul>
+              <li><strong>What it is:</strong> An OCO order places a Take-Profit limit order and a Stop-Loss order at the exact same time. If one hits, Binance automatically cancels the other.</li>
+              <li><strong>How to use it on Binance:</strong> Go to the Trade screen, change the order type from 'Limit' to 'OCO'.</li>
+              <li><strong>Price (Take Profit):</strong> Enter the target price where you want to secure your gains.</li>
+              <li><strong>Stop Limit:</strong> Enter your emergency exit price. If the market crashes, this automatically sells your coins to prevent a massive loss.</li>
+            </ul>
+            <div class="edu-tip">💡 <strong>Pro Tip:</strong> Moonshots require much tighter Stop-Losses because they are highly volatile. Never buy a Moonshot without an OCO.</div>
+          </div>
+
+          <div class="edu-full-card">
+            <div class="edu-header"><span>💱</span><h3>Funding via Binance P2P (e-Rupee & UPI)</h3></div>
+            <p>For users in India, direct bank deposits to crypto exchanges can be blocked. The safest and fastest way to fund your account is <strong>Binance P2P (Peer-to-Peer)</strong>.</p>
+            <ul>
+              <li><strong>How it works:</strong> You buy USDT directly from another verified user. Binance holds the USDT in escrow until the seller confirms they received your payment.</li>
+              <li><strong>Payment Methods:</strong> IMPS, UPI, and increasingly, <strong>e-Rupee (CBDC)</strong> are widely accepted by P2P merchants.</li>
+              <li><strong>Safety First:</strong> Only trade with merchants who have a "Yellow Tick" (Verified) and a completion rate of 98% or higher.</li>
+              <li><strong>Zero Fees:</strong> Binance does not charge fees for P2P transactions.</li>
+            </ul>
+          </div>
+
           <div class="edu-full-card">
             <div class="edu-header"><span>📊</span><h3>RSI — Relative Strength Index</h3></div>
             <p>The RSI measures how <strong>fast and how much</strong> a price has moved recently. It runs on a scale of 0 to 100.</p>
@@ -475,7 +520,7 @@
   <!-- Version guard: if signals.js loaded is older than expected, force a full reload -->
   <script>
     // Version bumper to defeat GitHub Pages aggressive caching
-    window.__APP_VERSION__ = '5.57';
+    window.__APP_VERSION__ = '5.58';
     try {
       // Bulletproof scrub of corrupted data from localStorage before the app boots
       const wlStr = localStorage.getItem('trading_watchlist');
