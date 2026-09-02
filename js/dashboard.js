@@ -746,7 +746,7 @@ const Dashboard = {
       try {
         const controller = new AbortController();
         const timeout = setTimeout(() => controller.abort(), 8000);
-        const url = '/.netlify/functions/news';
+        const url = 'https://api.rss2json.com/v1/api.json?rss_url=https%3A%2F%2Fwww.coindesk.com%2Farc%2Foutboundfeeds%2Frss%2F';
         const res = await fetch(url, { signal: controller.signal, cache: 'no-store' });
         clearTimeout(timeout);
         if (!res.ok) throw new Error(`News endpoint HTTP ${res.status}`);
