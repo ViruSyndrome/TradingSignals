@@ -1134,16 +1134,19 @@ body.modal-open { overflow: hidden; }
 }
 
 /* ─── BACKTESTER UI ──────────────────────────────────────────────────────── */
+.backtest-workspace {
+  margin-bottom: 20px;
+  padding: 18px;
+  background: linear-gradient(145deg, rgba(19, 31, 52, 0.88), rgba(10, 16, 31, 0.88));
+  border: 1px solid rgba(0, 229, 255, 0.18);
+  border-radius: 8px;
+  box-shadow: inset 0 1px 0 rgba(255,255,255,0.04);
+}
 .backtest-controls {
-  display: flex;
-  gap: 15px;
-  background: rgba(0, 0, 0, 0.2);
-  padding: 20px;
-  border-radius: 12px;
-  margin-bottom: 25px;
-  border: 1px solid var(--glass-border);
-  align-items: flex-end;
-  flex-wrap: wrap;
+  display: grid;
+  grid-template-columns: minmax(190px, 1.5fr) minmax(130px, 0.75fr) minmax(120px, 0.65fr) auto;
+  gap: 14px;
+  align-items: end;
 }
 .control-group {
   display: flex;
@@ -1157,10 +1160,11 @@ body.modal-open { overflow: hidden; }
 }
 .control-group select,
 .control-group input {
-  padding: 10px 15px;
-  background: var(--bg-dark);
-  border: 1px solid var(--glass-border);
-  border-radius: 8px;
+  min-height: 42px;
+  padding: 9px 12px;
+  background: rgba(4, 10, 22, 0.72);
+  border: 1px solid rgba(148, 163, 184, 0.2);
+  border-radius: 6px;
   color: var(--text-main);
   font-family: inherit;
   font-size: 14px;
@@ -1168,40 +1172,64 @@ body.modal-open { overflow: hidden; }
 .control-group select:focus,
 .control-group input:focus {
   outline: none;
-  border-color: var(--accent);
+  border-color: #00e5ff;
+  box-shadow: 0 0 0 3px rgba(0, 229, 255, 0.1);
 }
+.backtest-days-input { display: flex; align-items: center; min-height: 42px; border: 1px solid rgba(148, 163, 184, 0.2); border-radius: 6px; background: rgba(4, 10, 22, 0.72); }
+.backtest-days-input input { width: 74px; min-height: 40px; padding-right: 2px; background: transparent; border: 0; }
+.backtest-days-input span { padding-right: 12px; color: var(--text-muted); font-size: 12px; }
+.backtest-run-btn { min-height: 42px; padding: 0 18px; color: #04101a; font-weight: 800; background: #00e5ff; border: 1px solid #55efff; border-radius: 6px; box-shadow: 0 5px 18px rgba(0, 229, 255, 0.2); }
+.backtest-run-btn:hover:not(:disabled) { background: #7cf4ff; transform: translateY(-1px); }
+.backtest-run-btn:disabled { cursor: wait; opacity: 0.7; }
+.backtest-context { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 14px; }
+.backtest-context span { padding: 4px 8px; color: var(--text-muted); font-size: 11px; background: rgba(255, 255, 255, 0.04); border: 1px solid rgba(255,255,255,0.07); border-radius: 4px; }
 .backtest-results {
-  background: rgba(0, 0, 0, 0.2);
-  border-radius: 12px;
-  border: 1px solid var(--glass-border);
   padding: 20px;
+  background: rgba(9, 15, 29, 0.74);
+  border: 1px solid var(--glass-border);
+  border-radius: 8px;
 }
+.backtest-summary-header { display: flex; align-items: center; justify-content: space-between; gap: 16px; margin-bottom: 18px; }
+.backtest-summary-header h3 { margin-top: 2px; font-size: 20px; }
+.backtest-eyebrow { color: #00e5ff; font-size: 10px; font-weight: 800; letter-spacing: 1.2px; text-transform: uppercase; }
+.backtest-status { padding: 5px 8px; color: var(--c-green); font-size: 11px; font-weight: 700; background: rgba(34, 197, 94, 0.12); border: 1px solid rgba(34, 197, 94, 0.24); border-radius: 4px; }
 .stats-row {
-  display: flex;
-  gap: 20px;
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 10px;
   margin-bottom: 20px;
 }
 .stat-box {
-  background: var(--bg-dark);
-  padding: 15px 20px;
-  border-radius: 10px;
-  flex: 1;
+  min-height: 86px;
+  padding: 14px;
+  background: linear-gradient(145deg, rgba(28, 42, 67, 0.5), rgba(8, 14, 28, 0.6));
+  border: 1px solid rgba(255,255,255,0.08);
+  border-radius: 6px;
   display: flex;
   flex-direction: column;
-  border: 1px solid var(--glass-border);
-  align-items: center;
+  justify-content: space-between;
 }
 .stat-lbl {
   font-size: 12px;
   color: var(--text-muted);
   text-transform: uppercase;
   letter-spacing: 0.5px;
-  margin-bottom: 5px;
+  margin-bottom: 8px;
 }
 .stat-val {
-  font-size: 24px;
+  font-size: 26px;
   font-weight: 700;
   color: var(--text-main);
+}
+.backtest-chart-card { padding: 14px; background: rgba(3, 8, 19, 0.55); border: 1px solid rgba(255,255,255,0.07); border-radius: 6px; }
+.backtest-chart-title { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin-bottom: 8px; font-size: 13px; font-weight: 700; }
+.backtest-chart-title small { color: var(--text-muted); font-size: 11px; font-weight: 400; }
+.backtest-chart-container { height: 340px; margin-top: 0; }
+@media (max-width: 700px) {
+  .backtest-controls { grid-template-columns: 1fr 1fr; }
+  .control-asset { grid-column: span 2; }
+  .backtest-run-btn { width: 100%; }
+  .backtest-chart-container { height: 260px; }
 }
 
 /* --- PHASE 2 VISUAL POLISH --- */

@@ -11,6 +11,7 @@ class BacktestUI {
     this.winRateEl = document.getElementById('btWinRate');
     this.totalTradesEl = document.getElementById('btTotalTrades');
     this.netReturnEl = document.getElementById('btNetReturn');
+    this.resultTitleEl = document.getElementById('btResultTitle');
     this.chart = null;
 
     if (!this.runBtn) return;
@@ -33,7 +34,7 @@ class BacktestUI {
   }
 
   async runBacktest() {
-    this.runBtn.textContent = 'Running...';
+    this.runBtn.textContent = 'Fetching market data...';
     this.runBtn.disabled = true;
     this.resultsPanel.style.display = 'none';
 
@@ -66,7 +67,7 @@ class BacktestUI {
       console.error(err);
       alert('Backtest failed: ' + err.message);
     } finally {
-      this.runBtn.textContent = '▶ Run Backtest';
+      this.runBtn.textContent = 'Run Analysis';
       this.runBtn.disabled = false;
     }
   }
@@ -220,6 +221,9 @@ class BacktestUI {
 
   _renderResults(results) {
     this.resultsPanel.style.display = 'block';
+    const assetName = this.assetSelect.options[this.assetSelect.selectedIndex]?.text || 'Selected Asset';
+    const interval = this.intervalSelect.options[this.intervalSelect.selectedIndex]?.text || '';
+    if (this.resultTitleEl) this.resultTitleEl.textContent = `${assetName} · ${interval}`;
     
     this.winRateEl.textContent = `${results.winRate.toFixed(1)}%`;
     this.totalTradesEl.textContent = results.totalTrades;

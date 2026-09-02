@@ -456,50 +456,48 @@
           <p class="section-sub">Test the signal engine against historical data to find the most profitable assets and parameters.</p>
         </div>
 
-        <div class="backtest-controls">
-          <div class="control-group">
-            <label for="btAsset">Asset</label>
-            <select id="btAsset">
-              <!-- populated by JS -->
-            </select>
+        <div class="backtest-workspace">
+          <div class="backtest-controls">
+            <div class="control-group control-asset">
+              <label for="btAsset">Asset</label>
+              <select id="btAsset">
+                <!-- populated by JS -->
+              </select>
+            </div>
+            <div class="control-group">
+              <label for="btInterval">Timeframe</label>
+              <select id="btInterval">
+                <option value="1d" selected>Daily</option>
+                <option value="4h">4 Hours</option>
+                <option value="1h">1 Hour</option>
+                <option value="15m">15 Minutes</option>
+                <option value="5m">5 Minutes</option>
+              </select>
+            </div>
+            <div class="control-group">
+              <label for="btDays">History</label>
+              <div class="backtest-days-input"><input type="number" id="btDays" value="250" min="50" max="1000" /><span>days</span></div>
+            </div>
+            <button id="runBacktestBtn" class="backtest-run-btn">Run Analysis</button>
           </div>
-          <div class="control-group">
-            <label for="btInterval">Timeframe</label>
-            <select id="btInterval">
-              <option value="1d" selected>Daily</option>
-              <option value="4h">4 Hours</option>
-              <option value="1h">1 Hour</option>
-              <option value="15m">15 Minutes</option>
-              <option value="5m">5 Minutes</option>
-            </select>
+          <div class="backtest-context">
+            <span>Next-bar execution</span><span>0.40% round-trip costs</span><span>1:2 risk/reward exits</span>
           </div>
-          <div class="control-group">
-            <label for="btDays">History (Days)</label>
-            <input type="number" id="btDays" value="250" min="50" max="1000" />
-          </div>
-          <button id="runBacktestBtn" class="action-btn">▶ Run Backtest</button>
         </div>
 
         <div class="backtest-results" id="btResults">
-          <div class="backtest-results" id="btResults">
-          <div class="stats-row">
-            <div class="stat-box">
-              <span class="stat-lbl">Win Rate</span>
-              <span class="stat-val" id="btWinRate">--%</span>
-            </div>
-            <div class="stat-box">
-              <span class="stat-lbl">Total Trades</span>
-              <span class="stat-val" id="btTotalTrades">--</span>
-            </div>
-            <div class="stat-box">
-              <span class="stat-lbl">Net Return</span>
-              <span class="stat-val" id="btNetReturn">--%</span>
-            </div>
+          <div class="backtest-summary-header">
+            <div><span class="backtest-eyebrow">Historical Performance</span><h3 id="btResultTitle">Strategy Results</h3></div>
+            <span class="backtest-status">Completed</span>
           </div>
-          
-          <div class="chart-container backtest-chart-container">
-            <div class="chart-container backtest-chart-container">
-            <canvas id="btEquityChart"></canvas>
+          <div class="stats-row">
+            <div class="stat-box"><span class="stat-lbl">Net Return</span><span class="stat-val" id="btNetReturn">--%</span></div>
+            <div class="stat-box"><span class="stat-lbl">Win Rate</span><span class="stat-val" id="btWinRate">--%</span></div>
+            <div class="stat-box"><span class="stat-lbl">Total Trades</span><span class="stat-val" id="btTotalTrades">--</span></div>
+          </div>
+          <div class="backtest-chart-card">
+            <div class="backtest-chart-title"><span>Equity Curve</span><small>Starting balance $10,000</small></div>
+            <div class="chart-container backtest-chart-container"><canvas id="btEquityChart"></canvas></div>
           </div>
         </div>
 
