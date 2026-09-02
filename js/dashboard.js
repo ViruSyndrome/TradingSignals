@@ -231,7 +231,6 @@ const Dashboard = {
     }
 
     this._initNewsTape();
-    this._startClock();
     // Paint instantly from last-known snapshot while the live fetch runs.
     if (this._restoreSnapshot()) this._render();
     await this._fetchFearGreed();  // sentiment feeds the signal engine — fetch first
@@ -1739,21 +1738,10 @@ const Dashboard = {
     if (el) el.classList.toggle('hidden', !on);
   },
 
-  // ─── Clock ────────────────────────────────────────────────────────────────────
-  _startClock() {
-    const update = () => {
-      const now = new Date();
-      const el = document.getElementById('liveClock');
-      if (el) el.textContent = now.toLocaleTimeString('en-IN', { timeZone: 'Asia/Kolkata', hour: '2-digit', minute: '2-digit', second: '2-digit' });
-    };
-    update();
-    setInterval(update, 1000);
-  },
-
   _updateLastUpdated() {
     const el = document.getElementById('lastUpdated');
     if (el && this.state.lastUpdate) {
-      el.textContent = 'Updated ' + this.state.lastUpdate.toLocaleTimeString('en-IN', { timeZone: 'Asia/Kolkata' });
+      el.textContent = 'Updated ' + this.state.lastUpdate.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' });
     }
   },
 
