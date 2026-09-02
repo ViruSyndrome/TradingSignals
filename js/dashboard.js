@@ -709,11 +709,49 @@ const Dashboard = {
   async _initNewsTape() {
     const el = document.getElementById('newsTapeTrack');
     if (!el) return;
+    const NEWS_CACHE_KEY = 'trendrunner_news_cache_v1';
+    const renderItems = items => {
+      const itemsStr = items.map(item => `<span class="tape-item"><a href="${item.link}" target="_blank" rel="noopener noreferrer" class="news-link">${item.title}</a> <em class="news-time">[${new Date(item.pubDate).toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'})}]</em></span>`).join('');
+      el.innerHTML = itemsStr + itemsStr;
+      el.classList.add('moving');
+    };
+    const renderCached = () => {
+      try {
+        const cached = JSON.parse(localStorage.getItem(NEWS_CACHE_KEY) || 'null');
+        if (Array.isArray(cached?.items) && cached.items.length) {
+          renderItems(cached.items);
+          return true;
+        }
+      } catch (e) {}
+      return false;
+    };
+    const fetchFromFallback = async () => {
+      const rssUrl = 'https://www.coindesk.com/arc/outboundfeeds/rss/';
+      const proxyUrl = `https://api.allorigins.win/raw?url=${encodeURIComponent(rssUrl)}`;
+      const controller = new AbortController();
+      const timeout = setTimeout(() => controller.abort(), 8000);
+      try {
+        const response = await fetch(proxyUrl, { signal: controller.signal, cache: 'no-store' });
+        const xml = await response.text();
+        const doc = new DOMParser().parseFromString(xml, 'text/xml');
+        return [...doc.querySelectorAll('item')].map(item => ({
+          title: item.querySelector('title')?.textContent?.trim(),
+          link: item.querySelector('link')?.textContent?.trim(),
+          pubDate: item.querySelector('pubDate')?.textContent?.trim(),
+        })).filter(item => item.title && item.link && item.pubDate);
+      } finally {
+        clearTimeout(timeout);
+      }
+    };
     const fetchNews = async () => {
       try {
-        const res = await fetch('https://api.rss2json.com/v1/api.json?rss_url=https://www.coindesk.com/arc/outboundfeeds/rss/');
+        const controller = new AbortController();
+        const timeout = setTimeout(() => controller.abort(), 8000);
+        const url = 'https://api.rss2json.com/v1/api.json?rss_url=https://www.coindesk.com/arc/outboundfeeds/rss/';
+        const res = await fetch(url, { signal: controller.signal, cache: 'no-store' });
+        clearTimeout(timeout);
         const data = await res.json();
-        if (!data.items) return;
+        if (!Array.isArray(data.items)) throw new Error('News provider returned no items');
         const twentyFourHoursAgo = new Date(Date.now() - 24 * 60 * 60 * 1000);
         const validItems = data.items.filter(item => new Date(item.pubDate) > twentyFourHoursAgo);
         
@@ -723,15 +761,30 @@ const Dashboard = {
           return;
         }
 
-        const itemsStr = validItems.map(item => `<span class="tape-item"><a href="${item.link}" target="_blank" style="color: var(--text-main); text-decoration: none; font-weight: 500;">${item.title}</a> <em style="color: var(--text-muted); font-size: 10px; font-weight: normal; margin-left: 6px;">[${new Date(item.pubDate).toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'})}]</em></span>`).join('');
-        el.innerHTML = itemsStr + itemsStr;
-        el.classList.add('moving');
+        const normalized = validItems.slice(0, 12).map(item => ({ title: item.title, link: item.link, pubDate: item.pubDate }));
+        localStorage.setItem(NEWS_CACHE_KEY, JSON.stringify({ savedAt: Date.now(), items: normalized }));
+        renderItems(normalized);
       } catch (e) {
         console.error('News Tape Error:', e);
-        el.innerHTML = '<span class="tape-item news-tape-empty">News feed unavailable · market pulse remains live</span>';
-        el.classList.remove('moving');
+        try {
+          const fallbackItems = await fetchFromFallback();
+          const twentyFourHoursAgo = new Date(Date.now() - 24 * 60 * 60 * 1000);
+          const validItems = fallbackItems.filter(item => new Date(item.pubDate) > twentyFourHoursAgo).slice(0, 12);
+          if (validItems.length) {
+            localStorage.setItem(NEWS_CACHE_KEY, JSON.stringify({ savedAt: Date.now(), items: validItems }));
+            renderItems(validItems);
+            return;
+          }
+        } catch (fallbackError) {
+          console.error('News fallback error:', fallbackError);
+        }
+        if (!renderCached()) {
+          el.innerHTML = '<span class="tape-item news-tape-empty">News feed unavailable · market pulse remains live</span>';
+          el.classList.remove('moving');
+        }
       }
     };
+    renderCached();
     fetchNews();
     setInterval(fetchNews, 15 * 60 * 1000); // 15 mins
   },

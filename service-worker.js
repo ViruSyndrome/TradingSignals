@@ -1,4 +1,8 @@
-﻿const CACHE_NAME = 'trendrunner-cache-v8';
+﻿const CACHE_NAME = 'trendrunner-cache-v10';
+
+self.addEventListener('message', event => {
+  if (event.data?.type === 'SKIP_WAITING') self.skipWaiting();
+});
 const urlsToCache = [
   './',
   './index.html',
