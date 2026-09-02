@@ -62,7 +62,7 @@ const CONFIG = {
     ],
 
 
-    // ─── Proven winners (backtest-validated, last run: 26 Aug 2026) ────────────
+    // ─── Proven winners (updated by the weekly backtest workflow) ─────────────
     // Assets that were profitable in the last full backtest (node backtest.js).
     // When signals.winnersOnlyBuys is true, BUY/STRONG_BUY signals on assets
     // NOT in this list are downgraded to NEUTRAL. Re-run the backtest monthly
