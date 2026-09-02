@@ -747,9 +747,10 @@ const Dashboard = {
       try {
         const controller = new AbortController();
         const timeout = setTimeout(() => controller.abort(), 8000);
-        const url = 'https://api.rss2json.com/v1/api.json?rss_url=https://www.coindesk.com/arc/outboundfeeds/rss/';
+        const url = '/.netlify/functions/news';
         const res = await fetch(url, { signal: controller.signal, cache: 'no-store' });
         clearTimeout(timeout);
+        if (!res.ok) throw new Error(`News endpoint HTTP ${res.status}`);
         const data = await res.json();
         if (!Array.isArray(data.items)) throw new Error('News provider returned no items');
         const twentyFourHoursAgo = new Date(Date.now() - 24 * 60 * 60 * 1000);
@@ -1744,19 +1745,6 @@ const Dashboard = {
       const now = new Date();
       const el = document.getElementById('liveClock');
       if (el) el.textContent = now.toLocaleTimeString('en-IN', { timeZone: 'Asia/Kolkata', hour: '2-digit', minute: '2-digit', second: '2-digit' });
-
-      // EOD countdown to UTC midnight
-      const eodEl = document.getElementById('eodClock');
-      if (eodEl) {
-        const nextMidnight = new Date(now);
-        nextMidnight.setUTCHours(24, 0, 0, 0);
-        let diffSecs = Math.floor((nextMidnight.getTime() - now.getTime()) / 1000);
-        if (diffSecs < 0) diffSecs = 0;
-        const h = Math.floor(diffSecs / 3600).toString().padStart(2, '0');
-        const m = Math.floor((diffSecs % 3600) / 60).toString().padStart(2, '0');
-        const s = (diffSecs % 60).toString().padStart(2, '0');
-        eodEl.textContent = `${h}h ${m}m ${s}s`;
-      }
     };
     update();
     setInterval(update, 1000);
