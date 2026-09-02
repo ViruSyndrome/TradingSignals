@@ -120,7 +120,7 @@ const API = {
     const symbols = JSON.stringify(uniqueSymbols);
     const url = `https://api.binance.com/api/v3/ticker/24hr?symbols=${encodeURIComponent(symbols)}`;
     try {
-      const data = await this._fetch(url, 5000);
+      const data = await this._fetch(url, 15000);
       // Map Binance array to object keyed by symbol
       const mapped = {};
       for (const t of data) mapped[t.symbol] = t;
@@ -144,7 +144,7 @@ const API = {
     const days = CONFIG.refresh.historyDays;
     const url = `https://api.binance.com/api/v3/klines?symbol=${binanceSymbol}&interval=${interval}&limit=${days}`;
     try {
-      const data = await this._fetch(url, 5000); // [[time, o, h, l, c, v, ...], ...]
+      const data = await this._fetch(url, 15000); // [[time, o, h, l, c, v, ...], ...]
       if (!Array.isArray(data) || data.length === 0) throw new Error('Empty klines');
       return this._set(key, data, CONFIG.refresh.cacheMs); // 55 seconds TTL
     } catch (e) {
@@ -179,7 +179,7 @@ const API = {
     }
 
     const results = [];
-    const chunkSize = 5;
+    const chunkSize = 3; // 3 assets = 6 concurrent requests (max for mobile browsers)
     for (let i = 0; i < CONFIG.assets.crypto.length; i += chunkSize) {
       const chunk = CONFIG.assets.crypto.slice(i, i + chunkSize);
       const promises = chunk.map(async (asset) => {
