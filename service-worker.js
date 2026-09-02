@@ -1,4 +1,4 @@
-﻿const CACHE_NAME = 'trendrunner-cache-v7';
+﻿const CACHE_NAME = 'trendrunner-cache-v8';
 const urlsToCache = [
   './',
   './index.html',

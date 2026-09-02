@@ -718,7 +718,7 @@ const Dashboard = {
         const validItems = data.items.filter(item => new Date(item.pubDate) > twentyFourHoursAgo);
         
         if (validItems.length === 0) {
-          el.innerHTML = '<span class="tape-item" style="color:var(--text-muted);">Waiting for new breaking stories today...</span>';
+          el.innerHTML = '<span class="tape-item news-tape-empty">No new stories in the last 24 hours · market pulse remains live</span>';
           el.classList.remove('moving');
           return;
         }
@@ -728,6 +728,8 @@ const Dashboard = {
         el.classList.add('moving');
       } catch (e) {
         console.error('News Tape Error:', e);
+        el.innerHTML = '<span class="tape-item news-tape-empty">News feed unavailable · market pulse remains live</span>';
+        el.classList.remove('moving');
       }
     };
     fetchNews();
