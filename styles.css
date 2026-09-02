@@ -132,7 +132,22 @@ button:focus-visible { outline: 2px solid var(--accent); border-radius: 4px; }
   align-items: center;
   gap: 16px;
   padding: 12px 16px;
+.sidebar-brand { gap: 10px; text-decoration: none; padding: 0; }
+.sidebar-brand-icon { width: 38px; height: auto; object-fit: contain; filter: drop-shadow(0 2px 4px rgba(0,229,255,0.2)); }
+.sidebar-brand-copy { display: flex; flex-direction: column; align-items: flex-start; }
+.sidebar-brand-name { font-size: 18px; font-weight: 700; color: #fff; letter-spacing: -0.5px; }
+.sidebar-brand-name span { color: #00e5ff; }
+.sidebar-brand-subtitle { margin-top: 2px; color: var(--text-muted); font-size: 10px; letter-spacing: 1px; text-transform: uppercase; }
+
+.ios-banner { display: none; position: fixed; right: 0; bottom: 0; left: 0; z-index: 9999; padding: 14px 20px; color: #ccc; font-size: 13px; text-align: center; background: linear-gradient(135deg, #1e2030, #12162a); border-top: 2px solid #00e5ff; box-shadow: 0 -4px 20px rgba(0,0,0,0.5); }
+.ios-banner-content { max-width: 600px; margin: 0 auto; }
+.ios-banner-title { color: #fff; }
+.ios-share-icon { font-size: 16px; }
+.ios-banner-accent { color: #00e5ff; }
+.ios-banner-dismiss { display: block; margin: 10px auto 0; padding: 8px 24px; color: #000; font-size: 13px; font-weight: 700; background: #00e5ff; border: 0; border-radius: 8px; cursor: pointer; }
   border-radius: var(--radius-md);
+.moonshot-scan-status { color: var(--accent); }
+.eod-timer { color: var(--pos); }
   color: var(--text-muted);
   transition: all 0.2s;
   font-weight: 500;
@@ -503,6 +518,23 @@ button:focus-visible { outline: 2px solid var(--accent); border-radius: 4px; }
 /* Motion is tied to fetched data; the tape never invents prices. */
 .live-tape { display: flex; align-items: center; gap: 14px; margin: 16px 0 24px; padding: 10px 14px; overflow: hidden; border: 1px solid var(--glass-border); border-radius: var(--radius-sm); background: rgba(8, 10, 20, 0.55); }
 .live-tape-label { display: flex; align-items: center; gap: 7px; flex: 0 0 auto; color: var(--text-muted); font-size: 10px; font-weight: 700; letter-spacing: 1px; }
+.news-tape-label { padding: 4px 8px; color: #e67e22; background: rgba(230, 126, 34, 0.15); border-radius: 4px; }
+.news-tape-label .live-dot { background: #e67e22; }
+.news-tape-label + .live-tape-window #newsTapeTrack.moving { animation: tape-scroll 120s linear infinite; }
+.news-tape-label + .live-tape-window #newsTapeTrack:hover { animation-play-state: paused; }
+.scalper-filter-tab { color: var(--accent); }
+.hidden-filter-tab { display: none; }
+
+.site-footer { margin-top: 40px; padding: 20px 20px 40px; color: var(--text-muted); font-size: 12px; text-align: center; border-top: 1px solid var(--border); }
+.site-footer-links { margin-bottom: 12px; }
+.site-footer-links a { margin: 0 10px; color: var(--text-muted); text-decoration: none; transition: color 0.2s; }
+.site-footer-links a:hover { color: var(--accent); }
+.site-footer-disclaimer { max-width: 800px; margin: 0 auto; line-height: 1.5; }
+.site-footer-copyright { margin-top: 10px; }
+.moonshot-controls { margin-bottom: 24px; }
+.scan-progress { margin-left: 12px; color: var(--text-muted); font-family: monospace; }
+.backtest-results { display: none; }
+.backtest-chart-container { height: 400px; margin-top: 20px; }
 .live-tape-window { min-width: 0; overflow: hidden; }
 .live-tape-track { display: flex; width: max-content; gap: 28px; }
 .live-tape-track.moving { animation: tape-scroll 36s linear infinite; }
@@ -955,50 +987,19 @@ body.modal-open { overflow: hidden; }
   border-top: 1px solid rgba(99, 102, 241, 0.3);
   transform: rotate(45deg);
 }
-. q u i c k - t a r g e t s   { 
- 
-     d i s p l a y :   f l e x ; 
- 
-     g a p :   8 p x ; 
- 
-     m a r g i n - t o p :   1 2 p x ; 
- 
-     p a d d i n g :   8 p x ; 
- 
-     b a c k g r o u n d :   r g b a ( 0 ,   0 ,   0 ,   0 . 2 ) ; 
- 
-     b o r d e r - r a d i u s :   8 p x ; 
- 
-     f o n t - f a m i l y :   m o n o s p a c e ; 
- 
-     f o n t - s i z e :   1 3 p x ; 
- 
-     j u s t i f y - c o n t e n t :   s p a c e - b e t w e e n ; 
-. q u i c k - t a r g e t s   { 
- 
-     d i s p l a y :   f l e x ; 
- 
-     g a p :   8 p x ; 
- 
-     m a r g i n - t o p :   1 2 p x ; 
- 
-     p a d d i n g :   8 p x ; 
- 
-     b a c k g r o u n d :   r g b a ( 0 ,   0 ,   0 ,   0 . 2 ) ; 
- 
-     b o r d e r - r a d i u s :   8 p x ; 
- 
-     f o n t - f a m i l y :   m o n o s p a c e ; 
- 
-     f o n t - s i z e :   1 3 p x ; 
- 
-     j u s t i f y - c o n t e n t :   s p a c e - b e t w e e n ; 
- 
- } 
- 
- . q t - t p   {   c o l o r :   v a r ( - - c - g r e e n ) ;   } 
- 
- . q t - s l   {   c o l o r :   v a r ( - - c - r e d ) ;   } 
+.quick-targets {
+  display: flex;
+  gap: 8px;
+  margin-top: 12px;
+  padding: 8px;
+  background: rgba(0, 0, 0, 0.2);
+  border-radius: 8px;
+  font-family: monospace;
+  font-size: 13px;
+  justify-content: space-between;
+}
+.qt-tp { color: var(--c-green); }
+.qt-sl { color: var(--c-red); }
 
 /* Signal History */
 .signal-history-list { display: flex; flex-direction: column; gap: 6px; }
@@ -1095,8 +1096,6 @@ body.modal-open { overflow: hidden; }
   .category-tabs {
     overflow-x: auto !important;
     flex-wrap: nowrap !important;
-    -webkit-overflow-scrolling: touch;
-    scrollbar-width: none;
   }
   .filter-tabs::-webkit-scrollbar,
   .category-tabs::-webkit-scrollbar { display: none; }

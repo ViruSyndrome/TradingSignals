@@ -13,6 +13,14 @@
     Pragma = "no-cache"
     Expires = "0"
 
+# The browser must check this file on every launch to discover PWA updates.
+[[headers]]
+  for = "/service-worker.js"
+  [headers.values]
+    Cache-Control = "no-cache, no-store, must-revalidate"
+    Pragma = "no-cache"
+    Expires = "0"
+
 # Cache all versioned JS/CSS files aggressively (they have ?v= cache busters)
 [[headers]]
   for = "/js/*"

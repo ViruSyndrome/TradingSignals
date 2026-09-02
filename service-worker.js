@@ -1,8 +1,7 @@
-﻿const CACHE_NAME = 'trendrunner-cache-v6';
+﻿const CACHE_NAME = 'trendrunner-cache-v7';
 const urlsToCache = [
   './',
   './index.html',
-  './styles.css',
   './icon-192.png',
   './icon-512.png'
 ];

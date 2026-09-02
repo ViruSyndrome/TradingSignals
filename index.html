@@ -36,7 +36,7 @@
 
   <!-- Chart.js -->
   <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.4/dist/chart.umd.min.js"></script>
-  <link rel="stylesheet" href="styles.css?v=5.63" />
+  <link rel="stylesheet" href="styles.css?v=5.64" />
   
   <!-- Favicon & PWA Manifest -->
   <link rel="icon" type="image/png" href="icon-192.png">
@@ -48,8 +48,21 @@
   <script>
     if ('serviceWorker' in navigator) {
       window.addEventListener('load', () => {
-        navigator.serviceWorker.register('./service-worker.js')
-          .then(reg => console.log('PWA Service Worker registered.', reg.scope))
+        const hadController = Boolean(navigator.serviceWorker.controller);
+        navigator.serviceWorker.register('./service-worker.js', { updateViaCache: 'none' })
+          .then(reg => {
+            reg.update().catch(() => {});
+            if (hadController) {
+              navigator.serviceWorker.addEventListener('controllerchange', () => {
+                const reloadKey = 'trendrunner_sw_update_5.64';
+                if (!sessionStorage.getItem(reloadKey)) {
+                  sessionStorage.setItem(reloadKey, '1');
+                  location.reload();
+                }
+              }, { once: true });
+            }
+            console.log('PWA Service Worker registered.', reg.scope);
+          })
           .catch(err => console.error('PWA Registration failed:', err));
       });
     }
@@ -58,10 +71,10 @@
 <body>
 
   <!-- iOS PWA Install Banner (only shows on Safari iOS, once per device) -->
-  <div id="iosBanner" style="display:none; position:fixed; bottom:0; left:0; right:0; z-index:9999; background:linear-gradient(135deg,#1e2030,#12162a); border-top:2px solid #00e5ff; padding:14px 20px; text-align:center; font-size:13px; color:#ccc; box-shadow:0 -4px 20px rgba(0,0,0,0.5);">
-    <div style="max-width:600px; margin:0 auto;">
-      📲 <strong style="color:#fff;">Install TrendRunner:</strong> Tap the <span style="font-size:16px;">⬆️</span> <strong style="color:#00e5ff;">Share</strong> button below, then tap <strong style="color:#00e5ff;">"Add to Home Screen"</strong>
-      <button onclick="document.getElementById('iosBanner').style.display='none'; localStorage.setItem('ios_banner_dismissed','1');" style="display:block; margin:10px auto 0; background:#00e5ff; color:#000; border:none; border-radius:8px; padding:8px 24px; font-weight:700; font-size:13px; cursor:pointer;">Got it!</button>
+  <div id="iosBanner" class="ios-banner">
+    <div class="ios-banner-content">
+      📲 <strong class="ios-banner-title">Install TrendRunner:</strong> Tap the <span class="ios-share-icon">⬆️</span> <strong class="ios-banner-accent">Share</strong> button below, then tap <strong class="ios-banner-accent">"Add to Home Screen"</strong>
+      <button onclick="document.getElementById('iosBanner').style.display='none'; localStorage.setItem('ios_banner_dismissed','1');" class="ios-banner-dismiss">Got it!</button>
     </div>
   </div>
   <script>
@@ -81,11 +94,11 @@
   ════════════════════════════════════════════════════════════════════════════ -->
   <aside class="sidebar" id="sidebar">
     <div class="sidebar-logo">
-      <a href="index.html" class="sidebar-brand" style="display: flex; align-items: center; gap: 10px; text-decoration: none; padding: 0;">
-        <img src="icon-transparent.png" alt="Logo" style="width: 38px; height: auto; object-fit: contain; filter: drop-shadow(0 2px 4px rgba(0,229,255,0.2));">
-        <div style="display: flex; flex-direction: column; align-items: flex-start;">
-          <div style="font-size: 18px; font-weight: 700; color: #ffffff; letter-spacing: -0.5px;">trendrunner<span style="color: #00e5ff;">.app</span></div>
-          <div style="font-size: 10px; color: var(--text-muted); text-transform: uppercase; letter-spacing: 1px; margin-top: 2px;">Crypto Dashboard</div>
+      <a href="index.html" class="sidebar-brand">
+        <img src="icon-transparent.png" alt="Logo" class="sidebar-brand-icon">
+        <div class="sidebar-brand-copy">
+          <div class="sidebar-brand-name">trendrunner<span>.app</span></div>
+          <div class="sidebar-brand-subtitle">Crypto Dashboard</div>
         </div>
       </a>
       <button class="mobile-close-btn" id="mobileCloseBtn" aria-label="Close sidebar">&times;</button>
@@ -130,12 +143,12 @@
           <input type="text" id="assetSearchInput" list="coinSuggestions" placeholder="🔍 Search coins..." />
           <datalist id="coinSuggestions"></datalist>
         </div>
-        <span id="moonshotScanStatus" class="last-updated" title="Status of the background Moonshot scanner" style="color:var(--accent)">🚀 Auto-Scan: Idle</span>
+        <span id="moonshotScanStatus" class="last-updated moonshot-scan-status" title="Status of the background Moonshot scanner">🚀 Auto-Scan: Idle</span>
       </div>
       <div class="topbar-right">
         <span id="liveStatus" class="live-status" title="Live status reflects the last successful market-data refresh."><span class="live-dot" id="liveDot"></span><span id="liveStatusText">Connecting</span></span>
         <span class="clock-badge" title="Current Indian Standard Time. Crypto markets run 24/7.">🕐 IST <span id="liveClock">--:--:--</span></span>
-        <span class="clock-badge eod-timer" style="color:var(--pos)" title="Time until the daily candle closes (UTC 0:00). New signals lock in at this time.">⏳ EOD: <span id="eodClock">--:--:--</span></span>
+        <span class="clock-badge eod-timer" title="Time until the daily candle closes (UTC 0:00). New signals lock in at this time.">⏳ EOD: <span id="eodClock">--:--:--</span></span>
         <span id="lastUpdated" class="last-updated" title="When the data was last fetched from Binance.">–</span>
         <button id="refreshBtn" class="refresh-btn" aria-label="Refresh data" title="Force refresh all data from Binance. Clears the cache.">
           <span>↻</span> Refresh
@@ -161,7 +174,7 @@
 
       <!-- Live News Ticker (RSS) -->
       <div class="live-tape" aria-label="Live breaking news tape">
-        <div class="live-tape-label" style="background: rgba(230, 126, 34, 0.15); padding: 4px 8px; border-radius: 4px; color: #e67e22;"><span class="live-dot" style="background: #e67e22;"></span> NEWS</div>
+        <div class="live-tape-label news-tape-label"><span class="live-dot"></span> NEWS</div>
         <div class="live-tape-window"><div id="newsTapeTrack" class="live-tape-track">Loading latest breaking news...</div></div>
       </div>
       <style>
@@ -194,11 +207,11 @@
             <button class="filter-tab" data-cat="history" role="tab">📜 Signal Log</button>
             <button class="filter-tab" data-cat="oversold" role="tab">📉 Oversold</button>
             <button class="filter-tab" data-cat="highconf" role="tab">🎯 High Confidence</button>
-            <button class="filter-tab" data-cat="scalper" role="tab" style="color: var(--accent);">⚡ 5m Scalper</button>
-            <button class="filter-tab" data-cat="stocks" role="tab" style="display: none;">🇮🇳 Stocks</button>
+            <button class="filter-tab scalper-filter-tab" data-cat="scalper" role="tab">⚡ 5m Scalper</button>
+            <button class="filter-tab hidden-filter-tab" data-cat="stocks" role="tab">🇮🇳 Stocks</button>
             <button class="filter-tab" data-cat="trending" role="tab" title="Assets with a positive 24h trend">🔥 Trending</button>
-            <button class="filter-tab" data-cat="commodities" role="tab" style="display: none;">🪙 Commodities</button>
-            <button class="filter-tab" data-cat="forex" role="tab" style="display: none;">💱 Forex</button>
+            <button class="filter-tab hidden-filter-tab" data-cat="commodities" role="tab">🪙 Commodities</button>
+            <button class="filter-tab hidden-filter-tab" data-cat="forex" role="tab">💱 Forex</button>
           </div>
         </div>
         <div class="assets-grid" id="assetGrid">
@@ -207,16 +220,16 @@
       </div>
 
       <!-- Footer for Dashboard -->
-      <footer style="margin-top: 40px; padding: 20px 20px 40px 20px; text-align: center; border-top: 1px solid var(--border); font-size: 12px; color: var(--text-muted);">
-        <div style="margin-bottom: 12px;">
-          <a href="about.html" style="color: var(--text-muted); text-decoration: none; margin: 0 10px; transition: color 0.2s;" onmouseover="this.style.color='var(--accent)'" onmouseout="this.style.color='var(--text-muted)'">About</a>
-          <a href="terms.html" style="color: var(--text-muted); text-decoration: none; margin: 0 10px; transition: color 0.2s;" onmouseover="this.style.color='var(--accent)'" onmouseout="this.style.color='var(--text-muted)'">Terms of Service</a>
-          <a href="privacy.html" style="color: var(--text-muted); text-decoration: none; margin: 0 10px; transition: color 0.2s;" onmouseover="this.style.color='var(--accent)'" onmouseout="this.style.color='var(--text-muted)'">Privacy Policy</a>
+      <footer class="site-footer">
+        <div class="site-footer-links">
+          <a href="about.html">About</a>
+          <a href="terms.html">Terms of Service</a>
+          <a href="privacy.html">Privacy Policy</a>
         </div>
-        <div style="max-width: 800px; margin: 0 auto; line-height: 1.5;">
+        <div class="site-footer-disclaimer">
           <strong>Disclaimer:</strong> TrendRunner is a data visualization and research tool, not a registered investment advisor. Cryptocurrency trading involves substantial risk of loss and is not suitable for every investor. The signals generated by this tool are based on mathematical formulas and historical data, which do not guarantee future performance. We are not responsible for any financial losses incurred while using this platform.
         </div>
-        <div style="margin-top: 10px;">
+        <div class="site-footer-copyright">
           &copy; 2026 TrendRunner. All rights reserved.
         </div>
       </footer>
@@ -231,9 +244,9 @@
           <h2>🚀 Moonshot Scanner</h2>
           <p class="section-sub">Scans closed 4H candles for explosive, high-risk breakouts. Experimental: validate in paper trading before risking money.</p>
         </div>
-        <div class="moonshot-controls" style="margin-bottom: 24px;">
+        <div class="moonshot-controls">
           <button id="scanMoonshotsBtn" class="btn-primary">Scan Binance Market</button>
-          <span id="scanProgress" style="margin-left: 12px; color: var(--text-muted); font-family: monospace;"></span>
+          <span id="scanProgress" class="scan-progress"></span>
         </div>
         <div class="assets-grid" id="moonshotGrid">
           <div class="moonshot-empty-state">
@@ -467,7 +480,8 @@
           <button id="runBacktestBtn" class="action-btn">▶ Run Backtest</button>
         </div>
 
-        <div class="backtest-results" id="btResults" style="display:none;">
+        <div class="backtest-results" id="btResults">
+          <div class="backtest-results" id="btResults">
           <div class="stats-row">
             <div class="stat-box">
               <span class="stat-lbl">Win Rate</span>
@@ -483,7 +497,8 @@
             </div>
           </div>
           
-          <div class="chart-container" style="height: 400px; margin-top: 20px;">
+          <div class="chart-container backtest-chart-container">
+            <div class="chart-container backtest-chart-container">
             <canvas id="btEquityChart"></canvas>
           </div>
         </div>
@@ -525,7 +540,7 @@
   <!-- Version guard: if signals.js loaded is older than expected, force a full reload -->
   <script>
     // Version bumper to defeat GitHub Pages aggressive caching
-    window.__APP_VERSION__ = '5.63';
+    window.__APP_VERSION__ = '5.64';
     try {
       // Bulletproof scrub of corrupted data from localStorage before the app boots
       const wlStr = localStorage.getItem('trading_watchlist');
@@ -539,15 +554,15 @@
       // Nuke bloated caches that are causing QuotaExceededError (Removed to allow instant paint)
     } catch(e) {}
   </script>
-  <script src="js/config.js?v=5.63"></script>
-  <script src="js/api.js?v=5.63"></script>
-  <script src="js/indicators.js?v=5.63"></script>
-  <script src="js/signals.js?v=5.63"></script>
-  <script src="js/charts.js?v=5.63"></script>
+  <script src="js/config.js?v=5.64"></script>
+  <script src="js/api.js?v=5.64"></script>
+  <script src="js/indicators.js?v=5.64"></script>
+  <script src="js/signals.js?v=5.64"></script>
+  <script src="js/charts.js?v=5.64"></script>
   
-  <script src="js/scanner.js?v=5.63"></script>
-  <script src="js/backtest_ui.js?v=5.63"></script>
-  <script src="js/dashboard.js?v=5.63"></script>
+  <script src="js/scanner.js?v=5.64"></script>
+  <script src="js/backtest_ui.js?v=5.64"></script>
+  <script src="js/dashboard.js?v=5.64"></script>
   <script>
     // If signals.js didn't expose the right version, cached old code is running — force reload.
     if (typeof Signals === 'undefined' || Signals._version !== window.__APP_VERSION__) {
