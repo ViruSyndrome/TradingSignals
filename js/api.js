@@ -255,3 +255,5 @@ const API = {
     return results;
   },
 };
+
+if (typeof module !== 'undefined' && module.exports) module.exports = { API };
