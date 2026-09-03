@@ -6,6 +6,17 @@ const fs = require('fs');
 const CONFIG     = require('./js/config.js');
 const Indicators = require('./js/indicators.js');
 const Signals    = require('./js/signals.js');
+// --- Node.js Polyfills for Browser API ---
+if (typeof global.localStorage === 'undefined') {
+  global.localStorage = {
+    _data: {},
+    getItem: function(key) { return this._data[key] || null; },
+    setItem: function(key, val) { this._data[key] = String(val); },
+    removeItem: function(key) { delete this._data[key]; }
+  };
+}
+const { API } = require('./js/api.js');
+
 global.CONFIG = CONFIG;
 global.Indicators = Indicators; // signals.js references Indicators as a global
 
@@ -111,90 +122,144 @@ async function scanMarket() {
   console.log('Scanning market...');
   const portfolio = loadPortfolio();
   const fearGreed = await fetchFearGreed();
-  if (fearGreed !== undefined) console.log(`Fear & Greed index: ${fearGreed}`);
   
-  for(const asset of CONFIG.assets.crypto) {
-    try {
-      const days = CONFIG.refresh.historyDays;
-      const res = await fetch(`https://api.binance.com/api/v3/klines?symbol=${asset.id}&interval=1d&limit=${days}`);
-      const data = await res.json();
-      if(Array.isArray(data) && data.length > 0) {
-        const closes  = data.map(r => parseFloat(r[4]));
-        const highs   = data.map(r => parseFloat(r[2]));
-        const lows    = data.map(r => parseFloat(r[3]));
-        const volumes = data.map(r => parseFloat(r[5]));
-        const result = Signals.generate(closes, { highs, lows, volumes, fearGreed, symbol: asset.symbol });
-        const price = closes[closes.length - 1];
-
-        const owned = !!portfolio[asset.symbol];
-        const alertKey = owned ? `${result.signal}|owned` : result.signal;
-        const alreadyAlerted = lastAlerted[asset.symbol] === alertKey;
-
-        let message = null;
-        let tweetMessage = null;
-        let stopText = '';
-        const winnerTier = result.winnerTier ?? 'none';
-        if (result.stopSuggest) {
-          stopText = `\n\n🛡️ Stop-Loss: $${result.stopSuggest.stopPrice} (-${result.stopSuggest.distancePct}%)\n🎯 Take-Profit: $${result.stopSuggest.takeProfitPrice} (+${result.stopSuggest.takeProfitPct}%)\n⚠️ Place both as real exchange orders now — this edge only works if losers are cut at the stop.`;
-        }
-
-        if (result.signal === 'STRONG_BUY') {
-          const tierLabel = winnerTier === 'core' ? 'Core Winner' : winnerTier === 'probation' ? 'Probation Winner' : 'Watchlist';
-          message = `🟢 STRONG BUY ALERT: ${asset.symbol} (${tierLabel})\nScore: +${result.score}\nPrice: $${price.toFixed(4)}\n\n${result.recommendation}${stopText}\n\nIf you buy this, reply /buy ${asset.symbol}`;
-          
-          const cleanSymbol = asset.symbol.replace('USDT','');
-          tweetMessage = `🚨 ALGORITHMIC ALERT: $${cleanSymbol} just triggered a flawless STRONG BUY signal on the daily timeframe!\n\n📈 Trend Score: +${result.score}/10\n🎯 Confidence: ${result.confidence}%\n\nGet the exact Stop-Loss & Take-Profit targets free 👇\nhttps://trendrunner.app\n\n#CryptoTrading #${cleanSymbol} #TradingSignals`;
-        } else if (result.signal === 'BUY') {
-          message = `👀 BUY SETUP: ${asset.symbol}\nScore: +${result.score}\nPrice: $${price.toFixed(4)}\n\nIndicators are leaning bullish. Good time to research for an entry.${stopText}\n\nIf you buy this, reply /buy ${asset.symbol}`;
-        } else if (result.signal === 'SELL' && owned) {
-          message = `⚠️ EARLY WARNING: ${asset.symbol}\nScore: ${result.score}\nPrice: $${price.toFixed(4)}\n\nThis asset is losing momentum. If you are in profit, consider taking some off the table.`;
-        } else if (result.signal === 'STRONG_SELL' && owned) {
-          message = `🚨 STRONG SELL ALERT: ${asset.symbol}\nScore: ${result.score}\nPrice: $${price.toFixed(4)}\n\nThe indicators have crashed into a Strong Sell. Cut losses or exit your position.\n\nIf you sell, reply /sell ${asset.symbol}`;
-        }
-
-          if (message && !alreadyAlerted) {
-          if (bot) {
-            bot.sendMessage(chatId, message).catch(err => console.error('Send failed:', err.message));
-          }
-          
-          // --- TWITTER SPAM CONTROL ---
-          if (tweetMessage && twitterClient) {
-            const now = Date.now();
-            const TWO_HOURS = 2 * 60 * 60 * 1000;
-            const FORTY_EIGHT_HOURS = 48 * 60 * 60 * 1000;
-
-            const timeSinceGlobal = now - (twitterState.lastGlobalTweet || 0);
-            const timeSinceCoin = now - (twitterState.coins[asset.symbol] || 0);
-
-            if (timeSinceGlobal > TWO_HOURS && timeSinceCoin > FORTY_EIGHT_HOURS) {
-              twitterClient.v2.tweet(tweetMessage).then(() => {
-                console.log(`🐦 Tweeted STRONG BUY for ${asset.symbol}`);
-                twitterState.lastGlobalTweet = now;
-                twitterState.coins[asset.symbol] = now;
-                saveTwitterState(twitterState);
-              }).catch(err => {
-                console.error('Twitter post failed:', err);
-              });
-            } else {
-              console.log(`🐦 Skipped tweet for ${asset.symbol} due to rate limiting (Global: ${Math.round(timeSinceGlobal/1000/60)}m ago, Coin: ${Math.round(timeSinceCoin/1000/60/60)}h ago).`);
-            }
-          }
-
-          lastAlerted[asset.symbol] = alertKey;
-          saveAlertState(lastAlerted);
-        } else if (!message) {
-          delete lastAlerted[asset.symbol];
-          saveAlertState(lastAlerted);
-        }
+  try {
+    const crypto = await API.getAllCrypto();
+    const all = [...(crypto || [])].filter(d => d.closes && d.closes.length >= 30);
+    
+    let marketRegime = 'flat';
+    const btc = all.find(a => (a.asset?.symbol === 'BTCUSDT' || a.asset?.id === 'BTCUSDT') && a.closes?.length >= 50);
+    if (btc) {
+      const btcSma50 = Indicators.last(Indicators.sma(btc.closes, 50));
+      const btcEma9 = Indicators.last(Indicators.ema(btc.closes, 9));
+      const btcEma21 = Indicators.last(Indicators.ema(btc.closes, 21));
+      const btcPrice = btc.closes[btc.closes.length - 1];
+      if (btcSma50) {
+        marketRegime = btcPrice > btcSma50 && btcEma9 > btcEma21 ? 'bull' : btcPrice < btcSma50 && btcEma9 < btcEma21 ? 'bear' : 'flat';
       }
-    } catch (e) {
-      console.error(`Error fetching ${asset.id}`);
     }
-    await new Promise(r => setTimeout(r, 200));
+    
+    console.log(`Fear & Greed index: ${fearGreed || 'N/A'} | Market Regime: ${marketRegime}`);
+    
+    for (const d of all) {
+      const asset = d.asset;
+      if (!asset) continue;
+      
+      const opts = { 
+        highs: d.highs, 
+        lows: d.lows, 
+        closes4H: d.closes4H, 
+        volumes: d.volumes, 
+        fearGreed: fearGreed, 
+        symbol: asset.symbol || asset.id, 
+        marketRegime, 
+        marketCap: d.marketCap, 
+        tvl: d.tvl 
+      };
+
+      const result = asset.isMoonshot ? Signals.generateBreakout(d.closes, opts) : Signals.generate(d.closes, opts);
+      const price = d.price || d.closes[d.closes.length - 1];
+
+      const owned = !!portfolio[asset.symbol];
+      const alertKey = owned ? `${result.signal}|owned` : result.signal;
+      const alreadyAlerted = lastAlerted[asset.symbol] === alertKey;
+
+      let message = null;
+      let tweetMessage = null;
+      let stopText = '';
+      const winnerTier = result.winnerTier ?? 'none';
+      if (result.stopSuggest) {
+        stopText = `
+
+🎯 Stop-Loss: $${result.stopSuggest.stopPrice} (-${result.stopSuggest.distancePct}%)
+✅ Take-Profit: $${result.stopSuggest.takeProfitPrice} (+${result.stopSuggest.takeProfitPct}%)
+⚠️ Place both as real exchange orders now — this edge only works if losers are cut at the stop.`;
+      }
+
+      if (result.signal === 'STRONG_BUY') {
+        const tierLabel = winnerTier === 'core' ? 'Core Winner' : winnerTier === 'probation' ? 'Probation Winner' : 'Watchlist';
+        message = `🟢 STRONG BUY ALERT: ${asset.symbol} (${tierLabel})
+Score: +${result.score}
+Price: $${price.toFixed(4)}
+
+${result.recommendation}${stopText}
+
+If you buy this, reply /buy ${asset.symbol}`;
+        
+        const cleanSymbol = asset.symbol.replace('USDT','');
+        tweetMessage = `🚨 ALGORITHMIC ALERT: $${cleanSymbol} just triggered a flawless STRONG BUY signal on the daily timeframe!
+
+📈 Trend Score: +${result.score}/10
+🎯 Confidence: ${result.confidence}%
+
+Get the exact Stop-Loss & Take-Profit targets free 👇
+https://trendrunner.app
+
+#CryptoTrading #${cleanSymbol} #TradingSignals`;
+      } else if (result.signal === 'BUY') {
+        message = `🟡 BUY SETUP: ${asset.symbol}
+Score: +${result.score}
+Price: $${price.toFixed(4)}
+
+Indicators are leaning bullish. Good time to research for an entry.${stopText}
+
+If you buy this, reply /buy ${asset.symbol}`;
+      } else if (result.signal === 'SELL' && owned) {
+        message = `⚠️ EARLY WARNING: ${asset.symbol}
+Score: ${result.score}
+Price: $${price.toFixed(4)}
+
+This asset is losing momentum. If you are in profit, consider taking some off the table.`;
+      } else if (result.signal === 'STRONG_SELL' && owned) {
+        message = `🔴 STRONG SELL ALERT: ${asset.symbol}
+Score: ${result.score}
+Price: $${price.toFixed(4)}
+
+The indicators have crashed into a Strong Sell. Cut losses or exit your position.
+
+If you sell, reply /sell ${asset.symbol}`;
+      }
+
+      if (message && !alreadyAlerted) {
+        if (typeof bot !== 'undefined' && bot) {
+          bot.sendMessage(chatId, message).catch(err => console.error('Send failed:', err.message));
+        }
+        
+        // --- TWITTER SPAM CONTROL ---
+        if (tweetMessage && typeof twitterClient !== 'undefined' && twitterClient) {
+          const now = Date.now();
+          const TWO_HOURS = 2 * 60 * 60 * 1000;
+          const FORTY_EIGHT_HOURS = 48 * 60 * 60 * 1000;
+
+          const timeSinceGlobal = now - (twitterState.lastGlobalTweet || 0);
+          const timeSinceCoin = now - (twitterState.coins[asset.symbol] || 0);
+
+          if (timeSinceGlobal > TWO_HOURS && timeSinceCoin > FORTY_EIGHT_HOURS) {
+            twitterClient.v2.tweet(tweetMessage).then(() => {
+              console.log(`🐦 Tweeted STRONG BUY for ${asset.symbol}`);
+              twitterState.lastGlobalTweet = now;
+              twitterState.coins[asset.symbol] = now;
+              saveTwitterState(twitterState);
+            }).catch(err => {
+              console.error('Twitter post failed:', err);
+            });
+          } else {
+            console.log(`⏭️ Skipped tweet for ${asset.symbol} due to rate limiting.`);
+          }
+        }
+
+        lastAlerted[asset.symbol] = alertKey;
+        saveAlertState(lastAlerted);
+      } else if (!message) {
+        delete lastAlerted[asset.symbol];
+        saveAlertState(lastAlerted);
+      }
+    }
+  } catch (err) {
+    console.error('Fatal error during scanMarket:', err);
   }
   console.log('Scan complete.');
 }
-
 // Scan every 1 hour (3600000 ms)
 setInterval(scanMarket, 3600000);
 
