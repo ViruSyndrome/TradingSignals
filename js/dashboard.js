@@ -256,7 +256,7 @@ const Dashboard = {
     };
     document.querySelectorAll('.filter-tab').forEach(tab => {
       const cat = tab.dataset.cat;
-      if (cat && cat !== 'all' && cat !== 'watchlist' && cat !== 'oversold' && cat !== 'highconf' && cat !== 'trending' && cat !== 'scalper' && (!map[cat] || map[cat].length === 0)) {
+      if (cat && cat !== 'all' && cat !== 'watchlist' && cat !== 'holdings' && cat !== 'history' && cat !== 'oversold' && cat !== 'highconf' && cat !== 'trending' && cat !== 'scalper' && (!map[cat] || map[cat].length === 0)) {
         tab.style.display = 'none';
       }
     });
@@ -1063,6 +1063,8 @@ const Dashboard = {
 
     if (cat === 'watchlist') {
       assets = assets.filter(a => this.state.watchlist.includes(a.asset.id));
+    } else if (cat === 'holdings') {
+      assets = assets.filter(a => this.state.invested.includes(a.asset.id));
     } else if (cat === 'oversold') {
       // Just check for deeply oversold RSI (<= 35). 
       // We removed the 'macroBullish' requirement because an asset dropping hard enough to hit 30 RSI will almost always break its 50 SMA.
