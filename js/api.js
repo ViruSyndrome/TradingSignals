@@ -168,8 +168,7 @@ const API = {
           const keys = Array.isArray(port) ? port : Object.keys(port);
           for (const sym of keys) {
             const normalized = String(sym).toUpperCase();
-            const baseId = normalized.replace('_4H', '').replace('_5M', '');
-            if (!CONFIG.assets.crypto.find(a => a.id === normalized || a.id === baseId)) {
+            if (!CONFIG.assets.crypto.find(a => a.id === normalized)) {
               CONFIG.assets.crypto.push({
                 id: normalized,
                 symbol: normalized.replace('USDT_4H', '').replace('USDT', ''),
