@@ -60,6 +60,9 @@ const CONFIG = {
       // User specific holdings / Moonshots
       { id: 'DASHUSDT', symbol: 'DASH', name: 'Dash', currency: 'USD', icon: '💨' },
       { id: 'CAKEUSDT', symbol: 'CAKE', name: 'PancakeSwap', currency: 'USD', icon: '🥞' },
+      { id: 'ZENUSDT', symbol: 'ZEN', name: 'Horizen', currency: 'USD', icon: '🔮' },
+      { id: 'SYRUPUSDT', symbol: 'SYRUP', name: 'Syrup', currency: 'USD', icon: '🍯' },
+      { id: 'ASTERUSDT', symbol: 'ASTER', name: 'Aster', currency: 'USD', icon: '✨' },
     ],
 
 
