@@ -36,7 +36,7 @@
 
   <!-- Chart.js -->
   <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.4/dist/chart.umd.min.js"></script>
-  <link rel="stylesheet" href="styles.css?v=5.72" />
+  <link rel="stylesheet" href="styles.css?v=5.73" />
   
   <!-- Favicon & PWA Manifest -->
   <link rel="icon" type="image/png" href="icon-192.png">
@@ -49,11 +49,11 @@
     if ('serviceWorker' in navigator) {
       window.addEventListener('load', () => {
         const hadController = Boolean(navigator.serviceWorker.controller);
-        navigator.serviceWorker.register('./service-worker.js?v=5.72', { updateViaCache: 'none' })
+        navigator.serviceWorker.register('./service-worker.js?v=5.73', { updateViaCache: 'none' })
           .then(reg => {
             reg.update().catch(() => {});
             navigator.serviceWorker.addEventListener('controllerchange', () => {
-              const reloadKey = 'trendrunner_sw_update_5.72';
+              const reloadKey = 'trendrunner_sw_update_5.73';
               if (hadController && !sessionStorage.getItem(reloadKey)) {
                 sessionStorage.setItem(reloadKey, '1');
                 location.reload();
@@ -235,7 +235,7 @@
       <div class="section-block">
         <div class="section-heading">
           <h2>🚀 Moonshot Scanner</h2>
-          <p class="section-sub">Scans closed 4H candles for explosive, high-risk breakouts. Experimental: validate in paper trading before risking money.</p>
+          <p class="section-sub">Scans closed 4H candles for explosive, high-risk breakouts. Experimental: review the chart and risk plan before risking money.</p>
         </div>
         <div class="moonshot-controls">
           <button id="scanMoonshotsBtn" class="btn-primary">Scan Binance Market</button>
@@ -270,6 +270,31 @@
               <li><strong>The 🔒 Lock Icon:</strong> Tap this when you buy a coin! It saves it to your device and prevents the dashboard from auto-hiding it when the signal fades, so you can track your exits.</li>
               <li><strong>Moonshots Tab:</strong> This is a separate engine. It scans the 4-Hour charts (instead of Daily) looking for extreme volume spikes and volatility squeezes. High risk, high reward.</li>
             </ul>
+          </div>
+
+          <div class="edu-full-card">
+            <div class="edu-header"><span>🧭</span><h3>Filters, Watchlist & Holdings</h3></div>
+            <p>The dashboard filters help separate research ideas from positions that need active monitoring.</p>
+            <ul>
+              <li><strong>All:</strong> The complete tracked market list. Use search to quickly find a tracked coin by name or ticker.</li>
+              <li><strong>Watchlist:</strong> Coins marked with the ⭐ icon. This is for ideas you want to revisit.</li>
+              <li><strong>Holdings:</strong> Coins marked with the 🔒 icon. Lock a coin after buying it so it remains visible even when a Moonshot signal fades.</li>
+              <li><strong>Signal Log:</strong> Recent signal changes, useful for reviewing when a setup strengthened or weakened.</li>
+              <li><strong>Oversold, High Confidence, 5m Scalper and Trending:</strong> Research filters, not automatic trade instructions. Check the timeframe and stop/target before acting.</li>
+            </ul>
+            <div class="edu-tip">💡 <strong>Moonshot safety:</strong> New Moonshots remain visible for 24 hours after discovery. Lock any coin you buy before that review window ends.</div>
+          </div>
+
+          <div class="edu-full-card">
+            <div class="edu-header"><span>🧪</span><h3>Using the Visual Backtester</h3></div>
+            <p>The Visual Backtester shows how the current signal engine behaved on historical Binance candles for one selected asset and timeframe.</p>
+            <ul>
+              <li><strong>Choose an asset, timeframe and history length,</strong> then select <strong>Run Analysis</strong>.</li>
+              <li><strong>Read net return, win rate and trade count together.</strong> A high win rate alone does not prove a profitable strategy.</li>
+              <li><strong>Review the equity curve</strong> for drawdowns and uneven performance before trusting a result.</li>
+              <li><strong>Weekly refresh:</strong> TrendRunner runs a scheduled backtest and may update the validated winner lists when the results change.</li>
+            </ul>
+            <div class="edu-tip">💡 <strong>Important:</strong> Historical results are research, not a guarantee. Use realistic fees, a stop-loss and a take-profit for every live trade.</div>
           </div>
 
           <div class="edu-full-card">
@@ -531,7 +556,7 @@
   <!-- Version guard: if signals.js loaded is older than expected, force a full reload -->
   <script>
     // Version bumper to defeat GitHub Pages aggressive caching
-    window.__APP_VERSION__ = '5.72';
+    window.__APP_VERSION__ = '5.73';
     try {
       // Bulletproof scrub of corrupted data from localStorage before the app boots
       const wlStr = localStorage.getItem('trading_watchlist');
@@ -545,15 +570,15 @@
       // Nuke bloated caches that are causing QuotaExceededError (Removed to allow instant paint)
     } catch(e) {}
   </script>
-  <script src="js/config.js?v=5.72"></script>
-  <script src="js/api.js?v=5.72"></script>
-  <script src="js/indicators.js?v=5.72"></script>
-  <script src="js/signals.js?v=5.72"></script>
-  <script src="js/charts.js?v=5.72"></script>
+  <script src="js/config.js?v=5.73"></script>
+  <script src="js/api.js?v=5.73"></script>
+  <script src="js/indicators.js?v=5.73"></script>
+  <script src="js/signals.js?v=5.73"></script>
+  <script src="js/charts.js?v=5.73"></script>
   
-  <script src="js/scanner.js?v=5.72"></script>
-  <script src="js/backtest_ui.js?v=5.72"></script>
-  <script src="js/dashboard.js?v=5.72"></script>
+  <script src="js/scanner.js?v=5.73"></script>
+  <script src="js/backtest_ui.js?v=5.73"></script>
+  <script src="js/dashboard.js?v=5.73"></script>
   <script>
     // If signals.js didn't expose the right version, cached old code is running — force reload.
     if (typeof Signals === 'undefined' || Signals._version !== window.__APP_VERSION__) {
