@@ -1289,10 +1289,7 @@ body.modal-open { overflow: hidden; }
 }
 
 .section-heading h2 {
-  background: linear-gradient(90deg, #ffffff, #00f2fe);
-  -webkit-background-clip: text;
-  -webkit-text-fill-color: transparent;
-  display: inline-block;
+  color: #f1f5f9;
 }
 
 .signal-strong-buy {
