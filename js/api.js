@@ -159,6 +159,28 @@ const API = {
    * react to intraday moves instead of a stale (still-forming) daily candle.
    */
   async getAllCrypto() {
+    // --- Dynamic Private Coin Injection ---
+    try {
+      if (typeof localStorage !== 'undefined') {
+        const portStr = localStorage.getItem('trading_invested');
+        const port = portStr ? JSON.parse(portStr) : [];
+        if (typeof CONFIG !== 'undefined' && CONFIG.assets && CONFIG.assets.crypto) {
+          const keys = Array.isArray(port) ? port : Object.keys(port);
+          for (const sym of keys) {
+            if (!CONFIG.assets.crypto.find(a => a.id === sym)) {
+              CONFIG.assets.crypto.push({
+                id: sym,
+                symbol: sym.replace('USDT', ''),
+                name: sym.replace('USDT', ''),
+                currency: 'USD',
+                icon: '💎'
+              });
+            }
+          }
+        }
+      }
+    } catch(e) {}
+    
     const prices = await this.getCryptoPrices();
     const rules = await this.getCryptoSymbolRules();
     const llamaData = await this.getDefiLlamaProtocols();
