@@ -121,6 +121,21 @@ async function fetchFearGreed() {
 async function scanMarket() {
   console.log('Scanning market...');
   const portfolio = loadPortfolio();
+
+  // Dynamically inject user's private portfolio coins into the scanner
+  for (const sym of Object.keys(portfolio)) {
+    if (!CONFIG.assets.crypto.find(a => a.id === sym)) {
+      CONFIG.assets.crypto.push({
+        id: sym,
+        symbol: sym.replace('USDT', ''),
+        name: sym.replace('USDT', ''),
+        currency: 'USD',
+        icon: '💎'
+      });
+      console.log(`Dynamically added private coin ${sym} to the scan loop.`);
+    }
+  }
+
   const fearGreed = await fetchFearGreed();
   
   try {
