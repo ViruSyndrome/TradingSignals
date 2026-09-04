@@ -156,6 +156,9 @@ const Dashboard = {
   // ─── Boot ────────────────────────────────────────────────────────────────────
   async init() {
     this.state.latestSignalHistory = this._getSignalHistory();
+    // Holdings always use one base entry per coin (ZENUSDT, never ZENUSDT_4H)
+    this.state.invested = [...new Set(this.state.invested.map(id => String(id).toUpperCase().replace('_4H', '').replace('_5M', '')))];
+    try { localStorage.setItem('trading_invested', JSON.stringify(this.state.invested)); } catch (e) {}
     // Clean, upgrade, and deduplicate the user's saved watchlist
     // IMPORTANT: Strip out any corrupted scalper IDs (e.g. NILUSDT_5MUSDT) that got accidentally saved
     let cleanWatchlist = this.state.watchlist
@@ -175,6 +178,8 @@ const Dashboard = {
           const baseSymbol = id.replace('USDT_4H', '').replace('_4H', '');
           const isCore = CONFIG.assets.crypto.some(a => a.symbol === baseSymbol && !a.grafted);
           if (isCore) return false;
+          // A locked holding replaces its 4H scanner duplicate
+          if (this.state.invested.includes(baseSymbol + 'USDT')) return false;
         }
         return true;
       });
@@ -1447,11 +1452,9 @@ const Dashboard = {
   },
 
   _toggleInvested(id) {
-    if (!id.toUpperCase().endsWith('USDT') && !id.toUpperCase().includes('_4H')) {
-      id = id.toUpperCase() + 'USDT';
-    } else {
-      id = id.toUpperCase();
-    }
+    // Locks always store the base daily pair, even from a 4H Moonshot card
+    id = id.toUpperCase().replace('_4H', '').replace('_5M', '');
+    if (!id.endsWith('USDT')) id += 'USDT';
 
     if (this.state.invested.includes(id)) {
       this.state.invested = this.state.invested.filter(x => x !== id);
