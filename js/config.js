@@ -57,12 +57,8 @@ const CONFIG = {
       { id: 'STXUSDT', symbol: 'STX', name: 'Stacks', currency: 'USD', icon: '🥞' },
       { id: 'TAOUSDT', symbol: 'TAO', name: 'Bittensor', currency: 'USD', icon: '🧠' },
       
-      // User specific holdings / Moonshots
+      // Dash is retained because it is a backtest core winner.
       { id: 'DASHUSDT', symbol: 'DASH', name: 'Dash', currency: 'USD', icon: '💨' },
-      { id: 'CAKEUSDT', symbol: 'CAKE', name: 'PancakeSwap', currency: 'USD', icon: '🥞' },
-      { id: 'ZENUSDT', symbol: 'ZEN', name: 'Horizen', currency: 'USD', icon: '🔮' },
-      { id: 'SYRUPUSDT', symbol: 'SYRUP', name: 'Syrup', currency: 'USD', icon: '🍯' },
-      { id: 'ASTERUSDT', symbol: 'ASTER', name: 'Aster', currency: 'USD', icon: '✨' },
     ],
 
 
