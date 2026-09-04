@@ -285,6 +285,8 @@ button:focus-visible { outline: 2px solid var(--accent); border-radius: 4px; }
 .section-heading { margin-bottom: 24px; display: flex; justify-content: space-between; align-items: flex-end; }
 .section-heading h2 { font-size: 22px; color: #fff; }
 .section-sub { color: var(--text-muted); font-size: 14px; margin-top: 4px; }
+.asset-list-heading { align-items: stretch; flex-direction: column; gap: 12px; }
+.asset-list-heading h2 { white-space: nowrap; }
 
 /* ═══════════════════════════════════════════════════════════════════════════
    SUMMARY BAR
@@ -1012,14 +1014,14 @@ body.modal-open { overflow: hidden; }
 .qt-sl { color: var(--c-red); }
 
 /* Signal History */
-.signal-history-list { display: flex; flex-direction: column; gap: 6px; }
-.signal-history-entry { display: flex; align-items: center; gap: 10px; padding: 10px 14px; background: var(--surface-2); border-radius: var(--radius-sm); border: 1px solid var(--glass-border); font-size: 13px; }
+.signal-history-list { grid-column: 1 / -1; width: 100%; display: flex; flex-direction: column; gap: 6px; }
+.signal-history-entry { display: grid; grid-template-columns: 22px minmax(120px, 1fr) auto 16px auto minmax(62px, auto) minmax(115px, auto); align-items: center; gap: 10px; padding: 10px 14px; background: var(--surface-2); border-radius: var(--radius-sm); border: 1px solid var(--glass-border); font-size: 13px; }
 .sh-icon { font-size: 18px; flex-shrink: 0; }
-.sh-name { font-weight: 600; min-width: 120px; }
+.sh-name { min-width: 0; overflow: hidden; font-weight: 600; text-overflow: ellipsis; white-space: nowrap; }
 .sh-name small { font-weight: 400; color: var(--text-muted); margin-left: 4px; }
 .sh-arrow { color: var(--text-muted); font-size: 16px; }
-.sh-price { color: var(--text-secondary); margin-left: auto; font-size: 12px; }
-.sh-time { color: var(--text-muted); font-size: 11px; min-width: 100px; text-align: right; }
+.sh-price { color: var(--text-secondary); font-size: 12px; white-space: nowrap; }
+.sh-time { color: var(--text-muted); font-size: 11px; text-align: right; white-space: nowrap; }
 /* ─── Mobile Responsiveness ───────────────────────────────────────────────── */
 .hamburger-btn {
   display: none;
@@ -1145,6 +1147,8 @@ body.modal-open { overflow: hidden; }
   /* Summary bar items shrink */
   .summary-stat { padding: 8px 10px !important; }
   .summary-stat .stat-value { font-size: 18px !important; }
+  .signal-history-entry { grid-template-columns: 20px minmax(72px, 1fr) auto 12px auto; gap: 6px; padding: 10px; }
+  .sh-price, .sh-time { grid-column: 2 / -1; text-align: left; }
 }
 
 @media (max-width: 768px) {
