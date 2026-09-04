@@ -27,7 +27,8 @@ const CONFIG = {
       { id: 'NEARUSDT', symbol: 'NEAR', name: 'NEAR Protocol', currency: 'USD', icon: '🌌' },
       { id: 'APTUSDT', symbol: 'APT', name: 'Aptos', currency: 'USD', icon: '🌐' },
       { id: 'INJUSDT', symbol: 'INJ', name: 'Injective', currency: 'USD', icon: '🥷' },
-      { id: 'RENDERUSDT', symbol: 'RENDER', name: 'Render', currency: 'USD', icon: '🎨' },
+      { id: 'RENDERUSDT', symbol: 'RENDER', name: 'Render', currency: 'USD', icon: '🎨' }, 
+      { id: 'ASTRUSDT', symbol: 'ASTR', name: 'Astar', currency: 'USD', icon: '🌟' },
       { id: 'FETUSDT', symbol: 'FET', name: 'Fetch.ai', currency: 'USD', icon: '🤖' },
       
       // Expanded List (Top 50 additions)
