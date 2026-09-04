@@ -21,6 +21,7 @@ const Dashboard = {
     notifGranted:  false,
     watchlist:     (() => { try { const v = JSON.parse(localStorage.getItem('trading_watchlist')); return Array.isArray(v) ? v : []; } catch { return []; } })(),
     invested:      (() => { try { const v = JSON.parse(localStorage.getItem('trading_invested')); return Array.isArray(v) ? v : []; } catch { return []; } })(),
+    moonshotReviewUntil: (() => { try { const v = JSON.parse(localStorage.getItem('trading_moonshot_review_until')); return v && typeof v === 'object' ? v : {}; } catch { return {}; } })(),
     fearGreed:     null,
     marketRegime: 'unknown',
     scalps:        [],       // results from the 5m Meme Scalper
@@ -28,6 +29,7 @@ const Dashboard = {
 
   // ─── Signal History ─────────────────────────────────────────────────────────
   SIGNAL_HISTORY_KEY: 'signal_history_v1',
+  MOONSHOT_REVIEW_MS: 24 * 60 * 60 * 1000,
   _previousSignals: new Map(),
   _previousScalps: new Map(),
   
@@ -534,6 +536,7 @@ const Dashboard = {
       let newlyAdded = false;
       setups.forEach(s => {
         const id = s.asset.id;
+        this._holdMoonshotForReview(id);
         if (!this.state.watchlist.includes(id)) {
           this.state.watchlist.push(id);
           newlyAdded = true;
@@ -574,6 +577,7 @@ const Dashboard = {
       const asset = CONFIG.assets.crypto[i];
       if (asset.grafted && asset.isMoonshot) {
         if (this.state.invested.includes(asset.id)) continue;
+        if (this._isMoonshotInReview(asset.id)) continue;
         
         const d = this.state.allAssets.find(a => a.asset.id === asset.id);
         const sig = d?.signalResult?.signal ?? 'NEUTRAL';
@@ -591,6 +595,21 @@ const Dashboard = {
       }
     }
     return removedAny;
+  },
+
+  _holdMoonshotForReview(id) {
+    this.state.moonshotReviewUntil[id] = Date.now() + this.MOONSHOT_REVIEW_MS;
+    try { localStorage.setItem('trading_moonshot_review_until', JSON.stringify(this.state.moonshotReviewUntil)); } catch (e) {}
+  },
+
+  _isMoonshotInReview(id) {
+    const until = Number(this.state.moonshotReviewUntil[id]) || 0;
+    if (until > Date.now()) return true;
+    if (until) {
+      delete this.state.moonshotReviewUntil[id];
+      try { localStorage.setItem('trading_moonshot_review_until', JSON.stringify(this.state.moonshotReviewUntil)); } catch (e) {}
+    }
+    return false;
   },
 
   _cleanStaleScalps() {
