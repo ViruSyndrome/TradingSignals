@@ -167,11 +167,13 @@ const API = {
         if (typeof CONFIG !== 'undefined' && CONFIG.assets && CONFIG.assets.crypto) {
           const keys = Array.isArray(port) ? port : Object.keys(port);
           for (const sym of keys) {
-            if (!CONFIG.assets.crypto.find(a => a.id === sym)) {
+            const normalized = String(sym).toUpperCase();
+            const baseId = normalized.replace('_4H', '').replace('_5M', '');
+            if (!CONFIG.assets.crypto.find(a => a.id === normalized || a.id === baseId)) {
               CONFIG.assets.crypto.push({
-                id: sym,
-                symbol: sym.replace('USDT', ''),
-                name: sym.replace('USDT', ''),
+                id: normalized,
+                symbol: normalized.replace('USDT_4H', '').replace('USDT', ''),
+                name: normalized.replace('USDT_4H', '').replace('USDT', ''),
                 currency: 'USD',
                 icon: '💎'
               });

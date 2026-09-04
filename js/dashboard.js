@@ -156,6 +156,12 @@ const Dashboard = {
   // ─── Boot ────────────────────────────────────────────────────────────────────
   async init() {
     this.state.latestSignalHistory = this._getSignalHistory();
+    this.state.invested = [...new Set(this.state.invested.map(id => {
+      const normalized = String(id).toUpperCase();
+      const baseId = normalized.replace('_4H', '').replace('_5M', '');
+      return CONFIG.assets.crypto.some(asset => asset.id === baseId && !asset.grafted) ? baseId : normalized;
+    }))];
+    try { localStorage.setItem('trading_invested', JSON.stringify(this.state.invested)); } catch (e) {}
     // Clean, upgrade, and deduplicate the user's saved watchlist
     // IMPORTANT: Strip out any corrupted scalper IDs (e.g. NILUSDT_5MUSDT) that got accidentally saved
     let cleanWatchlist = this.state.watchlist
@@ -710,8 +716,9 @@ const Dashboard = {
     const seenSymbols = new Set();
     const uniqueAssets = this.state.allAssets.filter(a => {
       if (a.price == null) return false;
-      if (seenSymbols.has(a.asset.symbol)) return false;
-      seenSymbols.add(a.asset.symbol);
+      const baseSymbol = String(a.asset.id || a.asset.symbol).replace('_4H', '').replace('_5M', '').replace('USDT', '');
+      if (seenSymbols.has(baseSymbol)) return false;
+      seenSymbols.add(baseSymbol);
       return true;
     });
 
