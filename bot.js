@@ -142,6 +142,11 @@ async function scanMarket() {
     const crypto = await API.getAllCrypto();
     const all = [...(crypto || [])].filter(d => d.closes && d.closes.length >= 30);
     
+    // --- Daily Marketing Summary ---
+    let highestScoreCoin = null;
+    let highestScore = -99;
+    let buyCount = 0;
+    
     let marketRegime = 'flat';
     const btc = all.find(a => (a.asset?.symbol === 'BTCUSDT' || a.asset?.id === 'BTCUSDT') && a.closes?.length >= 50);
     if (btc) {
@@ -235,9 +240,17 @@ The indicators have crashed into a Strong Sell. Cut losses or exit your position
 If you sell, reply /sell ${asset.symbol}`;
       }
 
+      
+      // Track highest score for marketing
+      if (result.score > highestScore && result.score > 5) {
+        highestScore = result.score;
+        highestScoreCoin = asset.symbol;
+      }
+      if (result.signal === 'BUY' || result.signal === 'STRONG_BUY') buyCount++;
+      
       if (message && !alreadyAlerted) {
         if (typeof bot !== 'undefined' && bot) {
-          bot.sendMessage(chatId, message).catch(err => console.error('Send failed:', err.message));
+          bot.sendMessage(chatId, message, { parse_mode: 'HTML', disable_web_page_preview: true }).catch(err => console.error('Send failed:', err.message));
         }
         
         // --- TWITTER SPAM CONTROL ---
@@ -273,7 +286,26 @@ If you sell, reply /sell ${asset.symbol}`;
   } catch (err) {
     console.error('Fatal error during scanMarket:', err);
   }
-  console.log('Scan complete.');
+  
+    // Post daily marketing summary if we haven't in 24h
+    if (typeof twitterClient !== 'undefined' && twitterClient) {
+      const TWENTY_FOUR_HOURS = 24 * 60 * 60 * 1000;
+      const now = Date.now();
+      const timeSinceDaily = now - (twitterState.lastDailyTweet || 0);
+      
+      if (timeSinceDaily > TWENTY_FOUR_HOURS && highestScoreCoin) {
+        const cleanSymbol = highestScoreCoin.replace('USDT', '');
+        const dailyMsg = `📊 Daily Market Scan Complete!\n\nGreed Index: ${fearGreed}\nMarket Regime: ${marketRegime.toUpperCase()}\nActive Buy Setups: ${buyCount}\n\nTop Chart Today: ${cleanSymbol} (Score: +${highestScore})\n\nCheck the free dashboard for exact entry and stop-loss targets 👇\nhttps://trendrunner.app\n\n#Crypto #Trading #${cleanSymbol}`;
+        
+        twitterClient.v2.tweet(dailyMsg).then(() => {
+          console.log('🐦 Tweeted Daily Marketing Summary!');
+          twitterState.lastDailyTweet = now;
+          saveTwitterState(twitterState);
+        }).catch(e => console.error('Daily tweet failed:', e));
+      }
+    }
+    
+    console.log('Scan complete.');
 }
 // Scan every 1 hour (3600000 ms)
 setInterval(scanMarket, 3600000);

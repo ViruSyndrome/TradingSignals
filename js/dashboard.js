@@ -29,7 +29,7 @@ const Dashboard = {
 
   // ─── Signal History ─────────────────────────────────────────────────────────
   SIGNAL_HISTORY_KEY: 'signal_history_v1',
-  MOONSHOT_REVIEW_MS: 24 * 60 * 60 * 1000,
+  MOONSHOT_REVIEW_MS: 4 * 60 * 60 * 1000, // 4 hours to reduce clutter
   _previousSignals: new Map(),
   _previousScalps: new Map(),
   
@@ -1104,7 +1104,7 @@ const Dashboard = {
           const toLevel = Signals.level(h.to);
           const priceStr = h.price ? '$' + (h.price < 1 ? h.price.toFixed(4) : h.price.toFixed(2)) : '';
           const binanceId = h.id.replace('USDT', '_USDT');
-          return `<a href="https://www.binance.com/en/trade/${binanceId}?type=spot" target="_blank" class="signal-history-entry" style="text-decoration:none; color:inherit;">
+          return `<a href="https://www.binance.com/en/trade/${binanceId}?type=spot&ref=YOUR_BINANCE_REF_ID" target="_blank" class="signal-history-entry" style="text-decoration:none; color:inherit;">
             <span class="sh-icon">${h.icon}</span>
             <span class="sh-name">${h.name} <small>${h.symbol}</small></span>
             <span class="signal-badge signal-${fromLevel.cls}" style="font-size:11px;padding:2px 6px;">${fromLevel.short}</span>
