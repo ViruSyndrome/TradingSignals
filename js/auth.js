@@ -33,9 +33,7 @@ const Auth = {
     if (authBtn) {
       authBtn.addEventListener('click', (e) => {
         e.preventDefault();
-        if (this.user) {
-          this.logout();
-        } else {
+        if (this.user) { if (confirm('Are you sure you want to sign out?')) { this.logout(); } } else {
           authModal.classList.add('open');
           this.isLoginMode = true;
           this._renderModalState();
