@@ -1,7 +1,7 @@
 {
   "meta": {
-    "totalRuns": 6,
-    "lastRun": "2026-08-31T01:56:55.244Z"
+    "totalRuns": 7,
+    "lastRun": "2026-09-05T21:30:30.782Z"
   },
   "runs": [
     {
@@ -1429,336 +1429,582 @@
           "avgReturn": -5.09
         }
       }
+    },
+    {
+      "runDate": "2026-09-05T21:30:30.782Z",
+      "engineVersion": "5.13",
+      "assets": {
+        "DASH": {
+          "trades": 18,
+          "winRate": 50,
+          "avgReturn": 4.12
+        },
+        "EGLD": {
+          "trades": 14,
+          "winRate": 50,
+          "avgReturn": 2.61
+        },
+        "INJ": {
+          "trades": 21,
+          "winRate": 52,
+          "avgReturn": 2.25
+        },
+        "ARB": {
+          "trades": 17,
+          "winRate": 47,
+          "avgReturn": 1.55
+        },
+        "LDO": {
+          "trades": 23,
+          "winRate": 39,
+          "avgReturn": 1.28
+        },
+        "NEAR": {
+          "trades": 26,
+          "winRate": 50,
+          "avgReturn": 1.24
+        },
+        "UNI": {
+          "trades": 22,
+          "winRate": 55,
+          "avgReturn": 1.14
+        },
+        "VET": {
+          "trades": 13,
+          "winRate": 46,
+          "avgReturn": 0.7
+        },
+        "ETH": {
+          "trades": 25,
+          "winRate": 52,
+          "avgReturn": 0.49
+        },
+        "TAO": {
+          "trades": 19,
+          "winRate": 37,
+          "avgReturn": 0.38
+        },
+        "TRX": {
+          "trades": 30,
+          "winRate": 60,
+          "avgReturn": 0.34
+        },
+        "LINK": {
+          "trades": 24,
+          "winRate": 33,
+          "avgReturn": 0.29
+        },
+        "PEPE": {
+          "trades": 21,
+          "winRate": 48,
+          "avgReturn": 0.24
+        },
+        "ASTR": {
+          "trades": 14,
+          "winRate": 57,
+          "avgReturn": 0.09
+        },
+        "RUNE": {
+          "trades": 22,
+          "winRate": 50,
+          "avgReturn": 0.04
+        },
+        "BTC": {
+          "trades": 23,
+          "winRate": 39,
+          "avgReturn": 0.02
+        },
+        "POL": {
+          "trades": 16,
+          "winRate": 50,
+          "avgReturn": 0.01
+        },
+        "SKY": {
+          "trades": 24,
+          "winRate": 42,
+          "avgReturn": 0.01
+        },
+        "BNB": {
+          "trades": 20,
+          "winRate": 50,
+          "avgReturn": -0.05
+        },
+        "RENDER": {
+          "trades": 18,
+          "winRate": 50,
+          "avgReturn": -0.13
+        },
+        "THETA": {
+          "trades": 13,
+          "winRate": 31,
+          "avgReturn": -0.21
+        },
+        "FLOKI": {
+          "trades": 14,
+          "winRate": 36,
+          "avgReturn": -0.24
+        },
+        "XLM": {
+          "trades": 21,
+          "winRate": 38,
+          "avgReturn": -0.26
+        },
+        "SOL": {
+          "trades": 21,
+          "winRate": 38,
+          "avgReturn": -0.29
+        },
+        "ATOM": {
+          "trades": 18,
+          "winRate": 39,
+          "avgReturn": -0.36
+        },
+        "DOGE": {
+          "trades": 14,
+          "winRate": 50,
+          "avgReturn": -0.42
+        },
+        "FET": {
+          "trades": 18,
+          "winRate": 50,
+          "avgReturn": -0.5
+        },
+        "AAVE": {
+          "trades": 19,
+          "winRate": 42,
+          "avgReturn": -0.55
+        },
+        "SHIB": {
+          "trades": 18,
+          "winRate": 39,
+          "avgReturn": -0.7
+        },
+        "STX": {
+          "trades": 11,
+          "winRate": 45,
+          "avgReturn": -0.86
+        },
+        "LTC": {
+          "trades": 19,
+          "winRate": 37,
+          "avgReturn": -0.88
+        },
+        "WIF": {
+          "trades": 13,
+          "winRate": 38,
+          "avgReturn": -0.94
+        },
+        "OP": {
+          "trades": 11,
+          "winRate": 36,
+          "avgReturn": -1.2
+        },
+        "XRP": {
+          "trades": 14,
+          "winRate": 29,
+          "avgReturn": -1.23
+        },
+        "SEI": {
+          "trades": 10,
+          "winRate": 40,
+          "avgReturn": -1.45
+        },
+        "ICP": {
+          "trades": 19,
+          "winRate": 32,
+          "avgReturn": -1.47
+        },
+        "AVAX": {
+          "trades": 14,
+          "winRate": 29,
+          "avgReturn": -1.51
+        },
+        "SUI": {
+          "trades": 17,
+          "winRate": 24,
+          "avgReturn": -1.56
+        },
+        "TIA": {
+          "trades": 22,
+          "winRate": 36,
+          "avgReturn": -1.61
+        },
+        "GALA": {
+          "trades": 8,
+          "winRate": 25,
+          "avgReturn": -1.69
+        },
+        "FIL": {
+          "trades": 13,
+          "winRate": 23,
+          "avgReturn": -1.92
+        },
+        "ADA": {
+          "trades": 11,
+          "winRate": 27,
+          "avgReturn": -2.21
+        },
+        "GRT": {
+          "trades": 10,
+          "winRate": 30,
+          "avgReturn": -2.56
+        },
+        "MANA": {
+          "trades": 14,
+          "winRate": 14,
+          "avgReturn": -2.75
+        },
+        "APT": {
+          "trades": 12,
+          "winRate": 33,
+          "avgReturn": -3.27
+        },
+        "BCH": {
+          "trades": 9,
+          "winRate": 0,
+          "avgReturn": -3.35
+        },
+        "DOT": {
+          "trades": 11,
+          "winRate": 27,
+          "avgReturn": -4
+        },
+        "SAND": {
+          "trades": 6,
+          "winRate": 17,
+          "avgReturn": -5.06
+        }
+      }
     }
   ],
   "accumulated": {
     "INJ": {
-      "runsIncluded": 6,
-      "totalTrades": 89,
-      "avgWinRate": 57.5,
-      "avgReturn": 3.92,
+      "runsIncluded": 7,
+      "totalTrades": 110,
+      "avgWinRate": 56.71,
+      "avgReturn": 3.68,
       "classification": "core"
     },
     "THETA": {
-      "runsIncluded": 6,
-      "totalTrades": 50,
-      "avgWinRate": 37,
-      "avgReturn": 2.34,
+      "runsIncluded": 7,
+      "totalTrades": 63,
+      "avgWinRate": 36.14,
+      "avgReturn": 1.98,
       "classification": "probation"
     },
     "NEAR": {
-      "runsIncluded": 6,
-      "totalTrades": 103,
-      "avgWinRate": 45.5,
-      "avgReturn": 1.54,
+      "runsIncluded": 7,
+      "totalTrades": 129,
+      "avgWinRate": 46.14,
+      "avgReturn": 1.5,
       "classification": "core"
     },
     "ARB": {
-      "runsIncluded": 6,
-      "totalTrades": 59,
-      "avgWinRate": 47.33,
-      "avgReturn": 1.47,
+      "runsIncluded": 7,
+      "totalTrades": 76,
+      "avgWinRate": 47.29,
+      "avgReturn": 1.48,
       "classification": "core"
     },
     "RENDER": {
-      "runsIncluded": 6,
-      "totalTrades": 73,
-      "avgWinRate": 46.83,
-      "avgReturn": 0.49,
+      "runsIncluded": 7,
+      "totalTrades": 91,
+      "avgWinRate": 47.29,
+      "avgReturn": 0.4,
       "classification": "probation"
     },
     "OP": {
-      "runsIncluded": 6,
-      "totalTrades": 46,
-      "avgWinRate": 28,
-      "avgReturn": 0.23,
+      "runsIncluded": 7,
+      "totalTrades": 57,
+      "avgWinRate": 29.14,
+      "avgReturn": 0.02,
       "classification": "probation"
     },
     "TRX": {
-      "runsIncluded": 6,
-      "totalTrades": 126,
-      "avgWinRate": 58.33,
-      "avgReturn": 0.72,
+      "runsIncluded": 7,
+      "totalTrades": 156,
+      "avgWinRate": 58.57,
+      "avgReturn": 0.67,
       "classification": "probation"
     },
     "TAO": {
-      "runsIncluded": 6,
-      "totalTrades": 78,
-      "avgWinRate": 37.5,
-      "avgReturn": 0.94,
+      "runsIncluded": 7,
+      "totalTrades": 97,
+      "avgWinRate": 37.43,
+      "avgReturn": 0.86,
       "classification": "probation"
     },
     "ETH": {
-      "runsIncluded": 6,
-      "totalTrades": 95,
-      "avgWinRate": 59,
-      "avgReturn": 1.2,
+      "runsIncluded": 7,
+      "totalTrades": 120,
+      "avgWinRate": 58,
+      "avgReturn": 1.09,
       "classification": "core"
     },
     "RUNE": {
-      "runsIncluded": 6,
-      "totalTrades": 85,
-      "avgWinRate": 47.33,
-      "avgReturn": 0.26,
+      "runsIncluded": 7,
+      "totalTrades": 107,
+      "avgWinRate": 47.71,
+      "avgReturn": 0.23,
       "classification": "probation"
     },
     "LDO": {
-      "runsIncluded": 6,
-      "totalTrades": 78,
-      "avgWinRate": 40.5,
-      "avgReturn": 1,
-      "classification": "probation"
+      "runsIncluded": 7,
+      "totalTrades": 101,
+      "avgWinRate": 40.29,
+      "avgReturn": 1.04,
+      "classification": "core"
     },
     "FIL": {
-      "runsIncluded": 6,
-      "totalTrades": 53,
-      "avgWinRate": 29.83,
-      "avgReturn": -1.66,
-      "classification": "excluded"
-    },
-    "BTC": {
-      "runsIncluded": 6,
-      "totalTrades": 85,
-      "avgWinRate": 38.83,
-      "avgReturn": 0.21,
-      "classification": "probation"
-    },
-    "LINK": {
-      "runsIncluded": 6,
-      "totalTrades": 96,
-      "avgWinRate": 35,
-      "avgReturn": 0.36,
-      "classification": "probation"
-    },
-    "FET": {
-      "runsIncluded": 6,
-      "totalTrades": 70,
-      "avgWinRate": 43.17,
-      "avgReturn": -1.07,
-      "classification": "excluded"
-    },
-    "DOGE": {
-      "runsIncluded": 6,
-      "totalTrades": 58,
-      "avgWinRate": 38.83,
-      "avgReturn": -1.02,
-      "classification": "excluded"
-    },
-    "XLM": {
-      "runsIncluded": 6,
-      "totalTrades": 93,
-      "avgWinRate": 33.83,
-      "avgReturn": -0.93,
-      "classification": "excluded"
-    },
-    "BNB": {
-      "runsIncluded": 6,
-      "totalTrades": 85,
-      "avgWinRate": 50.33,
-      "avgReturn": -0.24,
-      "classification": "excluded"
-    },
-    "SUI": {
-      "runsIncluded": 6,
-      "totalTrades": 72,
-      "avgWinRate": 19.17,
-      "avgReturn": -2.13,
-      "classification": "excluded"
-    },
-    "SKY": {
-      "runsIncluded": 6,
-      "totalTrades": 100,
-      "avgWinRate": 34.17,
-      "avgReturn": -0.8,
-      "classification": "excluded"
-    },
-    "WIF": {
-      "runsIncluded": 6,
-      "totalTrades": 48,
-      "avgWinRate": 28.33,
-      "avgReturn": -2.2,
-      "classification": "excluded"
-    },
-    "UNI": {
-      "runsIncluded": 6,
-      "totalTrades": 87,
-      "avgWinRate": 42.33,
-      "avgReturn": -1.17,
-      "classification": "excluded"
-    },
-    "ATOM": {
-      "runsIncluded": 6,
-      "totalTrades": 73,
-      "avgWinRate": 47.83,
-      "avgReturn": -1.1,
-      "classification": "excluded"
-    },
-    "PEPE": {
-      "runsIncluded": 6,
-      "totalTrades": 82,
-      "avgWinRate": 45.33,
-      "avgReturn": -0.35,
-      "classification": "excluded"
-    },
-    "GALA": {
-      "runsIncluded": 6,
-      "totalTrades": 38,
-      "avgWinRate": 23.33,
-      "avgReturn": -2.59,
-      "classification": "excluded"
-    },
-    "ICP": {
-      "runsIncluded": 6,
-      "totalTrades": 76,
-      "avgWinRate": 42.83,
-      "avgReturn": -2.34,
-      "classification": "excluded"
-    },
-    "LTC": {
-      "runsIncluded": 6,
-      "totalTrades": 71,
-      "avgWinRate": 26.5,
+      "runsIncluded": 7,
+      "totalTrades": 66,
+      "avgWinRate": 28.86,
       "avgReturn": -1.7,
       "classification": "excluded"
     },
+    "BTC": {
+      "runsIncluded": 7,
+      "totalTrades": 108,
+      "avgWinRate": 38.86,
+      "avgReturn": 0.18,
+      "classification": "probation"
+    },
+    "LINK": {
+      "runsIncluded": 7,
+      "totalTrades": 120,
+      "avgWinRate": 34.71,
+      "avgReturn": 0.35,
+      "classification": "probation"
+    },
+    "FET": {
+      "runsIncluded": 7,
+      "totalTrades": 88,
+      "avgWinRate": 44.14,
+      "avgReturn": -0.99,
+      "classification": "excluded"
+    },
+    "DOGE": {
+      "runsIncluded": 7,
+      "totalTrades": 72,
+      "avgWinRate": 40.43,
+      "avgReturn": -0.93,
+      "classification": "excluded"
+    },
+    "XLM": {
+      "runsIncluded": 7,
+      "totalTrades": 114,
+      "avgWinRate": 34.43,
+      "avgReturn": -0.83,
+      "classification": "excluded"
+    },
+    "BNB": {
+      "runsIncluded": 7,
+      "totalTrades": 105,
+      "avgWinRate": 50.29,
+      "avgReturn": -0.21,
+      "classification": "excluded"
+    },
+    "SUI": {
+      "runsIncluded": 7,
+      "totalTrades": 89,
+      "avgWinRate": 19.86,
+      "avgReturn": -2.05,
+      "classification": "excluded"
+    },
+    "SKY": {
+      "runsIncluded": 7,
+      "totalTrades": 124,
+      "avgWinRate": 35.29,
+      "avgReturn": -0.69,
+      "classification": "excluded"
+    },
+    "WIF": {
+      "runsIncluded": 7,
+      "totalTrades": 61,
+      "avgWinRate": 29.71,
+      "avgReturn": -2.02,
+      "classification": "excluded"
+    },
+    "UNI": {
+      "runsIncluded": 7,
+      "totalTrades": 109,
+      "avgWinRate": 44.14,
+      "avgReturn": -0.84,
+      "classification": "excluded"
+    },
+    "ATOM": {
+      "runsIncluded": 7,
+      "totalTrades": 91,
+      "avgWinRate": 46.57,
+      "avgReturn": -1,
+      "classification": "excluded"
+    },
+    "PEPE": {
+      "runsIncluded": 7,
+      "totalTrades": 103,
+      "avgWinRate": 45.71,
+      "avgReturn": -0.26,
+      "classification": "excluded"
+    },
+    "GALA": {
+      "runsIncluded": 7,
+      "totalTrades": 46,
+      "avgWinRate": 23.57,
+      "avgReturn": -2.46,
+      "classification": "excluded"
+    },
+    "ICP": {
+      "runsIncluded": 7,
+      "totalTrades": 95,
+      "avgWinRate": 41.29,
+      "avgReturn": -2.22,
+      "classification": "excluded"
+    },
+    "LTC": {
+      "runsIncluded": 7,
+      "totalTrades": 90,
+      "avgWinRate": 28,
+      "avgReturn": -1.58,
+      "classification": "excluded"
+    },
     "SEI": {
-      "runsIncluded": 6,
-      "totalTrades": 43,
-      "avgWinRate": 24.5,
-      "avgReturn": -2.89,
+      "runsIncluded": 7,
+      "totalTrades": 53,
+      "avgWinRate": 26.71,
+      "avgReturn": -2.68,
       "classification": "excluded"
     },
     "AVAX": {
-      "runsIncluded": 6,
-      "totalTrades": 56,
-      "avgWinRate": 21.17,
-      "avgReturn": -2.44,
+      "runsIncluded": 7,
+      "totalTrades": 70,
+      "avgWinRate": 22.29,
+      "avgReturn": -2.3,
       "classification": "excluded"
     },
     "FLOKI": {
-      "runsIncluded": 6,
-      "totalTrades": 60,
-      "avgWinRate": 35,
-      "avgReturn": -1.18,
+      "runsIncluded": 7,
+      "totalTrades": 74,
+      "avgWinRate": 35.14,
+      "avgReturn": -1.04,
       "classification": "excluded"
     },
     "TIA": {
-      "runsIncluded": 6,
-      "totalTrades": 86,
-      "avgWinRate": 30.67,
-      "avgReturn": -2.94,
+      "runsIncluded": 7,
+      "totalTrades": 108,
+      "avgWinRate": 31.43,
+      "avgReturn": -2.75,
       "classification": "excluded"
     },
     "ADA": {
-      "runsIncluded": 6,
-      "totalTrades": 48,
-      "avgWinRate": 26.83,
-      "avgReturn": -2.37,
+      "runsIncluded": 7,
+      "totalTrades": 59,
+      "avgWinRate": 26.86,
+      "avgReturn": -2.35,
       "classification": "excluded"
     },
     "APT": {
-      "runsIncluded": 6,
-      "totalTrades": 49,
-      "avgWinRate": 27.67,
-      "avgReturn": -4.27,
+      "runsIncluded": 7,
+      "totalTrades": 61,
+      "avgWinRate": 28.43,
+      "avgReturn": -4.12,
       "classification": "excluded"
     },
     "SHIB": {
-      "runsIncluded": 6,
-      "totalTrades": 73,
-      "avgWinRate": 24.5,
-      "avgReturn": -1.55,
+      "runsIncluded": 7,
+      "totalTrades": 91,
+      "avgWinRate": 26.57,
+      "avgReturn": -1.43,
       "classification": "excluded"
     },
     "AAVE": {
-      "runsIncluded": 6,
-      "totalTrades": 73,
-      "avgWinRate": 39.5,
-      "avgReturn": -1.16,
+      "runsIncluded": 7,
+      "totalTrades": 92,
+      "avgWinRate": 39.86,
+      "avgReturn": -1.07,
       "classification": "excluded"
     },
     "POL": {
-      "runsIncluded": 6,
-      "totalTrades": 62,
-      "avgWinRate": 53.83,
-      "avgReturn": 0.93,
+      "runsIncluded": 7,
+      "totalTrades": 78,
+      "avgWinRate": 53.29,
+      "avgReturn": 0.8,
       "classification": "probation"
     },
     "GRT": {
-      "runsIncluded": 6,
-      "totalTrades": 41,
-      "avgWinRate": 26.33,
-      "avgReturn": -3.42,
+      "runsIncluded": 7,
+      "totalTrades": 51,
+      "avgWinRate": 26.86,
+      "avgReturn": -3.29,
       "classification": "excluded"
     },
     "MANA": {
-      "runsIncluded": 6,
-      "totalTrades": 48,
-      "avgWinRate": 21.17,
-      "avgReturn": -3.68,
+      "runsIncluded": 7,
+      "totalTrades": 62,
+      "avgWinRate": 20.14,
+      "avgReturn": -3.55,
       "classification": "excluded"
     },
     "SOL": {
-      "runsIncluded": 6,
-      "totalTrades": 78,
-      "avgWinRate": 31,
-      "avgReturn": -1.55,
+      "runsIncluded": 7,
+      "totalTrades": 99,
+      "avgWinRate": 32,
+      "avgReturn": -1.37,
       "classification": "excluded"
     },
     "VET": {
-      "runsIncluded": 6,
-      "totalTrades": 46,
-      "avgWinRate": 31,
-      "avgReturn": -1.77,
+      "runsIncluded": 7,
+      "totalTrades": 59,
+      "avgWinRate": 33.14,
+      "avgReturn": -1.42,
       "classification": "excluded"
     },
     "STX": {
-      "runsIncluded": 6,
-      "totalTrades": 39,
-      "avgWinRate": 27.5,
-      "avgReturn": -2.1,
+      "runsIncluded": 7,
+      "totalTrades": 50,
+      "avgWinRate": 30,
+      "avgReturn": -1.92,
       "classification": "excluded"
     },
     "BCH": {
-      "runsIncluded": 6,
-      "totalTrades": 43,
+      "runsIncluded": 7,
+      "totalTrades": 52,
       "avgWinRate": 0,
-      "avgReturn": -4.78,
+      "avgReturn": -4.58,
       "classification": "excluded"
     },
     "XRP": {
-      "runsIncluded": 6,
-      "totalTrades": 55,
-      "avgWinRate": 21.67,
-      "avgReturn": -2.57,
+      "runsIncluded": 7,
+      "totalTrades": 69,
+      "avgWinRate": 22.71,
+      "avgReturn": -2.38,
       "classification": "excluded"
     },
     "EGLD": {
-      "runsIncluded": 6,
-      "totalTrades": 42,
-      "avgWinRate": 29.17,
-      "avgReturn": -1.44,
+      "runsIncluded": 7,
+      "totalTrades": 56,
+      "avgWinRate": 32.14,
+      "avgReturn": -0.86,
       "classification": "excluded"
     },
     "SAND": {
-      "runsIncluded": 6,
-      "totalTrades": 28,
-      "avgWinRate": 9,
-      "avgReturn": -6.74,
+      "runsIncluded": 7,
+      "totalTrades": 34,
+      "avgWinRate": 10.14,
+      "avgReturn": -6.5,
       "classification": "excluded"
     },
     "DOT": {
-      "runsIncluded": 6,
-      "totalTrades": 36,
-      "avgWinRate": 6.17,
-      "avgReturn": -8.58,
+      "runsIncluded": 7,
+      "totalTrades": 47,
+      "avgWinRate": 9.14,
+      "avgReturn": -7.93,
       "classification": "excluded"
     },
     "DASH": {
-      "runsIncluded": 1,
-      "totalTrades": 16,
-      "avgWinRate": 44,
-      "avgReturn": 1.83,
+      "runsIncluded": 2,
+      "totalTrades": 34,
+      "avgWinRate": 47,
+      "avgReturn": 2.98,
       "classification": "core"
     },
     "KERNEL": {
@@ -1767,6 +2013,13 @@
       "avgWinRate": 38,
       "avgReturn": -3,
       "classification": "excluded"
+    },
+    "ASTR": {
+      "runsIncluded": 1,
+      "totalTrades": 14,
+      "avgWinRate": 57,
+      "avgReturn": 0.09,
+      "classification": "probation"
     }
   }
 }

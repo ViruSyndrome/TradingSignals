@@ -121,7 +121,7 @@ const Auth = {
       authBtn.style.color = 'var(--text-main)';
       
     } else {
-      authBtn.innerHTML = '<span class="material-icons" style="margin-right:8px; font-size:18px;">person</span> <span id="authBtnText">Sign In / Register</span>';
+      authBtn.innerHTML = '<svg style="margin-right:8px; width:18px; height:18px;" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M16 7a4 4 0 11-8 0 4 4 0 018 0zM12 14a7 7 0 00-7 7h14a7 7 0 00-7-7z"></path></svg> <span id="authBtnText">Sign In / Register</span>';
       authBtn.style.padding = '';
       authBtn.style.background = 'rgba(0, 242, 254, 0.1)';
       authBtn.style.borderColor = 'var(--accent)';
