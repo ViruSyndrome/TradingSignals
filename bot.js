@@ -22,6 +22,8 @@ global.Indicators = Indicators; // signals.js references Indicators as a global
 
 const token = process.env.TELEGRAM_BOT_TOKEN;
 const chatId = process.env.TELEGRAM_CHAT_ID;
+const isRender = Boolean(process.env.RENDER_EXTERNAL_URL || process.env.RENDER_SERVICE_ID);
+const pollingEnabled = Boolean(token && chatId) && !isRender && process.env.TELEGRAM_POLLING !== 'false';
 
 const { TwitterApi } = require('twitter-api-v2');
 
@@ -41,14 +43,18 @@ if (process.env.TWITTER_API_KEY && process.env.TWITTER_API_SECRET && process.env
 
 let bot = null;
 if (token && chatId) {
-  bot = new TelegramBot(token, { polling: true });
-  bot.on('polling_error', error => {
-    console.error(`[Telegram] Polling error: ${error.message}`);
-  });
-  bot.on('error', error => {
-    console.error(`[Telegram] Bot error: ${error.message}`);
-  });
-  console.log("📱 Telegram bot initialized successfully.");
+  bot = new TelegramBot(token, { polling: pollingEnabled });
+  if (pollingEnabled) {
+    bot.on('polling_error', error => {
+      console.error(`[Telegram] Polling error: ${error.message}`);
+    });
+    bot.on('error', error => {
+      console.error(`[Telegram] Bot error: ${error.message}`);
+    });
+    console.log("📱 Telegram bot initialized with polling.");
+  } else {
+    console.log("📱 Telegram bot initialized for outbound alerts only.");
+  }
 } else {
   console.log("⚠️ Telegram keys missing from .env. Running in Twitter-only/Headless mode.");
 }
@@ -331,7 +337,4 @@ app.get('/', (req, res) => res.send('Bot is running.'));
 app.get('/health', (req, res) => res.status(200).json({ status: 'ok' }));
 const PORT = process.env.PORT || 3000;
 const server = app.listen(PORT, () => console.log(`Web server listening on port ${PORT}`));
-server.on('error', error => {
-  console.error(`[Server] Failed to bind port ${PORT}: ${error.message}`);
-  process.exitCode = 1;
-});
+server.on('error', error => console.error(`[Server] Failed to bind port ${PORT}: ${error.message}`));
