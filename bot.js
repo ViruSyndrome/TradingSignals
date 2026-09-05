@@ -225,7 +225,7 @@ If you buy this, reply /buy ${asset.symbol}`;
         const cleanSymbol = asset.symbol.replace('USDT','');
         tweetMessage = `🚨 ALGORITHMIC ALERT: $${cleanSymbol} just triggered a flawless STRONG BUY signal on the daily timeframe!
 
-📈 Trend Score: +${result.score}/10
+📈 Algo Confluence: +${result.score}
 🎯 Confidence: ${result.confidence}%
 
 Get the exact Stop-Loss & Take-Profit targets free 👇
