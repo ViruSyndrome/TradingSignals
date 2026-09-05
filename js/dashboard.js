@@ -857,7 +857,7 @@ const Dashboard = {
       ? `<div class="summary-item stale-banner" title="The last live fetch failed. Numbers below are from your last successful load.">
            <span class="summary-value" style="color:#f5a623">⚠️ Stale</span>
            <span class="summary-label">Data may be outdated</span>
-            </a>
+            </div>
           `
       : '';
 
@@ -1112,7 +1112,7 @@ const Dashboard = {
             <span class="signal-badge signal-${toLevel.cls}" style="font-size:11px;padding:2px 6px;">${toLevel.short}</span>
             <span class="sh-price">${priceStr}</span>
             <span class="sh-time">${timeStr}</span>
-          </div>`;
+            </a>`;
         }).join('')}</div>`;
       }
       return;
