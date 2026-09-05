@@ -68,18 +68,49 @@
   </script>
 </head>
 <body>
-<div id="trendrunner-loader" style="position:fixed; top:0; left:0; width:100%; height:100%; background:var(--bg-app); z-index:99999; display:flex; flex-direction:column; align-items:center; justify-content:center; color:var(--text-main); font-family:'Outfit', sans-serif;">
-  <img src="icon-transparent.png" alt="TrendRunner Logo" style="width:80px; height:80px; margin-bottom:24px; animation: pulseGlow 1.5s ease-in-out infinite alternate;">
-  <h2 style="margin:0 0 10px 0; font-size:24px; background: linear-gradient(to right, #00f2fe, #4facfe); -webkit-background-clip: text; -webkit-text-fill-color: transparent;">TrendRunner Engine</h2>
-  <p style="margin:0; color:var(--text-muted); font-size:14px;">Initializing algorithm & fetching market data...</p>
+<div id="trendrunner-loader" class="trendrunner-loader">
+  <img src="icon-transparent.png" alt="TrendRunner Logo" class="trendrunner-loader-img">
+  <h2 class="trendrunner-loader-title">TrendRunner Engine</h2>
+  <p class="trendrunner-loader-text">Initializing algorithm & fetching market data...</p>
 </div>
 <style>
-  @keyframes pulseGlow {
-    0% { transform: scale(1); filter: drop-shadow(0 0 5px rgba(0, 242, 254, 0.2)); }
-    100% { transform: scale(1.1); filter: drop-shadow(0 0 25px rgba(0, 242, 254, 0.8)); }
+  .trendrunner-loader {
+    position: fixed;
+    top: 0;
+    left: 0;
+    width: 100%;
+    height: 100%;
+    background: var(--bg-app);
+    z-index: 99999;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    color: var(--text-main);
+    font-family: 'Outfit', sans-serif;
+  }
+
+  .trendrunner-loader-img {
+    width: 80px;
+    height: 80px;
+    margin-bottom: 24px;
+    animation: pulseGlow 1.5s ease-in-out infinite alternate;
+  }
+
+  .trendrunner-loader-title {
+    margin: 0 0 10px 0;
+    font-size: 24px;
+    background: linear-gradient(to right, #00f2fe, #4facfe);
+    -webkit-background-clip: text;
+    -webkit-text-fill-color: transparent;
+  }
+
+  .trendrunner-loader-text {
+    margin: 0;
+    color: var(--text-muted);
+    font-size: 14px;
   }
 </style>
-
 
   <!-- iOS PWA Install Banner (only shows on Safari iOS, once per device) -->
   <div id="iosBanner" class="ios-banner">
@@ -250,8 +281,8 @@
           <p class="section-sub">Scans closed 4H candles for explosive, high-risk breakouts. Experimental: review the chart and risk plan before risking money.</p>
         </div>
         
-          <div style="background: rgba(245, 166, 35, 0.1); border: 1px solid rgba(245, 166, 35, 0.5); padding: 12px 16px; border-radius: 8px; margin-bottom: 16px; font-size: 14px; color: var(--text-main);">
-            <strong style="color: #f5a623;">⚠️ Moonshot Trading Rules:</strong> Lock 🔒 any coin you buy. Set a tight 5% stop-loss. If the dashboard signal flips to SELL, close the trade immediately—do not wait for your stop to hit.
+          <div class="moonshot-warning-box">
+            <strong>⚠️ Moonshot Trading Rules:</strong> Lock 🔒 any coin you buy. Set a tight 5% stop-loss. If the dashboard signal flips to SELL, close the trade immediately—do not wait for your stop to hit.
           </div>
 
           <div class="moonshot-controls">
@@ -278,18 +309,18 @@
 
         <div class="edu-full-grid">
 
-          <div class="edu-full-card highlight-card" style="border: 1px solid var(--accent); background: rgba(0, 242, 254, 0.05);">
+          <div class="edu-full-card highlight-card edu-card-accent">
             <div class="edu-header"><span>🎁</span><h3>Unlock 10% Lifetime Fee Discount</h3></div>
             <p>Every time you make a trade, the exchange takes a small cut. Over thousands of trades, these fees destroy your profits.</p>
             <ul>
               <li><strong>The Solution:</strong> By creating your Binance account through a TrendRunner affiliate link, you unlock a permanent <strong>10% Kickback</strong> on every single trade fee you ever pay.</li>
               <li><strong>How it works:</strong> We split the referral bonus with you. Binance pays us a small percentage for referring you, and they instantly refund <strong>10% back into your spot wallet</strong> on every trade.</li>
-              <li><strong>Action:</strong> Click any coin's ticker on the dashboard or <a href="https://www.binance.com/register?ref=TRENDRUNNER" target="_blank" style="color:var(--accent);font-weight:bold;">click here to sign up</a>. If you already have an account, you can create a new one to claim the lifetime discount.</li>
+              <li><strong>Action:</strong> Click any coin's ticker on the dashboard or <a href="https://www.binance.com/register?ref=TRENDRUNNER" target="_blank" rel="noopener noreferrer" style="color:var(--accent);font-weight:bold;">click here to sign up</a>. If you already have an account, you can create a new one to claim the lifetime discount.</li>
             </ul>
           </div>
 
             
-            <div class="edu-full-card highlight-card" style="border: 1px solid #f5a623; background: rgba(245, 166, 35, 0.05);">
+            <div class="edu-full-card highlight-card edu-card-warning">
               <div class="edu-header"><span>🚀</span><h3>How to Trade Moonshots</h3></div>
               <p>Moonshots are highly volatile, low-cap momentum plays. You must trade them differently than standard Daily signals.</p>
               <ul>
