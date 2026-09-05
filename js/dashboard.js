@@ -1642,11 +1642,20 @@ const Dashboard = {
 
     const priceStr = price !== null ? (asset.currency === 'INR' ? '₹' : '$') + this._fmt(price, asset) : 'N/A';
     const chgStr   = change24h !== null ? (change24h >= 0 ? '+' : '') + change24h.toFixed(2) + '%' : '–';
+    const modalLogoSymbol = String(asset.symbol || asset.id).replace(/USDT.*$/i, '').replace(/[^a-z0-9]/gi, '').toLowerCase();
+    const modalLogoSvg = `assets/coin-logos/${modalLogoSymbol}.svg`;
+    const modalLogoPng = `assets/coin-logos/${modalLogoSymbol}.png`;
+    const modalLogoRemote = `https://raw.githubusercontent.com/atomiclabs/cryptocurrency-icons/master/128/color/${modalLogoSymbol}.png`;
+    const modalScannerType = asset.isMoonshot ? 'moonshot' : asset.isScalp ? 'scalper' : '';
+    const modalScannerChip = modalScannerType
+      ? `<span class="scanner-chip ${modalScannerType}-chip">${modalScannerType === 'moonshot' ? 'MOON' : 'SCALP'}</span>`
+      : '';
+    const modalAssetMark = `<span class="asset-icon asset-visual lg ${modalScannerType ? `scanner-visual ${modalScannerType}-visual` : ''}"><img class="coin-logo" src="${modalLogoSvg}" alt="${asset.symbol} logo" loading="lazy" onerror="if(this.dataset.retry==='1'){this.dataset.retry='2';this.src='${modalLogoRemote}';}else if(!this.dataset.retry){this.dataset.retry='1';this.src='${modalLogoPng}';}else{this.style.display='none';this.nextElementSibling.style.display='flex';}"><span class="coin-logo-fallback">${String(asset.symbol || asset.id).slice(0, 3)}</span>${modalScannerChip}</span>`;
 
     content.innerHTML = `
       <div class="modal-header">
         <div class="modal-title-row">
-          <span class="asset-icon lg">${asset.icon}</span>
+          ${modalAssetMark}
           <div>
             <h2>${asset.name} <span class="modal-symbol">${asset.symbol}</span></h2>
             <div class="modal-meta">${{ crypto: '₿ Crypto', stocks: '🇮🇳 NSE Stock', commodities: '🪙 Commodity', forex: '💱 Forex' }[category] ?? category} ${tierBadge}</div>

@@ -460,6 +460,8 @@ button:focus-visible { outline: 2px solid var(--accent); border-radius: 4px; }
 .sh-visual .coin-logo { width: 22px; height: 22px; }
 .sh-visual .scanner-chip { right: -10px; bottom: -5px; font-size: 6px; line-height: 9px; padding: 0 3px; }
 .asset-icon.lg { font-size: 36px; min-width: 64px; height: 64px; }
+.asset-icon.lg .coin-logo { width: 54px; height: 54px; }
+.asset-icon.lg .coin-logo-fallback { width: 54px; height: 54px; font-size: 15px; }
 .asset-meta { min-width: 0; flex: 1; overflow: hidden; }
 .asset-name { font-weight: 600; font-size: 16px; color: #fff; line-height: 1.2; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .asset-symbol { font-size: 13px; color: var(--text-muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
