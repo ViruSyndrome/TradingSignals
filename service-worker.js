@@ -1,4 +1,4 @@
-﻿const CACHE_NAME = 'trendrunner-cache-v34';
+﻿const CACHE_NAME = 'trendrunner-cache-v35';
 
 self.addEventListener('message', event => {
   if (event.data?.type === 'SKIP_WAITING') self.skipWaiting();
