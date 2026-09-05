@@ -36,14 +36,14 @@ const Auth = {
         if (this.user) {
           this.logout();
         } else {
-          authModal.style.display = 'flex';
+          authModal.classList.add('open');
           this.isLoginMode = true;
           this._renderModalState();
         }
       });
     }
 
-    if (closeBtn) closeBtn.addEventListener('click', () => { authModal.style.display = 'none'; });
+    if (closeBtn) closeBtn.addEventListener('click', () => { authModal.classList.remove('open'); });
 
     if (toggleBtn) {
       toggleBtn.addEventListener('click', (e) => {
