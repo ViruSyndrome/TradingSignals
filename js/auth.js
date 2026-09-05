@@ -54,6 +54,23 @@ const Auth = {
     }
 
     if (submitBtn) submitBtn.addEventListener('click', () => this.handleAuthSubmit());
+    const googleBtn = document.getElementById('authGoogleBtn');
+    const githubBtn = document.getElementById('authGithubBtn');
+
+    if (googleBtn) {
+      googleBtn.addEventListener('click', async (e) => {
+        e.preventDefault();
+        await supabaseClient.auth.signInWithOAuth({ provider: 'google' });
+      });
+    }
+
+    if (githubBtn) {
+      githubBtn.addEventListener('click', async (e) => {
+        e.preventDefault();
+        await supabaseClient.auth.signInWithOAuth({ provider: 'github' });
+      });
+    }
+  
   },
 
   _renderModalState() {
