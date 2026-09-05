@@ -511,10 +511,12 @@ const Dashboard = {
         this.state.marketRegime = btcSma50 ? (btcPrice > btcSma50 ? 'bull' : 'bear') : 'flat';
       }
       this.state.allAssets = cleanAssets.map(d => {
-        // Use the saved signalResult instead of recalculating on truncated arrays
-        const signalResult = d.signalResult || { signal: 'NEUTRAL', score: 0 };
-        return { ...d, signalResult };
-      });
+          // Use the saved signalResult instead of recalculating on truncated arrays
+          const signalResult = d.signalResult || { signal: 'NEUTRAL', score: 0 };
+          // Populate previous signals so the first live fetch can detect and log changes!
+          this._previousSignals.set(d.asset?.id, signalResult.signal);
+          return { ...d, signalResult };
+        });
       this.state.lastUpdate = new Date(ts);
       this.state.dataStale = true;
       this.state.updatedAssetIds = new Set(this.state.allAssets.map(a => a.asset.id));
