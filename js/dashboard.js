@@ -150,9 +150,13 @@ const Dashboard = {
     try {
       const raw = localStorage.getItem(this.SIGNAL_HISTORY_KEY);
       const history = raw ? JSON.parse(raw) : [];
-      return Array.isArray(history)
+      const cleanedHistory = Array.isArray(history)
         ? history.filter(entry => !String(entry.id || '').toUpperCase().endsWith('_5M'))
         : [];
+      if (Array.isArray(history) && cleanedHistory.length !== history.length) {
+        localStorage.setItem(this.SIGNAL_HISTORY_KEY, JSON.stringify(cleanedHistory));
+      }
+      return cleanedHistory;
     } catch(e) { return []; }
   },
 
@@ -250,9 +254,7 @@ const Dashboard = {
     // Kick off an initial background scan 5 seconds after the app loads
     setTimeout(() => this._autoScanMoonshots(), 5000);
 
-    // Auto-scan meme scalps every 5 minutes, OFFSET by 2.5 min to avoid rate limits
-    this.state.scalperTimer = setInterval(() => this._autoScanScalps(), 5 * 60 * 1000);
-    setTimeout(() => this._autoScanScalps(), 150000); // 2.5 minutes after load
+    // Scalper scanning is intentionally disabled while the feature is not in use.
   },
 
   // Hide filter tabs for asset categories that are empty in CONFIG.

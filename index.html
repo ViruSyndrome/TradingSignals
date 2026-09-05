@@ -39,7 +39,7 @@
 
   <!-- Chart.js -->
   <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.4/dist/chart.umd.min.js"></script>
-  <link rel="stylesheet" href="styles.css?v=5.94" />
+  <link rel="stylesheet" href="styles.css?v=5.95" />
   
   <!-- Favicon & PWA Manifest -->
   <link rel="icon" type="image/png" href="icon-192.png">
@@ -52,11 +52,11 @@
     if ('serviceWorker' in navigator) {
       window.addEventListener('load', () => {
         const hadController = Boolean(navigator.serviceWorker.controller);
-        navigator.serviceWorker.register('./service-worker.js?v=5.92', { updateViaCache: 'none' })
+        navigator.serviceWorker.register('./service-worker.js?v=5.95', { updateViaCache: 'none' })
           .then(reg => {
             reg.update().catch(() => {});
             navigator.serviceWorker.addEventListener('controllerchange', () => {
-              const reloadKey = 'trendrunner_sw_update_5.92';
+              const reloadKey = 'trendrunner_sw_update_5.95';
               if (hadController && !sessionStorage.getItem(reloadKey)) {
                 sessionStorage.setItem(reloadKey, '1');
                 location.reload();
@@ -129,8 +129,8 @@
         <span class="nav-icon">🛡️</span> <span class="nav-text">Risk Calculator</span>
       </a>
     
-      <div class="sidebar-bottom-actions" style="margin-top:auto; padding: 0 16px; margin-bottom: 20px;">
-        <a href="#" class="nav-link" id="authBtn" style="background: rgba(0, 242, 254, 0.1); border: 1px solid var(--accent); justify-content: center;">
+      <div class="sidebar-bottom-actions">
+        <a href="#" class="nav-link auth-nav-link" id="authBtn">
           <span class="nav-icon">👤</span> <span class="nav-text" id="authBtnText">Sign In / Register</span>
         </a>
       </div>
@@ -597,7 +597,7 @@
   <!-- Version guard: if signals.js loaded is older than expected, force a full reload -->
   <script>
     // Version bumper to defeat GitHub Pages aggressive caching
-    window.__APP_VERSION__ = '5.92';
+    window.__APP_VERSION__ = '5.95';
     try {
       // Bulletproof scrub of corrupted data from localStorage before the app boots
       const wlStr = localStorage.getItem('trading_watchlist');
@@ -611,23 +611,23 @@
       // Nuke bloated caches that are causing QuotaExceededError (Removed to allow instant paint)
     } catch(e) {}
   </script>
-  <script src="js/config.js?v=5.92"></script>
-  <script src="js/api.js?v=5.92"></script>
-  <script src="js/indicators.js?v=5.92"></script>
-  <script src="js/signals.js?v=5.92"></script>
-  <script src="js/charts.js?v=5.92"></script>
+  <script src="js/config.js?v=5.95"></script>
+  <script src="js/api.js?v=5.95"></script>
+  <script src="js/indicators.js?v=5.95"></script>
+  <script src="js/signals.js?v=5.95"></script>
+  <script src="js/charts.js?v=5.95"></script>
   
-  <script src="js/scanner.js?v=5.92"></script>
-  <script src="js/backtest_ui.js?v=5.92"></script>
+  <script src="js/scanner.js?v=5.95"></script>
+  <script src="js/backtest_ui.js?v=5.95"></script>
   <script src="js/auth.js"></script>
-    <script src="js/dashboard.js?v=5.92"></script>
+    <script src="js/dashboard.js?v=5.95"></script>
   <script>
     // If signals.js didn't expose the right version, cached old code is running — force reload.
     if (typeof Signals === 'undefined' || Signals._version !== window.__APP_VERSION__) {
       if (!sessionStorage.getItem('reloaded_' + window.__APP_VERSION__)) {
         sessionStorage.setItem('reloaded_' + window.__APP_VERSION__, '1');
         // Show a friendly splash instead of a silent/jarring reload
-        document.body.innerHTML = '<div style="position:fixed;inset:0;background:#0c101a;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:16px;z-index:9999;font-family:-apple-system,BlinkMacSystemFont,sans-serif;"><img src=\"icon-192.png\" width=\"64\" height=\"64\" style=\"border-radius:16px\"><p style=\"color:#00f2fe;font-size:18px;font-weight:700;margin:0\">Updating TrendRunner…</p><p style=\"color:#94a3b8;font-size:14px;margin:0\">Loading the latest version</p><div style=\"width:200px;height:3px;background:#1e293b;border-radius:2px;overflow:hidden\"><div style=\"height:100%;background:linear-gradient(90deg,#00f2fe,#0ea5e9);animation:bar 1s ease-in-out infinite alternate;border-radius:2px\"></div></div></div><style>@keyframes bar{from{width:20%}to{width:100%}}</style>';
+        document.body.innerHTML = '<div class="update-splash"><img src="icon-192.png" width="64" height="64" class="update-splash-logo"><p class="update-splash-title">Updating TrendRunner…</p><p class="update-splash-copy">Loading the latest version</p><div class="update-splash-track"><div class="update-splash-bar"></div></div></div>';
         setTimeout(() => location.reload(), 800);
       }
     }
@@ -675,36 +675,36 @@
 
   <!-- Auth Modal -->
   <div class="modal-overlay" id="authModal">
-    <div class="modal-box" style="max-width: 400px; padding: 40px; margin: 20px auto;">
+    <div class="modal-box auth-modal-box">
       <div class="modal-header">
         <h2 id="authModalTitle">Sign In</h2>
         <button class="modal-close-btn" id="closeAuthModal">&times;</button>
       </div>
       <div class="modal-body">
-        <p style="color: var(--text-muted); margin-bottom: 20px; font-size: 14px;">Log in to save your locked coins and sync them across all your devices.</p>
+        <p class="auth-intro">Log in to save your locked coins and sync them across all your devices.</p>
         
-        <div style="display: flex; gap: 12px; margin-bottom: 16px;">
-          <button id="authGoogleBtn" class="btn" style="flex: 1; padding: 10px; background: #fff; color: #000; display: flex; align-items: center; justify-content: center; gap: 8px; border: none; border-radius: 6px; font-weight: 600; cursor: pointer;">
+        <div class="auth-provider-row">
+          <button id="authGoogleBtn" class="btn auth-provider-btn auth-google-btn">
             <img src="https://www.svgrepo.com/show/475656/google-color.svg" width="18" height="18" alt="Google"> Google
           </button>
-          <button id="authGithubBtn" class="btn" style="flex: 1; padding: 10px; background: #24292e; color: #fff; display: flex; align-items: center; justify-content: center; gap: 8px; border: none; border-radius: 6px; font-weight: 600; cursor: pointer;">
+          <button id="authGithubBtn" class="btn auth-provider-btn auth-github-btn">
             <svg width="18" height="18" viewBox="0 0 24 24" fill="currentColor"><path d="M12 0C5.374 0 0 5.373 0 12c0 5.302 3.438 9.8 8.207 11.387.6.113.793-.261.793-.577v-2.234c-3.338.726-4.033-1.416-4.033-1.416-.546-1.387-1.333-1.756-1.333-1.756-1.089-.745.083-.729.083-.729 1.205.084 1.839 1.237 1.839 1.237 1.07 1.834 2.807 1.304 3.492.997.107-.775.418-1.305.762-1.604-2.665-.305-5.467-1.334-5.467-5.931 0-1.311.469-2.381 1.236-3.221-.124-.303-.535-1.524.117-3.176 0 0 1.008-.322 3.301 1.23A11.509 11.509 0 0112 5.803c1.02.005 2.047.138 3.006.404 2.291-1.552 3.297-1.23 3.297-1.23.653 1.653.242 2.874.118 3.176.77.84 1.235 1.911 1.235 3.221 0 4.609-2.807 5.624-5.479 5.921.43.372.823 1.102.823 2.222v3.293c0 .319.192.694.801.576C20.566 21.797 24 17.3 24 12c0-6.627-5.373-12-12-12z"/></svg> GitHub
           </button>
         </div>
-        <div style="text-align: center; color: var(--text-muted); font-size: 12px; margin-bottom: 16px; text-transform: uppercase; letter-spacing: 1px;">- or use email -</div>
+        <div class="auth-divider">- or use email -</div>
         <div class="input-group">
           <label>Email Address</label>
-          <input type="email" id="authEmail" placeholder="trader@example.com" style="width: 100%; padding: 12px; background: var(--bg-dark); border: 1px solid var(--border); color: white; border-radius: 6px; margin-bottom: 12px; box-sizing: border-box;">
+          <input type="email" id="authEmail" class="auth-input" placeholder="trader@example.com">
         </div>
         <div class="input-group">
           <label>Password</label>
-          <input type="password" id="authPassword" placeholder="••••••••" style="width: 100%; padding: 12px; background: var(--bg-dark); border: 1px solid var(--border); color: white; border-radius: 6px; margin-bottom: 20px; box-sizing: border-box;">
+          <input type="password" id="authPassword" class="auth-input auth-password-input" placeholder="••••••••">
         </div>
-        <p id="authError" style="color: var(--c-red); font-size: 13px; margin-bottom: 12px; display: none;"></p>
-        <button id="authSubmitBtn" class="btn btn-primary" style="width: 100%; padding: 12px; margin-bottom: 12px; justify-content:center;">Sign In</button>
-        <div style="text-align: center; font-size: 13px; color: var(--text-muted);">
+        <p id="authError" class="auth-error"></p>
+        <button id="authSubmitBtn" class="btn btn-primary auth-submit-btn">Sign In</button>
+        <div class="auth-toggle-row">
           <span id="authToggleText">Don't have an account?</span> 
-          <a href="#" id="authToggleBtn" style="color: var(--accent);">Register here</a>
+          <a href="#" id="authToggleBtn" class="auth-toggle-link">Register here</a>
         </div>
       </div>
     </div>
