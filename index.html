@@ -69,11 +69,16 @@
 </head>
 <body>
 <div id="trendrunner-loader" style="position:fixed; top:0; left:0; width:100%; height:100%; background:var(--bg-app); z-index:99999; display:flex; flex-direction:column; align-items:center; justify-content:center; color:var(--text-main); font-family:'Outfit', sans-serif;">
-  <div class="spinner" style="width:40px; height:40px; border:4px solid rgba(255,255,255,0.1); border-top-color:var(--accent); border-radius:50%; animation:spin 1s linear infinite; margin-bottom:20px;"></div>
-  <h2 style="margin:0 0 10px 0; font-size:24px;">TrendRunner Engine</h2>
-  <p style="margin:0; color:var(--text-muted); font-size:14px;">Fetching market data from Binance API...</p>
+  <img src="icon-transparent.png" alt="TrendRunner Logo" style="width:80px; height:80px; margin-bottom:24px; animation: pulseGlow 1.5s ease-in-out infinite alternate;">
+  <h2 style="margin:0 0 10px 0; font-size:24px; background: linear-gradient(to right, #00f2fe, #4facfe); -webkit-background-clip: text; -webkit-text-fill-color: transparent;">TrendRunner Engine</h2>
+  <p style="margin:0; color:var(--text-muted); font-size:14px;">Initializing algorithm & fetching market data...</p>
 </div>
-<style>@keyframes spin { 100% { transform: rotate(360deg); } }</style>
+<style>
+  @keyframes pulseGlow {
+    0% { transform: scale(1); filter: drop-shadow(0 0 5px rgba(0, 242, 254, 0.2)); }
+    100% { transform: scale(1.1); filter: drop-shadow(0 0 25px rgba(0, 242, 254, 0.8)); }
+  }
+</style>
 
 
   <!-- iOS PWA Install Banner (only shows on Safari iOS, once per device) -->
