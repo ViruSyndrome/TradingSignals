@@ -1492,6 +1492,9 @@ const Dashboard = {
         btn.style.opacity = '0.25';
       }
     });
+    
+    // Refresh the asset grid so Holdings tab immediately shows the newly locked coin
+    this._render();
   },
 
   _toggleWatchlist(id) {
