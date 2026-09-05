@@ -448,13 +448,16 @@ button:focus-visible { outline: 2px solid var(--accent); border-radius: 4px; }
 .card-header { display: flex; justify-content: space-between; align-items: flex-start; margin-bottom: 16px; gap: 10px; }
 .card-title-row { display: flex; align-items: flex-start; gap: 12px; flex: 1; min-width: 0; }
 .asset-icon { font-size: 24px; min-width: 40px; height: 40px; border-radius: 50%; background: rgba(255,255,255,0.05); display: flex; align-items: center; justify-content: center; }
-.asset-icon.asset-mark { position: relative; overflow: hidden; }
-.moonshot-mark { background: linear-gradient(145deg, #122b4a, #00a6c7); box-shadow: inset 0 0 0 1px rgba(88, 232, 255, 0.55), 0 0 14px rgba(0, 194, 255, 0.2); }
-.moonshot-mark::before { content: ''; position: absolute; width: 22px; height: 22px; border: 2px solid #8df3ff; border-left-color: transparent; border-bottom-color: transparent; border-radius: 50%; transform: rotate(-35deg); }
-.moonshot-mark::after { content: ''; position: absolute; width: 7px; height: 7px; border-top: 2px solid #ffffff; border-right: 2px solid #ffffff; transform: translate(8px, -8px) rotate(45deg); }
-.scalper-mark { background: linear-gradient(145deg, #402417, #d56b26); box-shadow: inset 0 0 0 1px rgba(255, 190, 111, 0.55), 0 0 14px rgba(213, 107, 38, 0.2); }
-.scalper-mark::before { content: ''; position: absolute; width: 24px; height: 14px; background: linear-gradient(135deg, transparent 0 17%, #ffd39a 18% 25%, transparent 26% 42%, #ffd39a 43% 50%, transparent 51% 67%, #ffd39a 68% 75%, transparent 76%); transform: rotate(-8deg); }
-.scalper-mark::after { content: ''; position: absolute; width: 6px; height: 6px; border-radius: 50%; background: #ffffff; box-shadow: 0 0 0 3px rgba(255, 211, 154, 0.25); transform: translate(9px, -7px); }
+.asset-visual { position: relative; overflow: visible; }
+.coin-logo { width: 34px; height: 34px; object-fit: contain; border-radius: 50%; }
+.coin-logo.logo-fallback { display: none; }
+.scanner-visual { background: linear-gradient(145deg, #122b4a, #00a6c7); box-shadow: inset 0 0 0 1px rgba(88, 232, 255, 0.55), 0 0 14px rgba(0, 194, 255, 0.2); }
+.scalper-visual { background: linear-gradient(145deg, #402417, #d56b26); box-shadow: inset 0 0 0 1px rgba(255, 190, 111, 0.55), 0 0 14px rgba(213, 107, 38, 0.2); }
+.scanner-chip { position: absolute; right: -8px; bottom: -5px; padding: 1px 4px; border-radius: 4px; font-size: 7px; line-height: 11px; font-weight: 800; letter-spacing: 0.3px; color: #07111c; background: #8df3ff; box-shadow: 0 2px 6px rgba(0,0,0,0.35); }
+.scalper-chip { color: #261305; background: #ffd39a; }
+.sh-visual { position: relative; display: flex; width: 22px; height: 22px; align-items: center; justify-content: center; flex-shrink: 0; }
+.sh-visual .coin-logo { width: 22px; height: 22px; }
+.sh-visual .scanner-chip { right: -10px; bottom: -5px; font-size: 6px; line-height: 9px; padding: 0 3px; }
 .asset-icon.lg { font-size: 36px; min-width: 64px; height: 64px; }
 .asset-meta { min-width: 0; flex: 1; overflow: hidden; }
 .asset-name { font-weight: 600; font-size: 16px; color: #fff; line-height: 1.2; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
