@@ -1118,7 +1118,7 @@ const Dashboard = {
           const baseId = String(h.id || '').toUpperCase().replace(/_(?:4H|5M)$/, '');
           const baseSymbol = baseId.endsWith('USDT') ? baseId.slice(0, -4) : baseId;
           const binanceId = `${baseSymbol}_USDT`;
-          const logoUrl = `https://bin.bnbstatic.com/static/assets/logos/${baseSymbol.toLowerCase()}.png`;
+          const logoUrl = `assets/coin-logos/${baseSymbol.toLowerCase()}.png`;
           const backupLogoUrl = `https://raw.githubusercontent.com/atomiclabs/cryptocurrency-icons/master/128/color/${baseSymbol.toLowerCase()}.png`;
           const scannerType = String(h.id || '').toUpperCase().endsWith('_4H') ? 'moonshot' : '';
           const scannerChip = scannerType ? '<span class="scanner-chip moonshot-chip">MOON</span>' : '';
@@ -1283,7 +1283,7 @@ const Dashboard = {
     const winnerBadge = this._winnerTierBadge(winnerTier);
     const updateClass = this.state.updatedAssetIds.has(asset.id) ? ' value-updated' : '';
     const logoSymbol = String(asset.symbol || normalizedId).replace(/USDT.*$/i, '').replace(/[^a-z0-9]/gi, '').toLowerCase();
-    const logoUrl = `https://bin.bnbstatic.com/static/assets/logos/${logoSymbol}.png`;
+    const logoUrl = `assets/coin-logos/${logoSymbol}.png`;
     const backupLogoUrl = `https://raw.githubusercontent.com/atomiclabs/cryptocurrency-icons/master/128/color/${logoSymbol}.png`;
     const scannerType = asset.isMoonshot ? 'moonshot' : asset.isScalp ? 'scalper' : '';
     const scannerChip = scannerType
