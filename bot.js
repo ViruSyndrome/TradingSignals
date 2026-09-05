@@ -22,8 +22,7 @@ global.Indicators = Indicators; // signals.js references Indicators as a global
 
 const token = process.env.TELEGRAM_BOT_TOKEN;
 const chatId = process.env.TELEGRAM_CHAT_ID;
-const isRender = Boolean(process.env.RENDER_EXTERNAL_URL || process.env.RENDER_SERVICE_ID);
-const pollingEnabled = Boolean(token && chatId) && !isRender && process.env.TELEGRAM_POLLING !== 'false';
+const pollingEnabled = Boolean(token && chatId) && process.env.TELEGRAM_POLLING === 'true';
 
 const { TwitterApi } = require('twitter-api-v2');
 

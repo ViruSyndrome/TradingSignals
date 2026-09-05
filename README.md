@@ -26,7 +26,7 @@ The dashboard is entirely static frontend HTML/JS/CSS.
 ### Telegram Bot
 The bot requires Node.js.
 1. Run `npm install` to install dependencies (`node-telegram-bot-api`, `dotenv`).
-2. Copy `.env.example` to `.env` and insert your Telegram Bot Token and Chat ID.
+2. Copy `.env.example` to `.env` and insert your Telegram Bot Token and Chat ID. Set `TELEGRAM_POLLING=true` only on the single deployment that should receive `/start`, `/buy`, `/sell`, and `/status` commands.
 3. Run `node bot.js` to start the bot.
 
 ## Validation & Testing
