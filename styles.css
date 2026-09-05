@@ -1394,3 +1394,9 @@ body.modal-open { overflow: hidden; }
 .moonshot-empty-sub strong {
   color: var(--accent);
 }
+
+
+.edu-link-accent {
+  color: var(--accent);
+  font-weight: bold;
+}
