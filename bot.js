@@ -303,24 +303,6 @@ If you sell, reply /sell ${asset.symbol}`;
     console.error('Fatal error during scanMarket:', err);
   }
   
-    // Post daily marketing summary if we haven't in 24h
-    if (typeof twitterClient !== 'undefined' && twitterClient) {
-      const TWENTY_FOUR_HOURS = 24 * 60 * 60 * 1000;
-      const now = Date.now();
-      const timeSinceDaily = now - (twitterState.lastDailyTweet || 0);
-      
-      if (timeSinceDaily > TWENTY_FOUR_HOURS && highestScoreCoin) {
-        const cleanSymbol = highestScoreCoin.replace('USDT', '');
-        const dailyMsg = `📊 Daily Market Scan Complete!\n\nGreed Index: ${fearGreed}\nMarket Regime: ${marketRegime.toUpperCase()}\nActive Buy Setups: ${buyCount}\n\nTop Chart Today: ${cleanSymbol} (Score: +${highestScore})\n\nCheck the free dashboard for exact entry and stop-loss targets 👇\nhttps://trendrunner.app\n\n#Crypto #Trading #${cleanSymbol}`;
-        
-        twitterClient.v2.tweet(dailyMsg).then(() => {
-          console.log('🐦 Tweeted Daily Marketing Summary!');
-          twitterState.lastDailyTweet = now;
-          saveTwitterState(twitterState);
-        }).catch(e => console.error('Daily tweet failed:', e));
-      }
-    }
-    
     console.log('Scan complete.');
 }
 // Scan every 1 hour (3600000 ms)
