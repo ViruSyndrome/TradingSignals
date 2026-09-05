@@ -1455,31 +1455,44 @@ const Dashboard = {
     return price.toFixed(6);
   },
 
-  _toggleInvested(id) {
+    _toggleInvested(originalId) {
     // Locks always store the base daily pair, even from a 4H Moonshot card
-    id = id.toUpperCase().replace('_4H', '').replace('_5M', '');
+    let id = originalId.toUpperCase().replace('_4H', '').replace('_5M', '');
     if (!id.endsWith('USDT')) id += 'USDT';
 
     if (this.state.invested.includes(id)) {
       this.state.invested = this.state.invested.filter(x => x !== id);
     } else {
       this.state.invested.push(id);
+      
+      // If we are locking a Moonshot coin that isn't tracked yet in the main dashboard, graft it in!
+      if (!CONFIG.assets.crypto.some(a => a.id === id)) {
+        CONFIG.assets.crypto.push({
+          id: id,
+          symbol: id.replace('USDT', ''),
+          name: id.replace('USDT', ''),
+          currency: 'USD',
+          icon: '💎'
+        });
+        // Trigger a background load to instantly fetch its history for the main dash
+        setTimeout(() => this.loadAll(true), 10);
+      }
     }
+    
     try { localStorage.setItem('trading_invested', JSON.stringify(this.state.invested)); } catch(e) { console.warn('Failed to save lock status', e); }
 
     const isLocked = this.state.invested.includes(id);
-    document.querySelectorAll(`.lock-btn[data-lock-id="${id}"]`).forEach(btn => {
+    // Update both the base ID and the 4H ID buttons in the UI
+    document.querySelectorAll(`.lock-btn[data-lock-id="${id}"], .lock-btn[data-lock-id="${id}_4H"]`).forEach(btn => {
       if (isLocked) {
         btn.classList.add('active');
         btn.style.opacity = '1';
-        btn.title = 'Locked (Invested). Will not be auto-removed.';
       } else {
         btn.classList.remove('active');
         btn.style.opacity = '0.25';
-        btn.title = "Lock this coin (I've invested). Prevents auto-cleanup.";
       }
     });
-  },
+  },,
 
   _toggleWatchlist(id) {
     // Normalize old IDs (e.g. 'eden' -> 'EDENUSDT') just in case
