@@ -36,7 +36,7 @@
 
   <!-- Chart.js -->
   <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.4/dist/chart.umd.min.js"></script>
-  <link rel="stylesheet" href="styles.css?v=5.81" />
+  <link rel="stylesheet" href="styles.css?v=5.82" />
   
   <!-- Favicon & PWA Manifest -->
   <link rel="icon" type="image/png" href="icon-192.png">
@@ -49,11 +49,11 @@
     if ('serviceWorker' in navigator) {
       window.addEventListener('load', () => {
         const hadController = Boolean(navigator.serviceWorker.controller);
-        navigator.serviceWorker.register('./service-worker.js?v=5.81', { updateViaCache: 'none' })
+        navigator.serviceWorker.register('./service-worker.js?v=5.82', { updateViaCache: 'none' })
           .then(reg => {
             reg.update().catch(() => {});
             navigator.serviceWorker.addEventListener('controllerchange', () => {
-              const reloadKey = 'trendrunner_sw_update_5.81';
+              const reloadKey = 'trendrunner_sw_update_5.82';
               if (hadController && !sessionStorage.getItem(reloadKey)) {
                 sessionStorage.setItem(reloadKey, '1');
                 location.reload();
@@ -73,44 +73,6 @@
   <h2 class="trendrunner-loader-title">TrendRunner Engine</h2>
   <p class="trendrunner-loader-text">Initializing algorithm & fetching market data...</p>
 </div>
-<style>
-  .trendrunner-loader {
-    position: fixed;
-    top: 0;
-    left: 0;
-    width: 100%;
-    height: 100%;
-    background: var(--bg-app);
-    z-index: 99999;
-    display: flex;
-    flex-direction: column;
-    align-items: center;
-    justify-content: center;
-    color: var(--text-main);
-    font-family: 'Outfit', sans-serif;
-  }
-
-  .trendrunner-loader-img {
-    width: 80px;
-    height: 80px;
-    margin-bottom: 24px;
-    animation: pulseGlow 1.5s ease-in-out infinite alternate;
-  }
-
-  .trendrunner-loader-title {
-    margin: 0 0 10px 0;
-    font-size: 24px;
-    background: linear-gradient(to right, #00f2fe, #4facfe);
-    -webkit-background-clip: text;
-    -webkit-text-fill-color: transparent;
-  }
-
-  .trendrunner-loader-text {
-    margin: 0;
-    color: var(--text-muted);
-    font-size: 14px;
-  }
-</style>
 
   <!-- iOS PWA Install Banner (only shows on Safari iOS, once per device) -->
   <div id="iosBanner" class="ios-banner">
@@ -626,7 +588,7 @@
   <!-- Version guard: if signals.js loaded is older than expected, force a full reload -->
   <script>
     // Version bumper to defeat GitHub Pages aggressive caching
-    window.__APP_VERSION__ = '5.81';
+    window.__APP_VERSION__ = '5.82';
     try {
       // Bulletproof scrub of corrupted data from localStorage before the app boots
       const wlStr = localStorage.getItem('trading_watchlist');
@@ -640,15 +602,15 @@
       // Nuke bloated caches that are causing QuotaExceededError (Removed to allow instant paint)
     } catch(e) {}
   </script>
-  <script src="js/config.js?v=5.81"></script>
-  <script src="js/api.js?v=5.81"></script>
-  <script src="js/indicators.js?v=5.81"></script>
-  <script src="js/signals.js?v=5.81"></script>
-  <script src="js/charts.js?v=5.81"></script>
+  <script src="js/config.js?v=5.82"></script>
+  <script src="js/api.js?v=5.82"></script>
+  <script src="js/indicators.js?v=5.82"></script>
+  <script src="js/signals.js?v=5.82"></script>
+  <script src="js/charts.js?v=5.82"></script>
   
-  <script src="js/scanner.js?v=5.81"></script>
-  <script src="js/backtest_ui.js?v=5.81"></script>
-  <script src="js/dashboard.js?v=5.81"></script>
+  <script src="js/scanner.js?v=5.82"></script>
+  <script src="js/backtest_ui.js?v=5.82"></script>
+  <script src="js/dashboard.js?v=5.82"></script>
   <script>
     // If signals.js didn't expose the right version, cached old code is running — force reload.
     if (typeof Signals === 'undefined' || Signals._version !== window.__APP_VERSION__) {
