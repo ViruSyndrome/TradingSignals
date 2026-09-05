@@ -1104,7 +1104,7 @@ const Dashboard = {
           const toLevel = Signals.level(h.to);
           const priceStr = h.price ? '$' + (h.price < 1 ? h.price.toFixed(4) : h.price.toFixed(2)) : '';
           const binanceId = h.id.replace('USDT', '_USDT');
-          return `<a href="https://www.binance.com/en/trade/${binanceId}?type=spot&ref=YOUR_BINANCE_REF_ID" target="_blank" class="signal-history-entry" style="text-decoration:none; color:inherit;">
+          return `<a href="https://www.binance.com/en/trade/${binanceId}?type=spot&ref=1264948110" target="_blank" class="signal-history-entry" style="text-decoration:none; color:inherit;">
             <span class="sh-icon">${h.icon}</span>
             <span class="sh-name">${h.name} <small>${h.symbol}</small></span>
             <span class="signal-badge signal-${fromLevel.cls}" style="font-size:11px;padding:2px 6px;">${fromLevel.short}</span>
@@ -1842,19 +1842,27 @@ const Dashboard = {
 
     // Summary Signal Filtering
     document.getElementById('summaryBar')?.addEventListener('click', e => {
-      const item = e.target.closest('.filterable');
-      if (!item) return;
-      const sig = item.dataset.signal;
-      if (sig === 'ALL' || this.state.activeSignalFilter === sig) {
-        this.state.activeSignalFilter = null; // reset filter
-      } else {
-        this.state.activeSignalFilter = sig;
-        // Auto-scroll to the asset grid ONLY when actively selecting a new filter
-        document.getElementById('assetGrid')?.scrollIntoView({ behavior: 'smooth', block: 'start' });
-      }
-      this._renderSummaryBar();
-      this._renderAssetGrid();
-    });
+        const item = e.target.closest('.filterable');
+        if (!item) return;
+        const sig = item.dataset.signal;
+        
+        // If clicking a summary filter while on a non-asset tab, force switch to 'all'
+        if (this.state.activeCategory === 'history') {
+          this.state.activeCategory = 'all';
+          document.querySelectorAll('.filter-tab').forEach(tab => {
+            tab.classList.toggle('active', tab.dataset.cat === 'all');
+          });
+        }
+        
+        if (sig === 'ALL' || this.state.activeSignalFilter === sig) {
+          this.state.activeSignalFilter = null; // reset filter
+        } else {
+          this.state.activeSignalFilter = sig;
+          document.getElementById('assetGrid')?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+        }
+        this._renderSummaryBar();
+        this._renderAssetGrid();
+      });
 
     // Asset Search
     document.getElementById('assetSearchInput')?.addEventListener('input', (e) => {
