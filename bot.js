@@ -330,10 +330,12 @@ setInterval(scanMarket, 3600000);
 setTimeout(scanMarket, 5000);
 
 // --- Cloud Keep-Alive Server ---
-const express = require('express');
-const app = express();
-app.get('/', (req, res) => res.send('Bot is running.'));
-app.get('/health', (req, res) => res.status(200).json({ status: 'ok' }));
-const PORT = process.env.PORT || 3000;
-const server = app.listen(PORT, () => console.log(`Web server listening on port ${PORT}`));
-server.on('error', error => console.error(`[Server] Failed to bind port ${PORT}: ${error.message}`));
+if (!process.env.BOT_WORKER_ONLY) {
+  const express = require('express');
+  const app = express();
+  app.get('/', (req, res) => res.send('Bot is running.'));
+  app.get('/health', (req, res) => res.status(200).json({ status: 'ok' }));
+  const PORT = process.env.PORT || 3000;
+  const server = app.listen(PORT, () => console.log(`Web server listening on port ${PORT}`));
+  server.on('error', error => console.error(`[Server] Failed to bind port ${PORT}: ${error.message}`));
+}
