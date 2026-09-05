@@ -149,7 +149,10 @@ const Dashboard = {
   _getSignalHistory() {
     try {
       const raw = localStorage.getItem(this.SIGNAL_HISTORY_KEY);
-      return raw ? JSON.parse(raw) : [];
+      const history = raw ? JSON.parse(raw) : [];
+      return Array.isArray(history)
+        ? history.filter(entry => !String(entry.id || '').toUpperCase().endsWith('_5M'))
+        : [];
     } catch(e) { return []; }
   },
 
@@ -1115,8 +1118,11 @@ const Dashboard = {
           const baseId = String(h.id || '').toUpperCase().replace(/_(?:4H|5M)$/, '');
           const baseSymbol = baseId.endsWith('USDT') ? baseId.slice(0, -4) : baseId;
           const binanceId = `${baseSymbol}_USDT`;
+          const historyIcon = String(h.id || '').toUpperCase().endsWith('_4H')
+            ? '<span class="asset-icon asset-mark moonshot-mark" title="Moonshot scanner" aria-label="Moonshot scanner"><span></span></span>'
+            : `<span class="sh-icon">${h.icon}</span>`;
           return `<a href="https://www.binance.com/en/trade/${binanceId}?type=spot&ref=TRENDRUNNER" target="_blank" rel="noopener noreferrer" class="signal-history-entry" style="text-decoration:none; color:inherit;">
-            <span class="sh-icon">${h.icon}</span>
+            ${historyIcon}
             <span class="sh-name">${h.name} <small>${h.symbol}</small></span>
             <span class="signal-badge signal-${fromLevel.cls}" style="font-size:11px;padding:2px 6px;">${fromLevel.short}</span>
             <span class="sh-arrow">→</span>
@@ -1274,10 +1280,11 @@ const Dashboard = {
     const catBadge = { crypto: '₿ Crypto', stocks: '🇮🇳 Stock', commodities: '🪙 Commodity', forex: '💱 Forex' }[category] ?? category;
     const winnerBadge = this._winnerTierBadge(winnerTier);
     const updateClass = this.state.updatedAssetIds.has(asset.id) ? ' value-updated' : '';
-    const isScannedAsset = asset.isMoonshot || asset.isScalp || asset.grafted;
-    const assetMark = isScannedAsset
-      ? `<span class="asset-icon asset-monogram" aria-hidden="true">${asset.symbol.slice(0, 3)}</span>`
-      : `<span class="asset-icon">${asset.icon}</span>`;
+    const assetMark = asset.isMoonshot
+      ? '<span class="asset-icon asset-mark moonshot-mark" title="Moonshot scanner" aria-label="Moonshot scanner"><span></span></span>'
+      : asset.isScalp
+        ? '<span class="asset-icon asset-mark scalper-mark" title="Scalper scanner" aria-label="Scalper scanner"><span></span></span>'
+        : `<span class="asset-icon">${asset.icon}</span>`;
 
     let fundChip = '';
     if (d.tvl && d.tvl > 0) {
