@@ -560,9 +560,15 @@ const Signals = {
     if (curAtr && (signal.includes('BUY') || signal.includes('SELL'))) {
       const isLong = signal.includes('BUY');
       const mult = 2.5; // Slightly wider stop for highly volatile moonshots
-      const risk = curAtr * mult;
-      const stopPrice = isLong ? price - risk : price + risk;
-      const takeProfitPrice = isLong ? price + risk * 2 : price - risk * 2;
+        let risk = curAtr * mult;
+        
+        // Enforce strict 5% max stop-loss rule for Moonshots
+        const maxRisk = price * 0.05;
+        if (risk > maxRisk) risk = maxRisk;
+        
+        const stopPrice = isLong ? price - risk : price + risk;
+        // Keep Take Profit highly asymmetric (3R for moonshots)
+        const takeProfitPrice = isLong ? price + risk * 3 : price - risk * 3;
       const distPct = ((risk / price) * 100).toFixed(2);
       
       stopSuggest = {
