@@ -579,7 +579,8 @@ const Dashboard = {
     for (let i = CONFIG.assets.crypto.length - 1; i >= 0; i--) {
       const asset = CONFIG.assets.crypto[i];
       if (asset.grafted && asset.isMoonshot) {
-        if (this.state.invested.includes(asset.id)) continue;
+        const baseId = asset.id.replace('_4H', '').replace('_5M', '');
+        if (this.state.invested.includes(baseId)) continue;
         if (this._isMoonshotInReview(asset.id)) continue;
         
         const d = this.state.allAssets.find(a => a.asset.id === asset.id);
@@ -1273,6 +1274,10 @@ const Dashboard = {
     const catBadge = { crypto: '₿ Crypto', stocks: '🇮🇳 Stock', commodities: '🪙 Commodity', forex: '💱 Forex' }[category] ?? category;
     const winnerBadge = this._winnerTierBadge(winnerTier);
     const updateClass = this.state.updatedAssetIds.has(asset.id) ? ' value-updated' : '';
+    const isScannedAsset = asset.isMoonshot || asset.isScalp || asset.grafted;
+    const assetMark = isScannedAsset
+      ? `<span class="asset-icon asset-monogram" aria-hidden="true">${asset.symbol.slice(0, 3)}</span>`
+      : `<span class="asset-icon">${asset.icon}</span>`;
 
     let fundChip = '';
     if (d.tvl && d.tvl > 0) {
@@ -1327,7 +1332,7 @@ const Dashboard = {
       <div class="asset-card signal-border-${level.cls} winner-tier-${winnerTier} ${this.state.updatedAssetIds.has(asset.id) ? 'data-updated' : ''}" data-asset-id="${asset.id}" data-category="${category}" role="button" tabindex="0" aria-label="${asset.name} signal card">
         <div class="card-header">
           <div class="card-title-row">
-            <span class="asset-icon">${asset.icon}</span>
+            ${assetMark}
             <div class="asset-meta">
               <div class="asset-name">${asset.name}</div>
               <a href="https://www.binance.com/en/trade/${asset.symbol}_USDT?type=spot&ref=TRENDRUNNER" target="_blank" class="asset-symbol" style="text-decoration:none; color:var(--text-secondary); pointer-events: auto;" title="Trade on Binance">${asset.symbol}USDT ↗</a>

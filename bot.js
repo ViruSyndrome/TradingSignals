@@ -59,6 +59,11 @@ function savePortfolio(data) {
 
 // --- Interactive Commands (Telegram Only) ---
 if (bot) {
+  bot.onText(/\/start/, (msg) => {
+    if (msg.chat.id.toString() !== chatId) return;
+    bot.sendMessage(chatId, "🤖 Trade Signals Bot is online and scans every 1 hour.\n\nUse /buy BTC to track a coin you own for sell alerts.\nUse /status to see your owned coins.");
+  });
+
   bot.onText(/\/buy (.+)/, (msg, match) => {
     if (msg.chat.id.toString() !== chatId) return;
     const symbol = match[1].toUpperCase().replace('USDT', '') + 'USDT';
@@ -312,14 +317,6 @@ setInterval(scanMarket, 3600000);
 
 // Run an initial scan 5 seconds after startup
 setTimeout(scanMarket, 5000);
-
-// Send welcome message, but catch error if user hasn't clicked Start yet
-if (bot) {
-  bot.sendMessage(chatId, "🤖 Trade Signals Bot is now online! Scanning every 1 hour.\n\nUse /buy BTC to track a coin you own for sell alerts.\nUse /status to see your owned coins.").catch(e => {
-    console.log("Could not send welcome message. User needs to click Start on Telegram first.");
-  });
-}
-
 
 // --- Cloud Keep-Alive Server ---
 const express = require('express');
