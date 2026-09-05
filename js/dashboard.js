@@ -1118,11 +1118,13 @@ const Dashboard = {
           const baseId = String(h.id || '').toUpperCase().replace(/_(?:4H|5M)$/, '');
           const baseSymbol = baseId.endsWith('USDT') ? baseId.slice(0, -4) : baseId;
           const binanceId = `${baseSymbol}_USDT`;
-          const logoUrl = `assets/coin-logos/${baseSymbol.toLowerCase()}.png`;
-          const backupLogoUrl = `https://raw.githubusercontent.com/atomiclabs/cryptocurrency-icons/master/128/color/${baseSymbol.toLowerCase()}.png`;
+          const logoSymbol = baseSymbol.toLowerCase();
+          const logoUrl = `assets/coin-logos/${logoSymbol}.svg`;
+          const backupLogoUrl = `assets/coin-logos/${logoSymbol}.png`;
+          const remoteLogoUrl = `https://raw.githubusercontent.com/atomiclabs/cryptocurrency-icons/master/128/color/${logoSymbol}.png`;
           const scannerType = String(h.id || '').toUpperCase().endsWith('_4H') ? 'moonshot' : '';
           const scannerChip = scannerType ? '<span class="scanner-chip moonshot-chip">MOON</span>' : '';
-          const historyIcon = `<span class="sh-visual ${scannerType ? `scanner-visual ${scannerType}-visual` : ''}"><img class="coin-logo" src="${logoUrl}" alt="${baseSymbol} logo" loading="lazy" onerror="if(!this.dataset.retry){this.dataset.retry='1';this.src='${backupLogoUrl}';}else{this.style.display='none';this.nextElementSibling.style.display='flex';}"><span class="coin-logo-fallback">${baseSymbol.slice(0, 3)}</span>${scannerChip}</span>`;
+          const historyIcon = `<span class="sh-visual ${scannerType ? `scanner-visual ${scannerType}-visual` : ''}"><img class="coin-logo" src="${logoUrl}" alt="${baseSymbol} logo" loading="lazy" onerror="if(this.dataset.retry==='1'){this.dataset.retry='2';this.src='${remoteLogoUrl}';}else if(!this.dataset.retry){this.dataset.retry='1';this.src='${backupLogoUrl}';}else{this.style.display='none';this.nextElementSibling.style.display='flex';}"><span class="coin-logo-fallback">${baseSymbol.slice(0, 3)}</span>${scannerChip}</span>`;
           return `<a href="https://www.binance.com/en/trade/${binanceId}?type=spot&ref=TRENDRUNNER" target="_blank" rel="noopener noreferrer" class="signal-history-entry" style="text-decoration:none; color:inherit;">
             ${historyIcon}
             <span class="sh-name">${h.name} <small>${h.symbol}</small></span>
@@ -1283,13 +1285,14 @@ const Dashboard = {
     const winnerBadge = this._winnerTierBadge(winnerTier);
     const updateClass = this.state.updatedAssetIds.has(asset.id) ? ' value-updated' : '';
     const logoSymbol = String(asset.symbol || normalizedId).replace(/USDT.*$/i, '').replace(/[^a-z0-9]/gi, '').toLowerCase();
-    const logoUrl = `assets/coin-logos/${logoSymbol}.png`;
-    const backupLogoUrl = `https://raw.githubusercontent.com/atomiclabs/cryptocurrency-icons/master/128/color/${logoSymbol}.png`;
+    const logoUrl = `assets/coin-logos/${logoSymbol}.svg`;
+    const backupLogoUrl = `assets/coin-logos/${logoSymbol}.png`;
+    const remoteLogoUrl = `https://raw.githubusercontent.com/atomiclabs/cryptocurrency-icons/master/128/color/${logoSymbol}.png`;
     const scannerType = asset.isMoonshot ? 'moonshot' : asset.isScalp ? 'scalper' : '';
     const scannerChip = scannerType
       ? `<span class="scanner-chip ${scannerType}-chip">${scannerType === 'moonshot' ? 'MOON' : 'SCALP'}</span>`
       : '';
-    const assetMark = `<span class="asset-icon asset-visual ${scannerType ? `scanner-visual ${scannerType}-visual` : ''}"><img class="coin-logo" src="${logoUrl}" alt="${asset.symbol} logo" loading="lazy" onerror="if(!this.dataset.retry){this.dataset.retry='1';this.src='${backupLogoUrl}';}else{this.style.display='none';this.nextElementSibling.style.display='flex';}"><span class="coin-logo-fallback">${String(asset.symbol || normalizedId).slice(0, 3)}</span>${scannerChip}</span>`;
+    const assetMark = `<span class="asset-icon asset-visual ${scannerType ? `scanner-visual ${scannerType}-visual` : ''}"><img class="coin-logo" src="${logoUrl}" alt="${asset.symbol} logo" loading="lazy" onerror="if(this.dataset.retry==='1'){this.dataset.retry='2';this.src='${remoteLogoUrl}';}else if(!this.dataset.retry){this.dataset.retry='1';this.src='${backupLogoUrl}';}else{this.style.display='none';this.nextElementSibling.style.display='flex';}"><span class="coin-logo-fallback">${String(asset.symbol || normalizedId).slice(0, 3)}</span>${scannerChip}</span>`;
 
     let fundChip = '';
     if (d.tvl && d.tvl > 0) {
