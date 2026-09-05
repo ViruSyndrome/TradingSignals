@@ -68,6 +68,13 @@
   </script>
 </head>
 <body>
+<div id="trendrunner-loader" style="position:fixed; top:0; left:0; width:100%; height:100%; background:var(--bg-app); z-index:99999; display:flex; flex-direction:column; align-items:center; justify-content:center; color:var(--text-main); font-family:'Outfit', sans-serif;">
+  <div class="spinner" style="width:40px; height:40px; border:4px solid rgba(255,255,255,0.1); border-top-color:var(--accent); border-radius:50%; animation:spin 1s linear infinite; margin-bottom:20px;"></div>
+  <h2 style="margin:0 0 10px 0; font-size:24px;">TrendRunner Engine</h2>
+  <p style="margin:0; color:var(--text-muted); font-size:14px;">Fetching market data from Binance API...</p>
+</div>
+<style>@keyframes spin { 100% { transform: rotate(360deg); } }</style>
+
 
   <!-- iOS PWA Install Banner (only shows on Safari iOS, once per device) -->
   <div id="iosBanner" class="ios-banner">
@@ -200,7 +207,7 @@
             <button class="filter-tab" data-cat="history" role="tab">📜 Signal Log</button>
             <button class="filter-tab" data-cat="oversold" role="tab">📉 Oversold</button>
             <button class="filter-tab" data-cat="highconf" role="tab">🎯 High Confidence</button>
-            <button class="filter-tab scalper-filter-tab" data-cat="scalper" role="tab">⚡ 5m Scalper</button>
+            
             <button class="filter-tab hidden-filter-tab" data-cat="stocks" role="tab">🇮🇳 Stocks</button>
             <button class="filter-tab" data-cat="trending" role="tab" title="Assets with a positive 24h trend">🔥 Trending</button>
             <button class="filter-tab hidden-filter-tab" data-cat="commodities" role="tab">🪙 Commodities</button>
