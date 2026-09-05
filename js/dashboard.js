@@ -1119,7 +1119,7 @@ const Dashboard = {
           const baseSymbol = baseId.endsWith('USDT') ? baseId.slice(0, -4) : baseId;
           const binanceId = `${baseSymbol}_USDT`;
           const logoUrl = `https://bin.bnbstatic.com/static/assets/logos/${baseSymbol.toLowerCase()}.png`;
-          const backupLogoUrl = `https://cdn.jsdelivr.net/gh/atomiclabs/cryptocurrency-icons@master/128/color/${baseSymbol.toLowerCase()}.png`;
+          const backupLogoUrl = `https://raw.githubusercontent.com/atomiclabs/cryptocurrency-icons/master/128/color/${baseSymbol.toLowerCase()}.png`;
           const scannerType = String(h.id || '').toUpperCase().endsWith('_4H') ? 'moonshot' : '';
           const scannerChip = scannerType ? '<span class="scanner-chip moonshot-chip">MOON</span>' : '';
           const historyIcon = `<span class="sh-visual ${scannerType ? `scanner-visual ${scannerType}-visual` : ''}"><img class="coin-logo" src="${logoUrl}" alt="${baseSymbol} logo" loading="lazy" onerror="if(!this.dataset.retry){this.dataset.retry='1';this.src='${backupLogoUrl}';}else{this.style.display='none';this.nextElementSibling.style.display='flex';}"><span class="coin-logo-fallback">${baseSymbol.slice(0, 3)}</span>${scannerChip}</span>`;
@@ -1284,7 +1284,7 @@ const Dashboard = {
     const updateClass = this.state.updatedAssetIds.has(asset.id) ? ' value-updated' : '';
     const logoSymbol = String(asset.symbol || normalizedId).replace(/USDT.*$/i, '').replace(/[^a-z0-9]/gi, '').toLowerCase();
     const logoUrl = `https://bin.bnbstatic.com/static/assets/logos/${logoSymbol}.png`;
-    const backupLogoUrl = `https://cdn.jsdelivr.net/gh/atomiclabs/cryptocurrency-icons@master/128/color/${logoSymbol}.png`;
+    const backupLogoUrl = `https://raw.githubusercontent.com/atomiclabs/cryptocurrency-icons/master/128/color/${logoSymbol}.png`;
     const scannerType = asset.isMoonshot ? 'moonshot' : asset.isScalp ? 'scalper' : '';
     const scannerChip = scannerType
       ? `<span class="scanner-chip ${scannerType}-chip">${scannerType === 'moonshot' ? 'MOON' : 'SCALP'}</span>`
