@@ -1255,8 +1255,10 @@ const Dashboard = {
     const chg4Str = change4h != null ? (change4h >= 0 ? '+' : '') + change4h.toFixed(2) + '%' : '–';
     const chg4Cls = change4h == null ? 'flat' : change4h >= 0 ? 'pos' : 'neg';
 
+    // Normalize asset ID for invested check (strip _4H/_5M since all locks store base USDT ID)
+    const normalizedId = asset.id.replace('_4H', '').replace('_5M', '');
     const isStarred = this.state.watchlist.includes(asset.id);
-    const isLocked = this.state.invested.includes(asset.id);
+    const isLocked = this.state.invested.includes(normalizedId);
     const quality = this._tradeQuality(signalResult);
     const catBadge = { crypto: '₿ Crypto', stocks: '🇮🇳 Stock', commodities: '🪙 Commodity', forex: '💱 Forex' }[category] ?? category;
     const winnerBadge = this._winnerTierBadge(winnerTier);
@@ -1328,7 +1330,7 @@ const Dashboard = {
           <div style="display:flex; flex-direction:column; align-items:flex-end; gap:6px;">
             ${d.category === 'scalper' ? '' : `
               <div style="display:flex; gap: 4px;">
-                <button class="lock-btn ${isLocked ? 'active' : ''}" data-lock-id="${asset.id}" title="${isLocked ? 'Locked (Invested). Will not be auto-removed.' : 'Lock this coin (I have invested). Prevents auto-cleanup.'}" style="background:none; border:none; cursor:pointer; font-size:16px; opacity:${isLocked ? 1 : 0.25}; transition:0.2s; padding: 0;">🔒</button>
+                <button class="lock-btn ${isLocked ? 'active' : ''}" data-lock-id="${normalizedId}" title="${isLocked ? 'Locked (Invested). Will not be auto-removed.' : 'Lock this coin (I have invested). Prevents auto-cleanup.'}" style="background:none; border:none; cursor:pointer; font-size:16px; opacity:${isLocked ? 1 : 0.25}; transition:0.2s; padding: 0;">🔒</button>
                 <button class="star-btn ${isStarred ? 'active' : ''}" data-star-id="${asset.id}" title="Toggle Watchlist" style="background:none; border:none; cursor:pointer; font-size:18px; opacity:${isStarred ? 1 : 0.3}; transition:0.2s; padding: 0;">⭐</button>
               </div>
             `}
