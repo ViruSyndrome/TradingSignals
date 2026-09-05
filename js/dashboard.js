@@ -1492,7 +1492,7 @@ const Dashboard = {
         btn.style.opacity = '0.25';
       }
     });
-  },,
+  },
 
   _toggleWatchlist(id) {
     // Normalize old IDs (e.g. 'eden' -> 'EDENUSDT') just in case
