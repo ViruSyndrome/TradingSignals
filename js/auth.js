@@ -96,17 +96,33 @@ const Auth = {
   },
 
   _updateUI() {
-    const authBtnText = document.getElementById('authBtnText');
     const authBtn = document.getElementById('authBtn');
-    if (!authBtnText || !authBtn) return;
-
+    if (!authBtn) return;
+    
     if (this.user) {
-      authBtnText.textContent = 'Sign Out';
-      authBtn.style.background = 'rgba(231, 76, 60, 0.1)';
-      authBtn.style.borderColor = 'rgba(231, 76, 60, 0.5)';
-      authBtn.style.color = '#e74c3c';
+      // User is logged in - show beautiful profile widget
+      const avatar = this.user.user_metadata?.avatar_url || 'https://www.svgrepo.com/show/5125/avatar.svg';
+      const name = this.user.user_metadata?.full_name || this.user.email.split('@')[0];
+      
+      authBtn.innerHTML = `
+        <div style="display:flex; align-items:center; width:100%; gap: 10px;">
+          <img src="${avatar}" style="width:28px; height:28px; border-radius:50%; object-fit:cover; border: 1px solid var(--accent);">
+          <div style="display:flex; flex-direction:column; align-items:flex-start; overflow:hidden;">
+            <span style="font-size:13px; font-weight:600; color:var(--text-main); white-space:nowrap; text-overflow:ellipsis; max-width:80px; overflow:hidden;">${name}</span>
+            <span style="font-size:10px; color:var(--text-muted);">Sign Out</span>
+          </div>
+          <svg style="margin-left:auto; width:16px; height:16px; color:var(--text-muted);" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M17 16l4-4m0 0l-4-4m4 4H7m6 4v1a3 3 0 01-3 3H6a3 3 0 01-3-3V7a3 3 0 013-3h4a3 3 0 013 3v1"></path></svg>
+        </div>
+      `;
+      
+      authBtn.style.padding = '8px 12px';
+      authBtn.style.background = 'rgba(255, 255, 255, 0.03)';
+      authBtn.style.borderColor = 'rgba(255, 255, 255, 0.08)';
+      authBtn.style.color = 'var(--text-main)';
+      
     } else {
-      authBtnText.textContent = 'Sign In / Register';
+      authBtn.innerHTML = '<span class="material-icons" style="margin-right:8px; font-size:18px;">person</span> <span id="authBtnText">Sign In / Register</span>';
+      authBtn.style.padding = '';
       authBtn.style.background = 'rgba(0, 242, 254, 0.1)';
       authBtn.style.borderColor = 'var(--accent)';
       authBtn.style.color = 'var(--text-main)';
