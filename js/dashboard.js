@@ -1184,8 +1184,7 @@ const Dashboard = {
     }
 
     this._sortAssets(backgroundMoonshots);
-    if (backgroundMoonshots.length > 12) grid.classList.add('dense-grid');
-    else grid.classList.remove('dense-grid');
+    
     
     // Moonshot cards are formatted slightly differently (show signal score, hide stars)
     grid.innerHTML = backgroundMoonshots.map(s => this._assetCardHTML(s, false, true)).join('');
@@ -2003,8 +2002,7 @@ const Dashboard = {
           this.state.moonshots = setups;
           this._sortAssets(setups);
           // If we have a massive amount of volatile setups, pack them tightly
-          if (setups.length > 12) grid.classList.add('dense-grid');
-          else grid.classList.remove('dense-grid');
+          
           
           grid.innerHTML = setups.map(s => this._assetCardHTML(s, false, true)).join('');
           this._attachCardListeners(grid);

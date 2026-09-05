@@ -385,38 +385,7 @@ button:focus-visible { outline: 2px solid var(--accent); border-radius: 4px; }
   grid-template-columns: repeat(auto-fill, minmax(320px, 1fr));
 }
 
-/* Dense mode for massive lists (e.g. 26 moonshot results) */
-.assets-grid.dense-grid {
-  grid-template-columns: repeat(auto-fill, minmax(220px, 1fr));
-  gap: 16px;
-}
-.assets-grid.dense-grid .asset-card {
-  padding: 14px;
-}
-.assets-grid.dense-grid .price-main {
-  font-size: 20px;
-}
-.assets-grid.dense-grid .sparkline-wrap {
-  height: 40px;
-  margin: 0 -14px 12px -14px;
-}
-.assets-grid.dense-grid .ind-chip {
-  padding: 6px;
-}
-.assets-grid.dense-grid .card-indicators {
-  margin-bottom: 12px;
-}
-.assets-grid.dense-grid .card-header {
-  flex-direction: column;
-  gap: 10px;
-  align-items: stretch;
-}
-.assets-grid.dense-grid .card-title-row {
-  width: 100%;
-}
-.assets-grid.dense-grid .signal-badge {
-  align-self: flex-start;
-}
+
 
 .asset-card {
   background: var(--bg-card);
