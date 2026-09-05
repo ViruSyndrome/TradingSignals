@@ -169,7 +169,10 @@ const API = {
           for (const sym of keys) {
             // Locked holdings track the base daily pair only
             const normalized = String(sym).toUpperCase().replace('_4H', '').replace('_5M', '');
-            if (!CONFIG.assets.crypto.find(a => a.id === normalized)) {
+            const hasEquivalentAsset = CONFIG.assets.crypto.some(a =>
+              a.id.replace('_4H', '').replace('_5M', '') === normalized
+            );
+            if (!hasEquivalentAsset) {
               CONFIG.assets.crypto.push({
                 id: normalized,
                 symbol: normalized.replace('USDT', ''),

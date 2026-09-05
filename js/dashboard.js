@@ -178,8 +178,6 @@ const Dashboard = {
           const baseSymbol = id.replace('USDT_4H', '').replace('_4H', '');
           const isCore = CONFIG.assets.crypto.some(a => a.symbol === baseSymbol && !a.grafted);
           if (isCore) return false;
-          // A locked holding replaces its 4H scanner duplicate
-          if (this.state.invested.includes(baseSymbol + 'USDT')) return false;
         }
         return true;
       });
@@ -1073,7 +1071,17 @@ const Dashboard = {
     if (cat === 'watchlist') {
       assets = assets.filter(a => this.state.watchlist.includes(a.asset.id));
     } else if (cat === 'holdings') {
-      assets = assets.filter(a => this.state.invested.includes(a.asset.id));
+      const holdingsByCoin = new Map();
+      assets
+        .filter(a => this.state.invested.includes(a.asset.id.replace('_4H', '').replace('_5M', '')))
+        .forEach(assetData => {
+          const coinId = assetData.asset.id.replace('_4H', '').replace('_5M', '');
+          const existing = holdingsByCoin.get(coinId);
+          if (!existing || (assetData.asset.isMoonshot && !existing.asset.isMoonshot)) {
+            holdingsByCoin.set(coinId, assetData);
+          }
+        });
+      assets = Array.from(holdingsByCoin.values());
     } else if (cat === 'oversold') {
       // Just check for deeply oversold RSI (<= 35). 
       // We removed the 'macroBullish' requirement because an asset dropping hard enough to hit 30 RSI will almost always break its 50 SMA.
@@ -1330,7 +1338,7 @@ const Dashboard = {
           <div style="display:flex; flex-direction:column; align-items:flex-end; gap:6px;">
             ${d.category === 'scalper' ? '' : `
               <div style="display:flex; gap: 4px;">
-                <button class="lock-btn ${isLocked ? 'active' : ''}" data-lock-id="${normalizedId}" title="${isLocked ? 'Locked (Invested). Will not be auto-removed.' : 'Lock this coin (I have invested). Prevents auto-cleanup.'}" style="background:none; border:none; cursor:pointer; font-size:16px; opacity:${isLocked ? 1 : 0.25}; transition:0.2s; padding: 0;">🔒</button>
+                <button class="lock-btn ${isLocked ? 'active' : ''}" data-lock-id="${asset.id}" title="${isLocked ? 'Locked (Invested). Will not be auto-removed.' : 'Lock this coin (I have invested). Prevents auto-cleanup.'}" style="background:none; border:none; cursor:pointer; font-size:16px; opacity:${isLocked ? 1 : 0.25}; transition:0.2s; padding: 0;">🔒</button>
                 <button class="star-btn ${isStarred ? 'active' : ''}" data-star-id="${asset.id}" title="Toggle Watchlist" style="background:none; border:none; cursor:pointer; font-size:18px; opacity:${isStarred ? 1 : 0.3}; transition:0.2s; padding: 0;">⭐</button>
               </div>
             `}
@@ -1459,16 +1467,25 @@ const Dashboard = {
 
     _toggleInvested(originalId) {
     // Locks always store the base daily pair, even from a 4H Moonshot card
-    let id = originalId.toUpperCase().replace('_4H', '').replace('_5M', '');
+      const sourceId = originalId.toUpperCase();
+      let id = sourceId.replace('_4H', '').replace('_5M', '');
     if (!id.endsWith('USDT')) id += 'USDT';
 
     if (this.state.invested.includes(id)) {
       this.state.invested = this.state.invested.filter(x => x !== id);
     } else {
       this.state.invested.push(id);
+
+      if (sourceId.includes('_4H') && !this.state.watchlist.includes(sourceId)) {
+        this.state.watchlist.push(sourceId);
+        try { localStorage.setItem('trading_watchlist', JSON.stringify(this.state.watchlist)); } catch(e) {}
+      }
       
       // If we are locking a Moonshot coin that isn't tracked yet in the main dashboard, graft it in!
-      if (!CONFIG.assets.crypto.some(a => a.id === id)) {
+      const hasEquivalentAsset = CONFIG.assets.crypto.some(a =>
+        a.id.replace('_4H', '').replace('_5M', '') === id
+      );
+      if (!hasEquivalentAsset) {
         CONFIG.assets.crypto.push({
           id: id,
           symbol: id.replace('USDT', ''),
