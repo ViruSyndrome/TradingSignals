@@ -1111,8 +1111,10 @@ const Dashboard = {
           const fromLevel = Signals.level(h.from);
           const toLevel = Signals.level(h.to);
           const priceStr = h.price ? '$' + (h.price < 1 ? h.price.toFixed(4) : h.price.toFixed(2)) : '';
-          const binanceId = h.id.replace('USDT', '_USDT');
-          return `<a href="https://www.binance.com/en/trade/${binanceId}?type=spot&ref=TRENDRUNNER" target="_blank" class="signal-history-entry" style="text-decoration:none; color:inherit;">
+          const baseId = String(h.id || '').toUpperCase().replace(/_(?:4H|5M)$/, '');
+          const baseSymbol = baseId.endsWith('USDT') ? baseId.slice(0, -4) : baseId;
+          const binanceId = `${baseSymbol}_USDT`;
+          return `<a href="https://www.binance.com/en/trade/${binanceId}?type=spot&ref=TRENDRUNNER" target="_blank" rel="noopener noreferrer" class="signal-history-entry" style="text-decoration:none; color:inherit;">
             <span class="sh-icon">${h.icon}</span>
             <span class="sh-name">${h.name} <small>${h.symbol}</small></span>
             <span class="signal-badge signal-${fromLevel.cls}" style="font-size:11px;padding:2px 6px;">${fromLevel.short}</span>
