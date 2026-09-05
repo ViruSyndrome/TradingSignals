@@ -4,6 +4,8 @@
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>TrendRunner — Algorithmic Crypto Intelligence</title>
+    <!-- Supabase -->
+    <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
   <meta name="description" content="Real-time buy/sell signals for cryptocurrencies and moonshots using a proprietary 9-factor algorithm." />
   <meta name="msvalidate.01" content="FA7405A0B7623E8A404F74AE4952777C" />
   
@@ -125,6 +127,12 @@
       <a href="#" class="nav-link" data-section="riskSection" title="Calculate position sizing, stop-loss, and how much capital to risk per trade.">
         <span class="nav-icon">🛡️</span> <span class="nav-text">Risk Calculator</span>
       </a>
+    
+      <div class="sidebar-bottom-actions" style="margin-top:auto; padding: 0 16px; margin-bottom: 20px;">
+        <a href="#" class="nav-link" id="authBtn" style="background: rgba(0, 242, 254, 0.1); border: 1px solid var(--accent); justify-content: center;">
+          <span class="nav-icon">👤</span> <span class="nav-text" id="authBtnText">Sign In / Register</span>
+        </a>
+      </div>
     </nav>
 
     <div class="sidebar-footer">
@@ -610,7 +618,8 @@
   
   <script src="js/scanner.js?v=5.92"></script>
   <script src="js/backtest_ui.js?v=5.92"></script>
-  <script src="js/dashboard.js?v=5.92"></script>
+  <script src="js/auth.js"></script>
+    <script src="js/dashboard.js?v=5.92"></script>
   <script>
     // If signals.js didn't expose the right version, cached old code is running — force reload.
     if (typeof Signals === 'undefined' || Signals._version !== window.__APP_VERSION__) {
@@ -661,6 +670,34 @@
     });
 
   </script>
+
+
+  <!-- Auth Modal -->
+  <div class="modal" id="authModal">
+    <div class="modal-content" style="max-width: 400px;">
+      <div class="modal-header">
+        <h2 id="authModalTitle">Sign In</h2>
+        <button class="close-btn" id="closeAuthModal">&times;</button>
+      </div>
+      <div class="modal-body">
+        <p style="color: var(--text-muted); margin-bottom: 20px; font-size: 14px;">Log in to save your locked coins and sync them across all your devices.</p>
+        <div class="input-group">
+          <label>Email Address</label>
+          <input type="email" id="authEmail" placeholder="trader@example.com" style="width: 100%; padding: 12px; background: var(--bg-dark); border: 1px solid var(--border); color: white; border-radius: 6px; margin-bottom: 12px; box-sizing: border-box;">
+        </div>
+        <div class="input-group">
+          <label>Password</label>
+          <input type="password" id="authPassword" placeholder="••••••••" style="width: 100%; padding: 12px; background: var(--bg-dark); border: 1px solid var(--border); color: white; border-radius: 6px; margin-bottom: 20px; box-sizing: border-box;">
+        </div>
+        <p id="authError" style="color: var(--c-red); font-size: 13px; margin-bottom: 12px; display: none;"></p>
+        <button id="authSubmitBtn" class="btn btn-primary" style="width: 100%; padding: 12px; margin-bottom: 12px; justify-content:center;">Sign In</button>
+        <div style="text-align: center; font-size: 13px; color: var(--text-muted);">
+          <span id="authToggleText">Don't have an account?</span> 
+          <a href="#" id="authToggleBtn" style="color: var(--accent);">Register here</a>
+        </div>
+      </div>
+    </div>
+  </div>
 
 </body>
 </html>

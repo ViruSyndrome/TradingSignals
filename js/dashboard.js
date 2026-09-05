@@ -1521,7 +1521,7 @@ const Dashboard = {
       }
     }
     
-    try { localStorage.setItem('trading_invested', JSON.stringify(this.state.invested)); } catch(e) { console.warn('Failed to save lock status', e); }
+    try { localStorage.setItem('trading_invested', JSON.stringify(this.state.invested)); if(window.Auth) window.Auth.syncToCloud(this.state.invested, this.state.watchlist); } catch(e) { console.warn('Failed to save lock status', e); }
 
     const isLocked = this.state.invested.includes(id);
     // Update both the base ID and the 4H ID buttons in the UI
