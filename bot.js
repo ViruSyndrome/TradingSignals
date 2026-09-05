@@ -42,6 +42,12 @@ if (process.env.TWITTER_API_KEY && process.env.TWITTER_API_SECRET && process.env
 let bot = null;
 if (token && chatId) {
   bot = new TelegramBot(token, { polling: true });
+  bot.on('polling_error', error => {
+    console.error(`[Telegram] Polling error: ${error.message}`);
+  });
+  bot.on('error', error => {
+    console.error(`[Telegram] Bot error: ${error.message}`);
+  });
   console.log("📱 Telegram bot initialized successfully.");
 } else {
   console.log("⚠️ Telegram keys missing from .env. Running in Twitter-only/Headless mode.");
@@ -322,5 +328,10 @@ setTimeout(scanMarket, 5000);
 const express = require('express');
 const app = express();
 app.get('/', (req, res) => res.send('Bot is running.'));
+app.get('/health', (req, res) => res.status(200).json({ status: 'ok' }));
 const PORT = process.env.PORT || 3000;
-app.listen(PORT, () => console.log(`Web server listening on port ${PORT}`));
+const server = app.listen(PORT, () => console.log(`Web server listening on port ${PORT}`));
+server.on('error', error => {
+  console.error(`[Server] Failed to bind port ${PORT}: ${error.message}`);
+  process.exitCode = 1;
+});
