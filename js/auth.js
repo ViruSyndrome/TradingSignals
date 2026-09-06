@@ -94,36 +94,48 @@ const Auth = {
   },
 
   _updateUI() {
-    const authBtn = document.getElementById('authBtn');
-    if (!authBtn) return;
-    
-    if (this.user) {
-      // User is logged in - show beautiful profile widget
-      const avatar = this.user.user_metadata?.avatar_url || 'https://www.svgrepo.com/show/5125/avatar.svg';
-      const name = this.user.user_metadata?.full_name || (this.user.email ? this.user.email.split('@')[0] : 'Trader');
+    try {
+      const authBtn = document.getElementById('authBtn');
+      if (!authBtn) return;
       
-      authBtn.innerHTML = `
-        <div style="display:flex; align-items:center; width:100%; gap: 10px;">
-          <img src="${avatar}" style="width:28px; height:28px; border-radius:50%; object-fit:cover; border: 1px solid var(--accent);">
-          <div style="display:flex; flex-direction:column; align-items:flex-start; overflow:hidden;">
-            <span style="font-size:13px; font-weight:600; color:var(--text-main); white-space:nowrap; text-overflow:ellipsis; max-width:80px; overflow:hidden;">${name}</span>
-            <span style="font-size:10px; color:var(--text-muted);">Sign Out</span>
+      if (this.user) {
+        let avatar = 'https://www.svgrepo.com/show/5125/avatar.svg';
+        let name = 'Trader';
+        
+        if (this.user.user_metadata) {
+          avatar = this.user.user_metadata.avatar_url || avatar;
+          name = this.user.user_metadata.full_name || name;
+        } else if (this.user.email) {
+          name = this.user.email.split('@')[0];
+        }
+        
+        authBtn.innerHTML = `
+          <div style="display:flex; align-items:center; width:100%; gap: 10px;">
+            <img src="${avatar}" style="width:28px; height:28px; border-radius:50%; object-fit:cover; border: 1px solid var(--accent);">
+            <div style="display:flex; flex-direction:column; align-items:flex-start; overflow:hidden;">
+              <span style="font-size:13px; font-weight:600; color:var(--text-main); white-space:nowrap; text-overflow:ellipsis; max-width:80px; overflow:hidden;">${name}</span>
+              <span style="font-size:10px; color:var(--text-muted);">Sign Out</span>
+            </div>
+            <svg style="margin-left:auto; width:16px; height:16px; color:var(--text-muted);" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M17 16l4-4m0 0l-4-4m4 4H7m6 4v1a3 3 0 01-3 3H6a3 3 0 01-3-3V7a3 3 0 013-3h4a3 3 0 013 3v1"></path></svg>
           </div>
-          <svg style="margin-left:auto; width:16px; height:16px; color:var(--text-muted);" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M17 16l4-4m0 0l-4-4m4 4H7m6 4v1a3 3 0 01-3 3H6a3 3 0 01-3-3V7a3 3 0 013-3h4a3 3 0 013 3v1"></path></svg>
-        </div>
-      `;
-      
-      authBtn.style.padding = '8px 12px';
-      authBtn.style.background = 'rgba(255, 255, 255, 0.03)';
-      authBtn.style.borderColor = 'rgba(255, 255, 255, 0.08)';
-      authBtn.style.color = 'var(--text-main)';
-      
-    } else {
-      authBtn.innerHTML = '<svg style="margin-right:8px; width:18px; height:18px;" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M16 7a4 4 0 11-8 0 4 4 0 018 0zM12 14a7 7 0 00-7 7h14a7 7 0 00-7-7z"></path></svg> <span id="authBtnText">Sign In / Register</span>';
-      authBtn.style.padding = '';
-      authBtn.style.background = 'rgba(0, 242, 254, 0.1)';
-      authBtn.style.borderColor = 'var(--accent)';
-      authBtn.style.color = 'var(--text-main)';
+        `;
+        
+        authBtn.style.padding = '8px 12px';
+        authBtn.style.background = 'rgba(255, 255, 255, 0.03)';
+        authBtn.style.borderColor = 'rgba(255, 255, 255, 0.08)';
+        authBtn.style.color = 'var(--text-main)';
+      } else {
+        authBtn.innerHTML = '<svg style="margin-right:8px; width:18px; height:18px;" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M16 7a4 4 0 11-8 0 4 4 0 018 0zM12 14a7 7 0 00-7 7h14a7 7 0 00-7-7z"></path></svg> <span id="authBtnText">Sign In / Register</span>';
+        authBtn.style.padding = '';
+        authBtn.style.background = 'rgba(0, 242, 254, 0.1)';
+        authBtn.style.borderColor = 'var(--accent)';
+        authBtn.style.color = 'var(--text-main)';
+      }
+    } catch (e) {
+      const authBtn = document.getElementById('authBtn');
+      if (authBtn) {
+        authBtn.innerHTML = "Error: " + e.message.substring(0, 15);
+      }
     }
   },
 
