@@ -58,14 +58,14 @@ const Auth = {
     if (googleBtn) {
       googleBtn.addEventListener('click', async (e) => {
         e.preventDefault();
-        await supabaseClient.auth.signInWithOAuth({ provider: 'google', options: { redirectTo: window.location.href } });
+        await supabaseClient.auth.signInWithOAuth({ provider: 'google', options: { redirectTo: window.location.origin } });
       });
     }
 
     if (githubBtn) {
       githubBtn.addEventListener('click', async (e) => {
         e.preventDefault();
-        await supabaseClient.auth.signInWithOAuth({ provider: 'github', options: { redirectTo: window.location.href } });
+        await supabaseClient.auth.signInWithOAuth({ provider: 'github', options: { redirectTo: window.location.origin } });
       });
     }
   
