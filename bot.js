@@ -228,10 +228,7 @@ If you buy this, reply /buy ${asset.symbol}`;
 📈 Algo Confluence: +${result.score}
 🎯 Confidence: ${result.confidence}%
 
-Get the exact Stop-Loss & Take-Profit targets free 👇
-https://trendrunner.app
-
-#CryptoTrading #${cleanSymbol} #TradingSignals`;
+Get the exact Stop-Loss & Take-Profit targets free 👇\n#CryptoTrading #\${cleanSymbol} #TradingSignals\n\nhttps://trendrunner.app`;
       } else if (result.signal === 'BUY') {
         message = `🟡 BUY SETUP: ${asset.symbol}
 Score: +${result.score}
