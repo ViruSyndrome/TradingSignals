@@ -276,11 +276,13 @@ If you sell, reply /sell ${asset.symbol}`;
           const timeSinceCoin = now - (twitterState.coins[asset.symbol] || 0);
 
           if (timeSinceGlobal > TWO_HOURS && timeSinceCoin > FORTY_EIGHT_HOURS) {
+            // LOCK IMMEDIATELY to prevent race conditions in the loop
+            twitterState.lastGlobalTweet = now;
+            twitterState.coins[asset.symbol] = now;
+            saveTwitterState(twitterState);
+            
             twitterClient.v2.tweet(tweetMessage).then(() => {
-              console.log(`🐦 Tweeted STRONG BUY for ${asset.symbol}`);
-              twitterState.lastGlobalTweet = now;
-              twitterState.coins[asset.symbol] = now;
-              saveTwitterState(twitterState);
+              console.log(`✅ Tweeted STRONG BUY for ${asset.symbol}`);
             }).catch(err => {
               console.error('Twitter post failed:', err);
             });
