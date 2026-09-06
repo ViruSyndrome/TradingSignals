@@ -58,14 +58,14 @@ const Auth = {
     if (googleBtn) {
       googleBtn.addEventListener('click', async (e) => {
         e.preventDefault();
-        await supabaseClient.auth.signInWithOAuth({ provider: 'google', options: { redirectTo: window.location.origin } });
+        await supabaseClient.auth.signInWithOAuth({ provider: 'google', options: { redirectTo: window.location.href.split('#')[0] } });
       });
     }
 
     if (githubBtn) {
       githubBtn.addEventListener('click', async (e) => {
         e.preventDefault();
-        await supabaseClient.auth.signInWithOAuth({ provider: 'github', options: { redirectTo: window.location.origin } });
+        await supabaseClient.auth.signInWithOAuth({ provider: 'github', options: { redirectTo: window.location.href.split('#')[0] } });
       });
     }
   
@@ -100,7 +100,7 @@ const Auth = {
     if (this.user) {
       // User is logged in - show beautiful profile widget
       const avatar = this.user.user_metadata?.avatar_url || 'https://www.svgrepo.com/show/5125/avatar.svg';
-      const name = this.user.user_metadata?.full_name || this.user.email.split('@')[0];
+      const name = this.user.user_metadata?.full_name || (this.user.email ? this.user.email.split('@')[0] : 'Trader');
       
       authBtn.innerHTML = `
         <div style="display:flex; align-items:center; width:100%; gap: 10px;">
