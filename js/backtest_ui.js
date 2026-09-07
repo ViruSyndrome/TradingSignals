@@ -24,7 +24,19 @@ class BacktestUI {
     if (!this.assetSelect || typeof CONFIG === 'undefined') return;
     this.assetSelect.innerHTML = '';
     
-    const assets = CONFIG.assets.crypto;
+    let assets = CONFIG.assets.crypto;
+    if (window.Dashboard && window.Dashboard.state && window.Dashboard.state.allAssets) {
+      const dashAssets = window.Dashboard.state.allAssets.map(d => d.asset);
+      // Merge unique
+      const merged = [...assets];
+      dashAssets.forEach(da => {
+        if (!merged.find(m => m.id === da.id)) merged.push(da);
+      });
+      assets = merged;
+    }
+    // Sort alphabetically
+    assets.sort((a, b) => a.symbol.localeCompare(b.symbol));
+    
     assets.forEach(a => {
       const opt = document.createElement('option');
       opt.value = a.id;
@@ -43,7 +55,11 @@ class BacktestUI {
       const interval = this.intervalSelect.value;
       const days = parseInt(this.daysInput.value, 10) || 250;
       
-      const asset = CONFIG.assets.crypto.find(a => a.id === symbolId);
+      let asset = CONFIG.assets.crypto.find(a => a.id === symbolId);
+      if (!asset && window.Dashboard && window.Dashboard.state && window.Dashboard.state.allAssets) {
+        const da = window.Dashboard.state.allAssets.find(d => d.asset.id === symbolId);
+        if (da) asset = da.asset;
+      }
       if (!asset) throw new Error('Asset not found');
 
       // Fetch klines
