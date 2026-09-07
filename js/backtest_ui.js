@@ -91,9 +91,13 @@ class BacktestUI {
 
   async _fetchKlines(symbolId, interval, days) {
     const binanceSymbol = symbolId.replace('_4H', '').replace('_5M', '');
-    const url = `https://api.binance.com/api/v3/klines?symbol=${binanceSymbol}&interval=${interval}&limit=${days + 1}`;
+    // Scale candle count by timeframe so we always fetch ~`days` worth of history
+    const candlesPerDay = { '1d': 1, '4h': 6, '1h': 24, '15m': 96, '5m': 288 };
+    const multiplier = candlesPerDay[interval] || 1;
+    const limit = Math.min(days * multiplier, 1000); // Binance max is 1000
+    const url = `https://api.binance.com/api/v3/klines?symbol=${binanceSymbol}&interval=${interval}&limit=${limit}`;
     const res = await fetch(url);
-    if (!res.ok) throw new Error('Failed to fetch data');
+    if (!res.ok) throw new Error('Failed to fetch data for ' + binanceSymbol);
     const data = await res.json();
     
     return data.map(k => ({
