@@ -209,6 +209,7 @@ async function scanMarket() {
 
 🎯 Stop-Loss: $${result.stopSuggest.stopPrice} (-${result.stopSuggest.distancePct}%)
 ✅ Take-Profit: $${result.stopSuggest.takeProfitPrice} (+${result.stopSuggest.takeProfitPct}%)
+  ⏳ Time Limit: Max 7 Days Hold (Optimizer Rule)
 ⚠️ Place both as real exchange orders now — this edge only works if losers are cut at the stop.`;
       }
 
@@ -228,7 +229,7 @@ If you buy this, reply /buy ${asset.symbol}`;
 📈 Algo Confluence: +${result.score}
 🎯 Confidence: ${result.confidence}%
 
-Get the exact Stop-Loss & Take-Profit targets free 👇\n\n#CryptoTrading #${cleanSymbol} #TradingSignals\n\nhttps://trendrunner.app/?ref=twitter`;
+Get the exact Stop-Loss, Take-Profit (+10%), & Time Limits (7-Day Max) free 👇\n\n#CryptoTrading #${cleanSymbol} #TradingSignals\n\nhttps://trendrunner.app/?ref=twitter`;
       } else if (result.signal === 'BUY') {
         message = `🟡 BUY SETUP: ${asset.symbol}
 Score: +${result.score}
