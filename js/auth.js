@@ -11,6 +11,7 @@ const Auth = {
     const { data: { session } } = await supabaseClient.auth.getSession();
     this.user = session?.user || null;
     this._updateUI();
+    if (this.user) { this.syncFromCloud(); }
 
     supabaseClient.auth.onAuthStateChange((event, session) => {
       this.user = session?.user || null;
