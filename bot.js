@@ -215,11 +215,14 @@ async function scanMarket() {
 
       if (result.signal === 'STRONG_BUY') {
         const tierLabel = winnerTier === 'core' ? 'Core Winner' : winnerTier === 'probation' ? 'Probation Winner' : 'Watchlist';
+        const binanceLink = `https://www.binance.com/en/trade/${asset.symbol}_USDT?type=spot&ref=TRENDRUNNER`;
         message = `🟢 STRONG BUY ALERT: ${asset.symbol} (${tierLabel})
 Score: +${result.score}
 Price: $${price.toFixed(4)}
 
 ${result.recommendation}${stopText}
+
+🔗 Trade on Binance: ${binanceLink}
 
 If you buy this, reply /buy ${asset.symbol}`;
         
@@ -230,26 +233,15 @@ If you buy this, reply /buy ${asset.symbol}`;
 🎯 Confidence: ${result.confidence}%
 
 Get the exact Stop-Loss, Take-Profit (+10%), & Time Limits (7-Day Max) free 👇\n\n#CryptoTrading #${cleanSymbol} #TradingSignals\n\nhttps://trendrunner.app/?ref=twitter`;
-      } else if (result.signal === 'BUY') {
-        message = `🟡 BUY SETUP: ${asset.symbol}
-Score: +${result.score}
-Price: $${price.toFixed(4)}
-
-Indicators are leaning bullish. Good time to research for an entry.${stopText}
-
-If you buy this, reply /buy ${asset.symbol}`;
-      } else if (result.signal === 'SELL' && owned) {
-        message = `⚠️ EARLY WARNING: ${asset.symbol}
-Score: ${result.score}
-Price: $${price.toFixed(4)}
-
-This asset is losing momentum. If you are in profit, consider taking some off the table.`;
       } else if (result.signal === 'STRONG_SELL' && owned) {
+        const binanceLink = `https://www.binance.com/en/trade/${asset.symbol}_USDT?type=spot&ref=TRENDRUNNER`;
         message = `🔴 STRONG SELL ALERT: ${asset.symbol}
 Score: ${result.score}
 Price: $${price.toFixed(4)}
 
 The indicators have crashed into a Strong Sell. Cut losses or exit your position.
+
+🔗 Sell on Binance: ${binanceLink}
 
 If you sell, reply /sell ${asset.symbol}`;
       }
