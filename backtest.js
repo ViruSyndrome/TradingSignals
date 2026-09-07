@@ -213,7 +213,7 @@ function backtestSymbol(asset, ohlcv, btcHistory, windowDef, feeRate, slippage, 
       if (position.stopLoss && lows && lows[i] <= position.stopLoss) exitReason = 'STOP_LOSS';
       else if (position.takeProfit && highs && highs[i] >= position.takeProfit) exitReason = 'TAKE_PROFIT';
       else if (sig === 'SELL' || sig === 'STRONG_SELL') exitReason = sig;
-      else if (!useTrailingExit && holdDays >= (CONFIG.activeParams.holdLimit || 3)) exitReason = 'HOLD_LIMIT';
+      else if (!useTrailingExit && holdDays >= 7) exitReason = 'HOLD_LIMIT'; // OPTIMIZER OVERRIDE: 7-Day Max Hold
 
       if (exitReason) {
         const rawExit = ohlcv.opens[nextOpenDay];
@@ -238,7 +238,7 @@ function backtestSymbol(asset, ohlcv, btcHistory, windowDef, feeRate, slippage, 
         position = { 
           entryPrice, entryDay: nextOpenDay, signal: sig, score: result.score, confidence: result.confidence,
           stopLoss: atr ? entryPrice - (atr * STOP_MULT) : null,
-          takeProfit: atr ? entryPrice + (atr * RRR) : null,
+          takeProfit: entryPrice * 1.10,
           riskDistance: atr ? atr * STOP_MULT : null,
           maxPriceSeen: entryPrice,
           entryRegime: marketRegime
@@ -358,7 +358,8 @@ function backtestAsset(name, symbol, ohlcv, opts = {}) {
       const atr = atrArr ? Indicators.last(atrArr) : null;
       const riskDistance = atr ? atr * STOP_MULT : null;
       const stopLoss   = riskDistance ? entryPrice - riskDistance : null;
-      const takeProfit = riskDistance ? entryPrice + (riskDistance * RRR) : null;
+      // OPTIMIZER OVERRIDE: Strict 10% Take Profit
+        const takeProfit = entryPrice * 1.10;
 
       position = {
         entryPrice,
