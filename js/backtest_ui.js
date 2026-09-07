@@ -137,7 +137,8 @@ class BacktestUI {
         const atrArr = Indicators.atr(slicedHighs, slicedLows, slicedCloses, 14);
         const atr = Indicators.last(atrArr) || (todayClose * 0.05);
         const stopPrice = position.entryPrice - (atr * 2.0);
-        const tpPrice = position.entryPrice + (atr * 2.0 * 2.0); // 1:2 RRR
+        // OPTIMIZER: Fixed 10% Take Profit
+        const tpPrice = position.entryPrice * 1.10;
 
         if (lows[i+1] <= stopPrice) {
           exitReason = 'STOP_LOSS';
@@ -147,7 +148,7 @@ class BacktestUI {
           exitPrice = tpPrice;
         } else if (result.signal === 'SELL' || result.signal === 'STRONG_SELL') {
           exitReason = result.signal;
-        } else if (position.holdDays >= 14) {
+        } else if (position.holdDays >= 7) { // OPTIMIZER: 7-Day Max Hold
           exitReason = 'HOLD_LIMIT';
         }
 
