@@ -237,17 +237,19 @@ const Dashboard = {
           if (window.innerWidth <= 768) {
             sidebar.classList.remove('open');
             overlay.classList.remove('active');
-          }
-        });
-      });
-    }
-
     this._initNewsTape();
-    // Paint instantly from last-known snapshot while the live fetch runs.
-    if (this._restoreSnapshot()) this._render();
-    await this._fetchFearGreed();  // sentiment feeds the signal engine — fetch first
-    await this.loadAll(true);
-    this._scheduleRefresh();
+      // Paint instantly from last-known snapshot while the live fetch runs.
+      const hasSnapshot = this._restoreSnapshot();
+      if (hasSnapshot) {
+        this._render();
+        this._setLoading(true); // show spinner on top of stale data so user knows it's updating
+      } else {
+        this._setLoading(true); // first visit — show full loading overlay
+      }
+      this._updateLiveStatus();
+      await this._fetchFearGreed();  // sentiment feeds the signal engine — fetch first
+      await this.loadAll(false); // non-silent so spinner is properly cleared when done
+      this._scheduleRefresh();
 
     // Auto-scan moonshots in the background every 5 minutes (300,000 ms)
     this.state.moonshotTimer = setInterval(() => this._autoScanMoonshots(), 5 * 60 * 1000);
