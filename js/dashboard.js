@@ -1436,7 +1436,7 @@ const Dashboard = {
       <div class="stop-levels" title="Place these as real orders on your exchange the moment you enter. Skipping the stop-loss is the #1 cause of large losses.">
         <div class="stop-levels-row">
           <span class="stop-chip stop-chip-sl">🛑 Stop: ${cur(s.stopPrice)} (-${s.distancePct}%)</span>
-          <span class="stop-chip stop-chip-tp">🎯 Target: ${s.takeProfitPrice ? cur(s.takeProfitPrice) + ' (+' + s.takeProfitPct + '%)' : 'Trailing'}</span>
+          <span class="stop-chip stop-chip-tp">🎯 Target: ${s.takeProfitPrice ? cur(s.takeProfitPrice) + ' (+' + s.takeProfitPct + '% Optimized)' : 'Trailing'}</span>
         </div>
       </div>
     `;
@@ -2040,6 +2040,7 @@ const Dashboard = {
     return `
       <div class="oco-panel">
         <div class="oco-title">OCO order for ${symbol}</div>
+        <div class="oco-status oco-ready" style="background:rgba(14, 165, 233, 0.15);color:#38bdf8;border:1px solid #0ea5e9;margin-top:10px;">⚡ Optimizer Engaged: Strict 10% TP, Max 7-Day Hold Limit</div>
         <div class="oco-status ${statusClass}">${status}</div>
         <div class="oco-grid">
           <span>Price / TP <strong>${this._fmt(s.takeProfitPrice, d.asset)}</strong></span>
