@@ -46,6 +46,7 @@ class BacktestUI {
   }
 
   async runBacktest() {
+    this._populateAssets(); // Refresh to pick up any newly loaded coins
     this.runBtn.textContent = 'Fetching market data...';
     this.runBtn.disabled = true;
     this.resultsPanel.style.display = 'none';
@@ -136,7 +137,8 @@ class BacktestUI {
         lows: slicedLows,
         volumes: slicedVols,
         symbol: symbol,
-        marketRegime
+        marketRegime,
+        ignoreWinnersFilter: true  // Backtester always tests raw signal quality
       });
 
       const todayClose = closes[i];
