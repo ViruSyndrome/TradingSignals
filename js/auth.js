@@ -202,37 +202,49 @@ const Auth = {
     }
   },
 
-  async syncFromCloud() {
+  async syncFromCloud(retryCount = 0) {
     if (!this.user) return;
 
+    // Race condition guard: Dashboard may still be loading on fresh page open.
+    // Retry up to 5 times (every 1.5s) until it's ready.
+    if (!window.Dashboard || !window.Dashboard.state) {
+      if (retryCount < 5) {
+        setTimeout(() => this.syncFromCloud(retryCount + 1), 1500);
+      }
+      return;
+    }
+
     try {
-      const metadata = this.user.user_metadata || {};
-      let cloudInvested = metadata.trading_invested;
-      let cloudWatchlist = metadata.trading_watchlist;
+      // Always fetch fresh metadata from Supabase (not stale cached user object)
+      const { data: { user } } = await supabaseClient.auth.getUser();
+      if (!user) return;
+
+      const metadata = user.user_metadata || {};
+      const cloudInvested = Array.isArray(metadata.trading_invested) ? metadata.trading_invested : [];
+      const cloudWatchlist = Array.isArray(metadata.trading_watchlist) ? metadata.trading_watchlist : [];
+
       let changed = false;
 
-      if (Array.isArray(cloudInvested) && window.Dashboard) {
+      if (cloudInvested.length > 0) {
         const currentInvested = window.Dashboard.state.invested || [];
         const mergedInvested = [...new Set([...currentInvested, ...cloudInvested])];
-        if (mergedInvested.length > currentInvested.length) {
-          window.Dashboard.state.invested = mergedInvested;
-          localStorage.setItem('trading_invested', JSON.stringify(mergedInvested));
-          changed = true;
-        }
+        // Always apply — even if same length, ensures cloud data is in localStorage
+        window.Dashboard.state.invested = mergedInvested;
+        localStorage.setItem('trading_invested', JSON.stringify(mergedInvested));
+        changed = true;
       }
 
-      if (Array.isArray(cloudWatchlist) && window.Dashboard) {
+      if (cloudWatchlist.length > 0) {
         const currentWatchlist = window.Dashboard.state.watchlist || [];
         const mergedWatchlist = [...new Set([...currentWatchlist, ...cloudWatchlist])];
-        if (mergedWatchlist.length > currentWatchlist.length) {
-          window.Dashboard.state.watchlist = mergedWatchlist;
-          localStorage.setItem('trading_watchlist', JSON.stringify(mergedWatchlist));
-          changed = true;
-        }
+        window.Dashboard.state.watchlist = mergedWatchlist;
+        localStorage.setItem('trading_watchlist', JSON.stringify(mergedWatchlist));
+        changed = true;
       }
 
-      if (changed && window.Dashboard) {
-        window.Dashboard.loadAll(true);
+      if (changed) {
+        console.log('☁️ Cloud sync applied. Holdings:', window.Dashboard.state.invested);
+        window.Dashboard._render(); // instant re-render without full refetch
       }
     } catch (err) {
       console.error('Failed to pull from cloud:', err);
