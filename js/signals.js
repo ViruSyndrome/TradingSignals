@@ -311,6 +311,8 @@ const Signals = {
     // downgraded to NEUTRAL. Backtests can bypass via opts.ignoreWinnersFilter.
     let winnersFiltered = false;
     let coreOnlyFiltered = false;
+    let regimeBlocked = false;
+    let greedBlocked = false;
     let winnerTier = 'none';
     if (!ignoreWinnersFilter && symbol &&
         typeof CONFIG !== 'undefined' && CONFIG.signals?.winnersOnlyBuys &&
@@ -328,6 +330,32 @@ const Signals = {
       } else if (CONFIG.signals?.coreOnlyBuys && winnerTier === 'probation') {
         signal = 'NEUTRAL';
         coreOnlyFiltered = true;
+      }
+    }
+
+    // ── Hard gates (Tier-1): block live buys after scoring/filters ───────────
+    // Soft F&G / regime dampeners still apply above; these are hard kill-switches.
+    if (['BUY', 'STRONG_BUY'].includes(signal) && typeof CONFIG !== 'undefined') {
+      const baseSym = String(symbol || '').toUpperCase().replace(/USDT$/, '');
+      const isBtc = baseSym === 'BTC';
+      if (CONFIG.signals?.bearRegimeBlockBuys && opts.marketRegime === 'bear' && !isBtc) {
+        signal = 'NEUTRAL';
+        regimeBlocked = true;
+        indDetails.regimeHardGate = {
+          signal: 'SELL',
+          description: 'Hard gate: BTC bear regime — altcoin buys blocked for live trading.',
+          score: 0,
+        };
+      }
+      const greedAt = CONFIG.signals?.extremeGreedBlockAt ?? 75;
+      if (CONFIG.signals?.extremeGreedBlockBuys && typeof fearGreed === 'number' && fearGreed >= greedAt) {
+        signal = 'NEUTRAL';
+        greedBlocked = true;
+        indDetails.greedHardGate = {
+          signal: 'SELL',
+          description: `Hard gate: Extreme Greed (${fearGreed}) — new buys blocked.`,
+          score: 0,
+        };
       }
     }
 
@@ -362,7 +390,11 @@ const Signals = {
     if (winnersFiltered) {
       recommendation = '⚠️ Buy signal suppressed — this asset has a losing track record in backtests with this engine. ' + recommendation;
     } else if (coreOnlyFiltered) {
-      recommendation = '🧪 Watchlist-only setup — this asset is on probation, so bullish signals are hidden until it proves robust enough to join the core winners. ' + recommendation;
+      recommendation = '🧪 Research only — probation winner. Live capital should stick to core winners; paper-trade or size tiny if you act. ' + recommendation;
+    } else if (regimeBlocked) {
+      recommendation = '🛑 Buy blocked — BTC is in a bear regime. Wait for regime recovery before new alt entries. ' + recommendation;
+    } else if (greedBlocked) {
+      recommendation = '🛑 Buy blocked — Extreme Greed. Crowded tape; wait for cooler sentiment. ' + recommendation;
     }
 
     return {
@@ -376,6 +408,8 @@ const Signals = {
       stopSuggest,
       winnersFiltered,
       coreOnlyFiltered,
+      regimeBlocked,
+      greedBlocked,
       winnerTier,
       arrays: { rsi: rsiArr, macd: macdData, emaFast, emaSlow, sma50, sma200, bb: bbData, atr: atrArr, closes },
       calculatedAt: new Date().toISOString(),
@@ -787,7 +821,7 @@ const Signals = {
     return this.LEVELS[signalKey] || this.LEVELS.NEUTRAL;
   },
 
-  _version: '6.06',
+  _version: '6.08',
 };
 
 if (typeof module !== 'undefined' && module.exports) module.exports = Signals;

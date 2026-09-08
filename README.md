@@ -38,6 +38,7 @@ Serve the directory with any static host (or `npx serve .`) and open `index.html
 
 - Weekly GitHub Action: `node backtest.js` (updates `provenWinners` + `lastBacktest` badge)
 - Monthly robustness check: `node backtest.js --walk-forward-rolling`
+- Entry fill realism: `node backtest.js --entry-realism`
 - Unit tests: `npm test`
 
 ## Disclaimer

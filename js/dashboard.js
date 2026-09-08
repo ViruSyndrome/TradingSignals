@@ -36,9 +36,151 @@ const Dashboard = {
   // ─── Signal History ─────────────────────────────────────────────────────────
   SIGNAL_HISTORY_KEY: 'signal_history_v1',
   HOLDINGS_META_KEY: 'trading_holdings_meta',
+  ALERT_OUTCOMES_KEY: 'trading_alert_outcomes_v1',
   MOONSHOT_REVIEW_MS: 4 * 60 * 60 * 1000, // 4 hours to reduce clutter
   _previousSignals: new Map(),
   _previousScalps: new Map(),
+
+  _getAlertOutcomes() {
+    try {
+      const raw = localStorage.getItem(this.ALERT_OUTCOMES_KEY);
+      const list = raw ? JSON.parse(raw) : [];
+      return Array.isArray(list) ? list : [];
+    } catch (e) { return []; }
+  },
+
+  _saveAlertOutcomes(list) {
+    try {
+      localStorage.setItem(this.ALERT_OUTCOMES_KEY, JSON.stringify((list || []).slice(0, 300)));
+    } catch (e) { /* quota */ }
+  },
+
+  /** Log live STRONG_BUY (core) alerts for 3d/7d outcome tracking. */
+  _captureAlertOutcomes() {
+    const now = Date.now();
+    let journal = this._getAlertOutcomes();
+    let changed = false;
+
+    for (const d of this.state.allAssets) {
+      const sig = d.signalResult?.signal;
+      const tier = d.signalResult?.winnerTier;
+      if (sig !== 'STRONG_BUY' || tier !== 'core') continue;
+      if (d.signalResult?.regimeBlocked || d.signalResult?.greedBlocked || d.signalResult?.coreOnlyFiltered) continue;
+      if (!Number.isFinite(d.price) || d.price <= 0) continue;
+
+      const symbol = String(d.asset?.symbol || d.asset?.id || '').toUpperCase().replace(/USDT$/, '');
+      const id = d.asset?.id;
+      // Avoid duplicate open alerts for same coin within 24h
+      const recent = journal.find(e =>
+        e.status === 'OPEN' &&
+        e.symbol === symbol &&
+        (now - Date.parse(e.alertedAt)) < 24 * 3600 * 1000
+      );
+      if (recent) continue;
+
+      const stop = d.signalResult?.stopSuggest;
+      journal.unshift({
+        id: `${symbol}-${now}`,
+        symbol,
+        assetId: id,
+        alertedAt: new Date(now).toISOString(),
+        entryPrice: d.price,
+        stopPrice: stop?.stopPrice ?? null,
+        takeProfitPrice: stop?.takeProfitPrice ?? null,
+        takeProfitPct: stop?.takeProfitPct ?? CONFIG.exits?.takeProfitPct ?? 10,
+        holdLimitDays: stop?.holdLimitDays ?? CONFIG.exits?.holdLimitDays ?? 7,
+        score: d.signalResult?.score ?? null,
+        confidence: d.signalResult?.confidence ?? null,
+        status: 'OPEN',
+        outcomes: { threeDay: null, sevenDay: null },
+        exitReason: null,
+        lastPrice: d.price,
+        lastCheckedAt: new Date(now).toISOString(),
+      });
+      changed = true;
+    }
+
+    if (changed) this._saveAlertOutcomes(journal);
+  },
+
+  async _updateAlertOutcomes() {
+    let journal = this._getAlertOutcomes();
+    const open = journal.filter(e => e.status === 'OPEN');
+    if (!open.length) return;
+
+    try {
+      const symbols = [...new Set(open.map(e => `${e.symbol}USDT`))];
+      const res = await fetch(`https://api.binance.com/api/v3/ticker/price?symbols=${encodeURIComponent(JSON.stringify(symbols))}`);
+      const tickers = await res.json();
+      const prices = new Map((Array.isArray(tickers) ? tickers : []).map(t => [t.symbol.replace('USDT', ''), Number(t.price)]));
+      const now = Date.now();
+
+      journal = journal.map(entry => {
+        if (entry.status !== 'OPEN') return entry;
+        const current = prices.get(entry.symbol);
+        if (!Number.isFinite(current)) return entry;
+
+        const ageMs = now - Date.parse(entry.alertedAt);
+        const ageDays = ageMs / 86400000;
+        const returnPct = ((current - entry.entryPrice) / entry.entryPrice) * 100;
+        const outcomes = { ...entry.outcomes };
+        if (ageDays >= 3 && outcomes.threeDay === null) outcomes.threeDay = +returnPct.toFixed(2);
+        if (ageDays >= 7 && outcomes.sevenDay === null) outcomes.sevenDay = +returnPct.toFixed(2);
+
+        let status = entry.status;
+        let exitReason = entry.exitReason;
+        if (entry.stopPrice && current <= entry.stopPrice) {
+          status = 'STOPPED';
+          exitReason = 'STOP_LOSS';
+        } else if (entry.takeProfitPrice && current >= entry.takeProfitPrice) {
+          status = 'TARGET';
+          exitReason = 'TAKE_PROFIT';
+        } else if (ageDays >= (entry.holdLimitDays || 7)) {
+          status = 'EXPIRED';
+          exitReason = 'HOLD_LIMIT';
+          if (outcomes.sevenDay === null) outcomes.sevenDay = +returnPct.toFixed(2);
+        }
+
+        return {
+          ...entry,
+          lastPrice: current,
+          lastCheckedAt: new Date(now).toISOString(),
+          outcomes,
+          status,
+          exitReason,
+          returnPct: +returnPct.toFixed(2),
+        };
+      });
+
+      this._saveAlertOutcomes(journal);
+    } catch (e) {
+      console.warn('[Alerts] Outcome update failed:', e.message);
+    }
+  },
+
+  _alertOutcomesHTML() {
+    const journal = this._getAlertOutcomes().slice(0, 40);
+    if (!journal.length) {
+      return `<div class="alert-outcomes-panel"><h3>📈 Alert outcomes</h3><p class="no-data">No STRONG_BUY core alerts logged yet. They appear automatically when a live core Strong Buy fires.</p></div>`;
+    }
+    const rows = journal.map(e => {
+      const age = this._formatTimeHeld(e.alertedAt);
+      const ret = Number.isFinite(e.returnPct) ? `${e.returnPct >= 0 ? '+' : ''}${e.returnPct.toFixed(2)}%` : '—';
+      const cls = Number.isFinite(e.returnPct) ? (e.returnPct >= 0 ? 'pos' : 'neg') : 'flat';
+      const d3 = e.outcomes?.threeDay != null ? `${e.outcomes.threeDay >= 0 ? '+' : ''}${e.outcomes.threeDay}%` : '—';
+      const d7 = e.outcomes?.sevenDay != null ? `${e.outcomes.sevenDay >= 0 ? '+' : ''}${e.outcomes.sevenDay}%` : '—';
+      return `<div class="alert-outcome-row">
+        <strong>${e.symbol}</strong>
+        <span>${e.status}</span>
+        <span>Entry $${this._fmt(e.entryPrice)}</span>
+        <span class="${cls}">Now ${ret}</span>
+        <span>3d ${d3}</span>
+        <span>7d ${d7}</span>
+        <span class="muted">Held ${age}${e.exitReason ? ' · ' + e.exitReason : ''}</span>
+      </div>`;
+    }).join('');
+    return `<div class="alert-outcomes-panel"><h3>📈 Alert outcomes (core STRONG_BUY)</h3>${rows}</div>`;
+  },
 
   _persistHoldingsMeta() {
     try {
@@ -595,9 +737,11 @@ const Dashboard = {
       this._cleanStaleScalps(); // Instantly remove any scalps that dropped below STRONG_BUY
       this._backfillHoldingsMeta();
       this._persistSnapshot();
+      this._captureAlertOutcomes();
       this._render();
       this._autoResolvePaperPositions();
       this._updateMoonshotJournal();
+      this._updateAlertOutcomes();
       this._refreshOpenModal();
       if (!silent) this._showToast(anyOk ? 'Data refreshed ✓' : 'Fetch failed — showing last known data', anyOk ? 'success' : 'warning');
     } catch (err) {
@@ -1035,9 +1179,13 @@ const Dashboard = {
         <span class="summary-value" style="color:${this._fgColor(this.state.fearGreed.value)}">${this.state.fearGreed.value_classification}</span>
         <span class="summary-label">Fear & Greed: ${this.state.fearGreed.value}/100</span>
       </div>` : ''}
-      <div class="summary-item regime-item" title="BTC market regime controls how aggressively altcoin Buy signals are trusted.">
+      <div class="summary-item regime-item" title="BTC market regime. When bear hard-gate is on, altcoin buys are blocked.">
         <span class="summary-value">${this.state.marketRegime === 'bull' ? '🟢 Bull' : this.state.marketRegime === 'bear' ? '🔴 Bear' : '🟡 Flat'}</span>
-        <span class="summary-label">BTC Regime · Altcoins ${this.state.marketRegime === 'bear' ? 'Restricted' : 'Open'}</span>
+        <span class="summary-label">BTC Regime · Alts ${this.state.marketRegime === 'bear' && CONFIG.signals?.bearRegimeBlockBuys ? 'Blocked' : this.state.marketRegime === 'bear' ? 'Restricted' : 'Open'}</span>
+      </div>
+      <div class="summary-item" title="Live policy: core winners only for actionable buys. Probation setups stay visible as research.">
+        <span class="summary-value" style="color:#34d399">${CONFIG.signals?.coreOnlyBuys ? '🎯 Core-only live' : '🧪 All winners'}</span>
+        <span class="summary-label">${(CONFIG.assets?.coreWinners || []).length} core · ${(CONFIG.assets?.probationWinners || []).length} probation research</span>
       </div>
       <div class="summary-item" title="Live swing strategy parameters. Exits use a fixed ${this._exitPolicy().takeProfitPct}% take-profit and ${this._exitPolicy().holdLimitDays}-day hold limit.">
         <span class="summary-value" style="color:#29b6f6">⚙️ TP ${this._exitPolicy().takeProfitPct}% · ${this._exitPolicy().holdLimitDays}d · RSI=${CONFIG.activeParams.rsiPeriod}</span>
@@ -1265,9 +1413,9 @@ const Dashboard = {
     } else if (cat === 'history') {
       const history = this._getSignalHistory();
       if (history.length === 0) {
-        el.innerHTML = '<p class="no-data">No signal changes recorded yet. Changes will appear here after the next refresh cycle.</p>';
+        el.innerHTML = `${this._alertOutcomesHTML()}<p class="no-data">No signal changes recorded yet. Changes will appear here after the next refresh cycle.</p>`;
       } else {
-        el.innerHTML = `<div class="signal-history-list">${history.map(h => {
+        el.innerHTML = `${this._alertOutcomesHTML()}<div class="signal-history-list">${history.map(h => {
           const time = new Date(h.time);
           const timeStr = time.toLocaleDateString('en-IN', {day:'2-digit', month:'short'}) + ' ' + time.toLocaleTimeString('en-IN', {hour:'2-digit', minute:'2-digit'});
           const fromLevel = Signals.level(h.from);
@@ -1440,6 +1588,11 @@ const Dashboard = {
     const quality = this._tradeQuality(signalResult);
     const catBadge = { crypto: '₿ Crypto', stocks: '🇮🇳 Stock', commodities: '🪙 Commodity', forex: '💱 Forex' }[category] ?? category;
     const winnerBadge = this._winnerTierBadge(winnerTier);
+    const researchChip = signalResult?.coreOnlyFiltered
+      ? `<span class="research-chip" title="Probation setup — research/paper only while core-only mode is on">Research</span>`
+      : (signalResult?.regimeBlocked || signalResult?.greedBlocked)
+        ? `<span class="research-chip blocked-chip" title="${signalResult.regimeBlocked ? 'Blocked: BTC bear regime' : 'Blocked: Extreme Greed'}">Blocked</span>`
+        : '';
     const updateClass = this.state.updatedAssetIds.has(asset.id) ? ' value-updated' : '';
     const logoSymbol = String(asset.symbol || normalizedId).replace(/USDT.*$/i, '').replace(/[^a-z0-9]/gi, '').toLowerCase();
     const logoUrl = `assets/coin-logos/${logoSymbol}.svg`;
@@ -1511,6 +1664,7 @@ const Dashboard = {
               <div class="card-badges">
                 <span class="cat-badge-inline">${catBadge}</span>
                 ${winnerBadge}
+                ${researchChip}
               </div>
             </div>
           </div>
@@ -1819,6 +1973,9 @@ const Dashboard = {
       : '';
     const modalAssetMark = `<span class="asset-icon asset-visual lg ${modalScannerType ? `scanner-visual ${modalScannerType}-visual` : ''}"><img class="coin-logo" src="${modalLogoSvg}" alt="${asset.symbol} logo" loading="lazy" onerror="if(this.dataset.retry==='1'){this.dataset.retry='2';this.src='${modalLogoRemote}';}else if(!this.dataset.retry){this.dataset.retry='1';this.src='${modalLogoPng}';}else{this.style.display='none';this.nextElementSibling.style.display='flex';}"><span class="coin-logo-fallback">${String(asset.symbol || asset.id).slice(0, 3)}</span>${modalScannerChip}</span>`;
 
+    const tradeSymbol = String(asset.symbol || '').replace(/USDT$/i, '') || String(asset.id || '').replace(/USDT.*$/i, '');
+    const binanceTradeUrl = `https://www.binance.com/en/trade/${tradeSymbol}_USDT?type=spot&ref=TRENDRUNNER`;
+
     content.innerHTML = `
       <div class="modal-header">
         <div class="modal-title-row">
@@ -1826,6 +1983,7 @@ const Dashboard = {
           <div>
             <h2>${asset.name} <span class="modal-symbol">${asset.symbol}</span></h2>
             <div class="modal-meta">${{ crypto: '₿ Crypto', stocks: '🇮🇳 NSE Stock', commodities: '🪙 Commodity', forex: '💱 Forex' }[category] ?? category} ${tierBadge}</div>
+            <a href="${binanceTradeUrl}" target="_blank" rel="noopener noreferrer" class="modal-trade-link" title="Open ${tradeSymbol}USDT spot on Binance">Trade ${tradeSymbol}USDT on Binance ↗</a>
           </div>
           <div class="signal-badge signal-${level.cls} lg ${['STRONG_BUY','STRONG_SELL'].includes(sig) ? 'pulse' : ''}">
             ${level.icon} ${level.label}
@@ -1834,6 +1992,7 @@ const Dashboard = {
         <div class="modal-prices">
           <div class="modal-price">${priceStr}</div>
           <div class="price-change ${change24h == null ? 'flat' : change24h >= 0 ? 'pos' : 'neg'} lg">${chgStr} (24h)</div>
+          <a href="${binanceTradeUrl}" target="_blank" rel="noopener noreferrer" class="modal-trade-btn" title="Open this pair on Binance with TrendRunner referral">Trade on Binance</a>
         </div>
         ${ocoHTML}
       </div>
@@ -2200,6 +2359,8 @@ const Dashboard = {
     const status = !valid ? 'Invalid price relationship' : stale ? 'Refresh before placing: levels are stale' : 'OCO levels ready to review';
     const statusClass = !valid || stale ? 'oco-warning' : 'oco-ready';
     const symbol = d.asset.symbol;
+    const tradeSymbol = String(symbol || '').replace(/USDT$/i, '');
+    const binanceTradeUrl = `https://www.binance.com/en/trade/${tradeSymbol}_USDT?type=spot&ref=TRENDRUNNER`;
     const rules = d.rules || {};
     const ruleText = rules.minNotional ? `Binance minimum order value: $${rules.minNotional}. Quantity step: ${rules.stepSize}. Price tick: ${rules.tickSize}.` : 'Binance will enforce the pair minimum value and price/quantity precision.';
     return `
@@ -2212,6 +2373,7 @@ const Dashboard = {
           <span>Stop price <strong>${this._fmt(s.stopPrice, d.asset)}</strong></span>
           <span>Stop-limit <strong>${this._fmt(s.stopPrice * 0.998, d.asset)}</strong></span>
         </div>
+        <a href="${binanceTradeUrl}" target="_blank" rel="noopener noreferrer" class="modal-trade-btn" style="margin-top:14px;">Open ${tradeSymbol}USDT on Binance ↗</a>
         <small>Reward/risk: ${rewardRisk}R. Use these as a sell OCO on Binance. Enter your available ${symbol} amount. ${ruleText}</small>
       </div>
     `;

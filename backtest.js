@@ -62,7 +62,8 @@ function parseArgs() {
   const interval = intervalArg ? intervalArg.split('=')[1] : '1d';
   const moonshots = args.includes('--moonshots');
   const useTrailingExit = args.includes('--exit=trailing') || moonshots;
-  return { walkForward, walkForwardRolling, costSweep, interval, moonshots, useTrailingExit };
+  const entryRealism = args.includes('--entry-realism');
+  return { walkForward, walkForwardRolling, costSweep, interval, moonshots, useTrailingExit, entryRealism };
 }
 
 const PARSED_ARGS = parseArgs();
@@ -279,6 +280,8 @@ function backtestAsset(name, symbol, ohlcv, opts = {}) {
     slippage = SLIPPAGE,
     ignoreWinnersFilter = true,
     fgMap = null,
+    entryFill = 'next_open', // 'next_open' | 'signal_close'
+    btcCloses = null,
   } = opts;
 
   const costPerSide = feeRate + slippage;
@@ -311,6 +314,8 @@ function backtestAsset(name, symbol, ohlcv, opts = {}) {
       win: returnPct > 0,
       entryFG: position.entryFG,
       entryFGRegime: position.entryFGRegime,
+      entryFill: position.entryFill,
+      symbol,
     });
 
     position = null;
@@ -326,13 +331,22 @@ function backtestAsset(name, symbol, ohlcv, opts = {}) {
     // Look up Fear & Greed for this day
     const dayFG = timestamps ? getFGForTimestamp(fgMap, timestamps[day]) : null;
 
+    let marketRegime = 'flat';
+    if (Array.isArray(btcCloses) && btcCloses.length > day) {
+      const btcSliced = btcCloses.slice(0, day + 1);
+      const btcSma50 = Indicators.last(Indicators.sma(btcSliced, 50));
+      const btcPrice = btcSliced[btcSliced.length - 1];
+      if (btcSma50) marketRegime = btcPrice > btcSma50 ? 'bull' : 'bear';
+    }
+
     const result = Signals.generate(slicedCloses, {
       highs: slicedHighs,
       lows: slicedLows,
       volumes: slicedVolumes,
       symbol,
       ignoreWinnersFilter,
-      fearGreed: dayFG,  // Now the backtest uses the SAME F&G gate as the live engine
+      fearGreed: dayFG,
+      marketRegime,
     });
 
     const price = closes[day];
@@ -350,7 +364,7 @@ function backtestAsset(name, symbol, ohlcv, opts = {}) {
       if (position.stopLoss && lows[day] <= position.stopLoss) {
         exitReason = 'STOP_LOSS';
       }
-      // Take-profit hit intraday (2R)
+      // Take-profit hit intraday
       else if (position.takeProfit && highs[day] >= position.takeProfit) {
         exitReason = 'TAKE_PROFIT';
       }
@@ -368,9 +382,18 @@ function backtestAsset(name, symbol, ohlcv, opts = {}) {
       }
     }
 
-    // ─── ENTRY LOGIC (signal on close, execute next-day open) ──────────────────
+    // ─── ENTRY LOGIC ──────────────────────────────────────────────────────────
     if (!position && (sig === 'BUY' || sig === 'STRONG_BUY')) {
-      const entryPrice = opens[nextOpenDay];
+      let entryPrice;
+      let entryDay;
+      if (entryFill === 'signal_close') {
+        // Research realism: fill at signal close (worse than next-open optimism)
+        entryPrice = price;
+        entryDay = day;
+      } else {
+        entryPrice = opens[nextOpenDay];
+        entryDay = nextOpenDay;
+      }
       if (!isFinite(entryPrice) || entryPrice <= 0) continue;
 
       // Calculate ATR for stop-loss (atr() returns an array — take the last value)
@@ -382,39 +405,22 @@ function backtestAsset(name, symbol, ohlcv, opts = {}) {
 
       position = {
         entryPrice,
-        entryDay: nextOpenDay,
+        entryDay,
         signal: sig,
         score,
         confidence: conf,
         stopLoss,
         takeProfit,
         entryFG: dayFG,
-        entryFGRegime: classifyFG(dayFG),
+        entryFGRegime: dayFG == null ? null : dayFG <= 25 ? 'Extreme Fear' : dayFG <= 45 ? 'Fear' : dayFG <= 55 ? 'Neutral' : dayFG <= 75 ? 'Greed' : 'Extreme Greed',
+        entryFill,
       };
     }
   }
 
-  // Close any open position at the final close (end-of-backtest liquidation)
+  // Force-close any open position at the end
   if (position) {
-    const price = closes[closes.length - 1];
-    const grossReturnPct = ((price - position.entryPrice) / position.entryPrice) * 100;
-    const netEntry = position.entryPrice * (1 + costPerSide);
-    const netExit = price * (1 - costPerSide);
-    const returnPct = ((netExit - netEntry) / netEntry) * 100;
-    trades.push({
-      entrySignal: position.signal,
-      entryScore: position.score,
-      entryConf: position.confidence,
-      entryPrice: position.entryPrice,
-      exitPrice: price,
-      exitReason: 'STILL_OPEN',
-      holdDays: closes.length - 1 - position.entryDay,
-      grossReturnPct,
-      returnPct,
-      win: returnPct > 0,
-      entryFG: position.entryFG,
-      entryFGRegime: position.entryFGRegime,
-    });
+    closePosition(Math.min(position.entryDay + 1, closes.length - 1), 'END_OF_DATA');
   }
 
   return trades;
@@ -762,6 +768,9 @@ async function main() {
   if (args.costSweep) {
     console.log('  Cost Sweep: 0.20% / 0.40% / 0.60% round-trip');
   }
+  if (args.entryRealism) {
+    console.log('  Mode: Entry realism (next_open vs signal_close)');
+  }
   console.log('═══════════════════════════════════════════════════════════════\n');
 
   const histories = {};
@@ -775,6 +784,42 @@ async function main() {
   }
   
   const fgMap = await fetchFearGreedHistory(250);
+  const btcCloses = histories.BTC?.closes || null;
+
+  if (args.entryRealism) {
+    console.log('\n═══════════════════════════════════════════════════════════════');
+    console.log('  ENTRY REALISM COMPARISON');
+    console.log('  next_open (CLI default) vs signal_close (live-ish fill)');
+    console.log('═══════════════════════════════════════════════════════════════');
+    for (const mode of ['next_open', 'signal_close']) {
+      const allTrades = [];
+      for (const asset of CONFIG.assets.crypto) {
+        const ohlcv = histories[asset.symbol];
+        if (!ohlcv) continue;
+        const trades = backtestAsset(asset.name, asset.symbol, ohlcv, {
+          feeRate: FEE_RATE,
+          slippage: SLIPPAGE,
+          fgMap,
+          entryFill: mode,
+          btcCloses,
+          ignoreWinnersFilter: false, // live-like: winners + hard gates
+        });
+        trades.forEach(t => { t.symbol = asset.symbol; });
+        allTrades.push(...trades);
+      }
+      const coreList = CONFIG.assets.coreWinners || [];
+      const coreTrades = allTrades.filter(t => coreList.includes(t.symbol));
+      const allStats = computeStats(allTrades, 'returnPct');
+      const coreStats = computeStats(coreTrades, 'returnPct');
+      console.log(`\n─── Fill mode: ${mode} ───`);
+      printStatsBlock('All assets', allStats, computeStats(allTrades, 'grossReturnPct'));
+      printStatsBlock('Core winners only', coreStats, computeStats(coreTrades, 'grossReturnPct'));
+    }
+    console.log('\n═══════════════════════════════════════════════════════════════');
+    console.log('  Entry realism complete.');
+    console.log('═══════════════════════════════════════════════════════════════\n');
+    return;
+  }
   
   // Run Auto-Optimization Sweep (unless in moonshot mode which is highly specific)
   if (!args.moonshots) {
@@ -856,6 +901,7 @@ async function main() {
           feeRate: scenario.feeRate,
           slippage: scenario.slippage,
           fgMap,
+          btcCloses,
         });
         trades.forEach(t => { t.symbol = asset.symbol; });
         allTrades.push(...trades);

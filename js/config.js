@@ -76,7 +76,11 @@ const CONFIG = {
 
   signals: {
     winnersOnlyBuys: true, // Only allow BUY/STRONG_BUY on provenWinners
-    coreOnlyBuys: false,   // When true, restrict buys to coreWinners only
+    coreOnlyBuys: true,    // Live buys: core winners only (probation = research/paper)
+    // Hard gates (kill buys after scoring — stronger than soft dampeners)
+    bearRegimeBlockBuys: true,     // No alt BUY/STRONG_BUY when BTC regime is bear
+    extremeGreedBlockBuys: true,   // No BUY/STRONG_BUY when Fear & Greed >= threshold
+    extremeGreedBlockAt: 75,
   },
 
   // ─── Live exit policy (single source of truth for OCO, bots, UI, backtests) ─
