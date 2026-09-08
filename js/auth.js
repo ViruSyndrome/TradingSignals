@@ -206,8 +206,8 @@ const Auth = {
     if (!this.user) return;
 
     // Race condition guard: Dashboard may still be loading on fresh page open.
-    // Retry up to 5 times (every 1.5s) until it's ready.
-    if (!window.Dashboard || !window.Dashboard.state) {
+    // Retry up to 5 times (every 1.5s) until data is actually loaded.
+    if (!window.Dashboard || !window.Dashboard.state || !window.Dashboard.state.allAssets?.length) {
       if (retryCount < 5) {
         setTimeout(() => this.syncFromCloud(retryCount + 1), 1500);
       }
@@ -244,7 +244,8 @@ const Auth = {
 
       if (changed) {
         console.log('☁️ Cloud sync applied. Holdings:', window.Dashboard.state.invested);
-        window.Dashboard._render(); // instant re-render without full refetch
+        window.Dashboard._showToast(`☁️ Holdings synced from cloud (${window.Dashboard.state.invested.length} coins)`, 'success');
+        window.Dashboard.loadAll(true); // full re-render with fresh data so Holdings tab shows coins
       }
     } catch (err) {
       console.error('Failed to pull from cloud:', err);
