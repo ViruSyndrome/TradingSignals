@@ -37,6 +37,7 @@ const API = {
   _binanceHostIdx: 0,
   _binanceCooloffUntil: 0,
   _binanceHardBanUntil: 0, // after full 418 sweep, skip Binance for a while and use OKX
+  _preferOkx: false,
   _okxWarned: false,
 
   _isNode() {
@@ -96,7 +97,7 @@ const API = {
    * pathQuery example: `/api/v3/klines?symbol=BTCUSDT&interval=1d&limit=250`
    */
   async _fetchBinance(pathQuery, timeoutMs = 15000, retries = 4) {
-    if (this._binanceIsHardBanned()) {
+    if (this._binanceIsHardBanned() || this._preferOkx) {
       const err = new Error('HTTP 418');
       err.status = 418;
       throw err;
@@ -106,9 +107,11 @@ const API = {
     }
 
     let lastErr;
-    let banHits = 0;
-    for (let attempt = 0; attempt <= retries; attempt++) {
-      const url = `${this._binanceBase()}${pathQuery}`;
+    const triedHosts = new Set();
+    const maxAttempts = Math.max(retries + 1, this._binanceHosts.length);
+    for (let attempt = 0; attempt < maxAttempts; attempt++) {
+      const host = this._binanceBase();
+      const url = `${host}${pathQuery}`;
       try {
         return await this._fetch(url, timeoutMs, 0);
       } catch (e) {
@@ -116,19 +119,20 @@ const API = {
         const status = e?.status || Number((String(e.message).match(/HTTP (\d+)/) || [])[1]);
         const banned = status === 418 || status === 429 || status === 403;
         if (banned) {
-          banHits++;
+          triedHosts.add(host);
           this._rotateBinanceHost(`HTTP ${status}`);
-          // One full rotation of hosts with 418 → hard-ban this IP for a while
-          if (banHits >= this._binanceHosts.length) {
+          // Every public host rejected us — treat IP as banned and stop retrying Binance
+          if (triedHosts.size >= this._binanceHosts.length) {
+            this._preferOkx = true;
             this._markBinanceHardBan(45);
             break;
           }
-          const backoff = Math.min(8000, 1000 * Math.pow(2, attempt));
+          const backoff = Math.min(4000, 800 * (attempt + 1));
           this._binanceCooloffUntil = Date.now() + backoff;
           await this._delay(backoff);
           continue;
         }
-        if (attempt < retries) await this._delay(500 * (attempt + 1));
+        if (attempt < maxAttempts - 1) await this._delay(500 * (attempt + 1));
       }
     }
     throw lastErr;
@@ -231,6 +235,8 @@ const API = {
     const key = 'crypto_symbol_rules';
     const cached = this._get(key);
     if (cached) return cached;
+    // Rules are Binance-specific; skip entirely when IP is banned (bot does not need them)
+    if (this._preferOkx || this._binanceIsHardBanned()) return {};
     try {
       const rawSymbols = CONFIG.assets.crypto.map(a => a.id.replace('_4H', '').replace('_5M', ''));
       const uniqueSymbols = [...new Set(rawSymbols)];
@@ -276,6 +282,8 @@ const API = {
       console.warn('[API] Binance price fetch failed:', e.message);
     }
     try {
+      this._preferOkx = true;
+      if (!this._binanceIsHardBanned()) this._markBinanceHardBan(45);
       const mapped = await this._getCryptoPricesOkx(uniqueSymbols);
       if (mapped && Object.keys(mapped).length) return this._set(key, mapped);
     } catch (e2) {
