@@ -123,6 +123,8 @@ function saveTwitterState(state) {
 }
 const twitterState = loadTwitterState();
 
+let scanInProgress = false;
+
 // Fetch the Crypto Fear & Greed index (0-100). Returns undefined on failure
 // so the engine simply skips the sentiment adjustment.
 async function fetchFearGreed() {
@@ -135,6 +137,11 @@ async function fetchFearGreed() {
 }
 
 async function scanMarket() {
+  if (scanInProgress) {
+    console.log('Scan already running — skipping overlapping trigger.');
+    return;
+  }
+  scanInProgress = true;
   console.log('Scanning market...');
   const portfolio = loadPortfolio();
 
@@ -314,9 +321,9 @@ If you sell, reply /sell ${asset.symbol}`;
     if (typeof fullUniverse !== 'undefined' && Array.isArray(fullUniverse) && fullUniverse.length) {
       CONFIG.assets.crypto = fullUniverse;
     }
-  }
-  
+    scanInProgress = false;
     console.log('Scan complete.');
+  }
 }
 
 // Scan every 1 hour (3600000 ms)

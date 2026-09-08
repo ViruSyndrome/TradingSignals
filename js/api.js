@@ -36,6 +36,8 @@ const API = {
   ],
   _binanceHostIdx: 0,
   _binanceCooloffUntil: 0,
+  _binanceHardBanUntil: 0, // after full 418 sweep, skip Binance for a while and use OKX
+  _okxWarned: false,
 
   _isNode() {
     return typeof process !== 'undefined' && !!(process.versions && process.versions.node);
@@ -49,6 +51,15 @@ const API = {
     const prev = this._binanceBase();
     this._binanceHostIdx = (this._binanceHostIdx + 1) % this._binanceHosts.length;
     console.warn(`[API] Rotating Binance host (${reason}): ${prev} → ${this._binanceBase()}`);
+  },
+
+  _markBinanceHardBan(minutes = 45) {
+    this._binanceHardBanUntil = Date.now() + minutes * 60 * 1000;
+    console.warn(`[API] Binance IP appears banned (418). Using OKX fallback for ~${minutes}m.`);
+  },
+
+  _binanceIsHardBanned() {
+    return Date.now() < this._binanceHardBanUntil;
   },
 
   // ─── Generic fetch with timeout + retry ───────────────────────────────────
@@ -85,22 +96,34 @@ const API = {
    * pathQuery example: `/api/v3/klines?symbol=BTCUSDT&interval=1d&limit=250`
    */
   async _fetchBinance(pathQuery, timeoutMs = 15000, retries = 4) {
+    if (this._binanceIsHardBanned()) {
+      const err = new Error('HTTP 418');
+      err.status = 418;
+      throw err;
+    }
     if (Date.now() < this._binanceCooloffUntil) {
       await this._delay(this._binanceCooloffUntil - Date.now());
     }
 
     let lastErr;
+    let banHits = 0;
     for (let attempt = 0; attempt <= retries; attempt++) {
       const url = `${this._binanceBase()}${pathQuery}`;
       try {
         return await this._fetch(url, timeoutMs, 0);
       } catch (e) {
         lastErr = e;
-        const status = e?.status || (String(e.message).match(/HTTP (\d+)/) || [])[1];
-        const banned = Number(status) === 418 || Number(status) === 429 || Number(status) === 403;
+        const status = e?.status || Number((String(e.message).match(/HTTP (\d+)/) || [])[1]);
+        const banned = status === 418 || status === 429 || status === 403;
         if (banned) {
+          banHits++;
           this._rotateBinanceHost(`HTTP ${status}`);
-          const backoff = Math.min(15000, 1500 * Math.pow(2, attempt));
+          // One full rotation of hosts with 418 → hard-ban this IP for a while
+          if (banHits >= this._binanceHosts.length) {
+            this._markBinanceHardBan(45);
+            break;
+          }
+          const backoff = Math.min(8000, 1000 * Math.pow(2, attempt));
           this._binanceCooloffUntil = Date.now() + backoff;
           await this._delay(backoff);
           continue;
@@ -113,6 +136,63 @@ const API = {
 
   // ─── Delay helper ────────────────────────────────────────────────────────────
   _delay(ms) { return new Promise(r => setTimeout(r, ms)); },
+
+  /** OKX public tickers → Binance-shaped price map { BTCUSDT: { lastPrice, priceChangePercent, quoteVolume } } */
+  async _getCryptoPricesOkx(wantedSymbols) {
+    const data = await this._fetch('https://www.okx.com/api/v5/market/tickers?instType=SPOT', 15000, 2);
+    const rows = Array.isArray(data?.data) ? data.data : [];
+    const wanted = new Set((wantedSymbols || []).map(s => String(s).toUpperCase()));
+    const mapped = {};
+    for (const t of rows) {
+      const inst = String(t.instId || ''); // BTC-USDT
+      if (!inst.endsWith('-USDT')) continue;
+      const symbol = inst.replace('-', '');
+      if (wanted.size && !wanted.has(symbol)) continue;
+      const last = parseFloat(t.last);
+      const open = parseFloat(t.open24h || t.sodUtc8 || t.sodUtc0);
+      let pct = null;
+      if (Number.isFinite(last) && Number.isFinite(open) && open > 0) {
+        pct = ((last - open) / open) * 100;
+      }
+      mapped[symbol] = {
+        symbol,
+        lastPrice: String(last),
+        priceChangePercent: pct != null ? String(pct) : undefined,
+        quoteVolume: t.volCcy24h || t.vol24h,
+      };
+    }
+    if (!this._okxWarned) {
+      console.warn('[API] Serving prices via OKX fallback (Binance unavailable from this IP).');
+      this._okxWarned = true;
+    }
+    return mapped;
+  },
+
+  /** OKX candles → Binance kline rows [ts, o, h, l, c, v] oldest→newest */
+  async _getCryptoOHLCOkx(coinId, interval = '1d') {
+    const binanceSymbol = coinId.replace('_4H', '').replace('_5M', '');
+    const base = binanceSymbol.replace(/USDT$/, '');
+    const instId = `${base}-USDT`;
+    const bar = interval === '4h' || interval === '4H' ? '4H' : '1D';
+    const limit = Math.min(CONFIG.refresh?.historyDays || 250, 300);
+    const data = await this._fetch(
+      `https://www.okx.com/api/v5/market/candles?instId=${encodeURIComponent(instId)}&bar=${bar}&limit=${limit}`,
+      15000,
+      2
+    );
+    const rows = Array.isArray(data?.data) ? data.data.slice() : [];
+    if (!rows.length) throw new Error('Empty OKX candles');
+    // OKX returns newest first
+    rows.reverse();
+    return rows.map(r => [
+      Number(r[0]),
+      r[1],
+      r[2],
+      r[3],
+      r[4],
+      r[5],
+    ]);
+  },
 
   // ══════════════════════════════════════════════════════════════════════════════
   // CRYPTO — Binance & DefiLlama (Fundamentals)
@@ -186,19 +266,26 @@ const API = {
     const symbols = JSON.stringify(uniqueSymbols);
     const urlPath = `/api/v3/ticker/24hr?symbols=${encodeURIComponent(symbols)}`;
     try {
-      const data = await this._fetchBinance(urlPath, 15000);
-      // Map Binance array to object keyed by symbol
-      const mapped = {};
-      for (const t of data) mapped[t.symbol] = t;
-      return this._set(key, mapped);
+      if (!this._binanceIsHardBanned()) {
+        const data = await this._fetchBinance(urlPath, 15000);
+        const mapped = {};
+        for (const t of data) mapped[t.symbol] = t;
+        return this._set(key, mapped);
+      }
     } catch (e) {
       console.warn('[API] Binance price fetch failed:', e.message);
-      return null;
     }
+    try {
+      const mapped = await this._getCryptoPricesOkx(uniqueSymbols);
+      if (mapped && Object.keys(mapped).length) return this._set(key, mapped);
+    } catch (e2) {
+      console.warn('[API] OKX price fallback failed:', e2.message);
+    }
+    return null;
   },
 
   /**
-   * Fetch historical OHLC for a single crypto asset (Binance).
+   * Fetch historical OHLC for a single crypto asset (Binance → OKX fallback).
    * Returns array of [timestamp_ms, open, high, low, close, volume]
    */
   async getCryptoOHLC(coinId, interval = '1d') {
@@ -210,11 +297,19 @@ const API = {
     const days = CONFIG.refresh.historyDays;
     const path = `/api/v3/klines?symbol=${binanceSymbol}&interval=${interval}&limit=${days}`;
     try {
-      const data = await this._fetchBinance(path, 15000); // [[time, o, h, l, c, v, ...], ...]
-      if (!Array.isArray(data) || data.length === 0) throw new Error('Empty klines');
-      return this._set(key, data, CONFIG.refresh.cacheMs); // 55 seconds TTL
+      if (!this._binanceIsHardBanned()) {
+        const data = await this._fetchBinance(path, 15000);
+        if (!Array.isArray(data) || data.length === 0) throw new Error('Empty klines');
+        return this._set(key, data, CONFIG.refresh.cacheMs);
+      }
     } catch (e) {
       console.warn(`[API] Binance history failed for ${coinId}:`, e.message);
+    }
+    try {
+      const data = await this._getCryptoOHLCOkx(coinId, interval);
+      return this._set(key, data, CONFIG.refresh.cacheMs);
+    } catch (e2) {
+      console.warn(`[API] OKX history failed for ${coinId}:`, e2.message);
       return null;
     }
   },
