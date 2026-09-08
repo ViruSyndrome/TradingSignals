@@ -25,21 +25,87 @@ const API = {
     return data;
   },
 
-  // ─── Generic fetch with timeout + one retry on transient failures ─────────
+  // Binance blocks some cloud IPs with HTTP 418. Rotate public market-data hosts.
+  _binanceHosts: [
+    'https://data-api.binance.vision',
+    'https://api1.binance.com',
+    'https://api2.binance.com',
+    'https://api3.binance.com',
+    'https://api4.binance.com',
+    'https://api.binance.com',
+  ],
+  _binanceHostIdx: 0,
+  _binanceCooloffUntil: 0,
+
+  _isNode() {
+    return typeof process !== 'undefined' && !!(process.versions && process.versions.node);
+  },
+
+  _binanceBase() {
+    return this._binanceHosts[this._binanceHostIdx % this._binanceHosts.length];
+  },
+
+  _rotateBinanceHost(reason) {
+    const prev = this._binanceBase();
+    this._binanceHostIdx = (this._binanceHostIdx + 1) % this._binanceHosts.length;
+    console.warn(`[API] Rotating Binance host (${reason}): ${prev} → ${this._binanceBase()}`);
+  },
+
+  // ─── Generic fetch with timeout + retry ───────────────────────────────────
   async _fetch(url, timeoutMs = 12000, retries = 1) {
     let lastErr;
     for (let attempt = 0; attempt <= retries; attempt++) {
       const ctrl = new AbortController();
       const timer = setTimeout(() => ctrl.abort(), timeoutMs);
       try {
-        const r = await fetch(url, { signal: ctrl.signal });
+        const headers = {};
+        if (this._isNode()) {
+          headers['User-Agent'] = 'Mozilla/5.0 (compatible; TrendRunnerBot/1.0; +https://trendrunner.app)';
+          headers['Accept'] = 'application/json';
+        }
+        const r = await fetch(url, { signal: ctrl.signal, headers });
         clearTimeout(timer);
-        if (!r.ok) throw new Error(`HTTP ${r.status}`);
+        if (!r.ok) {
+          const err = new Error(`HTTP ${r.status}`);
+          err.status = r.status;
+          throw err;
+        }
         return await r.json();
       } catch (e) {
         clearTimeout(timer);
         lastErr = e;
         if (attempt < retries) await this._delay(400 * (attempt + 1));
+      }
+    }
+    throw lastErr;
+  },
+
+  /**
+   * Binance market-data fetch with host failover on 418/429/403.
+   * pathQuery example: `/api/v3/klines?symbol=BTCUSDT&interval=1d&limit=250`
+   */
+  async _fetchBinance(pathQuery, timeoutMs = 15000, retries = 4) {
+    if (Date.now() < this._binanceCooloffUntil) {
+      await this._delay(this._binanceCooloffUntil - Date.now());
+    }
+
+    let lastErr;
+    for (let attempt = 0; attempt <= retries; attempt++) {
+      const url = `${this._binanceBase()}${pathQuery}`;
+      try {
+        return await this._fetch(url, timeoutMs, 0);
+      } catch (e) {
+        lastErr = e;
+        const status = e?.status || (String(e.message).match(/HTTP (\d+)/) || [])[1];
+        const banned = Number(status) === 418 || Number(status) === 429 || Number(status) === 403;
+        if (banned) {
+          this._rotateBinanceHost(`HTTP ${status}`);
+          const backoff = Math.min(15000, 1500 * Math.pow(2, attempt));
+          this._binanceCooloffUntil = Date.now() + backoff;
+          await this._delay(backoff);
+          continue;
+        }
+        if (attempt < retries) await this._delay(500 * (attempt + 1));
       }
     }
     throw lastErr;
@@ -89,7 +155,7 @@ const API = {
       const rawSymbols = CONFIG.assets.crypto.map(a => a.id.replace('_4H', '').replace('_5M', ''));
       const uniqueSymbols = [...new Set(rawSymbols)];
       const symbols = JSON.stringify(uniqueSymbols);
-      const data = await this._fetch(`https://api.binance.com/api/v3/exchangeInfo?symbols=${encodeURIComponent(symbols)}`, 8000);
+      const data = await this._fetchBinance(`/api/v3/exchangeInfo?symbols=${encodeURIComponent(symbols)}`, 8000);
       const rules = {};
       for (const item of data.symbols || []) {
         const filters = Object.fromEntries((item.filters || []).map(f => [f.filterType, f]));
@@ -118,9 +184,9 @@ const API = {
     const rawSymbols = CONFIG.assets.crypto.map(a => a.id.replace('_4H', '').replace('_5M', ''));
     const uniqueSymbols = [...new Set(rawSymbols)];
     const symbols = JSON.stringify(uniqueSymbols);
-    const url = `https://api.binance.com/api/v3/ticker/24hr?symbols=${encodeURIComponent(symbols)}`;
+    const urlPath = `/api/v3/ticker/24hr?symbols=${encodeURIComponent(symbols)}`;
     try {
-      const data = await this._fetch(url, 15000);
+      const data = await this._fetchBinance(urlPath, 15000);
       // Map Binance array to object keyed by symbol
       const mapped = {};
       for (const t of data) mapped[t.symbol] = t;
@@ -142,9 +208,9 @@ const API = {
 
     const binanceSymbol = coinId.replace('_4H', '').replace('_5M', '');
     const days = CONFIG.refresh.historyDays;
-    const url = `https://api.binance.com/api/v3/klines?symbol=${binanceSymbol}&interval=${interval}&limit=${days}`;
+    const path = `/api/v3/klines?symbol=${binanceSymbol}&interval=${interval}&limit=${days}`;
     try {
-      const data = await this._fetch(url, 15000); // [[time, o, h, l, c, v, ...], ...]
+      const data = await this._fetchBinance(path, 15000); // [[time, o, h, l, c, v, ...], ...]
       if (!Array.isArray(data) || data.length === 0) throw new Error('Empty klines');
       return this._set(key, data, CONFIG.refresh.cacheMs); // 55 seconds TTL
     } catch (e) {
@@ -206,14 +272,26 @@ const API = {
     }
 
     const results = [];
-    const chunkSize = 3; // 3 assets = 6 concurrent requests (max for mobile browsers)
+    // Browser: small parallel chunks. Node/Render: slower to avoid Binance 418 IP bans.
+    const onServer = this._isNode();
+    const chunkSize = onServer ? 1 : 3;
+    const chunkDelay = onServer ? 700 : 100;
+
     for (let i = 0; i < CONFIG.assets.crypto.length; i += chunkSize) {
       const chunk = CONFIG.assets.crypto.slice(i, i + chunkSize);
       const promises = chunk.map(async (asset) => {
-        const [hist1D, hist4H] = await Promise.all([
-          this.getCryptoOHLC(asset.id, '1d'),
-          this.getCryptoOHLC(asset.id, '4h')
-        ]);
+        // On server, fetch 1d then 4h sequentially to cut burst weight in half
+        let hist1D, hist4H;
+        if (onServer) {
+          hist1D = await this.getCryptoOHLC(asset.id, '1d');
+          await this._delay(120);
+          hist4H = await this.getCryptoOHLC(asset.id, '4h');
+        } else {
+          [hist1D, hist4H] = await Promise.all([
+            this.getCryptoOHLC(asset.id, '1d'),
+            this.getCryptoOHLC(asset.id, '4h')
+          ]);
+        }
         const binanceSymbol = asset.id.replace('_4H', '').replace('_5M', '');
         const baseSymbol = binanceSymbol.replace('USDT', '');
         
@@ -276,7 +354,7 @@ const API = {
       });
       const chunkResults = await Promise.all(promises);
       results.push(...chunkResults);
-      if (i + chunkSize < CONFIG.assets.crypto.length) await this._delay(100);
+      if (i + chunkSize < CONFIG.assets.crypto.length) await this._delay(chunkDelay);
     }
 
     return results;

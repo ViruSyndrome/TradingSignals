@@ -140,9 +140,9 @@ async function scanMarket() {
 
   // Dynamically inject user's private portfolio coins into the scanner
   for (const sym of Object.keys(portfolio)) {
-    if (!CONFIG.assets.crypto.find(a => a.id === sym)) {
+    if (!CONFIG.assets.crypto.find(a => a.id === sym || a.symbol === sym.replace('USDT',''))) {
       CONFIG.assets.crypto.push({
-        id: sym,
+        id: sym.endsWith('USDT') ? sym : sym + 'USDT',
         symbol: sym.replace('USDT', ''),
         name: sym.replace('USDT', ''),
         currency: 'USD',
@@ -153,6 +153,20 @@ async function scanMarket() {
   }
 
   const fearGreed = await fetchFearGreed();
+
+  // Bot only needs BTC (regime) + core winners + owned coins — cuts Binance weight ~70%
+  // and reduces Render IP 418 bans. Full universe still runs on the website.
+  const fullUniverse = CONFIG.assets.crypto.slice();
+  const needed = new Set([
+    'BTC',
+    ...((CONFIG.assets.coreWinners || []).map(s => String(s).toUpperCase())),
+    ...Object.keys(portfolio).map(s => String(s).toUpperCase().replace(/USDT$/, '')),
+  ]);
+  CONFIG.assets.crypto = fullUniverse.filter(a => {
+    const sym = String(a.symbol || a.id || '').toUpperCase().replace(/USDT$/, '');
+    return needed.has(sym);
+  });
+  console.log(`Bot scan universe: ${CONFIG.assets.crypto.map(a => a.symbol).join(', ')}`);
   
   try {
     const crypto = await API.getAllCrypto();
@@ -295,15 +309,21 @@ If you sell, reply /sell ${asset.symbol}`;
     }
   } catch (err) {
     console.error('Fatal error during scanMarket:', err);
+  } finally {
+    // Restore full asset list so later scans / modules are not permanently trimmed
+    if (typeof fullUniverse !== 'undefined' && Array.isArray(fullUniverse) && fullUniverse.length) {
+      CONFIG.assets.crypto = fullUniverse;
+    }
   }
   
     console.log('Scan complete.');
 }
+
 // Scan every 1 hour (3600000 ms)
 setInterval(scanMarket, 3600000);
 
-// Run an initial scan 5 seconds after startup
-setTimeout(scanMarket, 5000);
+// Delay first scan so Render restarts do not immediately re-trigger a Binance 418 ban
+setTimeout(scanMarket, 20000);
 
 // --- Cloud Keep-Alive Server ---
 if (!process.env.BOT_WORKER_ONLY) {
