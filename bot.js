@@ -300,7 +300,12 @@ If you sell, reply /sell ${asset.symbol}`;
             twitterClient.v2.tweet(tweetMessage).then(() => {
               console.log(`✅ Tweeted STRONG BUY for ${asset.symbol}`);
             }).catch(err => {
-              console.error('Twitter post failed:', err);
+              const detail = err?.data?.detail || err?.data?.title || err?.message || String(err);
+              const code = err?.code || err?.data?.status || '';
+              console.error(`Twitter post failed for ${asset.symbol} (${code}): ${detail}`);
+              if (Number(code) === 403) {
+                console.error('Twitter 403 usually means the app cannot post: Free API tier is read-only, or Access Token was created before Read+Write was enabled. Fix in X Developer Portal → regenerate Access Token after setting Read and Write, or upgrade to a paid plan that allows posting.');
+              }
             });
           } else {
             console.log(`⏭️ Skipped tweet for ${asset.symbol} due to rate limiting.`);
