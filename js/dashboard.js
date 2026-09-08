@@ -21,17 +21,146 @@ const Dashboard = {
     notifGranted:  false,
     watchlist:     (() => { try { const v = JSON.parse(localStorage.getItem('trading_watchlist')); return Array.isArray(v) ? v : []; } catch { return []; } })(),
     invested:      (() => { try { const v = JSON.parse(localStorage.getItem('trading_invested')); return Array.isArray(v) ? v : []; } catch { return []; } })(),
+    holdingsMeta:  (() => {
+      try {
+        const v = JSON.parse(localStorage.getItem('trading_holdings_meta'));
+        return v && typeof v === 'object' && !Array.isArray(v) ? v : {};
+      } catch { return {}; }
+    })(),
     moonshotReviewUntil: (() => { try { const v = JSON.parse(localStorage.getItem('trading_moonshot_review_until')); return v && typeof v === 'object' ? v : {}; } catch { return {}; } })(),
     fearGreed:     null,
     marketRegime: 'unknown',
-    scalps:        [],       // results from the 5m Meme Scalper
+    scalps:        [],       // results from the 5m Meme Scalper (feature quarantined)
   },
 
   // ─── Signal History ─────────────────────────────────────────────────────────
   SIGNAL_HISTORY_KEY: 'signal_history_v1',
+  HOLDINGS_META_KEY: 'trading_holdings_meta',
   MOONSHOT_REVIEW_MS: 4 * 60 * 60 * 1000, // 4 hours to reduce clutter
   _previousSignals: new Map(),
   _previousScalps: new Map(),
+
+  _persistHoldingsMeta() {
+    try {
+      localStorage.setItem(this.HOLDINGS_META_KEY, JSON.stringify(this.state.holdingsMeta || {}));
+    } catch (e) { /* quota — ignore */ }
+  },
+
+  _resolveAssetPrice(id) {
+    const base = String(id || '').toUpperCase().replace('_4H', '').replace('_5M', '');
+    const live = this.state.allAssets.find(a =>
+      String(a.asset?.id || '').toUpperCase().replace('_4H', '').replace('_5M', '') === base
+    );
+    return Number.isFinite(live?.price) ? live.price : null;
+  },
+
+  _setHoldingsMetaEntry(id, entryPrice, opts = {}) {
+    const base = String(id || '').toUpperCase().replace('_4H', '').replace('_5M', '');
+    if (!base) return;
+    if (!this.state.holdingsMeta || typeof this.state.holdingsMeta !== 'object') this.state.holdingsMeta = {};
+
+    const prev = this.state.holdingsMeta[base];
+    const hasRealEntry = prev?.entryPrice > 0 && prev?.estimated !== true;
+    // Preserve a real cost basis unless this is an explicit fresh lock (force)
+    if (hasRealEntry && !opts.force) return;
+
+    const price = Number.isFinite(entryPrice) && entryPrice > 0 ? entryPrice : this._resolveAssetPrice(base);
+    const entry = {
+      entryPrice: Number.isFinite(price) && price > 0 ? price : null,
+      lockedAt: opts.lockedAt || new Date().toISOString(),
+    };
+    if (opts.estimated) entry.estimated = true;
+    this.state.holdingsMeta[base] = entry;
+    this._persistHoldingsMeta();
+  },
+
+  _removeHoldingsMetaEntry(id) {
+    const base = String(id || '').toUpperCase().replace('_4H', '').replace('_5M', '');
+    if (!this.state.holdingsMeta?.[base]) return;
+    delete this.state.holdingsMeta[base];
+    this._persistHoldingsMeta();
+  },
+
+  _backfillHoldingsMeta() {
+    if (!Array.isArray(this.state.invested)) return;
+    let changed = false;
+    for (const id of this.state.invested) {
+      const base = String(id).toUpperCase().replace('_4H', '').replace('_5M', '');
+      const existing = this.state.holdingsMeta?.[base];
+      if (existing?.entryPrice > 0) continue;
+      const price = this._resolveAssetPrice(base);
+      if (!this.state.holdingsMeta) this.state.holdingsMeta = {};
+      this.state.holdingsMeta[base] = {
+        entryPrice: Number.isFinite(price) && price > 0 ? price : null,
+        lockedAt: existing?.lockedAt || new Date().toISOString(),
+        estimated: true, // no historical entry existed before paper-tracker launch
+      };
+      changed = true;
+    }
+    // Drop meta for coins no longer locked
+    for (const key of Object.keys(this.state.holdingsMeta || {})) {
+      if (!this.state.invested.includes(key)) {
+        delete this.state.holdingsMeta[key];
+        changed = true;
+      }
+    }
+    if (changed) this._persistHoldingsMeta();
+  },
+
+  _formatTimeHeld(lockedAt) {
+    const start = Date.parse(lockedAt);
+    if (!Number.isFinite(start)) return '—';
+    const ms = Math.max(0, Date.now() - start);
+    const mins = Math.floor(ms / 60000);
+    if (mins < 60) return `${mins}m`;
+    const hours = Math.floor(mins / 60);
+    if (hours < 48) return `${hours}h`;
+    const days = Math.floor(hours / 24);
+    const remH = hours % 24;
+    return remH ? `${days}d ${remH}h` : `${days}d`;
+  },
+
+  _holdingsPnLHTML(normalizedId, currentPrice) {
+    const meta = this.state.holdingsMeta?.[normalizedId];
+    if (!meta) {
+      return `<div class="holdings-pnl muted">Paper PnL pending — entry will lock on next price refresh</div>`;
+    }
+    const entry = meta.entryPrice;
+    const held = this._formatTimeHeld(meta.lockedAt);
+    const estimated = meta.estimated === true;
+    const entryStr = Number.isFinite(entry) && entry > 0 ? `$${this._fmt(entry)}` : '—';
+    if (!Number.isFinite(entry) || entry <= 0 || !Number.isFinite(currentPrice)) {
+      return `<div class="holdings-pnl">
+        <span>Entry ${entryStr}${estimated ? ' ≈' : ''}</span>
+        <span>Held ${held}</span>
+        <span class="pnl-badge">PnL —</span>
+      </div>`;
+    }
+    const pnlPct = ((currentPrice - entry) / entry) * 100;
+    const pnlValue = currentPrice - entry;
+    const cls = estimated ? 'flat' : (pnlPct >= 0 ? 'pos' : 'neg');
+    const pctStr = `${pnlPct >= 0 ? '+' : ''}${pnlPct.toFixed(2)}%`;
+    const valStr = `${pnlValue >= 0 ? '+' : '-'}$${this._fmt(Math.abs(pnlValue))}`;
+    const note = estimated
+      ? ' title="Entry was estimated at upgrade (no historical lock price). Unlock and re-lock to set a real entry."'
+      : ' title="Paper PnL per 1 coin (current − entry)"';
+    return `<div class="holdings-pnl${estimated ? ' estimated' : ''}">
+      <span title="${estimated ? 'Estimated at upgrade — not your real entry' : 'Price when you locked this coin'}">Entry ${entryStr}${estimated ? ' ≈' : ''}</span>
+      <span title="${estimated ? 'Timer started at upgrade, not original buy' : 'Time since lock'}">Held ${held}</span>
+      <span class="pnl-badge ${cls}"${note}>${estimated ? 'Est. ' : ''}${pctStr} · ${valStr}</span>
+    </div>`;
+  },
+
+  _exitPolicy() {
+    const exits = CONFIG.exits || {};
+    return {
+      takeProfitPct: exits.takeProfitPct ?? 10,
+      holdLimitDays: exits.holdLimitDays ?? CONFIG.activeParams?.holdLimit ?? 7,
+      stopAtrMult: exits.stopAtrMult ?? 2,
+      feePerSide: exits.feePerSide ?? 0.001,
+      slippagePerSide: exits.slippagePerSide ?? 0.001,
+    };
+  },
   
   _trackSignalChanges() {
     const history = this._getSignalHistory();
@@ -166,6 +295,7 @@ const Dashboard = {
     // Holdings always use one base entry per coin (ZENUSDT, never ZENUSDT_4H)
     this.state.invested = [...new Set(this.state.invested.map(id => String(id).toUpperCase().replace('_4H', '').replace('_5M', '')))];
     try { localStorage.setItem('trading_invested', JSON.stringify(this.state.invested)); } catch (e) {}
+    this._backfillHoldingsMeta();
     // Clean, upgrade, and deduplicate the user's saved watchlist
     // IMPORTANT: Strip out any corrupted scalper IDs (e.g. NILUSDT_5MUSDT) that got accidentally saved
     let cleanWatchlist = this.state.watchlist
@@ -463,6 +593,7 @@ const Dashboard = {
       if (!silent) this._setLoading(false); // Only clear UI spinner if not silent
       this._cleanStaleMoonshots(); // Instantly remove any moonshots that dropped below BUY
       this._cleanStaleScalps(); // Instantly remove any scalps that dropped below STRONG_BUY
+      this._backfillHoldingsMeta();
       this._persistSnapshot();
       this._render();
       this._autoResolvePaperPositions();
@@ -908,15 +1039,36 @@ const Dashboard = {
         <span class="summary-value">${this.state.marketRegime === 'bull' ? '🟢 Bull' : this.state.marketRegime === 'bear' ? '🔴 Bear' : '🟡 Flat'}</span>
         <span class="summary-label">BTC Regime · Altcoins ${this.state.marketRegime === 'bear' ? 'Restricted' : 'Open'}</span>
       </div>
-      <div class="summary-item" title="Custom 9/21 Trend Strategy - Built to catch early momentum and hold as long as the trend is green.">
-        <span class="summary-value" style="color:#29b6f6">⚙️ Trend Runner | RSI=${CONFIG.activeParams.rsiPeriod}</span>
-        <span class="summary-label">Custom Strategy (EMA ${CONFIG.activeParams.emaFast}/${CONFIG.activeParams.emaSlow})</span>
+      <div class="summary-item" title="Live swing strategy parameters. Exits use a fixed ${this._exitPolicy().takeProfitPct}% take-profit and ${this._exitPolicy().holdLimitDays}-day hold limit.">
+        <span class="summary-value" style="color:#29b6f6">⚙️ TP ${this._exitPolicy().takeProfitPct}% · ${this._exitPolicy().holdLimitDays}d · RSI=${CONFIG.activeParams.rsiPeriod}</span>
+        <span class="summary-label">Strategy (EMA ${CONFIG.activeParams.emaFast}/${CONFIG.activeParams.emaSlow})</span>
       </div>
+      ${this._lastBacktestBadgeHTML()}
       <div class="summary-item freshness-item" title="Age of the latest successful market-data refresh.">
         <span class="summary-value">${this._freshnessText()}</span>
         <span class="summary-label">Signal Freshness</span>
       </div>
     `;
+  },
+
+  _lastBacktestBadgeHTML() {
+    const lb = CONFIG.lastBacktest;
+    if (!lb?.runAt) return '';
+    const when = new Date(lb.runAt);
+    const dateStr = Number.isFinite(when.getTime())
+      ? when.toLocaleDateString(undefined, { month: 'short', day: 'numeric', year: 'numeric' })
+      : '—';
+    const wr = Number.isFinite(lb.winnersWinRate) ? `${lb.winnersWinRate}% WR` : '—';
+    const avg = Number.isFinite(lb.winnersAvgReturn)
+      ? `${lb.winnersAvgReturn >= 0 ? '+' : ''}${lb.winnersAvgReturn}% avg`
+      : '';
+    const sample = Number.isFinite(lb.winnersTrades) ? `${lb.winnersTrades} trades` : '';
+    const core = Number.isFinite(lb.coreCount) ? lb.coreCount : '—';
+    const prob = Number.isFinite(lb.probationCount) ? lb.probationCount : '—';
+    return `<div class="summary-item last-backtest-badge" title="Latest scheduled backtest across core + probation winners (accumulated). Past results are research, not a guarantee.">
+      <span class="summary-value" style="color:#a78bfa">📊 ${wr}${avg ? ' · ' + avg : ''}</span>
+      <span class="summary-label">Backtest ${dateStr} · ${core} core / ${prob} probation${sample ? ' · ' + sample : ''}</span>
+    </div>`;
   },
 
   _freshnessText() {
@@ -1365,7 +1517,7 @@ const Dashboard = {
           <div style="display:flex; flex-direction:column; align-items:flex-end; gap:6px;">
             ${d.category === 'scalper' ? '' : `
               <div style="display:flex; gap: 4px;">
-                <button class="lock-btn ${isLocked ? 'active' : ''}" data-lock-id="${asset.id}" title="${isLocked ? 'Locked (Invested). Will not be auto-removed.' : 'Lock this coin (I have invested). Prevents auto-cleanup.'}" style="background:none; border:none; cursor:pointer; font-size:16px; opacity:${isLocked ? 1 : 0.25}; transition:0.2s; padding: 0;">🔒</button>
+                <button class="lock-btn ${isLocked ? 'active' : ''}" data-lock-id="${asset.id}" title="${isLocked ? 'In Holdings — paper entry tracked. Click to unlock.' : 'Lock into Holdings (paper tracker). Saves entry price + time.'}" style="background:none; border:none; cursor:pointer; font-size:16px; opacity:${isLocked ? 1 : 0.25}; transition:0.2s; padding: 0;">🔒</button>
                 <button class="star-btn ${isStarred ? 'active' : ''}" data-star-id="${asset.id}" title="Toggle Watchlist" style="background:none; border:none; cursor:pointer; font-size:18px; opacity:${isStarred ? 1 : 0.3}; transition:0.2s; padding: 0;">⭐</button>
               </div>
             `}
@@ -1376,7 +1528,7 @@ const Dashboard = {
         </div>
 
         <div class="card-price-row">
-          <div class="price-main${updateClass}" title="Current live price from Binance, refreshed every 60 seconds.">${priceStr}</div>
+          <div class="price-main${updateClass}" title="Current live price from Binance, refreshed every 30 seconds.">${priceStr}</div>
           <div class="price-changes">
             <div class="price-change ${chg24Cls}${updateClass}" title="Price change in the last 24 hours.">1D: ${chg24Str}</div>
             <div class="price-change ${chg4Cls}${updateClass}" title="Price change over the last 4-hour candle.">4H: ${chg4Str}</div>
@@ -1386,6 +1538,7 @@ const Dashboard = {
             }
           </div>
         </div>
+        ${this.state.activeCategory === 'holdings' && isLocked ? this._holdingsPnLHTML(normalizedId, price) : ''}
         ${quickTargets}
 
         <div class="sparklines-container${updateClass}">
@@ -1500,8 +1653,11 @@ const Dashboard = {
 
     if (this.state.invested.includes(id)) {
       this.state.invested = this.state.invested.filter(x => x !== id);
+      this._removeHoldingsMetaEntry(id);
     } else {
       this.state.invested.push(id);
+      // Fresh lock always records a real entry (replaces any estimated migration row)
+      this._setHoldingsMetaEntry(id, this._resolveAssetPrice(id), { force: true });
 
       if (sourceId.includes('_4H') && !this.state.watchlist.includes(sourceId)) {
         this.state.watchlist.push(sourceId);
@@ -1525,7 +1681,10 @@ const Dashboard = {
       }
     }
     
-    try { localStorage.setItem('trading_invested', JSON.stringify(this.state.invested)); if(window.Auth) window.Auth.syncToCloud(this.state.invested, this.state.watchlist); } catch(e) { console.warn('Failed to save lock status', e); }
+    try {
+      localStorage.setItem('trading_invested', JSON.stringify(this.state.invested));
+      if (window.Auth) window.Auth.syncToCloud(this.state.invested, this.state.watchlist, this.state.holdingsMeta);
+    } catch(e) { console.warn('Failed to save lock status', e); }
 
     const isLocked = this.state.invested.includes(id);
     // Update both the base ID and the 4H ID buttons in the UI
@@ -1579,7 +1738,10 @@ const Dashboard = {
         setTimeout(() => this.loadAll(true), 10);
       }
     }
-    try { localStorage.setItem('trading_watchlist', JSON.stringify(this.state.watchlist)); } catch(e) { console.warn('Failed to save watchlist', e); }
+    try {
+      localStorage.setItem('trading_watchlist', JSON.stringify(this.state.watchlist));
+      if (window.Auth) window.Auth.syncToCloud(this.state.invested, this.state.watchlist, this.state.holdingsMeta);
+    } catch(e) { console.warn('Failed to save watchlist', e); }
     
     // Instantly update the visual star state on any visible cards (especially Moonshots)
     const isNowStarred = this.state.watchlist.includes(id);
@@ -2027,10 +2189,11 @@ const Dashboard = {
     if (!s || !['BUY', 'STRONG_BUY'].includes(d.signalResult?.signal)) {
       return '<div class="oco-panel oco-muted">No OCO levels: wait for a core Buy setup with a valid stop and target.</div>';
     }
+    const policy = this._exitPolicy();
     const price = d.price;
     const valid = price > s.stopPrice && s.stopPrice > 0 && s.takeProfitPrice > price;
     const riskPct = Number(s.distancePct) || 0;
-    const rewardPct = Number(s.takeProfitPct) || 0;
+    const rewardPct = Number(s.takeProfitPct) || policy.takeProfitPct;
     const rewardRisk = riskPct > 0 && rewardPct > 0 ? (rewardPct / riskPct).toFixed(1) : '–';
     const staleMinutes = d.fetchedAt ? (Date.now() - new Date(d.fetchedAt).getTime()) / 60000 : Infinity;
     const stale = !Number.isFinite(staleMinutes) || staleMinutes > 15;
@@ -2042,7 +2205,7 @@ const Dashboard = {
     return `
       <div class="oco-panel">
         <div class="oco-title">OCO order for ${symbol}</div>
-        <div class="oco-status oco-ready" style="background:rgba(14, 165, 233, 0.15);color:#38bdf8;border:1px solid #0ea5e9;margin-top:10px;">⚡ Optimizer Engaged: Strict 10% TP, Max 7-Day Hold Limit</div>
+        <div class="oco-status oco-ready" style="background:rgba(14, 165, 233, 0.15);color:#38bdf8;border:1px solid #0ea5e9;margin-top:10px;">⚡ Live policy: +${policy.takeProfitPct}% TP · Max ${policy.holdLimitDays}-Day Hold</div>
         <div class="oco-status ${statusClass}">${status}</div>
         <div class="oco-grid">
           <span>Price / TP <strong>${this._fmt(s.takeProfitPrice, d.asset)}</strong></span>

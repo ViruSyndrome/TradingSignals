@@ -39,7 +39,7 @@
 
   <!-- Chart.js -->
   <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.4/dist/chart.umd.min.js"></script>
-  <link rel="stylesheet" href="styles.css?v=6.05" />
+  <link rel="stylesheet" href="styles.css?v=6.06" />
   
   <!-- Favicon & PWA Manifest -->
   <link rel="icon" type="image/png" href="icon-192.png">
@@ -52,7 +52,7 @@
     if ('serviceWorker' in navigator) {
       window.addEventListener('load', () => {
         const hadController = Boolean(navigator.serviceWorker.controller);
-        navigator.serviceWorker.register('./service-worker.js?v=6.05', { updateViaCache: 'none' })
+        navigator.serviceWorker.register('./service-worker.js?v=6.06', { updateViaCache: 'none' })
           .then(reg => {
             reg.update().catch(() => {});
             navigator.serviceWorker.addEventListener('controllerchange', () => {
@@ -214,11 +214,7 @@
             <button class="filter-tab" data-cat="history" role="tab">📜 Signal Log</button>
             <button class="filter-tab" data-cat="oversold" role="tab">📉 Oversold</button>
             <button class="filter-tab" data-cat="highconf" role="tab">🎯 High Confidence</button>
-            
-            <button class="filter-tab hidden-filter-tab" data-cat="stocks" role="tab">🇮🇳 Stocks</button>
             <button class="filter-tab" data-cat="trending" role="tab" title="Assets with a positive 24h trend">🔥 Trending</button>
-            <button class="filter-tab hidden-filter-tab" data-cat="commodities" role="tab">🪙 Commodities</button>
-            <button class="filter-tab hidden-filter-tab" data-cat="forex" role="tab">💱 Forex</button>
           </div>
         </div>
         <div class="assets-grid" id="assetGrid">
@@ -308,7 +304,7 @@
             <ul>
               <li><strong>The Score:</strong> Ranges from deep negative to +5.5. A positive score means multiple indicators (RSI, MACD, EMA) are turning bullish.</li>
               <li><strong>Confidence Bar:</strong> Shows what percentage of the underlying indicators agree with the main signal.</li>
-              <li><strong>The 🔒 Lock Icon:</strong> Tap this when you buy a coin! It saves it to your device and prevents the dashboard from auto-hiding it when the signal fades, so you can track your exits.</li>
+              <li><strong>The 🔒 Lock Icon:</strong> Tap this when you buy a coin. It adds the coin to Holdings, saves the live entry price + time, and shows paper PnL as prices refresh.</li>
               <li><strong>Moonshots Tab:</strong> This is a separate engine. It scans the 4-Hour charts (instead of Daily) looking for extreme volume spikes and volatility squeezes. High risk, high reward.</li>
             </ul>
           </div>
@@ -319,9 +315,9 @@
             <ul>
               <li><strong>All:</strong> The complete tracked market list. Use search to quickly find a tracked coin by name or ticker.</li>
               <li><strong>Watchlist:</strong> Coins marked with the ⭐ icon. This is for ideas you want to revisit.</li>
-              <li><strong>Holdings:</strong> Coins marked with the 🔒 icon. Lock a coin after buying it so it remains visible even when a Moonshot signal fades.</li>
+              <li><strong>Holdings:</strong> Coins marked with the 🔒 icon. Lock after buying to paper-track entry price, live PnL %, PnL $, and time held.</li>
               <li><strong>Signal Log:</strong> Recent signal changes, useful for reviewing when a setup strengthened or weakened.</li>
-              <li><strong>Oversold, High Confidence, 5m Scalper and Trending:</strong> Research filters, not automatic trade instructions. Check the timeframe and stop/target before acting.</li>
+              <li><strong>Oversold, High Confidence, and Trending:</strong> Research filters, not automatic trade instructions. Check the timeframe and stop/target before acting.</li>
             </ul>
             <div class="edu-tip">💡 <strong>Moonshot safety:</strong> New Moonshots remain visible for 4 hours after discovery. Lock any coin you buy before that review window ends.</div>
           </div>
@@ -339,14 +335,14 @@
           </div>
 
           <div class="edu-full-card">
-            <div class="edu-header"><span>⏱️</span><h3>The 8-Day Hold Rule</h3></div>
-            <p>Patience pays. Through extensive backtesting and live trading, we discovered a consistent pattern in how altcoins behave after a Daily Strong Buy signal.</p>
+            <div class="edu-header"><span>⏱️</span><h3>The 7-Day Hold Limit</h3></div>
+            <p>Patience pays — but capital should not sit idle. Live TrendRunner exits use a fixed take-profit and a maximum hold window shared by the dashboard, bots, and backtester.</p>
             <ul>
-              <li><strong>The Delay:</strong> Standard crypto assets rarely explode the very second a daily signal flashes. They often consolidate or pull back slightly to shake out weak hands.</li>
-              <li><strong>The 8-Day Sweet Spot:</strong> On average, it takes about <strong>8 days</strong> for a daily trend reversal to fully play out and hit peak profitability.</li>
-              <li><strong>The Lesson:</strong> Do not panic sell on day 2 just because it's down 3%. Trust the higher timeframe. Let the algorithmic trend develop.</li>
+              <li><strong>The Delay:</strong> Daily signals often need a few sessions to develop. Do not panic-sell on day 2 because of normal noise.</li>
+              <li><strong>The 7-Day Cap:</strong> If price has not hit the <strong>+10% take-profit</strong> within <strong>7 days</strong>, exit and free capital for the next setup.</li>
+              <li><strong>The Lesson:</strong> Place OCO at entry, then let the higher timeframe work — or hit the time stop.</li>
             </ul>
-            <div class="edu-tip">💡 <strong>Strategy:</strong> Set your OCO order immediately after buying, close the app, and walk away.</div>
+            <div class="edu-tip">💡 <strong>Strategy:</strong> Set your OCO order immediately after buying, lock the coin in Holdings to track paper PnL, and walk away.</div>
           </div>
 
           <div class="edu-full-card">
@@ -432,14 +428,14 @@
 
 
           <div class="edu-full-card highlight-card">
-            <div class="edu-header"><span>⚡</span><h3>The Optimizer: 10% TP & 7-Day Hold</h3></div>
-            <p>Our quantitative backtesting engine simulated thousands of parameter combinations and discovered a massive edge in the crypto market using "Base Hits".</p>
+            <div class="edu-header"><span>⚡</span><h3>Live Exit Policy: 10% TP & 7-Day Hold</h3></div>
+            <p>Dashboard cards, OCO helpers, Telegram/X alerts, and the visual backtester all read the same exit policy from config.</p>
             <ul>
-              <li><strong>The 10% Take-Profit:</strong> Holding for a 50% "moonshot" drastically reduces your Win Rate (dropping below 40%). By taking a strict <strong>10% profit</strong>, the algorithm mathematically achieves a 50%+ Win Rate across the core portfolio.</li>
-              <li><strong>The 7-Day Time Limit:</strong> If a trade doesn't hit the 10% target within 7 days, the capital is "dead money". The algorithm suggests exiting the trade to free up capital for fresh, high-momentum setups.</li>
-              <li><strong>Dynamic Stop-Losses (ATR):</strong> While Take-Profits are locked at 10%, Stop-Losses are completely dynamic. If an asset is highly volatile (like ARB), the stop-loss might be 15% away to prevent "whipsaws" (getting stopped out by normal daily noise).</li>
+              <li><strong>The 10% Take-Profit:</strong> Fixed percentage targets keep winners consistent and avoid “hope for a moonshot” exits that destroy win rate in offline tests.</li>
+              <li><strong>The 7-Day Time Limit:</strong> If a trade does not hit +10% within 7 days, treat capital as better deployed elsewhere.</li>
+              <li><strong>Dynamic Stop-Losses (ATR):</strong> Stops use ~2× ATR so volatile coins get more room than quiet ones.</li>
             </ul>
-            <div class="edu-tip">💡 <strong>Strategy:</strong> Place your OCO order the moment you enter. Set the Limit to +10%, the Stop to the suggested ATR target, and walk away.</div>
+            <div class="edu-tip">💡 <strong>Strategy:</strong> Place your OCO the moment you enter. Limit = +10%, Stop = suggested ATR level, max hold = 7 days.</div>
           </div>
           <div class="edu-full-card">
             <div class="edu-header"><span>🔄</span><h3>Swing Trading vs Day Trading — Which Suits You?</h3></div>
@@ -608,7 +604,7 @@
   <!-- Version guard: if signals.js loaded is older than expected, force a full reload -->
   <script>
     // Version bumper to defeat GitHub Pages aggressive caching
-    window.__APP_VERSION__ = '6.05';
+    window.__APP_VERSION__ = '6.06';
     try {
       // Bulletproof scrub of corrupted data from localStorage before the app boots
       const wlStr = localStorage.getItem('trading_watchlist');
@@ -622,16 +618,16 @@
       // Nuke bloated caches that are causing QuotaExceededError (Removed to allow instant paint)
     } catch(e) {}
   </script>
-  <script src="js/config.js?v=6.05"></script>
-  <script src="js/api.js?v=6.05"></script>
-  <script src="js/indicators.js?v=6.05"></script>
-  <script src="js/signals.js?v=6.05"></script>
-  <script src="js/charts.js?v=6.05"></script>
+  <script src="js/config.js?v=6.06"></script>
+  <script src="js/api.js?v=6.06"></script>
+  <script src="js/indicators.js?v=6.06"></script>
+  <script src="js/signals.js?v=6.06"></script>
+  <script src="js/charts.js?v=6.06"></script>
   
-  <script src="js/scanner.js?v=6.05"></script>
-  <script src="js/backtest_ui.js?v=6.07"></script>
-  <script src="js/auth.js?v=6.09"></script>
-    <script src="js/dashboard.js?v=6.07"></script>
+  <script src="js/scanner.js?v=6.06"></script>
+  <script src="js/backtest_ui.js?v=6.06"></script>
+  <script src="js/auth.js?v=6.06"></script>
+    <script src="js/dashboard.js?v=6.06"></script>
   <script>
     // If signals.js didn't expose the right version, cached old code is running — force reload.
     if (typeof Signals === 'undefined' || Signals._version !== window.__APP_VERSION__) {

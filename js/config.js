@@ -75,18 +75,39 @@ const CONFIG = {
   },
 
   signals: {
-    winnersOnlyBuys: true, // [TEMPORARILY DISABLED BY USER] Only allow BUY/STRONG_BUY on provenWinners
-    coreOnlyBuys: false,    // [TEMPORARILY DISABLED BY USER] Restrict STRONG_BUY to coreWinners only
+    winnersOnlyBuys: true, // Only allow BUY/STRONG_BUY on provenWinners
+    coreOnlyBuys: false,   // When true, restrict buys to coreWinners only
+  },
+
+  // ─── Live exit policy (single source of truth for OCO, bots, UI, backtests) ─
+  // Keep take-profit / hold-limit messaging identical everywhere.
+  exits: {
+    takeProfitPct: 10,
+    holdLimitDays: 7,
+    stopAtrMult: 2,
+    feePerSide: 0.001,      // 0.10% exchange fee per side
+    slippagePerSide: 0.001, // 0.10% slippage per side → 0.40% round-trip
   },
 
   // ─── Dynamic Optimization Parameters ───────────────────────────────────────
-  // These parameters are auto-updated by the backtester parameter sweep.
-  // The live dashboard reads these to adjust its mathematical engine.
+  // EMA/RSI are auto-updated by the backtester parameter sweep.
+  // holdLimit mirrors exits.holdLimitDays for older call sites.
   activeParams: {
-    holdLimit: 3,
+    holdLimit: 7,
     emaFast: 9,
     emaSlow: 21,
     rsiPeriod: 14
+  },
+
+  // Public trust badge — refreshed by weekly `node backtest.js` / GitHub Action.
+  lastBacktest: {
+    runAt: '2026-09-07T13:33:41.171Z',
+    totalRuns: 9,
+    coreCount: 5,
+    probationCount: 10,
+    winnersTrades: 2059,
+    winnersWinRate: 48.0,
+    winnersAvgReturn: 1.08,
   },
   // Signal thresholds are defined in signals.js LEVELS object.
 

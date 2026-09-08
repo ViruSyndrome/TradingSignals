@@ -1,3 +1,13 @@
+/**
+ * optimizer.js — OFFLINE exit-grid research only.
+ *
+ * This script does NOT power the live dashboard, Telegram/X bots, or visual
+ * backtester. It reimplements a simplified EMA/RSI entry model to explore
+ * take-profit % and hold-day combinations. Treat results as research notes,
+ * not as live Win-Rate marketing claims for TrendRunner's composite engine.
+ *
+ * Live exits come from CONFIG.exits (10% TP / 7-day hold by default).
+ */
 const https = require('https');
 const fs = require('fs');
 

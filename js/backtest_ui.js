@@ -1,5 +1,10 @@
 'use strict';
 
+/**
+ * Visual Backtester — aligned with CLI backtest.js:
+ * next-bar open fills, frozen ATR stop at entry, fixed % TP, calendar hold limit
+ * scaled by candles-per-day, CONFIG.exits fees/slippage.
+ */
 class BacktestUI {
   constructor() {
     this.assetSelect = document.getElementById('btAsset');
@@ -12,12 +17,43 @@ class BacktestUI {
     this.totalTradesEl = document.getElementById('btTotalTrades');
     this.netReturnEl = document.getElementById('btNetReturn');
     this.resultTitleEl = document.getElementById('btResultTitle');
+    this.contextEl = document.querySelector('.backtest-context');
     this.chart = null;
+    this.CANDLES_PER_DAY = { '1d': 1, '4h': 6, '1h': 24, '15m': 96, '5m': 288 };
 
     if (!this.runBtn) return;
 
+    this._syncContextLabel();
     this._populateAssets();
     this.runBtn.addEventListener('click', () => this.runBacktest());
+    if (this.intervalSelect) {
+      this.intervalSelect.addEventListener('change', () => this._syncContextLabel());
+    }
+  }
+
+  _exitPolicy() {
+    const exits = (typeof CONFIG !== 'undefined' && CONFIG.exits) || {};
+    return {
+      takeProfitPct: exits.takeProfitPct ?? 10,
+      holdLimitDays: exits.holdLimitDays ?? CONFIG?.activeParams?.holdLimit ?? 7,
+      stopAtrMult: exits.stopAtrMult ?? 2,
+      feePerSide: exits.feePerSide ?? 0.001,
+      slippagePerSide: exits.slippagePerSide ?? 0.001,
+    };
+  }
+
+  _syncContextLabel() {
+    if (!this.contextEl) return;
+    const p = this._exitPolicy();
+    const interval = this.intervalSelect?.value || '1d';
+    const cpd = this.CANDLES_PER_DAY[interval] || 1;
+    const holdBars = p.holdLimitDays * cpd;
+    const rt = ((p.feePerSide + p.slippagePerSide) * 2 * 100).toFixed(2);
+    this.contextEl.innerHTML = `
+      <span>Next-bar open fills</span>
+      <span>${rt}% round-trip costs</span>
+      <span>${p.takeProfitPct}% TP · ${p.holdLimitDays}d hold (${holdBars} bars @ ${interval})</span>
+    `;
   }
 
   _populateAssets() {
@@ -27,14 +63,12 @@ class BacktestUI {
     let assets = CONFIG.assets.crypto;
     if (window.Dashboard && window.Dashboard.state && window.Dashboard.state.allAssets) {
       const dashAssets = window.Dashboard.state.allAssets.map(d => d.asset);
-      // Merge unique
       const merged = [...assets];
       dashAssets.forEach(da => {
         if (!merged.find(m => m.id === da.id)) merged.push(da);
       });
       assets = merged;
     }
-    // Sort alphabetically
     assets.sort((a, b) => a.symbol.localeCompare(b.symbol));
     
     assets.forEach(a => {
@@ -46,7 +80,8 @@ class BacktestUI {
   }
 
   async runBacktest() {
-    this._populateAssets(); // Refresh to pick up any newly loaded coins
+    this._populateAssets();
+    this._syncContextLabel();
     this.runBtn.textContent = 'Fetching market data...';
     this.runBtn.disabled = true;
     this.resultsPanel.style.display = 'none';
@@ -63,21 +98,19 @@ class BacktestUI {
       }
       if (!asset) throw new Error('Asset not found');
 
-      // Fetch klines
       const klines = await this._fetchKlines(asset.id, interval, days);
       if (klines.length < 50) throw new Error('Not enough historical data.');
 
+      const opens = klines.map(k => k.open);
       const closes = klines.map(k => k.close);
       const highs = klines.map(k => k.high);
       const lows = klines.map(k => k.low);
       const volumes = klines.map(k => k.volume);
       
-      // Simulate fetch of BTC for market regime
       const btcKlines = await this._fetchKlines('BTCUSDT', interval, days);
       const btcCloses = btcKlines.map(k => k.close);
 
-      const results = this._simulate(asset.symbol, closes, highs, lows, volumes, btcCloses);
-      
+      const results = this._simulate(asset.symbol, opens, closes, highs, lows, volumes, btcCloses, interval);
       this._renderResults(results);
 
     } catch (err) {
@@ -91,10 +124,8 @@ class BacktestUI {
 
   async _fetchKlines(symbolId, interval, days) {
     const binanceSymbol = symbolId.replace('_4H', '').replace('_5M', '');
-    // Scale candle count by timeframe so we always fetch ~`days` worth of history
-    const candlesPerDay = { '1d': 1, '4h': 6, '1h': 24, '15m': 96, '5m': 288 };
-    const multiplier = candlesPerDay[interval] || 1;
-    const limit = Math.min(days * multiplier, 1000); // Binance max is 1000
+    const multiplier = this.CANDLES_PER_DAY[interval] || 1;
+    const limit = Math.min(days * multiplier, 1000);
     const url = `https://api.binance.com/api/v3/klines?symbol=${binanceSymbol}&interval=${interval}&limit=${limit}`;
     const res = await fetch(url);
     if (!res.ok) throw new Error('Failed to fetch data for ' + binanceSymbol);
@@ -110,15 +141,17 @@ class BacktestUI {
     }));
   }
 
-  _simulate(symbol, closes, highs, lows, volumes, btcCloses) {
+  _simulate(symbol, opens, closes, highs, lows, volumes, btcCloses, interval = '1d') {
     let balance = 10000;
     const initialBalance = balance;
     let position = null;
     const trades = [];
     const equityCurve = [];
-    
-    const feeRate = 0.001; // 0.1%
-    const slippage = 0.001; // 0.1%
+    const policy = this._exitPolicy();
+    const costPerSide = policy.feePerSide + policy.slippagePerSide;
+    const tpMult = 1 + (policy.takeProfitPct / 100);
+    const candlesPerDay = this.CANDLES_PER_DAY[interval] || 1;
+    const holdLimitBars = Math.max(1, policy.holdLimitDays * candlesPerDay);
 
     for (let i = 50; i < closes.length - 1; i++) {
       const slicedCloses = closes.slice(0, i + 1);
@@ -126,7 +159,6 @@ class BacktestUI {
       const slicedLows = lows.slice(0, i + 1);
       const slicedVols = volumes.slice(0, i + 1);
       
-      // Calculate Market Regime
       let marketRegime = 'flat';
       if (btcCloses.length > i) {
         const btcSliced = btcCloses.slice(0, i + 1);
@@ -142,39 +174,33 @@ class BacktestUI {
         volumes: slicedVols,
         symbol: symbol,
         marketRegime,
-        ignoreWinnersFilter: true  // Backtester always tests raw signal quality
+        ignoreWinnersFilter: true
       });
 
-      const todayClose = closes[i];
-      const tomorrowOpen = closes[i]; 
-      const nextPrice = closes[i+1];
-      const costPerSide = feeRate + slippage;
+      // Next-bar execution (matches CLI): signal on bar i close, fill at bar i+1 open
+      const nextOpen = opens[i + 1];
+      if (!Number.isFinite(nextOpen) || nextOpen <= 0) {
+        equityCurve.push({ index: i, equity: position ? position.qty * closes[i] : balance });
+        continue;
+      }
 
-      // Check exits if in position
       if (position) {
-        position.holdDays++;
+        position.holdBars++;
         let exitReason = null;
-        let exitPrice = nextPrice;
 
-        const atrArr = Indicators.atr(slicedHighs, slicedLows, slicedCloses, 14);
-        const atr = Indicators.last(atrArr) || (todayClose * 0.05);
-        const stopPrice = position.entryPrice - (atr * 2.0);
-        // OPTIMIZER: Fixed 10% Take Profit
-        const tpPrice = position.entryPrice * 1.10;
-
-        if (lows[i+1] <= stopPrice) {
+        // Trigger on current bar's range (same spirit as CLI), fill at next open
+        if (position.stopLoss && lows[i] <= position.stopLoss) {
           exitReason = 'STOP_LOSS';
-          exitPrice = stopPrice;
-        } else if (highs[i+1] >= tpPrice) {
+        } else if (position.takeProfit && highs[i] >= position.takeProfit) {
           exitReason = 'TAKE_PROFIT';
-          exitPrice = tpPrice;
         } else if (result.signal === 'SELL' || result.signal === 'STRONG_SELL') {
           exitReason = result.signal;
-        } else if (position.holdDays >= 7) { // OPTIMIZER: 7-Day Max Hold
+        } else if (position.holdBars >= holdLimitBars) {
           exitReason = 'HOLD_LIMIT';
         }
 
         if (exitReason) {
+          const exitPrice = nextOpen; // CLI always fills exits at next open
           const exitValue = position.qty * exitPrice;
           const exitFee = exitValue * costPerSide;
           const net = exitValue - exitFee;
@@ -192,34 +218,36 @@ class BacktestUI {
         }
       }
 
-      // Check entries
       if (!position && (result.signal === 'BUY' || result.signal === 'STRONG_BUY')) {
         const entryFee = balance * costPerSide;
         const investable = balance - entryFee;
-        const qty = investable / nextPrice;
+        const qty = investable / nextOpen;
+        const atrArr = Indicators.atr(slicedHighs, slicedLows, slicedCloses, 14);
+        const atr = Indicators.last(atrArr) || (closes[i] * 0.05);
+        // Freeze stop + TP at entry (matches CLI)
+        const stopLoss = nextOpen - (atr * policy.stopAtrMult);
+        const takeProfit = nextOpen * tpMult;
         
         position = {
-          entryPrice: nextPrice,
+          entryPrice: nextOpen,
           qty: qty,
           cost: balance,
-          holdDays: 0
+          holdBars: 0,
+          stopLoss,
+          takeProfit
         };
         balance = 0;
       }
 
-      // Record equity
       let currentEquity = balance;
-      if (position) {
-        currentEquity += (position.qty * nextPrice);
-      }
+      if (position) currentEquity += (position.qty * closes[i]);
       equityCurve.push({ index: i, equity: currentEquity });
     }
 
-    // Force close open position at the end
     if (position) {
       const finalPrice = closes[closes.length - 1];
       const exitValue = position.qty * finalPrice;
-      const net = exitValue - (exitValue * (feeRate + slippage));
+      const net = exitValue - (exitValue * costPerSide);
       balance += net;
       trades.push({
         entryPrice: position.entryPrice,
@@ -238,7 +266,8 @@ class BacktestUI {
       winRate,
       totalTrades: trades.length,
       netReturn: totalReturn,
-      equityCurve
+      equityCurve,
+      policy
     };
   }
 
@@ -255,7 +284,7 @@ class BacktestUI {
 
     if (this.chart) this.chart.destroy();
 
-    const labels = results.equityCurve.map(pt => `Day ${pt.index}`);
+    const labels = results.equityCurve.map(pt => `Bar ${pt.index}`);
     const data = results.equityCurve.map(pt => pt.equity);
 
     this.chart = new Chart(this.chartCanvas, {

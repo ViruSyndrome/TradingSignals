@@ -209,7 +209,7 @@ async function scanMarket() {
 
 🎯 Stop-Loss: $${result.stopSuggest.stopPrice} (-${result.stopSuggest.distancePct}%)
 ✅ Take-Profit: $${result.stopSuggest.takeProfitPrice} (+${result.stopSuggest.takeProfitPct}%)
-  ⏳ Time Limit: Max 7 Days Hold (Optimizer Rule)
+  ⏳ Time Limit: Max ${result.stopSuggest.holdLimitDays || CONFIG.exits?.holdLimitDays || 7} Days Hold
 ⚠️ Place both as real exchange orders now — this edge only works if losers are cut at the stop.`;
       }
 
@@ -227,12 +227,14 @@ ${result.recommendation}${stopText}
 If you buy this, reply /buy ${asset.symbol}`;
         
         const cleanSymbol = asset.symbol.replace('USDT','');
+        const holdDays = result.stopSuggest?.holdLimitDays || CONFIG.exits?.holdLimitDays || 7;
+        const tpPct = result.stopSuggest?.takeProfitPct || CONFIG.exits?.takeProfitPct || 10;
         tweetMessage = `🚨 ALGORITHMIC ALERT: $${cleanSymbol} just triggered a flawless STRONG BUY signal on the daily timeframe!
 
 📈 Algo Confluence: +${result.score}
 🎯 Confidence: ${result.confidence}%
 
-Get the exact Stop-Loss, Take-Profit (+10%), & Time Limits (7-Day Max) free 👇\n\n#CryptoTrading #${cleanSymbol} #TradingSignals\n\nhttps://trendrunner.app/?ref=twitter`;
+Get the exact Stop-Loss, Take-Profit (+${tpPct}%), & Time Limits (${holdDays}-Day Max) free 👇\n\n#CryptoTrading #${cleanSymbol} #TradingSignals\n\nhttps://trendrunner.app/?ref=twitter`;
       } else if (result.signal === 'STRONG_SELL' && owned) {
         const binanceLink = `https://www.binance.com/en/trade/${asset.symbol}_USDT?type=spot&ref=TRENDRUNNER`;
         message = `🔴 STRONG SELL ALERT: ${asset.symbol}

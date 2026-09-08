@@ -27,6 +27,12 @@ jobs:
       - name: Run Backtest
         run: node backtest.js 2>&1 | tee backtest_output.txt
 
+      # Optional robustness log (does not rewrite winners — informational only)
+      # Continues even if rolling mode errors, so the main winners update still commits.
+      - name: Rolling walk-forward check
+        continue-on-error: true
+        run: node backtest.js --walk-forward-rolling 2>&1 | tee -a backtest_output.txt
+
       - name: Check if config changed
         id: changes
         run: |

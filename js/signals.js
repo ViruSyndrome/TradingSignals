@@ -332,26 +332,27 @@ const Signals = {
     }
 
     // ── ATR-based stop-loss + take-profit suggestion ────────────────────────
-    // Take-profit at 2R matches the backtest's exit model — the edge only
-    // holds up if both legs are actually placed, not just the stop.
+    // Live policy: ATR stop + fixed % take-profit from CONFIG.exits (single source of truth).
     const curAtr = atrArr ? Indicators.last(atrArr) : null;
     let stopSuggest = null;
     if (curAtr && price) {
       // Always generate an OCO bracket so the user can manually paper-trade even neutral/suppressed coins
       // By default, assume long unless the raw mathematical signal explicitly says SELL
       const isShort = ['SELL', 'STRONG_SELL'].includes(signal) || score < -2;
-      const mult = 2; // 2×ATR is a standard swing-trading stop
+      const exits = (typeof CONFIG !== 'undefined' && CONFIG.exits) || {};
+      const mult = exits.stopAtrMult ?? 2;
+      const tpPct = (exits.takeProfitPct ?? 10) / 100;
       const risk = mult * curAtr;
       const stopPrice = !isShort ? price - risk : price + risk;
-      // OPTIMIZER OVERRIDE: Fixed 10% Take Profit proven to dramatically out-perform ATR trailing
-        const takeProfitPrice = !isShort ? price * 1.10 : price * 0.90;
+      const takeProfitPrice = !isShort ? price * (1 + tpPct) : price * (1 - tpPct);
       
       stopSuggest = {
         atr: +curAtr.toFixed(8),
         stopPrice: +stopPrice.toFixed(8),
         takeProfitPrice: +takeProfitPrice.toFixed(8),
         distancePct: +((risk / price) * 100).toFixed(2),
-        takeProfitPct: 10.00,
+        takeProfitPct: +((exits.takeProfitPct ?? 10)).toFixed(2),
+        holdLimitDays: exits.holdLimitDays ?? CONFIG.activeParams?.holdLimit ?? 7,
         side: !isShort ? 'long' : 'short',
       };
     }
@@ -786,7 +787,7 @@ const Signals = {
     return this.LEVELS[signalKey] || this.LEVELS.NEUTRAL;
   },
 
-  _version: '6.05',
+  _version: '6.06',
 };
 
 if (typeof module !== 'undefined' && module.exports) module.exports = Signals;

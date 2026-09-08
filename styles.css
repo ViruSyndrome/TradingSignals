@@ -1025,6 +1025,21 @@ body.modal-open { overflow: hidden; }
 .pnl-badge { display: inline-block; padding: 4px 10px; border-radius: 6px; font-weight: 600; font-size: 13px; }
 .pnl-badge.pos { background: rgba(16, 185, 129, 0.15); color: var(--success); border: 1px solid rgba(16, 185, 129, 0.3); }
 .pnl-badge.neg { background: rgba(239, 68, 68, 0.15); color: var(--danger); border: 1px solid rgba(239, 68, 68, 0.3); }
+
+.holdings-pnl {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px 12px;
+  align-items: center;
+  margin: 8px 0 4px;
+  font-size: 12px;
+  color: var(--text-muted);
+}
+.holdings-pnl.muted { opacity: 0.75; font-style: italic; }
+.holdings-pnl.estimated { opacity: 0.9; }
+.holdings-pnl .pnl-badge { margin-left: auto; }
+.pnl-badge.flat { background: rgba(148, 163, 184, 0.15); color: #94a3b8; border: 1px solid rgba(148, 163, 184, 0.3); }
+.summary-item.last-backtest-badge .summary-label { font-size: 11px; line-height: 1.35; }
 .filterable { cursor: pointer; transition: transform 0.2s cubic-bezier(0.4, 0, 0.2, 1), opacity 0.2s; position: relative; opacity: 0.8; }
 .filterable:hover { transform: translateY(-4px); opacity: 1; }
 .filterable.active { opacity: 1; transform: scale(1.05); }

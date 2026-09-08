@@ -186,20 +186,86 @@ const Auth = {
     await supabaseClient.auth.signOut();
   },
 
-  async syncToCloud(invested, watchlist) {
-    if (!this.user) return; 
+  async syncToCloud(invested, watchlist, holdingsMeta) {
+    if (!this.user) return;
 
     try {
-      await supabaseClient.auth.updateUser({
+      const localMeta = holdingsMeta ?? window.Dashboard?.state?.holdingsMeta ?? {};
+      const localInvested = Array.isArray(invested) ? invested : [];
+      const localWatchlist = Array.isArray(watchlist) ? watchlist : [];
+
+      // Fetch cloud meta so we can merge cost-basis without clobbering the other device.
+      // Membership (invested/watchlist) stays local-wins so unlocks actually remove coins.
+      const { data: userData, error: getErr } = await supabaseClient.auth.getUser();
+      if (getErr) throw getErr;
+      const cloudMetaRaw = userData?.user?.user_metadata?.trading_holdings_meta;
+
+      const mergedMeta = this._mergeHoldingsMeta(localMeta, cloudMetaRaw);
+      const prunedMeta = {};
+      for (const id of localInvested) {
+        const base = String(id).toUpperCase().replace('_4H', '').replace('_5M', '');
+        if (mergedMeta[base]) prunedMeta[base] = mergedMeta[base];
+      }
+
+      if (window.Dashboard?.state) {
+        window.Dashboard.state.holdingsMeta = prunedMeta;
+        window.Dashboard._persistHoldingsMeta?.();
+      }
+
+      const { error } = await supabaseClient.auth.updateUser({
         data: {
-          trading_invested: invested,
-          trading_watchlist: watchlist
+          trading_invested: localInvested,
+          trading_watchlist: localWatchlist,
+          trading_holdings_meta: prunedMeta
         }
       });
+      if (error) {
+        console.error('Failed to sync to cloud:', error);
+        window.Dashboard?._showToast?.('Cloud sync failed — saved locally only', 'warning');
+        return;
+      }
       console.log('☁️ Successfully synced locked coins to Supabase Cloud');
     } catch (err) {
       console.error('Failed to sync to cloud:', err);
+      window.Dashboard?._showToast?.('Cloud sync failed — saved locally only', 'warning');
     }
+  },
+
+  _metaQuality(entry) {
+    if (!entry || typeof entry !== 'object') return -1;
+    const hasPrice = entry.entryPrice > 0;
+    const estimated = entry.estimated === true;
+    if (hasPrice && !estimated) return 3;
+    if (hasPrice && estimated) return 2;
+    if (hasPrice) return 1;
+    return 0;
+  },
+
+  _pickBetterMeta(a, b) {
+    const qa = this._metaQuality(a);
+    const qb = this._metaQuality(b);
+    if (qa !== qb) return qa > qb ? a : b;
+    const aTs = Date.parse(a?.lockedAt || '') || Infinity;
+    const bTs = Date.parse(b?.lockedAt || '') || Infinity;
+    // Same quality: earliest real lock wins; for estimated rows prefer newer price stamp
+    if (a?.estimated && b?.estimated) return aTs >= bTs ? a : b;
+    return aTs <= bTs ? a : b;
+  },
+
+  _mergeHoldingsMeta(localMeta = {}, cloudMeta = {}) {
+    const merged = { ...(localMeta && typeof localMeta === 'object' && !Array.isArray(localMeta) ? localMeta : {}) };
+    if (!cloudMeta || typeof cloudMeta !== 'object' || Array.isArray(cloudMeta)) return merged;
+
+    for (const [id, cloudEntry] of Object.entries(cloudMeta)) {
+      if (!cloudEntry || typeof cloudEntry !== 'object') continue;
+      const localEntry = merged[id];
+      if (!localEntry) {
+        merged[id] = cloudEntry;
+        continue;
+      }
+      merged[id] = this._pickBetterMeta(localEntry, cloudEntry);
+    }
+    return merged;
   },
 
   async syncFromCloud(retryCount = 0) {
@@ -222,6 +288,9 @@ const Auth = {
       const metadata = user.user_metadata || {};
       const cloudInvested = Array.isArray(metadata.trading_invested) ? metadata.trading_invested : [];
       const cloudWatchlist = Array.isArray(metadata.trading_watchlist) ? metadata.trading_watchlist : [];
+      const cloudHoldingsMeta = metadata.trading_holdings_meta && typeof metadata.trading_holdings_meta === 'object'
+        ? metadata.trading_holdings_meta
+        : {};
 
       let changed = false;
 
@@ -242,7 +311,16 @@ const Auth = {
         changed = true;
       }
 
+      const mergedMeta = this._mergeHoldingsMeta(window.Dashboard.state.holdingsMeta, cloudHoldingsMeta);
+      const metaChanged = JSON.stringify(mergedMeta) !== JSON.stringify(window.Dashboard.state.holdingsMeta || {});
+      if (metaChanged || Object.keys(cloudHoldingsMeta).length > 0) {
+        window.Dashboard.state.holdingsMeta = mergedMeta;
+        window.Dashboard._persistHoldingsMeta?.();
+        changed = true;
+      }
+
       if (changed) {
+        window.Dashboard._backfillHoldingsMeta?.();
         console.log('☁️ Cloud sync applied. Holdings:', window.Dashboard.state.invested);
         window.Dashboard._showToast(`☁️ Holdings synced from cloud (${window.Dashboard.state.invested.length} coins)`, 'success');
         window.Dashboard.loadAll(true); // full re-render with fresh data so Holdings tab shows coins

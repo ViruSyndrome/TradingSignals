@@ -24,11 +24,31 @@ global.Indicators = Indicators;
 
 // ─── Configuration ─────────────────────────────────────────────────────────────
 const MIN_HISTORY  = 50;   // Minimum days of data before generating first signal
-// HOLD_LIMIT is now read dynamically from CONFIG.activeParams.holdLimit
-const STOP_MULT    = 2.0;  // ATR multiplier for stop-loss (same as live dashboard)
-const RRR          = 2.0;  // Take-profit at 2× risk (matches the 1:2 RRR education)
-const FEE_RATE     = 0.00075; // Tuned down to 0.075% (reflects BNB fee discount from user's CSV)
-const SLIPPAGE     = 0.0005;  // Tuned down to 0.05% (reflects minimal slippage on their $80 position size)
+function exitPolicy() {
+  const exits = CONFIG.exits || {};
+  return {
+    holdLimit: exits.holdLimitDays ?? CONFIG.activeParams?.holdLimit ?? 7,
+    stopMult: exits.stopAtrMult ?? 2.0,
+    tpPct: (exits.takeProfitPct ?? 10) / 100,
+    feeRate: exits.feePerSide ?? 0.001,
+    slippage: exits.slippagePerSide ?? 0.001,
+  };
+}
+// Defaults for call sites that still expect module-level names (updated via exitPolicy())
+let HOLD_LIMIT = exitPolicy().holdLimit;
+let STOP_MULT = exitPolicy().stopMult;
+let TP_PCT = exitPolicy().tpPct;
+let FEE_RATE = exitPolicy().feeRate;
+let SLIPPAGE = exitPolicy().slippage;
+
+function syncExitGlobals() {
+  const p = exitPolicy();
+  HOLD_LIMIT = p.holdLimit;
+  STOP_MULT = p.stopMult;
+  TP_PCT = p.tpPct;
+  FEE_RATE = p.feeRate;
+  SLIPPAGE = p.slippage;
+}
 
 const WALK_FORWARD_TRAIN_END_DAY = 149; // Days 0-149 train
 const WALK_FORWARD_TEST_START_DAY = 150; // Days 150-249 test
@@ -213,7 +233,7 @@ function backtestSymbol(asset, ohlcv, btcHistory, windowDef, feeRate, slippage, 
       if (position.stopLoss && lows && lows[i] <= position.stopLoss) exitReason = 'STOP_LOSS';
       else if (position.takeProfit && highs && highs[i] >= position.takeProfit) exitReason = 'TAKE_PROFIT';
       else if (sig === 'SELL' || sig === 'STRONG_SELL') exitReason = sig;
-      else if (!useTrailingExit && holdDays >= 7) exitReason = 'HOLD_LIMIT'; // OPTIMIZER OVERRIDE: 7-Day Max Hold
+      else if (!useTrailingExit && holdDays >= HOLD_LIMIT) exitReason = 'HOLD_LIMIT';
 
       if (exitReason) {
         const rawExit = ohlcv.opens[nextOpenDay];
@@ -238,7 +258,7 @@ function backtestSymbol(asset, ohlcv, btcHistory, windowDef, feeRate, slippage, 
         position = { 
           entryPrice, entryDay: nextOpenDay, signal: sig, score: result.score, confidence: result.confidence,
           stopLoss: atr ? entryPrice - (atr * STOP_MULT) : null,
-          takeProfit: entryPrice * 1.10,
+          takeProfit: entryPrice * (1 + TP_PCT),
           riskDistance: atr ? atr * STOP_MULT : null,
           maxPriceSeen: entryPrice,
           entryRegime: marketRegime
@@ -339,7 +359,7 @@ function backtestAsset(name, symbol, ohlcv, opts = {}) {
         exitReason = sig;
       }
       // Held too long without a signal
-      else if (holdDays >= (CONFIG.activeParams.holdLimit || 3)) {
+      else if (holdDays >= HOLD_LIMIT) {
         exitReason = 'HOLD_LIMIT';
       }
 
@@ -358,8 +378,7 @@ function backtestAsset(name, symbol, ohlcv, opts = {}) {
       const atr = atrArr ? Indicators.last(atrArr) : null;
       const riskDistance = atr ? atr * STOP_MULT : null;
       const stopLoss   = riskDistance ? entryPrice - riskDistance : null;
-      // OPTIMIZER OVERRIDE: Strict 10% Take Profit
-        const takeProfit = entryPrice * 1.10;
+      const takeProfit = entryPrice * (1 + TP_PCT);
 
       position = {
         entryPrice,
@@ -645,7 +664,7 @@ async function runParameterSweep(histories, fgMap) {
   console.log('  🔍 RUNNING PARAMETER SWEEP (AUTO-OPTIMIZATION)');
   console.log('═══════════════════════════════════════════════════════════════');
   
-  const holdLimits = [1, 2, 3, 5];
+  const holdLimits = [3, 5, 7, 10];
   const emaFastList = [7, 9, 12];
   const emaSlowList = [21, 26];
   const rsiPeriods = [10, 14];
@@ -671,6 +690,9 @@ async function runParameterSweep(histories, fgMap) {
             emaSlow: eSlow,
             rsiPeriod: rPeriod
           };
+          if (!CONFIG.exits) CONFIG.exits = {};
+          CONFIG.exits.holdLimitDays = hLimit;
+          syncExitGlobals();
 
           let totalNetReturn = 0;
           let totalTradesCount = 0;
@@ -711,8 +733,11 @@ async function runParameterSweep(histories, fgMap) {
   console.log('\n  ✅ Sweep Complete!');
   console.log(`  🏆 Best Parameters Found: HOLD=${bestParams.holdLimit}d | EMA Fast=${bestParams.emaFast} | EMA Slow=${bestParams.emaSlow} | RSI=${bestParams.rsiPeriod}`);
   
-  // Set the best params globally
+  // Set the best params globally and keep live exit policy in sync
   CONFIG.activeParams = bestParams;
+  if (!CONFIG.exits) CONFIG.exits = {};
+  CONFIG.exits.holdLimitDays = bestParams.holdLimit;
+  syncExitGlobals();
   return bestParams;
 }
 
@@ -1013,13 +1038,41 @@ async function main() {
           configStr = configStr.replace(/(winnersOnlyBuys:\s*)false/, '$1true');
         }
 
-        // Write activeParams
+        // Write activeParams + keep exits.holdLimitDays in sync with live policy
+        CONFIG.activeParams.holdLimit = CONFIG.activeParams.holdLimit || HOLD_LIMIT;
+        if (!CONFIG.exits) CONFIG.exits = {};
+        CONFIG.exits.holdLimitDays = CONFIG.activeParams.holdLimit;
+        CONFIG.exits.takeProfitPct = CONFIG.exits.takeProfitPct ?? 10;
+
         const paramsStr = `activeParams: {\n    holdLimit: ${CONFIG.activeParams.holdLimit},\n    emaFast: ${CONFIG.activeParams.emaFast},\n    emaSlow: ${CONFIG.activeParams.emaSlow},\n    rsiPeriod: ${CONFIG.activeParams.rsiPeriod}\n  },`;
         configStr = configStr.replace(/activeParams:\s*\{[\s\S]*?\},/, paramsStr);
+
+        const exitsStr = `exits: {\n    takeProfitPct: ${CONFIG.exits.takeProfitPct},\n    holdLimitDays: ${CONFIG.exits.holdLimitDays},\n    stopAtrMult: ${CONFIG.exits.stopAtrMult ?? 2},\n    feePerSide: ${CONFIG.exits.feePerSide ?? 0.001},\n    slippagePerSide: ${CONFIG.exits.slippagePerSide ?? 0.001},\n  },`;
+        if (/exits:\s*\{[\s\S]*?\},/.test(configStr)) {
+          configStr = configStr.replace(/exits:\s*\{[\s\S]*?\},/, exitsStr);
+        }
+
+        // Public trust badge summary (core + probation accumulated)
+        let badgeTrades = 0, badgeWrNum = 0, badgeRetNum = 0;
+        for (const [sym, data] of Object.entries(db.accumulated || {})) {
+          if (data.classification !== 'core' && data.classification !== 'probation') continue;
+          badgeTrades += data.totalTrades || 0;
+          badgeWrNum += (data.avgWinRate || 0) * (data.totalTrades || 0);
+          badgeRetNum += (data.avgReturn || 0) * (data.totalTrades || 0);
+        }
+        const badgeWr = badgeTrades ? +(badgeWrNum / badgeTrades).toFixed(1) : (wStatsNet ? parseFloat(wStatsNet.winRate) : 0);
+        const badgeRet = badgeTrades ? +(badgeRetNum / badgeTrades).toFixed(2) : (wStatsNet ? parseFloat(wStatsNet.avgReturn) : 0);
+        const lastBtStr = `lastBacktest: {\n    runAt: '${runDate}',\n    totalRuns: ${db.meta.totalRuns},\n    coreCount: ${coreWinners.length},\n    probationCount: ${probationWinners.length},\n    winnersTrades: ${badgeTrades || (wStatsNet?.totalTrades ?? 0)},\n    winnersWinRate: ${badgeWr},\n    winnersAvgReturn: ${badgeRet},\n  },`;
+        if (/lastBacktest:\s*\{[\s\S]*?\},/.test(configStr)) {
+          configStr = configStr.replace(/lastBacktest:\s*\{[\s\S]*?\},/, lastBtStr);
+        } else {
+          configStr = configStr.replace(/(activeParams:\s*\{[\s\S]*?\},)/, `$1\n\n  ${lastBtStr}`);
+        }
 
         fs.writeFileSync(configPath, configStr);
         console.log(`  [CONFIG] Auto-updated coreWinners (${coreWinners.length}) and probationWinners (${probationWinners.length}) in js/config.js`);
         console.log(`  [CONFIG] Saved optimized parameters: HOLD=${CONFIG.activeParams.holdLimit}, RSI=${CONFIG.activeParams.rsiPeriod}, EMA=${CONFIG.activeParams.emaFast}/${CONFIG.activeParams.emaSlow}`);
+        console.log(`  [CONFIG] lastBacktest badge: ${badgeWr}% WR, ${badgeRet}% avg, ${badgeTrades} trades`);
       } catch (e) {
         console.error('  [ERROR] Failed to save database or update config:', e);
       }
