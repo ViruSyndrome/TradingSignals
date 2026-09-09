@@ -59,14 +59,14 @@ const Auth = {
     if (googleBtn) {
       googleBtn.addEventListener('click', async (e) => {
         e.preventDefault();
-        await supabaseClient.auth.signInWithOAuth({ provider: 'google'});
+        await supabaseClient.auth.signInWithOAuth({ provider: 'google', options: { redirectTo: window.location.origin + (window.location.pathname || '/') } });
       });
     }
 
     if (githubBtn) {
       githubBtn.addEventListener('click', async (e) => {
         e.preventDefault();
-        await supabaseClient.auth.signInWithOAuth({ provider: 'github'});
+        await supabaseClient.auth.signInWithOAuth({ provider: 'github', options: { redirectTo: window.location.origin + (window.location.pathname || '/') } });
       });
     }
   
@@ -186,24 +186,48 @@ const Auth = {
     await supabaseClient.auth.signOut();
   },
 
-  async syncToCloud(invested, watchlist, holdingsMeta) {
-    if (!this.user) return;
+  _readLocalJson(key, fallback) {
+    try {
+      const v = JSON.parse(localStorage.getItem(key) || 'null');
+      return v == null ? fallback : v;
+    } catch {
+      return fallback;
+    }
+  },
+
+  _normId(id) {
+    return String(id).toUpperCase().replace('_4H', '').replace('_5M', '');
+  },
+
+  async syncToCloud(invested, watchlist, holdingsMeta, { force = false } = {}) {
+    if (!this.user) return false;
 
     try {
-      const localMeta = holdingsMeta ?? window.Dashboard?.state?.holdingsMeta ?? {};
-      const localInvested = Array.isArray(invested) ? invested : [];
-      const localWatchlist = Array.isArray(watchlist) ? watchlist : [];
+      const localMeta = holdingsMeta ?? window.Dashboard?.state?.holdingsMeta ?? this._readLocalJson('trading_holdings_meta', {});
+      const localInvested = Array.isArray(invested)
+        ? invested
+        : (window.Dashboard?.state?.invested ?? this._readLocalJson('trading_invested', []));
+      const localWatchlist = Array.isArray(watchlist)
+        ? watchlist
+        : (window.Dashboard?.state?.watchlist ?? this._readLocalJson('trading_watchlist', []));
 
-      // Fetch cloud meta so we can merge cost-basis without clobbering the other device.
-      // Membership (invested/watchlist) stays local-wins so unlocks actually remove coins.
       const { data: userData, error: getErr } = await supabaseClient.auth.getUser();
       if (getErr) throw getErr;
       const cloudMetaRaw = userData?.user?.user_metadata?.trading_holdings_meta;
+      const cloudInvested = Array.isArray(userData?.user?.user_metadata?.trading_invested)
+        ? userData.user.user_metadata.trading_invested
+        : [];
+
+      // Never wipe cloud holdings with an empty local push unless user explicitly unlocked (force).
+      if (!force && localInvested.length === 0 && cloudInvested.length > 0) {
+        console.warn('☁️ Skip empty holdings push (would wipe cloud). Waiting for merge/pull.');
+        return false;
+      }
 
       const mergedMeta = this._mergeHoldingsMeta(localMeta, cloudMetaRaw);
       const prunedMeta = {};
       for (const id of localInvested) {
-        const base = String(id).toUpperCase().replace('_4H', '').replace('_5M', '');
+        const base = this._normId(id);
         if (mergedMeta[base]) prunedMeta[base] = mergedMeta[base];
       }
 
@@ -222,12 +246,14 @@ const Auth = {
       if (error) {
         console.error('Failed to sync to cloud:', error);
         window.Dashboard?._showToast?.('Cloud sync failed — saved locally only', 'warning');
-        return;
+        return false;
       }
-      console.log('☁️ Successfully synced locked coins to Supabase Cloud');
+      console.log('☁️ Successfully synced locked coins to Supabase Cloud', localInvested);
+      return true;
     } catch (err) {
       console.error('Failed to sync to cloud:', err);
       window.Dashboard?._showToast?.('Cloud sync failed — saved locally only', 'warning');
+      return false;
     }
   },
 
@@ -268,21 +294,13 @@ const Auth = {
     return merged;
   },
 
-  async syncFromCloud(retryCount = 0) {
+  async syncFromCloud() {
     if (!this.user) return;
 
-    // Race condition guard: Dashboard may still be loading on fresh page open.
-    // Retry up to 5 times (every 1.5s) until data is actually loaded.
-    if (!window.Dashboard || !window.Dashboard.state || !window.Dashboard.state.allAssets?.length) {
-      if (retryCount < 5) {
-        setTimeout(() => this.syncFromCloud(retryCount + 1), 1500);
-      }
-      return;
-    }
-
     try {
-      // Always fetch fresh metadata from Supabase (not stale cached user object)
-      const { data: { user } } = await supabaseClient.auth.getUser();
+      // Do NOT wait for market assets — holdings live in localStorage and must sync on login.
+      const { data: { user }, error: userErr } = await supabaseClient.auth.getUser();
+      if (userErr) throw userErr;
       if (!user) return;
 
       const metadata = user.user_metadata || {};
@@ -292,70 +310,56 @@ const Auth = {
         ? metadata.trading_holdings_meta
         : {};
 
-      let changed = false;
+      const localInvested = window.Dashboard?.state?.invested ?? this._readLocalJson('trading_invested', []);
+      const localWatchlist = window.Dashboard?.state?.watchlist ?? this._readLocalJson('trading_watchlist', []);
+      const localMeta = window.Dashboard?.state?.holdingsMeta ?? this._readLocalJson('trading_holdings_meta', {});
 
-      if (cloudInvested.length > 0) {
-        const currentInvested = window.Dashboard.state.invested || [];
-        const mergedInvested = [...new Set([...currentInvested, ...cloudInvested])];
-        // Always apply — even if same length, ensures cloud data is in localStorage
+      const mergedInvested = [...new Set([...(Array.isArray(localInvested) ? localInvested : []), ...cloudInvested])];
+      const mergedWatchlist = [...new Set([...(Array.isArray(localWatchlist) ? localWatchlist : []), ...cloudWatchlist])];
+      const mergedMeta = this._mergeHoldingsMeta(localMeta, cloudHoldingsMeta);
+
+      if (window.Dashboard?.state) {
         window.Dashboard.state.invested = mergedInvested;
-        localStorage.setItem('trading_invested', JSON.stringify(mergedInvested));
-        changed = true;
-      }
-
-      if (cloudWatchlist.length > 0) {
-        const currentWatchlist = window.Dashboard.state.watchlist || [];
-        const mergedWatchlist = [...new Set([...currentWatchlist, ...cloudWatchlist])];
         window.Dashboard.state.watchlist = mergedWatchlist;
-        localStorage.setItem('trading_watchlist', JSON.stringify(mergedWatchlist));
-        changed = true;
-      }
-
-      const mergedMeta = this._mergeHoldingsMeta(window.Dashboard.state.holdingsMeta, cloudHoldingsMeta);
-      const metaChanged = JSON.stringify(mergedMeta) !== JSON.stringify(window.Dashboard.state.holdingsMeta || {});
-      if (metaChanged || Object.keys(cloudHoldingsMeta).length > 0) {
         window.Dashboard.state.holdingsMeta = mergedMeta;
         window.Dashboard._persistHoldingsMeta?.();
-        changed = true;
+        window.Dashboard._backfillHoldingsMeta?.();
       }
+      localStorage.setItem('trading_invested', JSON.stringify(mergedInvested));
+      localStorage.setItem('trading_watchlist', JSON.stringify(mergedWatchlist));
+      try { localStorage.setItem('trading_holdings_meta', JSON.stringify(mergedMeta)); } catch (e) { /* quota */ }
 
-      window.Dashboard._backfillHoldingsMeta?.();
+      const cloudInvSet = new Set(cloudInvested.map((id) => this._normId(id)));
+      const uploadedLocalOnly = mergedInvested.some((id) => !cloudInvSet.has(this._normId(id)));
 
-      const finalInvested = window.Dashboard.state.invested || [];
-      const finalWatchlist = window.Dashboard.state.watchlist || [];
-      const finalMeta = window.Dashboard.state.holdingsMeta || {};
+      const ok = await this.syncToCloud(mergedInvested, mergedWatchlist, mergedMeta, { force: true });
 
-      // Login used to pull-only, so local-only locks never reached other devices.
-      // After merge, push so this device's holdings/watchlist become the cloud union.
-      const norm = (id) => String(id).toUpperCase().replace('_4H', '').replace('_5M', '');
-      const cloudInvSet = new Set(cloudInvested.map(norm));
-      const cloudWlSet = new Set(cloudWatchlist.map(norm));
-      const uploadedLocalOnly =
-        finalInvested.some((id) => !cloudInvSet.has(norm(id))) ||
-        finalWatchlist.some((id) => !cloudWlSet.has(norm(id)));
+      const msg = !ok
+        ? `Holdings on this device: ${mergedInvested.length} — cloud save failed (check connection)`
+        : uploadedLocalOnly
+          ? `☁️ Holdings saved to your account (${mergedInvested.length} coins)`
+          : `☁️ Holdings synced (${mergedInvested.length} coins)`;
+      window.Dashboard?._showToast?.(msg, ok ? 'success' : 'warning');
+      console.log('☁️ Sync complete', { mergedInvested, uploadedLocalOnly, ok });
 
-      if (finalInvested.length || finalWatchlist.length || cloudInvested.length || cloudWatchlist.length) {
-        await this.syncToCloud(finalInvested, finalWatchlist, finalMeta);
-      }
-
-      if (changed) {
-        console.log('☁️ Cloud sync applied. Holdings:', finalInvested);
-        window.Dashboard._showToast(
-          uploadedLocalOnly
-            ? `☁️ Holdings merged & saved to your account (${finalInvested.length} coins)`
-            : `☁️ Holdings synced from cloud (${finalInvested.length} coins)`,
-          'success'
-        );
+      if (window.Dashboard?.state?.allAssets?.length) {
         window.Dashboard.loadAll(true);
-      } else if (uploadedLocalOnly) {
-        console.log('☁️ Uploaded local holdings to cloud:', finalInvested);
-        window.Dashboard._showToast(
-          `☁️ Saved this device's holdings to your account (${finalInvested.length} coins)`,
-          'success'
-        );
+      } else {
+        // Re-render when market data arrives
+        let tries = 0;
+        const wait = setInterval(() => {
+          tries += 1;
+          if (window.Dashboard?.state?.allAssets?.length) {
+            clearInterval(wait);
+            window.Dashboard.loadAll(true);
+          } else if (tries >= 30) {
+            clearInterval(wait);
+          }
+        }, 1000);
       }
     } catch (err) {
       console.error('Failed to pull from cloud:', err);
+      window.Dashboard?._showToast?.('Holdings sync failed — try Sign Out / Sign In again', 'warning');
     }
   }
 };

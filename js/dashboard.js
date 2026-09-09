@@ -1837,7 +1837,7 @@ const Dashboard = {
     
     try {
       localStorage.setItem('trading_invested', JSON.stringify(this.state.invested));
-      if (window.Auth) window.Auth.syncToCloud(this.state.invested, this.state.watchlist, this.state.holdingsMeta);
+      if (window.Auth) window.Auth.syncToCloud(this.state.invested, this.state.watchlist, this.state.holdingsMeta, { force: true });
     } catch(e) { console.warn('Failed to save lock status', e); }
 
     const isLocked = this.state.invested.includes(id);
@@ -1894,7 +1894,7 @@ const Dashboard = {
     }
     try {
       localStorage.setItem('trading_watchlist', JSON.stringify(this.state.watchlist));
-      if (window.Auth) window.Auth.syncToCloud(this.state.invested, this.state.watchlist, this.state.holdingsMeta);
+      if (window.Auth) window.Auth.syncToCloud(this.state.invested, this.state.watchlist, this.state.holdingsMeta, { force: true });
     } catch(e) { console.warn('Failed to save watchlist', e); }
     
     // Instantly update the visual star state on any visible cards (especially Moonshots)
@@ -1983,7 +1983,6 @@ const Dashboard = {
           <div>
             <h2>${asset.name} <span class="modal-symbol">${asset.symbol}</span></h2>
             <div class="modal-meta">${{ crypto: '₿ Crypto', stocks: '🇮🇳 NSE Stock', commodities: '🪙 Commodity', forex: '💱 Forex' }[category] ?? category} ${tierBadge}</div>
-            <a href="${binanceTradeUrl}" target="_blank" rel="noopener noreferrer" class="modal-trade-link" title="Open ${tradeSymbol}USDT spot on Binance">Trade ${tradeSymbol}USDT on Binance ↗</a>
           </div>
           <div class="signal-badge signal-${level.cls} lg ${['STRONG_BUY','STRONG_SELL'].includes(sig) ? 'pulse' : ''}">
             ${level.icon} ${level.label}
@@ -1992,7 +1991,7 @@ const Dashboard = {
         <div class="modal-prices">
           <div class="modal-price">${priceStr}</div>
           <div class="price-change ${change24h == null ? 'flat' : change24h >= 0 ? 'pos' : 'neg'} lg">${chgStr} (24h)</div>
-          <a href="${binanceTradeUrl}" target="_blank" rel="noopener noreferrer" class="modal-trade-btn" title="Open this pair on Binance with TrendRunner referral">Trade on Binance</a>
+          <a href="${binanceTradeUrl}" target="_blank" rel="noopener noreferrer" class="modal-trade-btn" title="Open this pair on Binance">Trade ${tradeSymbol}USDT on Binance ↗</a>
         </div>
         ${ocoHTML}
       </div>
@@ -2354,8 +2353,6 @@ const Dashboard = {
     const status = !valid ? 'Invalid price relationship' : stale ? 'Refresh before placing: levels are stale' : 'OCO levels ready to review';
     const statusClass = !valid || stale ? 'oco-warning' : 'oco-ready';
     const symbol = d.asset.symbol;
-    const tradeSymbol = String(symbol || '').replace(/USDT$/i, '');
-    const binanceTradeUrl = `https://www.binance.com/en/trade/${tradeSymbol}_USDT?type=spot&ref=TRENDRUNNER`;
     const rules = d.rules || {};
     const ruleText = rules.minNotional ? `Binance minimum order value: $${rules.minNotional}. Quantity step: ${rules.stepSize}. Price tick: ${rules.tickSize}.` : 'Binance will enforce the pair minimum value and price/quantity precision.';
     return `
@@ -2368,8 +2365,7 @@ const Dashboard = {
           <span>Stop price <strong>${this._fmt(s.stopPrice, d.asset)}</strong></span>
           <span>Stop-limit <strong>${this._fmt(s.stopPrice * 0.998, d.asset)}</strong></span>
         </div>
-        <a href="${binanceTradeUrl}" target="_blank" rel="noopener noreferrer" class="modal-trade-btn" style="margin-top:14px;">Open ${tradeSymbol}USDT on Binance ↗</a>
-        <small>Reward/risk: ${rewardRisk}R. Use these as a sell OCO on Binance. Enter your available ${symbol} amount. ${ruleText}</small>
+        <small>Reward/risk: ${rewardRisk}R. Use the Trade on Binance button above for the pair, then place a sell OCO with these prices. ${ruleText}</small>
       </div>
     `;
   },
