@@ -145,13 +145,83 @@ const lastAlerted = loadAlertState();
 
 // Persist Twitter deduplication and rate limits
 const TWITTER_STATE_FILE = 'twitterState.json';
+const TW_TWO_HOURS = 2 * 60 * 60 * 1000;
+const TW_TWELVE_HOURS = 12 * 60 * 60 * 1000;
+const TW_DAY_MS = 24 * 60 * 60 * 1000;
+const TW_FORTY_EIGHT_HOURS = 48 * 60 * 60 * 1000;
+
 function loadTwitterState() {
-  try { return JSON.parse(fs.readFileSync(TWITTER_STATE_FILE, 'utf8')); } catch { return { lastGlobalTweet: 0, coins: {} }; }
+  try {
+    const s = JSON.parse(fs.readFileSync(TWITTER_STATE_FILE, 'utf8'));
+    return {
+      lastGlobalTweet: s.lastGlobalTweet || 0,
+      lastDailySummary: s.lastDailySummary || 0,
+      lastHeartbeat: s.lastHeartbeat || 0,
+      coins: s.coins && typeof s.coins === 'object' ? s.coins : {},
+    };
+  } catch {
+    return { lastGlobalTweet: 0, lastDailySummary: 0, lastHeartbeat: 0, coins: {} };
+  }
 }
 function saveTwitterState(state) {
   fs.writeFileSync(TWITTER_STATE_FILE, JSON.stringify(state, null, 2));
 }
 const twitterState = loadTwitterState();
+
+function twCanPostGlobal(now = Date.now()) {
+  return now - (twitterState.lastGlobalTweet || 0) > TW_TWO_HOURS;
+}
+
+/** Trader-desk STRONG_BUY copy — no https URLs (those 403 on this app). */
+function buildStrongBuyTweet({ cleanSymbol, score, confidence, price, tpPct, holdDays }) {
+  const stamp = new Date().toISOString().slice(11, 16);
+  const priceStr = price >= 1 ? price.toFixed(2) : price.toFixed(4);
+  const variants = [
+    `$${cleanSymbol} just printed a Strong Buy on the daily. Score +${score}, ${confidence}% confidence at $${priceStr}. SL/TP (+${tpPct}%) and ${holdDays}d hold on TrendRunner. ${stamp}Z`,
+    `Core alert: $${cleanSymbol} Strong Buy. Confluence +${score} · ${confidence}% · $${priceStr}. Check TrendRunner for stops and targets. ${stamp}Z`,
+    `Desk note — $${cleanSymbol} flipped Strong Buy (daily). +${score} score, ${confidence}% conf, $${priceStr}. ${holdDays}d hold / +${tpPct}% TP on TrendRunner. ${stamp}Z`,
+  ];
+  const idx = Math.abs((Date.now() + (cleanSymbol.charCodeAt(0) || 0)) % variants.length);
+  return variants[idx];
+}
+
+function buildDailySummaryTweet({ fearGreed, marketRegime, strongBuyCount, buyCount, topBuy }) {
+  const fg = fearGreed != null ? String(fearGreed) : 'n/a';
+  const stamp = new Date().toISOString().slice(0, 10);
+  let setupLine;
+  if (strongBuyCount > 0 && topBuy) {
+    setupLine = `Core Strong Buys this scan: ${strongBuyCount}. Top: $${topBuy.symbol} (+${topBuy.score}).`;
+  } else if (buyCount > 0 && topBuy) {
+    setupLine = `No core Strong Buys. Soft buys: ${buyCount}. Leading: $${topBuy.symbol} (+${topBuy.score}).`;
+  } else {
+    setupLine = 'No core Strong Buys on this pass — staying patient.';
+  }
+  return `Market pulse ${stamp}
+Regime: ${marketRegime} · Fear & Greed: ${fg}
+${setupLine}
+Alerts fire on core Strong Buys only · TrendRunner`;
+}
+
+function buildHeartbeatTweet({ fearGreed, marketRegime }) {
+  const fg = fearGreed != null ? String(fearGreed) : 'n/a';
+  const stamp = new Date().toISOString().slice(11, 16);
+  return `TrendRunner still scanning. Regime: ${marketRegime} · F&G ${fg}. Alerts fire on core Strong Buys only. ${stamp}Z`;
+}
+
+async function postTweet(text, label = 'tweet') {
+  if (!twitterClient || !text) return false;
+  try {
+    await twitterClient.v2.tweet(text);
+    console.log(`✅ Tweeted ${label}`);
+    return true;
+  } catch (err) {
+    const detail = err?.data?.detail || err?.data?.title || err?.message || String(err);
+    const code = err?.code || err?.data?.status || '';
+    console.error(`Twitter post failed (${label}) (${code}): ${detail}`);
+    if (err?.data) console.error('Twitter error body:', JSON.stringify(err.data));
+    return false;
+  }
+}
 
 let scanInProgress = false;
 
@@ -209,10 +279,11 @@ async function scanMarket() {
     const crypto = await API.getAllCrypto();
     const all = [...(crypto || [])].filter(d => d.closes && d.closes.length >= 30);
     
-    // --- Daily Marketing Summary ---
-    let highestScoreCoin = null;
-    let highestScore = -99;
+    // --- Scan stats for X daily pulse ---
     let buyCount = 0;
+    let strongBuyCount = 0;
+    let topBuy = null; // { symbol, score }
+    let alertPostedThisScan = false;
     
     let marketRegime = 'flat';
     const btc = all.find(a => (a.asset?.symbol === 'BTCUSDT' || a.asset?.id === 'BTCUSDT') && a.closes?.length >= 50);
@@ -280,12 +351,14 @@ If you buy this, reply /buy ${asset.symbol}`;
         const cleanSymbol = asset.symbol.replace('USDT','');
         const holdDays = result.stopSuggest?.holdLimitDays || CONFIG.exits?.holdLimitDays || 7;
         const tpPct = result.stopSuggest?.takeProfitPct || CONFIG.exits?.takeProfitPct || 10;
-        // Plain text (no https URL): smoke test proved writes work; link-heavy identical alerts were 403ing.
-        tweetMessage = `🚨 $${cleanSymbol} STRONG BUY (daily)
-Score +${result.score} · Conf ${result.confidence}% · $${price.toFixed(4)}
-SL/TP (+${tpPct}%) & ${holdDays}d hold — TrendRunner app
-#${cleanSymbol} #Crypto
-${new Date().toISOString().slice(0, 16)}Z`;
+        tweetMessage = buildStrongBuyTweet({
+          cleanSymbol,
+          score: result.score,
+          confidence: result.confidence,
+          price,
+          tpPct,
+          holdDays,
+        });
       } else if (result.signal === 'STRONG_SELL' && owned) {
         const binanceLink = `https://www.binance.com/en/trade/${asset.symbol}_USDT?type=spot&ref=TRENDRUNNER`;
         message = `🔴 STRONG SELL ALERT: ${asset.symbol}
@@ -300,49 +373,37 @@ If you sell, reply /sell ${asset.symbol}`;
       }
 
       
-      // Track highest score for marketing
-      if (result.score > highestScore && result.score > 5) {
-        highestScore = result.score;
-        highestScoreCoin = asset.symbol;
+      if (result.signal === 'STRONG_BUY') strongBuyCount++;
+      if (result.signal === 'BUY' || result.signal === 'STRONG_BUY') {
+        buyCount++;
+        const sym = String(asset.symbol || '').replace(/USDT$/i, '');
+        if (!topBuy || result.score > topBuy.score) {
+          topBuy = { symbol: sym, score: result.score };
+        }
       }
-      if (result.signal === 'BUY' || result.signal === 'STRONG_BUY') buyCount++;
       
       if (message && !alreadyAlerted) {
         if (typeof bot !== 'undefined' && bot) {
           bot.sendMessage(chatId, message, { parse_mode: 'HTML', disable_web_page_preview: true }).catch(err => console.error('Send failed:', err.message));
         }
         
-        // --- TWITTER SPAM CONTROL ---
-        if (tweetMessage && typeof twitterClient !== 'undefined' && twitterClient) {
+        // --- TWITTER: STRONG_BUY alerts (priority over daily/heartbeat) ---
+        if (tweetMessage && twitterClient) {
           const now = Date.now();
-          const TWO_HOURS = 2 * 60 * 60 * 1000;
-          const FORTY_EIGHT_HOURS = 48 * 60 * 60 * 1000;
-
-          const timeSinceGlobal = now - (twitterState.lastGlobalTweet || 0);
           const timeSinceCoin = now - (twitterState.coins[asset.symbol] || 0);
 
-          if (timeSinceGlobal > TWO_HOURS && timeSinceCoin > FORTY_EIGHT_HOURS) {
-            // Soft-lock in memory to avoid double-post in the same scan; persist only on success
-            // so a 403/5xx does not burn the 48h coin window.
+          if (twCanPostGlobal(now) && timeSinceCoin > TW_FORTY_EIGHT_HOURS) {
+            const prevGlobal = twitterState.lastGlobalTweet || 0;
             twitterState.lastGlobalTweet = now;
             twitterState.coins[asset.symbol] = now;
-
-            twitterClient.v2.tweet(tweetMessage).then(() => {
+            const ok = await postTweet(tweetMessage, `STRONG BUY ${asset.symbol}`);
+            if (ok) {
+              alertPostedThisScan = true;
               saveTwitterState(twitterState);
-              console.log(`✅ Tweeted STRONG BUY for ${asset.symbol}`);
-            }).catch(err => {
+            } else {
               delete twitterState.coins[asset.symbol];
-              twitterState.lastGlobalTweet = twitterState.lastGlobalTweet === now
-                ? (now - TWO_HOURS - 1)
-                : twitterState.lastGlobalTweet;
-              const detail = err?.data?.detail || err?.data?.title || err?.message || String(err);
-              const code = err?.code || err?.data?.status || '';
-              console.error(`Twitter post failed for ${asset.symbol} (${code}): ${detail}`);
-              if (err?.data) console.error('Twitter error body:', JSON.stringify(err.data));
-              if (Number(code) === 403) {
-                console.error('Twitter 403 on alert copy (auth/smoke already OK). Usually duplicate text or blocked link/CTA — alerts are now link-free + timestamped.');
-              }
-            });
+              twitterState.lastGlobalTweet = prevGlobal;
+            }
           } else {
             console.log(`⏭️ Skipped tweet for ${asset.symbol} due to rate limiting.`);
           }
@@ -353,6 +414,51 @@ If you sell, reply /sell ${asset.symbol}`;
       } else if (!message) {
         delete lastAlerted[asset.symbol];
         saveAlertState(lastAlerted);
+      }
+    }
+
+    // Cadence: alert > daily summary (24h) > heartbeat (12h idle). Global 2h gap between any posts.
+    if (twitterClient && !alertPostedThisScan && twCanPostGlobal()) {
+      const now = Date.now();
+      const sinceDaily = now - (twitterState.lastDailySummary || 0);
+      const sinceHeartbeat = now - (twitterState.lastHeartbeat || 0);
+      const sinceAny = now - (twitterState.lastGlobalTweet || 0);
+
+      if (sinceDaily >= TW_DAY_MS) {
+        const textDaily = buildDailySummaryTweet({
+          fearGreed,
+          marketRegime,
+          strongBuyCount,
+          buyCount,
+          topBuy,
+        });
+        const prevGlobal = twitterState.lastGlobalTweet || 0;
+        twitterState.lastGlobalTweet = now;
+        twitterState.lastDailySummary = now;
+        const ok = await postTweet(textDaily, 'daily summary');
+        if (ok) {
+          saveTwitterState(twitterState);
+        } else {
+          twitterState.lastGlobalTweet = prevGlobal;
+          twitterState.lastDailySummary = now - sinceDaily;
+        }
+      } else if (
+        sinceHeartbeat >= TW_TWELVE_HOURS &&
+        sinceDaily >= TW_TWELVE_HOURS &&
+        sinceAny >= TW_TWELVE_HOURS
+      ) {
+        const textBeat = buildHeartbeatTweet({ fearGreed, marketRegime });
+        const prevGlobal = twitterState.lastGlobalTweet || 0;
+        const prevBeat = twitterState.lastHeartbeat || 0;
+        twitterState.lastGlobalTweet = now;
+        twitterState.lastHeartbeat = now;
+        const ok = await postTweet(textBeat, 'heartbeat');
+        if (ok) {
+          saveTwitterState(twitterState);
+        } else {
+          twitterState.lastGlobalTweet = prevGlobal;
+          twitterState.lastHeartbeat = prevBeat;
+        }
       }
     }
   } catch (err) {
