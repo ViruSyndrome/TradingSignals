@@ -16,6 +16,7 @@ if (typeof global.localStorage === 'undefined') {
   };
 }
 const { API } = require('./js/api.js');
+const { renderTweetCardPng, TW_OG_FALLBACK } = require('./js/tweet_card.js');
 
 global.CONFIG = CONFIG;
 global.Indicators = Indicators; // signals.js references Indicators as a global
@@ -173,8 +174,6 @@ function twCanPostGlobal(now = Date.now()) {
 }
 
 /** Marketing/SEO STRONG_BUY copy — no raw https:// (403 on this app); plain trendrunner.app + hashtags. */
-const TW_OG_IMAGE = require('path').join(__dirname, 'og-preview.png');
-
 function buildStrongBuyTweet({ cleanSymbol, score, confidence, price, tpPct, holdDays }) {
   const stamp = new Date().toISOString().slice(11, 16);
   const priceStr = price >= 1 ? price.toFixed(2) : price.toFixed(4);
@@ -243,23 +242,33 @@ trendrunner.app
 #CryptoTrading #TradingSignals · ${stamp}`;
 }
 
-async function postTweet(text, label = 'tweet', { withImage = false } = {}) {
+async function postTweet(text, label = 'tweet', { withImage = false, mediaBuffer = null } = {}) {
   if (!twitterClient || !text) return false;
   try {
     let payload = text;
-    if (withImage && fs.existsSync(TW_OG_IMAGE)) {
+    let mediaId = null;
+    if (mediaBuffer && Buffer.isBuffer(mediaBuffer)) {
       try {
-        const mediaId = await twitterClient.v1.uploadMedia(TW_OG_IMAGE);
-        payload = { text, media: { media_ids: [mediaId] } };
+        mediaId = await twitterClient.v1.uploadMedia(mediaBuffer, { mimeType: 'image/png' });
       } catch (mediaErr) {
-        console.warn(`🐦 Media upload skipped (${label}): ${mediaErr?.message || mediaErr}`);
+        console.warn(`🐦 Generated card upload failed (${label}): ${mediaErr?.message || mediaErr}`);
       }
     }
+    if (!mediaId && withImage) {
+      const fallback = typeof TW_OG_FALLBACK !== 'undefined' ? TW_OG_FALLBACK : require('path').join(__dirname, 'og-preview.png');
+      if (fs.existsSync(fallback)) {
+        try {
+          mediaId = await twitterClient.v1.uploadMedia(fallback);
+        } catch (mediaErr) {
+          console.warn(`🐦 Media upload skipped (${label}): ${mediaErr?.message || mediaErr}`);
+        }
+      }
+    }
+    if (mediaId) payload = { text, media: { media_ids: [mediaId] } };
     await twitterClient.v2.tweet(payload);
-    console.log(`✅ Tweeted ${label}${withImage ? ' (with image)' : ''}`);
+    console.log(`✅ Tweeted ${label}${mediaId ? ' (with image)' : ''}`);
     return true;
   } catch (err) {
-    // If link-shaped text 403s, retry once without trendrunner.app line
     const detail = err?.data?.detail || err?.data?.title || err?.message || String(err);
     const code = err?.code || err?.data?.status || '';
     if (Number(code) === 403 && /trendrunner\.app/i.test(text)) {
@@ -280,6 +289,7 @@ async function postTweet(text, label = 'tweet', { withImage = false } = {}) {
     return false;
   }
 }
+
 
 let scanInProgress = false;
 
@@ -382,6 +392,7 @@ async function scanMarket() {
 
       let message = null;
       let tweetMessage = null;
+      let tweetCardOpts = null;
       let stopText = '';
       const winnerTier = result.winnerTier ?? 'none';
       if (result.stopSuggest) {
@@ -417,6 +428,20 @@ If you buy this, reply /buy ${asset.symbol}`;
           tpPct,
           holdDays,
         });
+        tweetCardOpts = {
+          symbol: cleanSymbol,
+          name: asset.name || cleanSymbol,
+          score: result.score,
+          confidence: result.confidence,
+          price,
+          tpPct,
+          holdDays,
+          stopPrice: result.stopSuggest?.stopPrice,
+          takeProfitPrice: result.stopSuggest?.takeProfitPrice,
+          tierLabel: winnerTier === 'core' ? 'Core Winner' : winnerTier === 'probation' ? 'Probation' : 'Watchlist',
+          change1d: d.change24h ?? null,
+          change4h: d.change4h ?? null,
+        };
       } else if (result.signal === 'STRONG_SELL' && owned) {
         const binanceLink = `https://www.binance.com/en/trade/${asset.symbol}_USDT?type=spot&ref=TRENDRUNNER`;
         message = `🔴 STRONG SELL ALERT: ${asset.symbol}
@@ -454,7 +479,11 @@ If you sell, reply /sell ${asset.symbol}`;
             const prevGlobal = twitterState.lastGlobalTweet || 0;
             twitterState.lastGlobalTweet = now;
             twitterState.coins[asset.symbol] = now;
-            const ok = await postTweet(tweetMessage, `STRONG BUY ${asset.symbol}`, { withImage: true });
+            const cardPng = tweetCardOpts ? renderTweetCardPng(tweetCardOpts) : null;
+            const ok = await postTweet(tweetMessage, `STRONG BUY ${asset.symbol}`, {
+              withImage: true,
+              mediaBuffer: cardPng,
+            });
             if (ok) {
               alertPostedThisScan = true;
               saveTwitterState(twitterState);
