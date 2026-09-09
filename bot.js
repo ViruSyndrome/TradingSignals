@@ -26,18 +26,48 @@ const pollingEnabled = Boolean(token && chatId) && process.env.TELEGRAM_POLLING 
 
 const { TwitterApi } = require('twitter-api-v2');
 
+function envTrim(key) {
+  const v = process.env[key];
+  return typeof v === 'string' ? v.trim() : v;
+}
+
 // Initialize Twitter Client (if keys are provided)
 let twitterClient = null;
-if (process.env.TWITTER_API_KEY && process.env.TWITTER_API_SECRET && process.env.TWITTER_ACCESS_TOKEN && process.env.TWITTER_ACCESS_SECRET) {
+const twKey = envTrim('TWITTER_API_KEY');
+const twSecret = envTrim('TWITTER_API_SECRET');
+const twAccess = envTrim('TWITTER_ACCESS_TOKEN');
+const twAccessSecret = envTrim('TWITTER_ACCESS_SECRET');
+if (twKey && twSecret && twAccess && twAccessSecret) {
   twitterClient = new TwitterApi({
-    appKey: process.env.TWITTER_API_KEY,
-    appSecret: process.env.TWITTER_API_SECRET,
-    accessToken: process.env.TWITTER_ACCESS_TOKEN,
-    accessSecret: process.env.TWITTER_ACCESS_SECRET,
+    appKey: twKey,
+    appSecret: twSecret,
+    accessToken: twAccess,
+    accessSecret: twAccessSecret,
   }).readWrite;
-  console.log("🐦 Twitter client initialized successfully.");
+  console.log('🐦 Twitter client initialized successfully.');
+  // Prove which account the Access Token belongs to (does not post).
+  twitterClient.v2.me().then((me) => {
+    const u = me?.data;
+    console.log(`🐦 Twitter auth OK as @${u?.username || '?'} (id ${u?.id || '?'})`);
+  }).catch((err) => {
+    const detail = err?.data?.detail || err?.message || String(err);
+    console.error(`🐦 Twitter auth check failed (${err?.code || ''}): ${detail}`);
+    if (err?.data) console.error('🐦 Twitter auth error body:', JSON.stringify(err.data));
+  });
+  // Optional one-shot: set TWITTER_SMOKE_TEST=true in Render, deploy once, then turn it off.
+  if (String(process.env.TWITTER_SMOKE_TEST || '').toLowerCase() === 'true') {
+    const smoke = `TrendRunner API smoke test ${new Date().toISOString()}`;
+    twitterClient.v2.tweet(smoke).then((r) => {
+      console.log(`🐦 Smoke tweet OK id=${r?.data?.id || '?'}`);
+    }).catch((err) => {
+      const detail = err?.data?.detail || err?.message || String(err);
+      console.error(`🐦 Smoke tweet FAILED (${err?.code || ''}): ${detail}`);
+      if (err?.data) console.error('🐦 Smoke error body:', JSON.stringify(err.data));
+      if (err?.rateLimit) console.error('🐦 Smoke rateLimit:', JSON.stringify(err.rateLimit));
+    });
+  }
 } else {
-  console.log("⚠️ Twitter keys missing from .env, Twitter posting disabled.");
+  console.log('⚠️ Twitter keys missing from .env, Twitter posting disabled.');
 }
 
 let bot = null;
@@ -292,19 +322,25 @@ If you sell, reply /sell ${asset.symbol}`;
           const timeSinceCoin = now - (twitterState.coins[asset.symbol] || 0);
 
           if (timeSinceGlobal > TWO_HOURS && timeSinceCoin > FORTY_EIGHT_HOURS) {
-            // LOCK IMMEDIATELY to prevent race conditions in the loop
+            // Soft-lock in memory to avoid double-post in the same scan; persist only on success
+            // so a 403/5xx does not burn the 48h coin window.
             twitterState.lastGlobalTweet = now;
             twitterState.coins[asset.symbol] = now;
-            saveTwitterState(twitterState);
-            
+
             twitterClient.v2.tweet(tweetMessage).then(() => {
+              saveTwitterState(twitterState);
               console.log(`✅ Tweeted STRONG BUY for ${asset.symbol}`);
             }).catch(err => {
+              delete twitterState.coins[asset.symbol];
+              twitterState.lastGlobalTweet = twitterState.lastGlobalTweet === now
+                ? (now - TWO_HOURS - 1)
+                : twitterState.lastGlobalTweet;
               const detail = err?.data?.detail || err?.data?.title || err?.message || String(err);
               const code = err?.code || err?.data?.status || '';
               console.error(`Twitter post failed for ${asset.symbol} (${code}): ${detail}`);
+              if (err?.data) console.error('Twitter error body:', JSON.stringify(err.data));
               if (Number(code) === 403) {
-                console.error('Twitter 403 usually means the app cannot post: Free API tier is read-only, or Access Token was created before Read+Write was enabled. Fix in X Developer Portal → regenerate Access Token after setting Read and Write, or upgrade to a paid plan that allows posting.');
+                console.error('Twitter 403 (post denied). Keys auth, but write blocked. Check: (1) Keys page says Access Token created with Read and Write, (2) User auth app type is Automated App/Bot + Read and Write, (3) set TWITTER_SMOKE_TEST=true once to test a link-free post, (4) confirm smoke/auth logs show @TrendRunnerApp.');
               }
             });
           } else {
