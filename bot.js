@@ -280,12 +280,12 @@ If you buy this, reply /buy ${asset.symbol}`;
         const cleanSymbol = asset.symbol.replace('USDT','');
         const holdDays = result.stopSuggest?.holdLimitDays || CONFIG.exits?.holdLimitDays || 7;
         const tpPct = result.stopSuggest?.takeProfitPct || CONFIG.exits?.takeProfitPct || 10;
-        tweetMessage = `🚨 ALGORITHMIC ALERT: $${cleanSymbol} just triggered a flawless STRONG BUY signal on the daily timeframe!
-
-📈 Algo Confluence: +${result.score}
-🎯 Confidence: ${result.confidence}%
-
-Get the exact Stop-Loss, Take-Profit (+${tpPct}%), & Time Limits (${holdDays}-Day Max) free 👇\n\n#CryptoTrading #${cleanSymbol} #TradingSignals\n\nhttps://trendrunner.app/?ref=twitter`;
+        // Plain text (no https URL): smoke test proved writes work; link-heavy identical alerts were 403ing.
+        tweetMessage = `🚨 $${cleanSymbol} STRONG BUY (daily)
+Score +${result.score} · Conf ${result.confidence}% · $${price.toFixed(4)}
+SL/TP (+${tpPct}%) & ${holdDays}d hold — TrendRunner app
+#${cleanSymbol} #Crypto
+${new Date().toISOString().slice(0, 16)}Z`;
       } else if (result.signal === 'STRONG_SELL' && owned) {
         const binanceLink = `https://www.binance.com/en/trade/${asset.symbol}_USDT?type=spot&ref=TRENDRUNNER`;
         message = `🔴 STRONG SELL ALERT: ${asset.symbol}
@@ -340,7 +340,7 @@ If you sell, reply /sell ${asset.symbol}`;
               console.error(`Twitter post failed for ${asset.symbol} (${code}): ${detail}`);
               if (err?.data) console.error('Twitter error body:', JSON.stringify(err.data));
               if (Number(code) === 403) {
-                console.error('Twitter 403 (post denied). Keys auth, but write blocked. Check: (1) Keys page says Access Token created with Read and Write, (2) User auth app type is Automated App/Bot + Read and Write, (3) set TWITTER_SMOKE_TEST=true once to test a link-free post, (4) confirm smoke/auth logs show @TrendRunnerApp.');
+                console.error('Twitter 403 on alert copy (auth/smoke already OK). Usually duplicate text or blocked link/CTA — alerts are now link-free + timestamped.');
               }
             });
           } else {
