@@ -2285,9 +2285,8 @@ const Dashboard = {
     });
     document.addEventListener('keydown', e => { if (e.key === 'Escape') this._closeModal(); });
 
-    // Manual refresh button + mobile pull-to-refresh
+    // Manual refresh only (pull-to-refresh removed — too easy to trigger and burns Binance weight)
     document.getElementById('refreshBtn')?.addEventListener('click', () => this._forceRefresh());
-    this._initPullToRefresh();
 
     // Sidebar nav
     document.querySelectorAll('.nav-link').forEach(link => {
@@ -2377,83 +2376,6 @@ const Dashboard = {
     return this.loadAll();
   },
 
-  _initPullToRefresh() {
-    const indicator = document.getElementById('pullToRefresh');
-    if (!indicator || this._ptrBound) return;
-    this._ptrBound = true;
-
-    const THRESHOLD = 70;
-    let startY = 0;
-    let armed = false;
-    let pulling = false;
-    let distance = 0;
-
-    const scrollEl = () => document.querySelector('.main-section.active');
-    const label = () => indicator.querySelector('.ptr-label');
-
-    const reset = (refreshing = false) => {
-      armed = false;
-      pulling = false;
-      distance = 0;
-      if (!refreshing) {
-        indicator.classList.remove('visible', 'ready', 'refreshing');
-        indicator.style.setProperty('--ptr-y', '0px');
-        indicator.setAttribute('aria-hidden', 'true');
-        if (label()) label().textContent = 'Pull to refresh';
-      }
-    };
-
-    const onStart = (e) => {
-      if (document.body.classList.contains('modal-open')) return;
-      if (this.state?.loading) return;
-      const el = scrollEl();
-      if (!el || el.scrollTop > 2) { armed = false; return; }
-      startY = e.touches[0].clientY;
-      armed = true;
-      pulling = false;
-      distance = 0;
-    };
-
-    const onMove = (e) => {
-      if (!armed || this.state?.loading) return;
-      const el = scrollEl();
-      if (!el || el.scrollTop > 2) { reset(); return; }
-      const dy = e.touches[0].clientY - startY;
-      if (dy < 10) return;
-      pulling = true;
-      distance = Math.min(dy * 0.42, 110);
-      e.preventDefault();
-      indicator.classList.add('visible');
-      indicator.classList.toggle('ready', distance >= THRESHOLD);
-      indicator.setAttribute('aria-hidden', 'false');
-      indicator.style.setProperty('--ptr-y', `${distance}px`);
-      if (label()) label().textContent = distance >= THRESHOLD ? 'Release to refresh' : 'Pull to refresh';
-    };
-
-    const onEnd = async () => {
-      if (!pulling) { reset(); return; }
-      const shouldRefresh = distance >= THRESHOLD;
-      if (!shouldRefresh) { reset(); return; }
-
-      indicator.classList.add('visible', 'ready', 'refreshing');
-      indicator.style.setProperty('--ptr-y', '56px');
-      if (label()) label().textContent = 'Refreshing…';
-      armed = false;
-      pulling = false;
-
-      try {
-        await this._forceRefresh();
-      } finally {
-        reset();
-      }
-    };
-
-    const root = document.querySelector('.main-content') || document;
-    root.addEventListener('touchstart', onStart, { passive: true });
-    root.addEventListener('touchmove', onMove, { passive: false });
-    root.addEventListener('touchend', onEnd, { passive: true });
-    root.addEventListener('touchcancel', () => reset(), { passive: true });
-  },
 };
 
 // ── Boot on DOM ready ──────────────────────────────────────────────────────────

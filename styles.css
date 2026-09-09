@@ -1511,41 +1511,4 @@ body.modal-open { overflow: hidden; }
 }
 
 
-/* Pull-to-refresh (mobile) — page scroll is inner .main-section, so native Chrome PTR never fires */
-.pull-to-refresh {
-  position: absolute;
-  top: 72px;
-  left: 50%;
-  z-index: 40;
-  display: flex;
-  align-items: center;
-  gap: 10px;
-  padding: 8px 14px;
-  border-radius: 999px;
-  background: rgba(12, 14, 28, 0.92);
-  border: 1px solid var(--glass-border);
-  color: var(--text-muted);
-  font-size: 12px;
-  font-weight: 600;
-  letter-spacing: 0.02em;
-  pointer-events: none;
-  opacity: 0;
-  transform: translate(-50%, calc(var(--ptr-y, 0px) - 48px));
-  transition: opacity 0.15s ease;
-}
-.pull-to-refresh.visible { opacity: 1; }
-.pull-to-refresh.ready { color: var(--accent); border-color: rgba(0, 242, 254, 0.35); }
-.pull-to-refresh.refreshing .ptr-spinner {
-  animation: ptr-spin 0.7s linear infinite;
-}
-.ptr-spinner {
-  width: 16px;
-  height: 16px;
-  border-radius: 50%;
-  border: 2px solid rgba(255,255,255,0.15);
-  border-top-color: var(--accent);
-  transform: rotate(calc(var(--ptr-y, 0px) * 3deg));
-}
-@keyframes ptr-spin { to { transform: rotate(360deg); } }
-.main-content { position: relative; }
 

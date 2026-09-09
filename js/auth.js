@@ -203,13 +203,18 @@ const Auth = {
     if (!this.user) return false;
 
     try {
-      const localMeta = holdingsMeta ?? window.Dashboard?.state?.holdingsMeta ?? this._readLocalJson('trading_holdings_meta', {});
+      const localMeta = this._unionMeta(
+        holdingsMeta,
+        window.Dashboard?.state?.holdingsMeta,
+        this._readLocalJson('trading_holdings_meta', {})
+      );
+      // IMPORTANT: [] is not nullish — never prefer empty state over localStorage.
       const localInvested = Array.isArray(invested)
         ? invested
-        : (window.Dashboard?.state?.invested ?? this._readLocalJson('trading_invested', []));
+        : this._unionIds(window.Dashboard?.state?.invested, this._readLocalJson('trading_invested', []));
       const localWatchlist = Array.isArray(watchlist)
         ? watchlist
-        : (window.Dashboard?.state?.watchlist ?? this._readLocalJson('trading_watchlist', []));
+        : this._unionIds(window.Dashboard?.state?.watchlist, this._readLocalJson('trading_watchlist', []));
 
       const { data: userData, error: getErr } = await supabaseClient.auth.getUser();
       if (getErr) throw getErr;
@@ -310,12 +315,22 @@ const Auth = {
         ? metadata.trading_holdings_meta
         : {};
 
-      const localInvested = window.Dashboard?.state?.invested ?? this._readLocalJson('trading_invested', []);
-      const localWatchlist = window.Dashboard?.state?.watchlist ?? this._readLocalJson('trading_watchlist', []);
-      const localMeta = window.Dashboard?.state?.holdingsMeta ?? this._readLocalJson('trading_holdings_meta', {});
+      // Union Dashboard state + localStorage + cloud. Empty [] must not hide LS data.
+      const localInvested = this._unionIds(
+        window.Dashboard?.state?.invested,
+        this._readLocalJson('trading_invested', [])
+      );
+      const localWatchlist = this._unionIds(
+        window.Dashboard?.state?.watchlist,
+        this._readLocalJson('trading_watchlist', [])
+      );
+      const localMeta = this._unionMeta(
+        window.Dashboard?.state?.holdingsMeta,
+        this._readLocalJson('trading_holdings_meta', {})
+      );
 
-      const mergedInvested = [...new Set([...(Array.isArray(localInvested) ? localInvested : []), ...cloudInvested])];
-      const mergedWatchlist = [...new Set([...(Array.isArray(localWatchlist) ? localWatchlist : []), ...cloudWatchlist])];
+      const mergedInvested = this._unionIds(localInvested, cloudInvested);
+      const mergedWatchlist = this._unionIds(localWatchlist, cloudWatchlist);
       const mergedMeta = this._mergeHoldingsMeta(localMeta, cloudHoldingsMeta);
 
       if (window.Dashboard?.state) {
@@ -332,14 +347,32 @@ const Auth = {
       const cloudInvSet = new Set(cloudInvested.map((id) => this._normId(id)));
       const uploadedLocalOnly = mergedInvested.some((id) => !cloudInvSet.has(this._normId(id)));
 
-      const ok = await this.syncToCloud(mergedInvested, mergedWatchlist, mergedMeta, { force: true });
+      let ok = true;
+      if (mergedInvested.length > 0 || mergedWatchlist.length > 0 || cloudInvested.length === 0) {
+        // force only when we are not wiping non-empty cloud with empty local
+        const force = mergedInvested.length > 0 || cloudInvested.length === 0;
+        ok = await this.syncToCloud(mergedInvested, mergedWatchlist, mergedMeta, { force });
+      }
 
-      const msg = !ok
-        ? `Holdings on this device: ${mergedInvested.length} — cloud save failed (check connection)`
-        : uploadedLocalOnly
-          ? `☁️ Holdings saved to your account (${mergedInvested.length} coins)`
-          : `☁️ Holdings synced (${mergedInvested.length} coins)`;
-      window.Dashboard?._showToast?.(msg, ok ? 'success' : 'warning');
+      const msg = mergedInvested.length === 0 && cloudInvested.length === 0
+        ? 'No locked holdings to sync yet — lock a coin while signed in'
+        : !ok
+          ? `Holdings on this device: ${mergedInvested.length} — cloud save failed`
+          : uploadedLocalOnly
+            ? `Holdings saved to your account (${mergedInvested.length} coins)`
+            : `Holdings synced (${mergedInvested.length} coins)`;
+      // Toast even if Dashboard.init has not finished — write directly to container
+      const container = document.getElementById('toastContainer');
+      if (container) {
+        const toast = document.createElement('div');
+        toast.className = `toast toast-${ok || mergedInvested.length === 0 ? 'success' : 'warning'}`;
+        toast.textContent = msg;
+        container.appendChild(toast);
+        requestAnimationFrame(() => toast.classList.add('show'));
+        setTimeout(() => { toast.classList.remove('show'); setTimeout(() => toast.remove(), 400); }, 4500);
+      } else {
+        window.Dashboard?._showToast?.(msg, ok ? 'success' : 'warning');
+      }
       console.log('☁️ Sync complete', { mergedInvested, uploadedLocalOnly, ok });
 
       if (window.Dashboard?.state?.allAssets?.length) {
