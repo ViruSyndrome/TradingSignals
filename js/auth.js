@@ -319,11 +319,40 @@ const Auth = {
         changed = true;
       }
 
+      window.Dashboard._backfillHoldingsMeta?.();
+
+      const finalInvested = window.Dashboard.state.invested || [];
+      const finalWatchlist = window.Dashboard.state.watchlist || [];
+      const finalMeta = window.Dashboard.state.holdingsMeta || {};
+
+      // Login used to pull-only, so local-only locks never reached other devices.
+      // After merge, push so this device's holdings/watchlist become the cloud union.
+      const norm = (id) => String(id).toUpperCase().replace('_4H', '').replace('_5M', '');
+      const cloudInvSet = new Set(cloudInvested.map(norm));
+      const cloudWlSet = new Set(cloudWatchlist.map(norm));
+      const uploadedLocalOnly =
+        finalInvested.some((id) => !cloudInvSet.has(norm(id))) ||
+        finalWatchlist.some((id) => !cloudWlSet.has(norm(id)));
+
+      if (finalInvested.length || finalWatchlist.length || cloudInvested.length || cloudWatchlist.length) {
+        await this.syncToCloud(finalInvested, finalWatchlist, finalMeta);
+      }
+
       if (changed) {
-        window.Dashboard._backfillHoldingsMeta?.();
-        console.log('☁️ Cloud sync applied. Holdings:', window.Dashboard.state.invested);
-        window.Dashboard._showToast(`☁️ Holdings synced from cloud (${window.Dashboard.state.invested.length} coins)`, 'success');
-        window.Dashboard.loadAll(true); // full re-render with fresh data so Holdings tab shows coins
+        console.log('☁️ Cloud sync applied. Holdings:', finalInvested);
+        window.Dashboard._showToast(
+          uploadedLocalOnly
+            ? `☁️ Holdings merged & saved to your account (${finalInvested.length} coins)`
+            : `☁️ Holdings synced from cloud (${finalInvested.length} coins)`,
+          'success'
+        );
+        window.Dashboard.loadAll(true);
+      } else if (uploadedLocalOnly) {
+        console.log('☁️ Uploaded local holdings to cloud:', finalInvested);
+        window.Dashboard._showToast(
+          `☁️ Saved this device's holdings to your account (${finalInvested.length} coins)`,
+          'success'
+        );
       }
     } catch (err) {
       console.error('Failed to pull from cloud:', err);
