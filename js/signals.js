@@ -821,7 +821,7 @@ const Signals = {
     return this.LEVELS[signalKey] || this.LEVELS.NEUTRAL;
   },
 
-  _version: '6.10',
+  _version: '6.11',
 };
 
 if (typeof module !== 'undefined' && module.exports) module.exports = Signals;
