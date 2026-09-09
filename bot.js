@@ -172,14 +172,40 @@ function twCanPostGlobal(now = Date.now()) {
   return now - (twitterState.lastGlobalTweet || 0) > TW_TWO_HOURS;
 }
 
-/** Trader-desk STRONG_BUY copy — no https URLs (those 403 on this app). */
+/** Marketing/SEO STRONG_BUY copy — no raw https:// (403 on this app); plain trendrunner.app + hashtags. */
+const TW_OG_IMAGE = require('path').join(__dirname, 'og-preview.png');
+
 function buildStrongBuyTweet({ cleanSymbol, score, confidence, price, tpPct, holdDays }) {
   const stamp = new Date().toISOString().slice(11, 16);
   const priceStr = price >= 1 ? price.toFixed(2) : price.toFixed(4);
   const variants = [
-    `$${cleanSymbol} just printed a Strong Buy on the daily. Score +${score}, ${confidence}% confidence at $${priceStr}. SL/TP (+${tpPct}%) and ${holdDays}d hold on TrendRunner. ${stamp}Z`,
-    `Core alert: $${cleanSymbol} Strong Buy. Confluence +${score} · ${confidence}% · $${priceStr}. Check TrendRunner for stops and targets. ${stamp}Z`,
-    `Desk note — $${cleanSymbol} flipped Strong Buy (daily). +${score} score, ${confidence}% conf, $${priceStr}. ${holdDays}d hold / +${tpPct}% TP on TrendRunner. ${stamp}Z`,
+    `🚨 ALGORITHMIC ALERT: $${cleanSymbol} just triggered a STRONG BUY on the daily timeframe!
+
+📈 Algo Confluence: +${score}
+🎯 Confidence: ${confidence}%
+💵 Price: $${priceStr}
+
+Get exact Stop-Loss, Take-Profit (+${tpPct}%), & ${holdDays}-Day hold limits free on TrendRunner 👇
+
+#CryptoTrading #${cleanSymbol} #TradingSignals #AlgoTrading
+trendrunner.app
+[${stamp}]`,
+    `🚨 $${cleanSymbol} STRONG BUY signal locked in (daily chart)
+
+📈 Score +${score} · 🎯 ${confidence}% confidence · $${priceStr}
+SL / TP (+${tpPct}%) / ${holdDays}-day max hold — mapped inside TrendRunner
+
+Free algorithmic setups → trendrunner.app
+
+#CryptoTrading #${cleanSymbol} #TradingSignals
+[${stamp}]`,
+    `⚡ TrendRunner alert: $${cleanSymbol} flipped STRONG BUY on the daily
+
+Confluence +${score} | Confidence ${confidence}% | $${priceStr}
+Stops, +${tpPct}% targets & ${holdDays}-day time limit on the dashboard 👇
+
+#Crypto #${cleanSymbol} #CryptoTrading #TradingSignals
+trendrunner.app · ${stamp}`,
   ];
   const idx = Math.abs((Date.now() + (cleanSymbol.charCodeAt(0) || 0)) % variants.length);
   return variants[idx];
@@ -190,33 +216,65 @@ function buildDailySummaryTweet({ fearGreed, marketRegime, strongBuyCount, buyCo
   const stamp = new Date().toISOString().slice(0, 10);
   let setupLine;
   if (strongBuyCount > 0 && topBuy) {
-    setupLine = `Core Strong Buys this scan: ${strongBuyCount}. Top: $${topBuy.symbol} (+${topBuy.score}).`;
+    setupLine = `${strongBuyCount} core STRONG BUY setup(s) this scan — lead: $${topBuy.symbol} (+${topBuy.score}).`;
   } else if (buyCount > 0 && topBuy) {
-    setupLine = `No core Strong Buys. Soft buys: ${buyCount}. Leading: $${topBuy.symbol} (+${topBuy.score}).`;
+    setupLine = `No STRONG BUYs yet. ${buyCount} softer buy signal(s) — watch $${topBuy.symbol} (+${topBuy.score}).`;
   } else {
-    setupLine = 'No core Strong Buys on this pass — staying patient.';
+    setupLine = 'No core STRONG BUY setups this pass — scanner staying selective.';
   }
-  return `Market pulse ${stamp}
+  return `📊 TrendRunner market pulse · ${stamp}
+
 Regime: ${marketRegime} · Fear & Greed: ${fg}
 ${setupLine}
-Alerts fire on core Strong Buys only · TrendRunner`;
+
+Live signals, SL/TP & hold limits → trendrunner.app
+#CryptoTrading #TradingSignals #AlgoTrading`;
 }
 
 function buildHeartbeatTweet({ fearGreed, marketRegime }) {
   const fg = fearGreed != null ? String(fearGreed) : 'n/a';
   const stamp = new Date().toISOString().slice(11, 16);
-  return `TrendRunner still scanning. Regime: ${marketRegime} · F&G ${fg}. Alerts fire on core Strong Buys only. ${stamp}Z`;
+  return `🐦 TrendRunner is scanning 24/7 for algorithmic STRONG BUY setups.
+
+Regime: ${marketRegime} · Fear & Greed: ${fg}
+Core winners only · free SL/TP on the dashboard
+
+trendrunner.app
+#CryptoTrading #TradingSignals · ${stamp}`;
 }
 
-async function postTweet(text, label = 'tweet') {
+async function postTweet(text, label = 'tweet', { withImage = false } = {}) {
   if (!twitterClient || !text) return false;
   try {
-    await twitterClient.v2.tweet(text);
-    console.log(`✅ Tweeted ${label}`);
+    let payload = text;
+    if (withImage && fs.existsSync(TW_OG_IMAGE)) {
+      try {
+        const mediaId = await twitterClient.v1.uploadMedia(TW_OG_IMAGE);
+        payload = { text, media: { media_ids: [mediaId] } };
+      } catch (mediaErr) {
+        console.warn(`🐦 Media upload skipped (${label}): ${mediaErr?.message || mediaErr}`);
+      }
+    }
+    await twitterClient.v2.tweet(payload);
+    console.log(`✅ Tweeted ${label}${withImage ? ' (with image)' : ''}`);
     return true;
   } catch (err) {
+    // If link-shaped text 403s, retry once without trendrunner.app line
     const detail = err?.data?.detail || err?.data?.title || err?.message || String(err);
     const code = err?.code || err?.data?.status || '';
+    if (Number(code) === 403 && /trendrunner\.app/i.test(text)) {
+      const stripped = text.replace(/\n?trendrunner\.app\S*/gi, '').replace(/\nFree algorithmic setups →\s*/gi, '\n').trim();
+      try {
+        await twitterClient.v2.tweet(stripped);
+        console.log(`✅ Tweeted ${label} (fallback without domain)`);
+        return true;
+      } catch (err2) {
+        const d2 = err2?.data?.detail || err2?.message || String(err2);
+        console.error(`Twitter post failed (${label}) (${err2?.code || ''}): ${d2}`);
+        if (err2?.data) console.error('Twitter error body:', JSON.stringify(err2.data));
+        return false;
+      }
+    }
     console.error(`Twitter post failed (${label}) (${code}): ${detail}`);
     if (err?.data) console.error('Twitter error body:', JSON.stringify(err.data));
     return false;
@@ -396,7 +454,7 @@ If you sell, reply /sell ${asset.symbol}`;
             const prevGlobal = twitterState.lastGlobalTweet || 0;
             twitterState.lastGlobalTweet = now;
             twitterState.coins[asset.symbol] = now;
-            const ok = await postTweet(tweetMessage, `STRONG BUY ${asset.symbol}`);
+            const ok = await postTweet(tweetMessage, `STRONG BUY ${asset.symbol}`, { withImage: true });
             if (ok) {
               alertPostedThisScan = true;
               saveTwitterState(twitterState);
@@ -435,7 +493,7 @@ If you sell, reply /sell ${asset.symbol}`;
         const prevGlobal = twitterState.lastGlobalTweet || 0;
         twitterState.lastGlobalTweet = now;
         twitterState.lastDailySummary = now;
-        const ok = await postTweet(textDaily, 'daily summary');
+        const ok = await postTweet(textDaily, 'daily summary', { withImage: true });
         if (ok) {
           saveTwitterState(twitterState);
         } else {
