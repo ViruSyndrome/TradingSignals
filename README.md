@@ -41,6 +41,11 @@ Dashboard OCO copy, bots, visual backtester, and CLI all read this policy for da
 ### Dashboard
 Serve the directory with any static host (or `npx serve .`) and open `index.html`. Hard-refresh after deploys so the service worker picks up the new cache version.
 
+**Supabase Auth → Redirect URLs** must include both (PWA `start_url` is `./index.html`):
+- `https://YOUR_DOMAIN/index.html`
+- `https://YOUR_DOMAIN/`
+
+
 ### Telegram / X bot
 1. `npm install`
 2. Copy `.env.example` → `.env` (Telegram + optional Twitter keys)

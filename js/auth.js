@@ -1,27 +1,120 @@
 const SUPABASE_URL = 'https://ogoljnujatnlttrpjpxr.supabase.co';
 const SUPABASE_KEY = 'sb_publishable_G2op6O8Ia-f6f27PRCE9YA_ZwtRUi5U'; 
 
-const supabaseClient = window.supabase.createClient(SUPABASE_URL, SUPABASE_KEY);
+const supabaseClient = window.supabase.createClient(SUPABASE_URL, SUPABASE_KEY, {
+  auth: {
+    persistSession: true,
+    autoRefreshToken: true,
+    detectSessionInUrl: true,
+    flowType: 'pkce',
+    storage: window.localStorage,
+  },
+});
 
 const Auth = {
   user: null,
   isLoginMode: true,
 
   async init() {
-    const { data: { session } } = await supabaseClient.auth.getSession();
+    this._consumeAuthRedirectErrors();
+
+    const { data: { session }, error: sessionErr } = await supabaseClient.auth.getSession();
+    if (sessionErr) console.warn('[Auth] getSession:', sessionErr.message);
     this.user = session?.user || null;
     this._updateUI();
-    if (this.user) { this.syncFromCloud(); }
+    if (this.user) {
+      this.syncFromCloud();
+      this._cleanAuthParamsFromUrl();
+    }
 
     supabaseClient.auth.onAuthStateChange((event, session) => {
       this.user = session?.user || null;
       this._updateUI();
       if (event === 'SIGNED_IN') {
+        this._closeAuthModal();
+        this._cleanAuthParamsFromUrl();
         this.syncFromCloud();
+        window.Dashboard?._showToast?.('Signed in — holdings syncing', 'success');
+      }
+      if (event === 'SIGNED_OUT') {
+        window.Dashboard?._showToast?.('Signed out', 'info');
       }
     });
 
     this._bindEvents();
+  },
+
+  /** Canonical redirect matching PWA start_url (./index.html) + Supabase allowlist. */
+  _redirectTo() {
+    try {
+      const u = new URL('index.html', window.location.href);
+      u.search = '';
+      u.hash = '';
+      return u.href;
+    } catch {
+      return `${window.location.origin}/index.html`;
+    }
+  },
+
+  _openAuthModal() {
+    const authModal = document.getElementById('authModal');
+    if (!authModal) return;
+    // Critical: never leave style.display='none' from older buggy close paths
+    authModal.style.removeProperty('display');
+    authModal.classList.add('open');
+    this.isLoginMode = true;
+    this._renderModalState();
+  },
+
+  _closeAuthModal() {
+    const authModal = document.getElementById('authModal');
+    if (!authModal) return;
+    authModal.classList.remove('open');
+    authModal.style.removeProperty('display');
+  },
+
+  _consumeAuthRedirectErrors() {
+    try {
+      const params = new URLSearchParams(window.location.search);
+      const hashParams = new URLSearchParams((window.location.hash || '').replace(/^#/, ''));
+      const err = params.get('error_description') || params.get('error')
+        || hashParams.get('error_description') || hashParams.get('error');
+      if (err) {
+        console.error('[Auth] OAuth redirect error:', err);
+        setTimeout(() => {
+          window.Dashboard?._showToast?.(decodeURIComponent(err), 'warning');
+          this._openAuthModal();
+          const errEl = document.getElementById('authError');
+          if (errEl) {
+            errEl.style.color = 'var(--c-red)';
+            errEl.textContent = decodeURIComponent(err);
+            errEl.style.display = 'block';
+          }
+        }, 400);
+        this._cleanAuthParamsFromUrl();
+      }
+    } catch (e) { /* ignore */ }
+  },
+
+  _cleanAuthParamsFromUrl() {
+    try {
+      const u = new URL(window.location.href);
+      const authKeys = ['code', 'state', 'error', 'error_description', 'error_code'];
+      let changed = false;
+      for (const k of authKeys) {
+        if (u.searchParams.has(k)) {
+          u.searchParams.delete(k);
+          changed = true;
+        }
+      }
+      if (u.hash && /access_token|error|refresh_token|type=/.test(u.hash)) {
+        u.hash = '';
+        changed = true;
+      }
+      if (changed) {
+        window.history.replaceState({}, document.title, u.pathname + (u.search || '') + (u.hash || ''));
+      }
+    } catch (e) { /* ignore */ }
   },
 
   _bindEvents() {
@@ -34,15 +127,20 @@ const Auth = {
     if (authBtn) {
       authBtn.addEventListener('click', (e) => {
         e.preventDefault();
-        if (this.user) { if (confirm('Are you sure you want to sign out?')) { this.logout(); } } else {
-          authModal.classList.add('open');
-          this.isLoginMode = true;
-          this._renderModalState();
+        if (this.user) {
+          if (confirm('Are you sure you want to sign out?')) this.logout();
+        } else {
+          this._openAuthModal();
         }
       });
     }
 
-    if (closeBtn) closeBtn.addEventListener('click', () => { authModal.classList.remove('open'); });
+    if (closeBtn) closeBtn.addEventListener('click', () => this._closeAuthModal());
+    if (authModal) {
+      authModal.addEventListener('click', (e) => {
+        if (e.target === authModal) this._closeAuthModal();
+      });
+    }
 
     if (toggleBtn) {
       toggleBtn.addEventListener('click', (e) => {
@@ -53,23 +151,58 @@ const Auth = {
     }
 
     if (submitBtn) submitBtn.addEventListener('click', () => this.handleAuthSubmit());
+    const pw = document.getElementById('authPassword');
+    if (pw) {
+      pw.addEventListener('keydown', (e) => {
+        if (e.key === 'Enter') {
+          e.preventDefault();
+          this.handleAuthSubmit();
+        }
+      });
+    }
     const googleBtn = document.getElementById('authGoogleBtn');
     const githubBtn = document.getElementById('authGithubBtn');
+    const redirectTo = this._redirectTo();
 
     if (googleBtn) {
       googleBtn.addEventListener('click', async (e) => {
         e.preventDefault();
-        await supabaseClient.auth.signInWithOAuth({ provider: 'google', options: { redirectTo: window.location.origin + (window.location.pathname || '/') } });
+        const errEl = document.getElementById('authError');
+        try {
+          const { error } = await supabaseClient.auth.signInWithOAuth({
+            provider: 'google',
+            options: { redirectTo, skipBrowserRedirect: false },
+          });
+          if (error) throw error;
+        } catch (err) {
+          if (errEl) {
+            errEl.style.color = 'var(--c-red)';
+            errEl.textContent = err.message || 'Google sign-in failed';
+            errEl.style.display = 'block';
+          }
+        }
       });
     }
 
     if (githubBtn) {
       githubBtn.addEventListener('click', async (e) => {
         e.preventDefault();
-        await supabaseClient.auth.signInWithOAuth({ provider: 'github', options: { redirectTo: window.location.origin + (window.location.pathname || '/') } });
+        const errEl = document.getElementById('authError');
+        try {
+          const { error } = await supabaseClient.auth.signInWithOAuth({
+            provider: 'github',
+            options: { redirectTo, skipBrowserRedirect: false },
+          });
+          if (error) throw error;
+        } catch (err) {
+          if (errEl) {
+            errEl.style.color = 'var(--c-red)';
+            errEl.textContent = err.message || 'GitHub sign-in failed';
+            errEl.style.display = 'block';
+          }
+        }
       });
     }
-  
   },
 
   _renderModalState() {
@@ -168,9 +301,7 @@ const Auth = {
         errEl.style.display = 'block';
       }
       
-      setTimeout(() => {
-        document.getElementById('authModal').style.display = 'none';
-      }, 1500);
+      setTimeout(() => this._closeAuthModal(), this.isLoginMode ? 400 : 1200);
 
     } catch (error) {
       errEl.style.color = 'var(--c-red)';
