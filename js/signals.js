@@ -8,11 +8,12 @@
 const Signals = {
 
   LEVELS: {
-    STRONG_BUY:  { label: 'Strong Buy',  short: 'S.BUY',  cls: 'strong-buy',  icon: '🚀', minScore:  2.5 },
+    // Strong Buy badge is intentionally strict (score ≥ 4 + full agreement + cool RSI).
+    STRONG_BUY:  { label: 'Strong Buy',  short: 'S.BUY',  cls: 'strong-buy',  icon: '🚀', minScore:  4.0 },
     BUY:         { label: 'Buy',          short: 'BUY',    cls: 'buy',          icon: '📈', minScore:  1.5 },
     NEUTRAL:     { label: 'Hold / Watch', short: 'HOLD',   cls: 'neutral',      icon: '⏸️',  minScore: -1.5 },
     SELL:        { label: 'Sell',         short: 'SELL',   cls: 'sell',         icon: '📉', minScore: -2.5 },
-    STRONG_SELL: { label: 'Strong Sell', short: 'S.SELL', cls: 'strong-sell',  icon: '🔻', minScore: -3.5 },
+    STRONG_SELL: { label: 'Strong Sell', short: 'S.SELL', cls: 'strong-sell',  icon: '🔻', minScore: -4.0 },
   },
 
   // ─── Main entry point ──────────────────────────────────────────────────────
@@ -275,27 +276,37 @@ const Signals = {
     // ── Determine composite signal via base action + conviction ──────────────
     // Strong tiers are conviction badges on top of Buy/Sell, not separate
     // score buckets triggered by one dominant indicator.
-    const CONF_GATE = (typeof CONFIG !== 'undefined' && CONFIG.refresh?.strongConfidenceGate) || 60;
+    const CONF_GATE = (typeof CONFIG !== 'undefined' && (
+      CONFIG.signals?.strongConfidenceGate ?? CONFIG.refresh?.strongConfidenceGate
+    )) || 100;
     const WEAK_GATE = 30; // Require at least ~2 out of 6 indicators to agree for any Buy/Sell
+    const STRONG_BUY_MAX_RSI = (typeof CONFIG !== 'undefined' && CONFIG.signals?.strongBuyMaxRsi) || 40;
+    const STRONG_SELL_MIN_RSI = (typeof CONFIG !== 'undefined' && CONFIG.signals?.strongSellMinRsi) || 60;
     const L = this.LEVELS;
     const ma = indDetails.movingAvg;
     const macd = indDetails.macd;
+    const rsiVal = indDetails.rsi?.value;
     const bullishTrendAligned = !!(ma?.macroBullish && ma?.microBullish);
     const bearishTrendAligned = !!(ma && !ma.macroBullish && !ma.microBullish);
     const bullishMomentumConfirmed = ['BUY', 'STRONG_BUY'].includes(macd?.signal) &&
       (macd?.crossover === 'bullish' || ((macd?.value ?? 0) > (macd?.signalValue ?? 0)));
     const bearishMomentumConfirmed = ['SELL', 'STRONG_SELL'].includes(macd?.signal) &&
       (macd?.crossover === 'bearish' || ((macd?.value ?? 0) < (macd?.signalValue ?? 0)));
+    const coolRsiForStrongBuy = rsiVal == null || rsiVal <= STRONG_BUY_MAX_RSI;
+    const hotRsiForStrongSell = rsiVal == null || rsiVal >= STRONG_SELL_MIN_RSI;
     
     let signal = 'NEUTRAL';
     if (score >= L.BUY.minScore && confidence >= WEAK_GATE) {
       signal = 'BUY';
-      if (score >= L.STRONG_BUY.minScore && confidence >= CONF_GATE && bullishTrendAligned && bullishMomentumConfirmed) {
+      // Strict Strong Buy: score ≥ 4, 100% agreement, trend+MACD, and cool/low RSI
+      if (score >= L.STRONG_BUY.minScore && confidence >= CONF_GATE &&
+          bullishTrendAligned && bullishMomentumConfirmed && coolRsiForStrongBuy) {
         signal = 'STRONG_BUY';
       }
     } else if (score <= L.SELL.minScore && confidence >= WEAK_GATE) {
       signal = 'SELL';
-      if (score <= L.STRONG_SELL.minScore && confidence >= CONF_GATE && bearishTrendAligned && bearishMomentumConfirmed) {
+      if (score <= L.STRONG_SELL.minScore && confidence >= CONF_GATE &&
+          bearishTrendAligned && bearishMomentumConfirmed && hotRsiForStrongSell) {
         signal = 'STRONG_SELL';
       }
     }
@@ -821,7 +832,7 @@ const Signals = {
     return this.LEVELS[signalKey] || this.LEVELS.NEUTRAL;
   },
 
-  _version: '6.13',
+  _version: '6.14',
 };
 
 if (typeof module !== 'undefined' && module.exports) module.exports = Signals;

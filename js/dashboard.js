@@ -1400,7 +1400,7 @@ const Dashboard = {
         return rsi && rsi <= 35;
       }).sort((a, b) => a.signalResult.indicators.rsi.value - b.signalResult.indicators.rsi.value);
     } else if (cat === 'highconf') {
-      const gate = CONFIG.refresh?.strongConfidenceGate || 75;
+      const gate = CONFIG.signals?.strongConfidenceGate ?? CONFIG.refresh?.strongConfidenceGate ?? 100;
       assets = assets.filter(a => {
         const conf = a.signalResult?.confidence ?? 0;
         const score = a.signalResult?.score ?? 0;

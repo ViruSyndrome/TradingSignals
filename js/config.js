@@ -81,6 +81,10 @@ const CONFIG = {
     bearRegimeBlockBuys: true,     // No alt BUY/STRONG_BUY when BTC regime is bear
     extremeGreedBlockBuys: true,   // No BUY/STRONG_BUY when Fear & Greed >= threshold
     extremeGreedBlockAt: 75,
+    // Strong Buy badge (alerts/Telegram/X) — match the rule that worked for you
+    strongConfidenceGate: 100,  // all directional indicators must agree
+    strongBuyMaxRsi: 40,        // require cool/low RSI for S.BUY (score floor is 4.0 in LEVELS)
+    strongSellMinRsi: 60,
   },
 
   // ─── Live exit policy (single source of truth for OCO, bots, UI, backtests) ─
@@ -120,7 +124,8 @@ const CONFIG = {
     intervalMs:  30 * 1000,    // UI refresh every 30 seconds
     cacheMs:     25 * 1000,    // cache data for 25 seconds
     historyDays: 250,          // days of OHLCV history to fetch (>=200 so SMA200 computes)
-    strongConfidenceGate: 75,  // % confidence required to escalate to STRONG_BUY/SELL
+    // Prefer CONFIG.signals.strongConfidenceGate (kept here for older UI readers)
+    strongConfidenceGate: 100,
   },
 
   // ─── API endpoints ───────────────────────────────────────────────────────────
