@@ -19,3 +19,14 @@ These files are bundled only to identify assets in the TrendRunner interface. Co
 ## Usage
 
 The logos are used as nominative product identifiers in cards, holdings, the Signal Log, and the expanded analysis view. They are not presented as official TrendRunner branding or as an endorsement of TrendRunner by the represented projects.
+
+
+## Fetching missing logos
+
+Run from the repo root:
+
+```bash
+node scripts/fetch-coin-logos.js
+```
+
+This downloads any symbols from `CONFIG.assets.crypto` that are not already in this folder (SVG preferred, then PNG). Coins still missing fall back at runtime to CoinCap / letter chips in the UI.

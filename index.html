@@ -39,7 +39,7 @@
 
   <!-- Chart.js -->
   <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.4/dist/chart.umd.min.js"></script>
-  <link rel="stylesheet" href="styles.css?v=6.15" />
+  <link rel="stylesheet" href="styles.css?v=6.18" />
   
   <!-- Favicon & PWA Manifest -->
   <link rel="icon" type="image/png" href="icon-192.png">
@@ -52,11 +52,11 @@
     if ('serviceWorker' in navigator) {
       window.addEventListener('load', () => {
         const hadController = Boolean(navigator.serviceWorker.controller);
-        navigator.serviceWorker.register('./service-worker.js?v=6.15', { updateViaCache: 'none' })
+        navigator.serviceWorker.register('./service-worker.js?v=6.18', { updateViaCache: 'none' })
           .then(reg => {
             reg.update().catch(() => {});
             navigator.serviceWorker.addEventListener('controllerchange', () => {
-              const reloadKey = 'trendrunner_sw_update_6.15';
+              const reloadKey = 'trendrunner_sw_update_6.18';
               if (hadController && !sessionStorage.getItem(reloadKey)) {
                 sessionStorage.setItem(reloadKey, '1');
                 location.reload();
@@ -209,13 +209,15 @@
           <h2>📊 All Tracked Assets</h2>
           <div class="filter-tabs" role="tablist">
             <button class="filter-tab active" data-cat="all" role="tab">All</button>
-            <button class="filter-tab" data-cat="watchlist" role="tab">⭐ Watchlist</button>
-            <button class="filter-tab" data-cat="holdings" role="tab">💼 Holdings</button>
+            <button class="filter-tab" data-cat="watchlist" role="tab" title="Ideas to revisit — not positions">⭐ Watch</button>
+            <button class="filter-tab" data-cat="holdings" role="tab" title="Coins you bought — paper PnL tracker">🔒 Holdings</button>
             <button class="filter-tab" data-cat="history" role="tab">📜 Signal Log</button>
             <button class="filter-tab" data-cat="oversold" role="tab">📉 Oversold</button>
             <button class="filter-tab" data-cat="highconf" role="tab">🎯 High Confidence</button>
             <button class="filter-tab" data-cat="trending" role="tab" title="Assets with a positive 24h trend">🔥 Trending</button>
+            <button class="filter-tab scalper-filter-tab" data-cat="scalper" role="tab" title="5m EMA pullbacks on liquid volatile alts — small size only">⚡ 5m Scalps</button>
           </div>
+          <p class="list-legend">⭐ <strong>Watch</strong> = you starred it (ideas only — moonshots no longer auto-star) &nbsp;·&nbsp; 🔒 <strong>Holdings</strong> = you bought it (edit Binance entry/lots) &nbsp;·&nbsp; ⚡ <strong>5m Scalps</strong> = short plays.</p>
         </div>
         <div class="assets-grid" id="assetGrid">
           <!-- populated by JS -->
@@ -245,11 +247,11 @@
       <div class="section-block">
         <div class="section-heading">
           <h2>🚀 Moonshot Scanner</h2>
-          <p class="section-sub">Scans closed 4H candles for explosive, high-risk breakouts. Experimental: review the chart and risk plan before risking money.</p>
+          <p class="section-sub">Scans closed 4H candles for explosive breakouts with <strong>CONFIRM / WAIT</strong> timing (prefer EMA/band retest — don’t chase). Experimental. Setups stay here unless <em>you</em> Watch ⭐ or Lock 🔒 them.</p>
         </div>
         
           <div class="moonshot-warning-box">
-            <strong>⚠️ Moonshot Trading Rules:</strong> Lock 🔒 any coin you buy. Set a tight 5% stop-loss. If the dashboard signal flips to SELL, close the trade immediately—do not wait for your stop to hit.
+            <strong>⚠️ Moonshot Trading Rules:</strong> Prefer <strong>4H CONFIRM</strong> entries. Lock 🔒 any coin you buy (edit Binance fill on Holdings). Set a tight ~5% stop. If the signal flips to SELL, close immediately. Background scans do <em>not</em> auto-add to Watch.
           </div>
 
           <div class="moonshot-controls">
@@ -289,49 +291,62 @@
             
             <div class="edu-full-card highlight-card edu-card-warning">
               <div class="edu-header"><span>🚀</span><h3>How to Trade Moonshots</h3></div>
-              <p>Moonshots are highly volatile, low-cap momentum plays. You must trade them differently than standard Daily signals.</p>
+              <p>Moonshots are highly volatile momentum plays on <strong>4H</strong> charts. Trade them differently than daily core signals.</p>
               <ul>
-                <li><strong>The 4-Hour Rule:</strong> The dashboard automatically hides Moonshots after 4 hours to keep the feed fresh. <strong>Always click the Lock 🔒 icon</strong> if you buy one, so it stays on your main Dashboard.</li>
-                <li><strong>Tight Stops:</strong> Set a strict 5% Stop-Loss immediately. These coins pump fast and dump fast.</li>
-                <li><strong>Obey the Dashboard:</strong> If the signal drops to a SELL on the dashboard, <strong>close your trade immediately</strong>. Do not wait for your OCO or Trailing Stop to hit. The algorithm knows the momentum has died.</li>
+                <li><strong>Timing chips:</strong> Prefer <strong>4H CONFIRM</strong> (EMA / breakout retest). <strong>WAIT</strong> means don’t chase an extended rip — Strong Buy may be downgraded until the retest.</li>
+                <li><strong>Watch vs scanner:</strong> Auto-scan fills the Moonshots tab only. It does <em>not</em> star coins for you. Star ⭐ only ideas you want to revisit; Lock 🔒 after you buy.</li>
+                <li><strong>Review window:</strong> Faded setups are cleaned after ~4 hours unless you Watched or Locked them.</li>
+                <li><strong>Tight Stops:</strong> ~5% max stop. If the signal flips to SELL, close immediately.</li>
+              </ul>
+            </div>
+
+            <div class="edu-full-card highlight-card">
+              <div class="edu-header"><span>⚡</span><h3>5m Scalps</h3></div>
+              <p>Short EMA-pullback plays on liquid volatile alts (separate from daily core and moonshots).</p>
+              <ul>
+                <li><strong>Setup:</strong> Uptrend + recent impulse + pullback to EMA9/21 + reclaim candle. Look for <strong>5m CONFIRM</strong>.</li>
+                <li><strong>Size &amp; exits:</strong> Small size only. Tight stop (~1.5% cap), bank around 2R, time-stop mindset (~1 hour).</li>
+                <li><strong>Where:</strong> Use the <strong>⚡ 5m Scalps</strong> filter tab. Empty is normal in chop.</li>
               </ul>
             </div>
 
 
             <div class="edu-full-card">
             <div class="edu-header"><span>📱</span><h3>How to Use TrendRunner</h3></div>
-            <p>TrendRunner is not a magic crystal ball. It is a highly-tuned mathematical engine that scans the market 24/7 for specific technical setups.</p>
+            <p>TrendRunner is not a crystal ball — it is a mathematical scanner for specific technical setups across daily, 4H, and 5m engines.</p>
             <ul>
-              <li><strong>The Score:</strong> Ranges from deep negative to +5.5. A positive score means multiple indicators (RSI, MACD, EMA) are turning bullish.</li>
-              <li><strong>Confidence Bar:</strong> Shows what percentage of the underlying indicators agree with the main signal.</li>
-              <li><strong>The 🔒 Lock Icon:</strong> Tap this when you buy a coin. It adds the coin to Holdings, saves the live entry price + time, and shows paper PnL as prices refresh.</li>
-              <li><strong>Moonshots Tab:</strong> This is a separate engine. It scans the 4-Hour charts (instead of Daily) looking for extreme volume spikes and volatility squeezes. High risk, high reward.</li>
+              <li><strong>The Score:</strong> Composite of trend/momentum factors. Positive = bullish bias.</li>
+              <li><strong>Confidence:</strong> How many directional indicators agree.</li>
+              <li><strong>Timing chips:</strong> <strong>CONFIRM</strong> = cleaner entry window; <strong>WAIT</strong> = don’t chase.</li>
+              <li><strong>🔒 Lock:</strong> After you buy — opens Holdings paper PnL. Correct the exact Binance fill (price + date/time) and add lots for multiple entries.</li>
+              <li><strong>✅ I followed this:</strong> On Buy / Strong Buy cards — logs the suggestion you took so Signal Log can show wins vs losses.</li>
             </ul>
           </div>
 
           <div class="edu-full-card">
-            <div class="edu-header"><span>🧭</span><h3>Filters, Watchlist & Holdings</h3></div>
-            <p>The dashboard filters help separate research ideas from positions that need active monitoring.</p>
+            <div class="edu-header"><span>🧭</span><h3>Filters, Watch, Holdings &amp; Followed</h3></div>
+            <p>Keep ideas, positions, and suggestion tracking separate.</p>
             <ul>
-              <li><strong>All:</strong> The complete tracked market list. Use search to quickly find a tracked coin by name or ticker.</li>
-              <li><strong>Watchlist:</strong> Coins marked with the ⭐ icon. This is for ideas you want to revisit.</li>
-              <li><strong>Holdings:</strong> Coins marked with the 🔒 icon. Lock after buying to paper-track entry price, live PnL %, PnL $, and time held.</li>
-              <li><strong>Signal Log:</strong> Recent signal changes, useful for reviewing when a setup strengthened or weakened.</li>
-              <li><strong>Oversold, High Confidence, and Trending:</strong> Research filters, not automatic trade instructions. Check the timeframe and stop/target before acting.</li>
+              <li><strong>All:</strong> Tracked daily market list (scalps live on their own tab).</li>
+              <li><strong>⭐ Watch:</strong> Ideas <em>you</em> starred only — not a buy, not auto-filled by scanners.</li>
+              <li><strong>🔒 Holdings:</strong> Coins you bought. Edit Binance entry price/time; use <strong>+ Lot</strong> for DCA / second fills. PnL uses average entry × qty.</li>
+              <li><strong>⚡ 5m Scalps:</strong> Short pullback setups from the scalp scanner.</li>
+              <li><strong>Signal Log:</strong> Signal changes, <strong>suggestions you followed</strong> (hit/miss stats), and core Strong Buy alert outcomes.</li>
+              <li><strong>Oversold / High Confidence / Trending:</strong> Research filters — not automatic orders.</li>
             </ul>
-            <div class="edu-tip">💡 <strong>Moonshot safety:</strong> New Moonshots remain visible for 4 hours after discovery. Lock any coin you buy before that review window ends.</div>
+            <div class="edu-tip">💡 <strong>Accurate paper PnL:</strong> Lock → edit entry to your Binance fill → optionally tap <strong>I followed this</strong> so your personal ledger matches the trade.</div>
           </div>
 
           <div class="edu-full-card">
-            <div class="edu-header"><span>🧪</span><h3>Using the Visual Backtester</h3></div>
-            <p>The Visual Backtester shows how the current signal engine behaved on historical Binance candles for one selected asset and timeframe.</p>
+            <div class="edu-header"><span>🧪</span><h3>Backtests (Visual + Weekly)</h3></div>
+            <p>Historical checks use the same engines as live — but only the weekly <strong>daily</strong> run updates validated winner lists.</p>
             <ul>
-              <li><strong>Choose an asset, timeframe and history length,</strong> then select <strong>Run Analysis</strong>.</li>
-              <li><strong>Read net return, win rate and trade count together.</strong> A high win rate alone does not prove a profitable strategy.</li>
-              <li><strong>Review the equity curve</strong> for drawdowns and uneven performance before trusting a result.</li>
-              <li><strong>Weekly refresh:</strong> TrendRunner runs a scheduled backtest and may update the validated winner lists when the results change.</li>
+              <li><strong>Visual Backtester:</strong> Pick asset + timeframe. <code>1d</code> = daily core, <code>4h</code> = moonshot breakout, <code>5m</code> = scalp.</li>
+              <li><strong>Weekly Action:</strong> Runs <code>node backtest.js</code> and may update <code>provenWinners</code> / the trust badge when results change.</li>
+              <li><strong>Research CLI:</strong> <code>node backtest.js --moonshots</code> and <code>--scalps</code> (also logged weekly) — research only, does <em>not</em> rewrite live allowlists.</li>
+              <li><strong>Read net return, win rate, and trade count together</strong>; check the equity curve for drawdowns.</li>
             </ul>
-            <div class="edu-tip">💡 <strong>Important:</strong> Historical results are research, not a guarantee. Use realistic fees, a stop-loss and a take-profit for every live trade.</div>
+            <div class="edu-tip">💡 <strong>Important:</strong> Historical results are research, not a guarantee. Use fees, a stop, and a take-profit on every live trade.</div>
           </div>
 
           <div class="edu-full-card">
@@ -460,7 +475,7 @@
             <ul>
               <li><strong>Trade the Chart, Not the News:</strong> News is often priced in before you even read it. Technical indicators show what people are actually doing with their money.</li>
               <li><strong>Avoid FOMO (Fear Of Missing Out):</strong> If a stock just shot up 50% in a day, you missed the entry. Wait for a pullback or find the next setup. Chasing green candles usually leads to buying the top.</li>
-              <li><strong>Keep a Trading Journal:</strong> Write down exactly why you bought an asset, your entry price, and your target/stop-loss. This forces discipline and prevents impulsive decisions.</li>
+              <li><strong>Keep a Trading Journal:</strong> Use Holdings (exact Binance fills + lots) and <strong>I followed this</strong> in Signal Log for hit/miss tracking. A Binance trade-history dump still helps for full fee-accurate review.</li>
               <li><strong>Accept that Losses are Just Business Expenses:</strong> Even the best algorithms only win 55-60% of the time. The goal isn't to win every trade, but to make sure your winners are bigger than your losers (Risk-to-Reward).</li>
               <li><strong>Trust the Process, But Verify:</strong> Backtest in your head. Look at historical charts when the MACD crossed over or RSI was below 30. See what happened next to build confidence in the indicators.</li>
             </ul>
@@ -521,7 +536,7 @@
       <div class="section-block">
         <div class="section-heading">
           <h2>🧪 Visual Backtester</h2>
-          <p class="section-sub">Test the signal engine against historical data to find the most profitable assets and parameters.</p>
+          <p class="section-sub">Test engines on historical Binance data. Timeframe picks the engine (1d core · 4h moonshot · 5m scalp). Weekly automation updates daily winners only.</p>
         </div>
 
         <div class="backtest-workspace">
@@ -606,7 +621,7 @@
   <!-- Version guard: if signals.js loaded is older than expected, force a full reload -->
   <script>
     // Version bumper to defeat GitHub Pages aggressive caching
-    window.__APP_VERSION__ = '6.15';
+    window.__APP_VERSION__ = '6.18';
     try {
       // Bulletproof scrub of corrupted data from localStorage before the app boots
       const wlStr = localStorage.getItem('trading_watchlist');
@@ -620,16 +635,16 @@
       // Nuke bloated caches that are causing QuotaExceededError (Removed to allow instant paint)
     } catch(e) {}
   </script>
-  <script src="js/config.js?v=6.15"></script>
-  <script src="js/api.js?v=6.15"></script>
-  <script src="js/indicators.js?v=6.15"></script>
-  <script src="js/signals.js?v=6.15"></script>
-  <script src="js/charts.js?v=6.15"></script>
+  <script src="js/config.js?v=6.18"></script>
+  <script src="js/api.js?v=6.18"></script>
+  <script src="js/indicators.js?v=6.18"></script>
+  <script src="js/signals.js?v=6.18"></script>
+  <script src="js/charts.js?v=6.18"></script>
   
-  <script src="js/scanner.js?v=6.15"></script>
-  <script src="js/backtest_ui.js?v=6.15"></script>
-  <script src="js/auth.js?v=6.15"></script>
-    <script src="js/dashboard.js?v=6.15"></script>
+  <script src="js/scanner.js?v=6.18"></script>
+  <script src="js/backtest_ui.js?v=6.18"></script>
+  <script src="js/auth.js?v=6.18"></script>
+    <script src="js/dashboard.js?v=6.18"></script>
   <script>
     // If signals.js didn't expose the right version, cached old code is running — force reload.
     if (typeof Signals === 'undefined' || Signals._version !== window.__APP_VERSION__) {
@@ -697,7 +712,7 @@
             <img src="https://www.svgrepo.com/show/475656/google-color.svg" width="18" height="18" alt="Google"> Google
           </button>
           <button id="authGithubBtn" class="btn auth-provider-btn auth-github-btn">
-            <svg width="18" height="18" viewBox="0 0 24 24" fill="currentColor"><path d="M12 0C5.374 0 0 5.373 0 12c0 5.302 3.438 9.8 8.207 11.387.6.153.793-.261.793-.577v-2.234c-3.338.726-4.033-1.416-4.033-1.416-.546-1.387-1.333-1.756-1.333-1.756-1.089-.745.083-.729.083-.729 1.205.084 1.839 1.237 1.839 1.237 1.07 1.834 2.807 1.304 3.492.997.107-.775.418-1.305.762-1.604-2.665-.305-5.467-1.334-5.467-5.931 0-1.311.469-2.381 1.236-3.221-.124-.303-.535-1.524.117-3.176 0 0 1.008-.322 3.301 1.23A11.509 11.509 0 0112 5.803c1.02.005 2.047.138 3.006.404 2.291-1.552 3.297-1.23 3.297-1.23.653 1.653.242 2.874.118 3.176.77.84 1.235 1.911 1.235 3.221 0 4.609-2.807 5.624-5.479 5.921.43.372.823 1.102.823 2.222v3.293c0 .319.192.694.801.576C20.566 21.797 24 17.3 24 12c0-6.627-5.373-12-12-12z"/></svg> GitHub
+            <svg width="18" height="18" viewBox="0 0 24 24" fill="currentColor"><path d="M12 0C5.374 0 0 5.373 0 12c0 5.302 3.438 9.8 8.207 11.387.6.183.793-.261.793-.577v-2.234c-3.338.726-4.033-1.416-4.033-1.416-.546-1.387-1.333-1.756-1.333-1.756-1.089-.745.083-.729.083-.729 1.205.084 1.839 1.237 1.839 1.237 1.07 1.834 2.807 1.304 3.492.997.107-.775.418-1.305.762-1.604-2.665-.305-5.467-1.334-5.467-5.931 0-1.311.469-2.381 1.236-3.221-.124-.303-.535-1.524.117-3.176 0 0 1.008-.322 3.301 1.23A11.509 11.509 0 0112 5.803c1.02.005 2.047.138 3.006.404 2.291-1.552 3.297-1.23 3.297-1.23.653 1.653.242 2.874.118 3.176.77.84 1.235 1.911 1.235 3.221 0 4.609-2.807 5.624-5.479 5.921.43.372.823 1.102.823 2.222v3.293c0 .319.192.694.801.576C20.566 21.797 24 17.3 24 12c0-6.627-5.373-12-12-12z"/></svg> GitHub
           </button>
         </div>
         <div class="auth-divider">- or use email -</div>

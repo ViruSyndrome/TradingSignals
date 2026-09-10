@@ -590,6 +590,39 @@ const Signals = {
       desc.push("Market Regime is Bearish (BTC < 50 SMA). Breakouts are likely fakeouts.");
     }
 
+    // 6. Entry timing — prefer 9 EMA / breakout retest; do not chase an extended rip
+    let entryTiming = 'NEUTRAL';
+    let entryTimingDesc = '';
+    const distToEma9 = (ema9 && price) ? (price - ema9) / ema9 : null;
+    const nearEmaRetest = distToEma9 != null && distToEma9 >= -0.008 && distToEma9 <= 0.012;
+    const extendedRip = breakoutBuffer >= 0.02 || (distToEma9 != null && distToEma9 > 0.025);
+    const holdingAboveBreak = priorSwingHigh != null
+      ? price >= priorSwingHigh * 0.995
+      : (bbUpper != null ? price >= bbUpper * 0.995 : true);
+
+    if (isBreakingOut || score >= 3) {
+      if (extendedRip && !nearEmaRetest) {
+        entryTiming = 'WAIT';
+        score -= 1.5;
+        entryTimingDesc = 'Extended rip — wait for pullback toward 9 EMA / breakout zone before entry.';
+        desc.push(entryTimingDesc);
+      } else if (nearEmaRetest && holdingAboveBreak) {
+        entryTiming = 'CONFIRM';
+        score += 0.75;
+        entryTimingDesc = 'Retest of 9 EMA / breakout zone — preferred moonshot entry.';
+        desc.push(entryTimingDesc);
+      } else if (isBreakingOut && breakoutBuffer < 0.015 && !extendedRip) {
+        entryTiming = 'CONFIRM';
+        entryTimingDesc = 'Fresh breakout not extended — OK with a tight stop.';
+        desc.push(entryTimingDesc);
+      } else if (isBreakingOut) {
+        entryTiming = 'WAIT';
+        score -= 0.5;
+        entryTimingDesc = 'Breakout active but not a clean retest — prefer wait over chase.';
+        desc.push(entryTimingDesc);
+      }
+    }
+
     const rawScore = +score.toFixed(2);
     let tvlData = undefined;
     if (opts.tvl && opts.tvl > 0) {
@@ -610,6 +643,12 @@ const Signals = {
     if (score >= 5.0) signal = 'STRONG_BUY';
     else if (score >= 3.0) signal = 'BUY';
     else if (score <= -2.0) signal = 'SELL';
+
+    // Never label a chase as Strong Buy — force WAIT entries down to BUY at most
+    if (entryTiming === 'WAIT' && signal === 'STRONG_BUY') {
+      signal = 'BUY';
+      desc.push('S.BUY downgraded: wait for 4H EMA/band retest instead of chasing the rip.');
+    }
 
     // Standard ATR-based Stop-Loss (safer than Chandelier which can invert on crashes)
     const chandExit = Indicators.chandelierExit(highs, lows, closes, 22, 3);
@@ -649,7 +688,18 @@ const Signals = {
       score: +score.toFixed(2),
       rawScore: rawScore,
       indicators: {
-        breakout: { isSqueezing, isBreakingOut, breakoutBuffer: +(breakoutBuffer * 100).toFixed(2), priorSwingHigh, healthyBreakoutCandle, volumeRatio, isVolumeSurge },
+        breakout: {
+          isSqueezing, isBreakingOut,
+          breakoutBuffer: +(breakoutBuffer * 100).toFixed(2),
+          priorSwingHigh, healthyBreakoutCandle, volumeRatio, isVolumeSurge,
+          entryTiming, entryTimingDesc,
+          distToEma9Pct: distToEma9 != null ? +(distToEma9 * 100).toFixed(2) : null,
+        },
+        timing4H: entryTiming !== 'NEUTRAL' ? {
+          signal: entryTiming,
+          description: entryTimingDesc,
+          score: entryTiming === 'CONFIRM' ? 0.75 : (entryTiming === 'WAIT' ? -1.5 : 0),
+        } : undefined,
         rsi: { value: rsiVal !== null ? Math.round(rsiVal) : null },
         tvl: tvlData
       },
@@ -670,7 +720,7 @@ const Signals = {
     };
   },
 
-  // ─── Scalper Engine (5-minute meme coins) ──────────────────────────────────
+  // ─── Scalper Engine (5-minute volatile alts — EMA pullback, not chase) ─────
   generateScalp(closes, opts = {}) {
     const EMPTY = (reason = 'Insufficient data') => ({
       signal: 'NEUTRAL', confidence: 0, score: 0, indicators: {},
@@ -678,7 +728,17 @@ const Signals = {
     });
 
     if (!closes || closes.length < 50) return EMPTY();
-    const { highs, lows, volumes } = opts;
+    const { highs, lows, volumes, marketRegime } = opts;
+    const cfg = (typeof CONFIG !== 'undefined' && CONFIG.scalper) ? CONFIG.scalper : {};
+    const minBuy = cfg.minBuyScore ?? 4.5;
+    const minStrong = cfg.minStrongScore ?? 6.0;
+    const requireImpulse = cfg.requireImpulse !== false;
+    const requireConfirmForStrong = cfg.requireConfirmForStrong !== false;
+    const softBearPenalty = cfg.softBearPenalty ?? 1.0;
+    const stopMult = cfg.stopAtrMult ?? 1.2;
+    const tpR = cfg.takeProfitR ?? 2;
+    const maxStopPct = (cfg.maxStopPct ?? 1.5) / 100;
+    const holdBarsHint = cfg.holdBarsHint ?? 12;
 
     const ema9Arr = Indicators.ema(closes, 9);
     const ema21Arr = Indicators.ema(closes, 21);
@@ -691,7 +751,6 @@ const Signals = {
     const ema21 = Indicators.last(ema21Arr);
     const sma50 = Indicators.last(sma50Arr);
     const rsiVal = Indicators.last(rsiArr);
-    const bbUpper = Indicators.last(bbData.upper);
 
     let score = 0;
     let desc = [];
@@ -700,48 +759,46 @@ const Signals = {
     const uptrendAligned = ema9 > ema21 && price > sma50;
     if (uptrendAligned) {
       score += 1;
-      desc.push("Uptrend intact: EMA9 > EMA21 and price above SMA50.");
+      desc.push('Uptrend intact: EMA9 > EMA21 and price above SMA50.');
     } else {
       score -= 3;
-      desc.push("No uptrend structure — skipping.");
+      desc.push('No uptrend structure — skipping.');
     }
 
     // ── 2. Pullback Detection (price near EMA support, not chasing) ──
-    // Price should be within 0.5% of EMA9 or between EMA9 and EMA21
     const distFromEma9 = ema9 > 0 ? ((price - ema9) / ema9) * 100 : 999;
     const distFromEma21 = ema21 > 0 ? ((price - ema21) / ema21) * 100 : 999;
+    let nearEma9 = false;
+    let nearEma21 = false;
 
     if (distFromEma9 >= -0.3 && distFromEma9 <= 0.5) {
-      // Touching or just above EMA9 — ideal shallow pullback
+      nearEma9 = true;
       score += 2.5;
       desc.push(`Price at EMA9 support (${distFromEma9.toFixed(2)}% away) — ideal shallow pullback entry.`);
     } else if (distFromEma9 > 0.5 && distFromEma9 <= 1.0 && distFromEma21 >= 0) {
-      // Slightly above EMA9 but still reasonable
-      score += 1.5;
-      desc.push(`Price near EMA9 (${distFromEma9.toFixed(2)}% above) — acceptable entry window.`);
+      score += 1.0;
+      desc.push(`Price near EMA9 (${distFromEma9.toFixed(2)}% above) — acceptable but not ideal.`);
     } else if (distFromEma21 >= -0.3 && distFromEma21 <= 0.5 && distFromEma9 < 0) {
-      // Deeper pullback to EMA21 — still valid if uptrend holds
+      nearEma21 = true;
       score += 2;
       desc.push(`Price at EMA21 support (${distFromEma21.toFixed(2)}% away) — deeper pullback entry.`);
     } else if (distFromEma9 > 1.0) {
-      // Too far above EMAs — you're chasing
-      score -= 2;
+      score -= 2.5;
       desc.push(`Price is ${distFromEma9.toFixed(2)}% above EMA9 — too extended, don't chase.`);
     } else {
       score -= 1;
-      desc.push("Price not near any EMA support level.");
+      desc.push('Price not near any EMA support level.');
     }
 
     // ── 3. RSI Cooling Check ──────────────────────────────────────────
-    // We want RSI to have cooled down to a "room to run" zone, not overbought
     if (rsiVal >= 40 && rsiVal <= 60) {
       score += 1.5;
       desc.push(`RSI at ${Math.round(rsiVal)} — cooled and ready to bounce.`);
     } else if (rsiVal > 60 && rsiVal <= 70) {
-      score += 0.5;
+      score += 0.25;
       desc.push(`RSI at ${Math.round(rsiVal)} — momentum present but watch for exhaustion.`);
     } else if (rsiVal > 70) {
-      score -= 2;
+      score -= 2.5;
       desc.push(`RSI at ${Math.round(rsiVal)} — OVERBOUGHT. High risk of immediate reversal.`);
     } else if (rsiVal < 40 && rsiVal >= 30) {
       score += 0.5;
@@ -749,7 +806,6 @@ const Signals = {
     }
 
     // ── 4. Recent Impulse Check (was this coin hot recently?) ─────────
-    // Check if price touched or exceeded upper BB within last 5 candles
     const recentHighs = closes.slice(-6, -1);
     const recentBBUpper = bbData.upper.slice(-6, -1);
     let hadRecentImpulse = false;
@@ -761,16 +817,21 @@ const Signals = {
     }
     if (hadRecentImpulse) {
       score += 1;
-      desc.push("Recent impulse detected — price touched upper BB within last 5 candles.");
+      desc.push('Recent impulse detected — price touched upper BB within last 5 candles.');
+    } else if (requireImpulse) {
+      score -= 1.5;
+      desc.push('No recent impulse — skip dead-range pullbacks.');
     }
 
     // ── 5. Bullish Candle Confirmation ────────────────────────────────
-    // Current candle should be green (close > open approximation using close vs prior close)
     const prevClose = closes.length >= 2 ? closes[closes.length - 2] : price;
     const isBullishCandle = price > prevClose;
     if (isBullishCandle && uptrendAligned) {
       score += 0.5;
-      desc.push("Current candle is bullish — bounce confirmation.");
+      desc.push('Current candle is bullish — bounce confirmation.');
+    } else if (!isBullishCandle && (nearEma9 || nearEma21)) {
+      score -= 0.5;
+      desc.push('Pullback candle still red — wait for a reclaim tick.');
     }
 
     // ── 6. Volume Check (settling, not surging) ──────────────────────
@@ -782,56 +843,103 @@ const Signals = {
       if (avgVol && avgVol > 0) {
         volumeRatio = currentVol / avgVol;
         isVolumeSurge = volumeRatio >= 2.0;
-        // We WANT volume to have settled (pullback on low volume = healthy)
         if (volumeRatio < 1.0) {
           score += 0.5;
           desc.push(`Volume settling (${volumeRatio.toFixed(1)}x avg) — healthy pullback.`);
-        } else if (volumeRatio >= 1.0 && volumeRatio < 2.0) {
-          // Normal volume, neutral
-        } else {
-          // Surge on pullback = panic selling, not ideal
+        } else if (volumeRatio >= 2.0) {
           score -= 0.5;
           desc.push(`High volume on pullback (${volumeRatio.toFixed(1)}x avg) — may indicate selling pressure.`);
         }
       }
     }
 
-    let signal = 'NEUTRAL';
-    if (score >= 5.5) signal = 'STRONG_BUY';
-    else if (score >= 4.0) signal = 'BUY';
+    // Soft BTC regime (optional) — scalps still fire in bear, just scored harder
+    if (marketRegime === 'bear' && softBearPenalty > 0) {
+      score -= softBearPenalty;
+      desc.push('BTC regime bear — scalp size down / extra caution.');
+    }
 
-    // Standard ATR-based Stop-Loss
+    // ── 7. Entry timing chip (CONFIRM = retest; WAIT = don't chase) ──
+    let entryTiming = 'NEUTRAL';
+    let entryTimingDesc = '';
+    if (uptrendAligned && (nearEma9 || nearEma21) && hadRecentImpulse && isBullishCandle && rsiVal != null && rsiVal <= 65) {
+      entryTiming = 'CONFIRM';
+      entryTimingDesc = '5m EMA retest + impulse + reclaim — preferred scalp entry.';
+      score += 0.75;
+      desc.push(entryTimingDesc);
+    } else if (distFromEma9 > 1.0 || (rsiVal != null && rsiVal > 70) || !isBullishCandle) {
+      entryTiming = 'WAIT';
+      entryTimingDesc = 'Wait for a cooler EMA retest / reclaim — do not chase the 5m rip.';
+      score -= 0.75;
+      desc.push(entryTimingDesc);
+    } else if (uptrendAligned && hadRecentImpulse) {
+      entryTiming = 'WAIT';
+      entryTimingDesc = 'Setup forming — prefer a cleaner EMA touch before entry.';
+      desc.push(entryTimingDesc);
+    }
+
+    let signal = 'NEUTRAL';
+    if (score >= minStrong) signal = 'STRONG_BUY';
+    else if (score >= minBuy) signal = 'BUY';
+
+    if (requireConfirmForStrong && signal === 'STRONG_BUY' && entryTiming !== 'CONFIRM') {
+      signal = 'BUY';
+      desc.push('S.BUY downgraded: need 5m CONFIRM (EMA retest) — not a chase.');
+    }
+    if (entryTiming === 'WAIT' && signal === 'STRONG_BUY') {
+      signal = 'BUY';
+    }
+    if (requireImpulse && !hadRecentImpulse && signal.includes('BUY')) {
+      signal = 'NEUTRAL';
+      desc.push('Buy blocked: no recent impulse (dead chop).');
+    }
+    if (!uptrendAligned && signal.includes('BUY')) {
+      signal = 'NEUTRAL';
+    }
+
     const chandExit = Indicators.chandelierExit(highs, lows, closes, 14, 1.5);
     let stopSuggest = null;
     const atrArr = Indicators.atr(highs, lows, closes, 14);
     const curAtr = Indicators.last(atrArr);
 
     if (curAtr && signal.includes('BUY')) {
-      const mult = 1.5; // Tighter stop for scalps
-      const risk = curAtr * mult;
+      let risk = curAtr * stopMult;
+      const maxRisk = price * maxStopPct;
+      if (risk > maxRisk) risk = maxRisk;
       const stopPrice = price - risk;
-      const takeProfitPrice = price + risk * 2.0; // 2R target for pullback trades
+      const takeProfitPrice = price + risk * tpR;
       const distPct = ((risk / price) * 100).toFixed(2);
-      
+
       stopSuggest = {
         stopPrice: +stopPrice.toFixed(8),
         takeProfitPrice: +takeProfitPrice.toFixed(8),
         distancePct: +distPct,
-        takeProfitPct: +(((risk * 2.0) / price) * 100).toFixed(2),
-        riskMultiple: 2.0,
-        side: 'long'
+        takeProfitPct: +(((risk * tpR) / price) * 100).toFixed(2),
+        riskMultiple: tpR,
+        side: 'long',
+        holdBarsHint,
+        playbook: `5m scalp: tight stop (~${distPct}%), bank at ${tpR}R, time-stop ~${holdBarsHint} bars (~${Math.round(holdBarsHint * 5)}m). Small size only.`,
       };
-      desc.push(`Scalp stop: ${stopPrice.toFixed(8)} (${distPct}% away) with 2R exit target.`);
+      desc.push(stopSuggest.playbook);
     }
 
     return {
       signal,
       conviction: signal === 'STRONG_BUY' ? 'strong' : (signal === 'BUY' ? 'standard' : 'none'),
-      confidence: score >= 5.5 ? 100 : (score >= 4.0 ? 75 : 0),
+      confidence: signal === 'STRONG_BUY' ? 100 : (signal === 'BUY' ? 75 : 0),
       score: +score.toFixed(2),
       indicators: {
-        scalp: { volumeRatio, isVolumeSurge, hadRecentImpulse, distFromEma9: +distFromEma9.toFixed(2) },
-        rsi: { value: rsiVal !== null ? Math.round(rsiVal) : null }
+        scalp: {
+          volumeRatio, isVolumeSurge, hadRecentImpulse,
+          distFromEma9: +distFromEma9.toFixed(2),
+          entryTiming, entryTimingDesc,
+        },
+        timing4H: entryTiming !== 'NEUTRAL' ? {
+          signal: entryTiming,
+          description: entryTimingDesc,
+          score: entryTiming === 'CONFIRM' ? 0.75 : -0.75,
+        } : undefined,
+        rsi: { value: rsiVal !== null ? Math.round(rsiVal) : null },
       },
       recommendation: desc.join(' ') || 'No scalp setup detected.',
       stopSuggest,
@@ -845,7 +953,7 @@ const Signals = {
     return this.LEVELS[signalKey] || this.LEVELS.NEUTRAL;
   },
 
-  _version: '6.15',
+  _version: '6.18',
 };
 
 if (typeof module !== 'undefined' && module.exports) module.exports = Signals;

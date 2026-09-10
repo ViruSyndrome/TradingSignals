@@ -49,7 +49,9 @@ class BacktestUI {
     const cpd = this.CANDLES_PER_DAY[interval] || 1;
     const holdBars = p.holdLimitDays * cpd;
     const rt = ((p.feePerSide + p.slippagePerSide) * 2 * 100).toFixed(2);
+    const engine = interval === '5m' ? 'Scalp engine' : (interval === '4h' ? 'Moonshot breakout' : 'Daily core');
     this.contextEl.innerHTML = `
+      <span>${engine}</span>
       <span>Next-bar open fills</span>
       <span>${rt}% round-trip costs</span>
       <span>${p.takeProfitPct}% TP · ${p.holdLimitDays}d hold (${holdBars} bars @ ${interval})</span>
@@ -168,14 +170,30 @@ class BacktestUI {
         if (btcSma50) marketRegime = btcPrice > btcSma50 ? 'bull' : 'bear';
       }
 
-      const result = Signals.generate(slicedCloses, {
-        highs: slicedHighs,
-        lows: slicedLows,
-        volumes: slicedVols,
-        symbol: symbol,
-        marketRegime,
-        ignoreWinnersFilter: true
-      });
+      const result = interval === '5m'
+        ? Signals.generateScalp(slicedCloses, {
+            highs: slicedHighs,
+            lows: slicedLows,
+            volumes: slicedVols,
+            symbol: symbol,
+            marketRegime,
+          })
+        : interval === '4h'
+        ? Signals.generateBreakout(slicedCloses, {
+            highs: slicedHighs,
+            lows: slicedLows,
+            volumes: slicedVols,
+            symbol: symbol,
+            marketRegime,
+          })
+        : Signals.generate(slicedCloses, {
+            highs: slicedHighs,
+            lows: slicedLows,
+            volumes: slicedVols,
+            symbol: symbol,
+            marketRegime,
+            ignoreWinnersFilter: true
+          });
 
       // Next-bar execution (matches CLI): signal on bar i close, fill at bar i+1 open
       const nextOpen = opens[i + 1];

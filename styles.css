@@ -1512,3 +1512,113 @@ body.modal-open { overflow: hidden; }
 
 
 
+
+
+.timing-chip {
+  font-size: 10px;
+  padding: 2px 8px;
+  border-radius: 10px;
+  font-weight: 700;
+  letter-spacing: 0.02em;
+  white-space: nowrap;
+}
+.timing-confirm {
+  background: rgba(16, 185, 129, 0.18);
+  color: #6ee7b7;
+  border: 1px solid rgba(16, 185, 129, 0.4);
+}
+.timing-wait {
+  background: rgba(245, 158, 11, 0.18);
+  color: #fcd34d;
+  border: 1px solid rgba(245, 158, 11, 0.4);
+}
+.list-legend {
+  margin: 8px 0 0;
+  font-size: 12px;
+  color: var(--text-muted);
+  line-height: 1.4;
+}
+
+
+.holdings-editor {
+  margin-top: 8px;
+  padding: 8px;
+  border: 1px solid var(--border, rgba(255,255,255,0.08));
+  border-radius: 8px;
+  background: rgba(0,0,0,0.15);
+}
+.holdings-editor-title {
+  font-size: 11px;
+  margin-bottom: 6px;
+  color: var(--text-secondary);
+}
+.holdings-lot-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+  margin-bottom: 4px;
+  align-items: center;
+}
+.holdings-lot-row input {
+  background: var(--surface-2, #1a1f2e);
+  border: 1px solid var(--border, rgba(255,255,255,0.12));
+  color: var(--text-primary, #fff);
+  border-radius: 6px;
+  padding: 4px 6px;
+  font-size: 12px;
+  min-width: 0;
+}
+.holdings-lot-row .hold-lot-price { width: 88px; }
+.holdings-lot-row .hold-lot-time { width: 160px; }
+.holdings-lot-row .hold-lot-qty { width: 56px; }
+.holdings-lot-row button {
+  font-size: 11px;
+  padding: 4px 8px;
+  border-radius: 6px;
+  border: 1px solid var(--border, rgba(255,255,255,0.15));
+  background: var(--surface-2, #243044);
+  color: var(--text-primary, #fff);
+  cursor: pointer;
+}
+.hold-lot-del { opacity: 0.7; }
+.follow-suggestion-btn {
+  width: 100%;
+  margin: 8px 0 4px;
+  padding: 6px 10px;
+  font-size: 12px;
+  font-weight: 600;
+  border-radius: 8px;
+  border: 1px solid rgba(16, 185, 129, 0.35);
+  background: rgba(16, 185, 129, 0.12);
+  color: #6ee7b7;
+  cursor: pointer;
+}
+.followed-panel, .alert-outcomes-panel {
+  margin-bottom: 16px;
+  padding: 12px;
+  border-radius: 10px;
+  background: var(--surface-2, rgba(255,255,255,0.03));
+}
+.followed-stats {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px;
+  font-size: 12px;
+  margin: 8px 0 12px;
+  color: var(--text-secondary);
+}
+.followed-row, .alert-outcome-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  align-items: center;
+  font-size: 12px;
+  padding: 6px 0;
+  border-top: 1px solid rgba(255,255,255,0.06);
+}
+.followed-close-btn {
+  font-size: 11px;
+  padding: 3px 8px;
+  border-radius: 6px;
+  cursor: pointer;
+}

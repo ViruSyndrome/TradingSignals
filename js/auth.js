@@ -264,6 +264,14 @@ const Auth = {
 
   _metaQuality(entry) {
     if (!entry || typeof entry !== 'object') return -1;
+    const lots = Array.isArray(entry.lots) ? entry.lots : null;
+    if (lots && lots.length) {
+      const real = lots.some(l => l.entryPrice > 0 && l.estimated !== true);
+      const any = lots.some(l => l.entryPrice > 0);
+      if (real) return 3;
+      if (any) return 2;
+      return 0;
+    }
     const hasPrice = entry.entryPrice > 0;
     const estimated = entry.estimated === true;
     if (hasPrice && !estimated) return 3;

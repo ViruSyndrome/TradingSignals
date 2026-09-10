@@ -1,4 +1,4 @@
-﻿<!DOCTYPE html>
+<!DOCTYPE html>
 <html lang="en">
 <head>
     <meta name="description" content="Discover algorithmic crypto intelligence with TrendRunner. Track trends, identify breakouts, and backtest strategies for Bitcoin and top altcoins.">
@@ -24,16 +24,23 @@
   <p>Last updated: September 2026</p>
   
   <h2>1. Data Collection and Usage</h2>
-  <p>TrendRunner operates primarily as a client-side application. Core market data is fetched directly in your browser. An optional free account (email/password or social login via Supabase Auth) is available so your watchlist and Holdings paper-tracker can sync across devices.</p>
+  <p>TrendRunner operates primarily as a client-side application. Core market data is fetched directly in your browser. An optional free account (email/password or social login via Supabase Auth) is available so your Watch list and Holdings paper-tracker can sync across devices.</p>
   
   <h2>2. Local Storage</h2>
-  <p>We use your browser's Local Storage to remember watchlist, locked Holdings (including paper entry price and lock time), UI preferences, and short-lived market caches. This data stays on your device unless you sign in.</p>
+  <p>We use your browser's Local Storage to remember:</p>
+  <ul>
+    <li>Watch list (⭐ ideas you starred)</li>
+    <li>Holdings locks (🔒) including paper entry lots — price, date/time, optional quantity</li>
+    <li>Suggestions you marked as followed (personal win/loss ledger)</li>
+    <li>UI preferences, alert/outcome research journals, and short-lived market caches</li>
+  </ul>
+  <p>This data stays on your device unless you sign in. It is for paper tracking and research — we do not place trades on your behalf.</p>
 
   <h2>3. Optional Account Sync</h2>
-  <p>If you create an account and sign in, TrendRunner stores your watchlist, locked coin IDs, and Holdings paper-meta in your Supabase Auth user metadata so they can be restored on another device. We do not store exchange API keys, balances, or trade execution credentials.</p>
+  <p>If you create an account and sign in, TrendRunner stores your Watch list, locked coin IDs, and Holdings paper-meta (including multi-lot entries) in your Supabase Auth user metadata so they can be restored on another device. The followed-suggestions ledger currently remains local to the device unless later synced. We do not store exchange API keys, balances, or trade execution credentials.</p>
   
   <h2>4. API Usage and Third-Party Services</h2>
-  <p>In order to provide real-time market data, your browser makes direct requests to third-party public APIs (such as Binance, DefiLlama, and Alternative.me). Authentication is handled by Supabase. These services may collect standard web analytics data, such as your IP address, according to their respective privacy policies.</p>
+  <p>In order to provide real-time market data and logos, your browser may request third-party public APIs (such as Binance, DefiLlama, Alternative.me, and public icon CDNs). Authentication is handled by Supabase. These services may collect standard web analytics data, such as your IP address, according to their respective privacy policies.</p>
   
   <h2>5. Affiliate Tracking</h2>
   <p>Some links on our platform, specifically trading links leading to cryptocurrency exchanges, are affiliate links. If you click these links, the destination exchange may place a tracking cookie on your device to attribute any subsequent account creation or trading activity to TrendRunner. This does not result in any additional cost to you.</p>

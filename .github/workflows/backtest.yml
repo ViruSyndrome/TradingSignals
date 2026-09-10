@@ -33,6 +33,13 @@ jobs:
         continue-on-error: true
         run: node backtest.js --walk-forward-rolling 2>&1 | tee -a backtest_output.txt
 
+      # Research-only: does NOT rewrite provenWinners / config (daily engine owns that)
+      - name: Moonshot + scalp research logs
+        continue-on-error: true
+        run: |
+          node backtest.js --moonshots 2>&1 | tee -a backtest_output.txt
+          node backtest.js --scalps 2>&1 | tee -a backtest_output.txt
+
       - name: Check if config changed
         id: changes
         run: |

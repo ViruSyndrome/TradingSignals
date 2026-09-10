@@ -30,13 +30,14 @@ const Dashboard = {
     moonshotReviewUntil: (() => { try { const v = JSON.parse(localStorage.getItem('trading_moonshot_review_until')); return v && typeof v === 'object' ? v : {}; } catch { return {}; } })(),
     fearGreed:     null,
     marketRegime: 'unknown',
-    scalps:        [],       // results from the 5m Meme Scalper (feature quarantined)
+    scalps:        [],       // results from the 5m Scalper (volatile alt pullbacks)
   },
 
   // ─── Signal History ─────────────────────────────────────────────────────────
   SIGNAL_HISTORY_KEY: 'signal_history_v1',
   HOLDINGS_META_KEY: 'trading_holdings_meta',
   ALERT_OUTCOMES_KEY: 'trading_alert_outcomes_v1',
+  FOLLOWED_KEY: 'trading_followed_v1',
   MOONSHOT_REVIEW_MS: 4 * 60 * 60 * 1000, // 4 hours to reduce clutter
   _previousSignals: new Map(),
   _previousScalps: new Map(),
@@ -196,28 +197,156 @@ const Dashboard = {
     return Number.isFinite(live?.price) ? live.price : null;
   },
 
-  _setHoldingsMetaEntry(id, entryPrice, opts = {}) {
-    const base = String(id || '').toUpperCase().replace('_4H', '').replace('_5M', '');
-    if (!base) return;
+  _baseHoldingsId(id) {
+    let base = String(id || '').toUpperCase().replace('_4H', '').replace('_5M', '');
+    if (base && !base.endsWith('USDT')) base += 'USDT';
+    return base;
+  },
+
+  /** Migrate legacy {entryPrice,lockedAt} → lots[] and keep summary fields for cloud sync. */
+  _normalizeLots(meta) {
+    if (!meta || typeof meta !== 'object') return [];
+    if (Array.isArray(meta.lots) && meta.lots.length) {
+      return meta.lots.map((lot, i) => ({
+        id: lot.id || `lot_${i}_${Date.parse(lot.lockedAt || '') || i}`,
+        entryPrice: Number(lot.entryPrice) || null,
+        lockedAt: lot.lockedAt || new Date().toISOString(),
+        qty: Number.isFinite(Number(lot.qty)) && Number(lot.qty) > 0 ? Number(lot.qty) : 1,
+        note: lot.note || '',
+        estimated: lot.estimated === true,
+      }));
+    }
+    if (meta.entryPrice > 0 || meta.lockedAt) {
+      return [{
+        id: 'lot_legacy',
+        entryPrice: Number(meta.entryPrice) || null,
+        lockedAt: meta.lockedAt || new Date().toISOString(),
+        qty: Number.isFinite(Number(meta.qty)) && Number(meta.qty) > 0 ? Number(meta.qty) : 1,
+        note: meta.note || '',
+        estimated: meta.estimated === true,
+      }];
+    }
+    return [];
+  },
+
+  _aggregateLots(lots) {
+    const valid = (lots || []).filter(l => Number.isFinite(l.entryPrice) && l.entryPrice > 0);
+    const totalQty = valid.reduce((s, l) => s + (l.qty || 1), 0) || 0;
+    const cost = valid.reduce((s, l) => s + l.entryPrice * (l.qty || 1), 0);
+    const avgEntry = totalQty > 0 ? cost / totalQty : null;
+    const times = (lots || []).map(l => Date.parse(l.lockedAt)).filter(Number.isFinite);
+    const earliest = times.length ? new Date(Math.min(...times)).toISOString() : null;
+    return { avgEntry, totalQty, earliest, estimated: (lots || []).length > 0 && (lots || []).every(l => l.estimated) };
+  },
+
+  _writeHoldingsLots(base, lots) {
     if (!this.state.holdingsMeta || typeof this.state.holdingsMeta !== 'object') this.state.holdingsMeta = {};
-
-    const prev = this.state.holdingsMeta[base];
-    const hasRealEntry = prev?.entryPrice > 0 && prev?.estimated !== true;
-    // Preserve a real cost basis unless this is an explicit fresh lock (force)
-    if (hasRealEntry && !opts.force) return;
-
-    const price = Number.isFinite(entryPrice) && entryPrice > 0 ? entryPrice : this._resolveAssetPrice(base);
-    const entry = {
-      entryPrice: Number.isFinite(price) && price > 0 ? price : null,
-      lockedAt: opts.lockedAt || new Date().toISOString(),
+    if (!lots.length) {
+      delete this.state.holdingsMeta[base];
+      this._persistHoldingsMeta();
+      return;
+    }
+    const agg = this._aggregateLots(lots);
+    this.state.holdingsMeta[base] = {
+      lots,
+      entryPrice: agg.avgEntry,
+      lockedAt: agg.earliest,
+      qty: agg.totalQty,
+      estimated: agg.estimated || undefined,
     };
-    if (opts.estimated) entry.estimated = true;
-    this.state.holdingsMeta[base] = entry;
     this._persistHoldingsMeta();
   },
 
+  _setHoldingsMetaEntry(id, entryPrice, opts = {}) {
+    const base = this._baseHoldingsId(id);
+    if (!base) return;
+    if (!this.state.holdingsMeta || typeof this.state.holdingsMeta !== 'object') this.state.holdingsMeta = {};
+
+    let lots = this._normalizeLots(this.state.holdingsMeta[base]);
+    const hasReal = lots.some(l => l.entryPrice > 0 && !l.estimated);
+    if (hasReal && !opts.force && !opts.addLot) return;
+
+    const price = Number.isFinite(entryPrice) && entryPrice > 0 ? entryPrice : this._resolveAssetPrice(base);
+    const lot = {
+      id: `lot_${Date.now()}_${Math.random().toString(36).slice(2, 7)}`,
+      entryPrice: Number.isFinite(price) && price > 0 ? price : null,
+      lockedAt: opts.lockedAt || new Date().toISOString(),
+      qty: Number.isFinite(Number(opts.qty)) && Number(opts.qty) > 0 ? Number(opts.qty) : 1,
+      note: opts.note || '',
+      estimated: opts.estimated === true,
+    };
+
+    if (opts.addLot && lots.length) {
+      lots = [...lots, lot];
+    } else if (opts.force || !lots.length) {
+      lots = [lot];
+    } else {
+      return;
+    }
+    this._writeHoldingsLots(base, lots);
+  },
+
+  _addOrUpdateHoldingsLot(id, { lotId, entryPrice, lockedAt, qty, note } = {}) {
+    const base = this._baseHoldingsId(id);
+    let lots = this._normalizeLots(this.state.holdingsMeta?.[base]);
+    const price = Number(entryPrice);
+    if (!Number.isFinite(price) || price <= 0) {
+      this._showToast('Enter a valid Binance entry price', 'warning');
+      return false;
+    }
+    const at = lockedAt ? new Date(lockedAt).toISOString() : new Date().toISOString();
+    if (Number.isNaN(Date.parse(at))) {
+      this._showToast('Enter a valid entry date/time', 'warning');
+      return false;
+    }
+    const q = Number.isFinite(Number(qty)) && Number(qty) > 0 ? Number(qty) : 1;
+
+    if (lotId) {
+      lots = lots.map(l => l.id === lotId ? { ...l, entryPrice: price, lockedAt: at, qty: q, note: note || '', estimated: false } : l);
+    } else {
+      lots.push({
+        id: `lot_${Date.now()}_${Math.random().toString(36).slice(2, 7)}`,
+        entryPrice: price,
+        lockedAt: at,
+        qty: q,
+        note: note || '',
+        estimated: false,
+      });
+    }
+    if (!this.state.invested.includes(base)) this.state.invested.push(base);
+    this._writeHoldingsLots(base, lots);
+    try {
+      localStorage.setItem('trading_invested', JSON.stringify(this.state.invested));
+      if (window.Auth) window.Auth.syncToCloud(this.state.invested, this.state.watchlist, this.state.holdingsMeta, { force: true });
+    } catch (e) {}
+    this._showToast(`${base.replace('USDT','')}: entry saved (${lots.length} lot${lots.length > 1 ? 's' : ''})`, 'success');
+    this._render();
+    return true;
+  },
+
+  _removeHoldingsLot(id, lotId) {
+    const base = this._baseHoldingsId(id);
+    let lots = this._normalizeLots(this.state.holdingsMeta?.[base]).filter(l => l.id !== lotId);
+    if (!lots.length) {
+      this.state.invested = this.state.invested.filter(x => x !== base);
+      this._writeHoldingsLots(base, []);
+      try {
+        localStorage.setItem('trading_invested', JSON.stringify(this.state.invested));
+        if (window.Auth) window.Auth.syncToCloud(this.state.invested, this.state.watchlist, this.state.holdingsMeta, { force: true });
+      } catch (e) {}
+      this._showToast(`Holding unlocked: ${base.replace('USDT','')}`, 'info');
+    } else {
+      this._writeHoldingsLots(base, lots);
+      try {
+        if (window.Auth) window.Auth.syncToCloud(this.state.invested, this.state.watchlist, this.state.holdingsMeta, { force: true });
+      } catch (e) {}
+      this._showToast('Entry lot removed', 'info');
+    }
+    this._render();
+  },
+
   _removeHoldingsMetaEntry(id) {
-    const base = String(id || '').toUpperCase().replace('_4H', '').replace('_5M', '');
+    const base = this._baseHoldingsId(id);
     if (!this.state.holdingsMeta?.[base]) return;
     delete this.state.holdingsMeta[base];
     this._persistHoldingsMeta();
@@ -227,19 +356,27 @@ const Dashboard = {
     if (!Array.isArray(this.state.invested)) return;
     let changed = false;
     for (const id of this.state.invested) {
-      const base = String(id).toUpperCase().replace('_4H', '').replace('_5M', '');
-      const existing = this.state.holdingsMeta?.[base];
-      if (existing?.entryPrice > 0) continue;
+      const base = this._baseHoldingsId(id);
+      const lots = this._normalizeLots(this.state.holdingsMeta?.[base]);
+      if (lots.some(l => l.entryPrice > 0)) {
+        // Ensure migrated shape is persisted
+        if (!this.state.holdingsMeta?.[base]?.lots) {
+          this._writeHoldingsLots(base, lots);
+          changed = true;
+        }
+        continue;
+      }
       const price = this._resolveAssetPrice(base);
-      if (!this.state.holdingsMeta) this.state.holdingsMeta = {};
-      this.state.holdingsMeta[base] = {
+      this._writeHoldingsLots(base, [{
+        id: 'lot_backfill',
         entryPrice: Number.isFinite(price) && price > 0 ? price : null,
-        lockedAt: existing?.lockedAt || new Date().toISOString(),
-        estimated: true, // no historical entry existed before paper-tracker launch
-      };
+        lockedAt: lots[0]?.lockedAt || new Date().toISOString(),
+        qty: 1,
+        estimated: true,
+        note: '',
+      }]);
       changed = true;
     }
-    // Drop meta for coins no longer locked
     for (const key of Object.keys(this.state.holdingsMeta || {})) {
       if (!this.state.invested.includes(key)) {
         delete this.state.holdingsMeta[key];
@@ -262,35 +399,208 @@ const Dashboard = {
     return remH ? `${days}d ${remH}h` : `${days}d`;
   },
 
+  _toDatetimeLocalValue(iso) {
+    const t = Date.parse(iso);
+    if (!Number.isFinite(t)) return '';
+    const d = new Date(t);
+    const pad = n => String(n).padStart(2, '0');
+    return `${d.getFullYear()}-${pad(d.getMonth()+1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`;
+  },
+
   _holdingsPnLHTML(normalizedId, currentPrice) {
-    const meta = this.state.holdingsMeta?.[normalizedId];
-    if (!meta) {
-      return `<div class="holdings-pnl muted">Paper PnL pending — entry will lock on next price refresh</div>`;
+    const base = this._baseHoldingsId(normalizedId);
+    const lots = this._normalizeLots(this.state.holdingsMeta?.[base]);
+    if (!lots.length) {
+      return `<div class="holdings-pnl muted">Paper PnL pending — set your Binance entry below</div>${this._holdingsEditorHTML(base, currentPrice, [])}`;
     }
-    const entry = meta.entryPrice;
-    const held = this._formatTimeHeld(meta.lockedAt);
-    const estimated = meta.estimated === true;
+    const agg = this._aggregateLots(lots);
+    const entry = agg.avgEntry;
+    const held = this._formatTimeHeld(agg.earliest);
+    const estimated = agg.estimated;
     const entryStr = Number.isFinite(entry) && entry > 0 ? `$${this._fmt(entry)}` : '—';
-    if (!Number.isFinite(entry) || entry <= 0 || !Number.isFinite(currentPrice)) {
-      return `<div class="holdings-pnl">
-        <span>Entry ${entryStr}${estimated ? ' ≈' : ''}</span>
-        <span>Held ${held}</span>
-        <span class="pnl-badge">PnL —</span>
-      </div>`;
+    const qtyStr = agg.totalQty !== 1 ? ` · qty ${agg.totalQty}` : '';
+    let pnlBlock = `<span class="pnl-badge">PnL —</span>`;
+    if (Number.isFinite(entry) && entry > 0 && Number.isFinite(currentPrice)) {
+      const pnlPct = ((currentPrice - entry) / entry) * 100;
+      const pnlValue = (currentPrice - entry) * (agg.totalQty || 1);
+      const cls = estimated ? 'flat' : (pnlPct >= 0 ? 'pos' : 'neg');
+      const pctStr = `${pnlPct >= 0 ? '+' : ''}${pnlPct.toFixed(2)}%`;
+      const valStr = `${pnlValue >= 0 ? '+' : '-'}$${this._fmt(Math.abs(pnlValue))}`;
+      pnlBlock = `<span class="pnl-badge ${cls}" title="Paper PnL vs your Binance entries">${estimated ? 'Est. ' : ''}${pctStr} · ${valStr}</span>`;
     }
-    const pnlPct = ((currentPrice - entry) / entry) * 100;
-    const pnlValue = currentPrice - entry;
-    const cls = estimated ? 'flat' : (pnlPct >= 0 ? 'pos' : 'neg');
-    const pctStr = `${pnlPct >= 0 ? '+' : ''}${pnlPct.toFixed(2)}%`;
-    const valStr = `${pnlValue >= 0 ? '+' : '-'}$${this._fmt(Math.abs(pnlValue))}`;
-    const note = estimated
-      ? ' title="Entry was estimated at upgrade (no historical lock price). Unlock and re-lock to set a real entry."'
-      : ' title="Paper PnL per 1 coin (current − entry)"';
     return `<div class="holdings-pnl${estimated ? ' estimated' : ''}">
-      <span title="${estimated ? 'Estimated at upgrade — not your real entry' : 'Price when you locked this coin'}">Entry ${entryStr}${estimated ? ' ≈' : ''}</span>
-      <span title="${estimated ? 'Timer started at upgrade, not original buy' : 'Time since lock'}">Held ${held}</span>
-      <span class="pnl-badge ${cls}"${note}>${estimated ? 'Est. ' : ''}${pctStr} · ${valStr}</span>
+      <span title="Average entry across lots">Entry ${entryStr}${estimated ? ' ≈' : ''}${qtyStr}${lots.length > 1 ? ` · ${lots.length} lots` : ''}</span>
+      <span title="Since earliest lot">Held ${held}</span>
+      ${pnlBlock}
+    </div>${this._holdingsEditorHTML(base, currentPrice, lots)}`;
+  },
+
+  _holdingsEditorHTML(base, currentPrice, lots) {
+    const lotRows = (lots || []).map(l => {
+      const px = Number.isFinite(l.entryPrice) ? l.entryPrice : '';
+      return `<div class="holdings-lot-row" data-lot-id="${l.id}">
+        <input type="number" step="any" min="0" class="hold-lot-price" value="${px}" placeholder="Entry $" title="Exact Binance fill price" />
+        <input type="datetime-local" class="hold-lot-time" value="${this._toDatetimeLocalValue(l.lockedAt)}" title="Exact Binance fill time" />
+        <input type="number" step="any" min="0" class="hold-lot-qty" value="${l.qty || 1}" placeholder="Qty" title="Quantity (optional, defaults 1)" />
+        <button type="button" class="hold-lot-save" data-action="save-lot" data-hold-id="${base}" data-lot-id="${l.id}">Save</button>
+        <button type="button" class="hold-lot-del" data-action="del-lot" data-hold-id="${base}" data-lot-id="${l.id}" title="Remove this entry lot">✕</button>
+      </div>`;
+    }).join('');
+    const live = Number.isFinite(currentPrice) ? currentPrice : '';
+    return `<div class="holdings-editor" data-hold-id="${base}">
+      <div class="holdings-editor-title">Binance entries <span class="muted">(edit price · date/time · add lots)</span></div>
+      ${lotRows || '<p class="muted" style="margin:4px 0;font-size:12px;">No lots yet — add your fill below.</p>'}
+      <div class="holdings-lot-row holdings-lot-new">
+        <input type="number" step="any" min="0" class="hold-lot-price" value="${live}" placeholder="Entry $" title="Exact Binance fill price" />
+        <input type="datetime-local" class="hold-lot-time" value="${this._toDatetimeLocalValue(new Date().toISOString())}" title="Exact Binance fill time" />
+        <input type="number" step="any" min="0" class="hold-lot-qty" value="1" placeholder="Qty" />
+        <button type="button" class="hold-lot-save" data-action="add-lot" data-hold-id="${base}">+ Lot</button>
+      </div>
     </div>`;
+  },
+
+  // ─── Followed suggestions ledger (personal hit/miss tracker) ───────────────
+  _getFollowed() {
+    try {
+      const raw = localStorage.getItem(this.FOLLOWED_KEY);
+      const list = raw ? JSON.parse(raw) : [];
+      return Array.isArray(list) ? list : [];
+    } catch { return []; }
+  },
+
+  _saveFollowed(list) {
+    try {
+      localStorage.setItem(this.FOLLOWED_KEY, JSON.stringify((list || []).slice(0, 400)));
+    } catch (e) {}
+  },
+
+  _markSuggestionFollowed(symbol, opts = {}) {
+    const sym = String(symbol || '').toUpperCase().replace('USDT', '').replace('_4H', '').replace('_5M', '');
+    if (!sym) return;
+    const base = `${sym}USDT`;
+    const price = Number(opts.entryPrice) > 0 ? Number(opts.entryPrice) : this._resolveAssetPrice(base);
+    const enteredAt = opts.enteredAt || new Date().toISOString();
+    const list = this._getFollowed();
+    const row = {
+      id: `fol_${Date.now()}_${Math.random().toString(36).slice(2, 7)}`,
+      symbol: sym,
+      signal: opts.signal || 'BUY',
+      entryPrice: price,
+      enteredAt,
+      qty: Number(opts.qty) > 0 ? Number(opts.qty) : 1,
+      status: 'OPEN',
+      source: opts.source || 'manual',
+      note: opts.note || '',
+    };
+    list.unshift(row);
+    this._saveFollowed(list);
+
+    // Mirror into Holdings so live PnL can be corrected to the Binance fill
+    if (opts.addHolding !== false) {
+      const had = this.state.invested.includes(base);
+      if (!had) this.state.invested.push(base);
+      this._setHoldingsMetaEntry(base, price, {
+        force: !had,
+        addLot: had,
+        lockedAt: enteredAt,
+        qty: row.qty,
+      });
+      try {
+        localStorage.setItem('trading_invested', JSON.stringify(this.state.invested));
+        if (window.Auth) window.Auth.syncToCloud(this.state.invested, this.state.watchlist, this.state.holdingsMeta, { force: true });
+      } catch (e) {}
+    }
+
+    this._showToast(`Followed ${sym} @ $${this._fmt(price)} — tracked in Suggestions + Holdings`, 'success');
+    if (this.state.activeCategory === 'history' || this.state.activeCategory === 'holdings') this._render();
+    else this._renderAssetGrid();
+  },
+
+  _closeFollowed(id, exitPrice, reason = 'MANUAL') {
+    const list = this._getFollowed().map(e => {
+      if (e.id !== id || e.status !== 'OPEN') return e;
+      const exit = Number(exitPrice);
+      const ret = Number.isFinite(exit) && e.entryPrice > 0 ? ((exit - e.entryPrice) / e.entryPrice) * 100 : e.returnPct;
+      return {
+        ...e,
+        status: Number.isFinite(ret) && ret >= 0 ? 'WIN' : 'LOSS',
+        exitPrice: Number.isFinite(exit) ? exit : e.lastPrice,
+        exitedAt: new Date().toISOString(),
+        exitReason: reason,
+        returnPct: Number.isFinite(ret) ? +ret.toFixed(2) : null,
+      };
+    });
+    this._saveFollowed(list);
+    this._renderAssetGrid();
+  },
+
+  async _refreshFollowedMarks() {
+    const list = this._getFollowed();
+    const open = list.filter(e => e.status === 'OPEN');
+    if (!open.length) return;
+    try {
+      const symbols = [...new Set(open.map(e => `${e.symbol}USDT`))];
+      const res = await fetch(`https://api.binance.com/api/v3/ticker/price?symbols=${encodeURIComponent(JSON.stringify(symbols))}`);
+      const tickers = await res.json();
+      const prices = new Map((Array.isArray(tickers) ? tickers : []).map(t => [t.symbol.replace('USDT', ''), Number(t.price)]));
+      const next = list.map(e => {
+        if (e.status !== 'OPEN') return e;
+        const current = prices.get(e.symbol);
+        if (!Number.isFinite(current) || !(e.entryPrice > 0)) return e;
+        return { ...e, lastPrice: current, returnPct: +(((current - e.entryPrice) / e.entryPrice) * 100).toFixed(2) };
+      });
+      this._saveFollowed(next);
+    } catch (e) {
+      console.warn('[Followed] refresh failed', e.message);
+    }
+  },
+
+  _followedHTML() {
+    const list = this._getFollowed();
+    const closed = list.filter(e => e.status === 'WIN' || e.status === 'LOSS');
+    const wins = closed.filter(e => e.status === 'WIN').length;
+    const losses = closed.filter(e => e.status === 'LOSS').length;
+    const openN = list.filter(e => e.status === 'OPEN').length;
+    const avg = closed.length
+      ? closed.reduce((s, e) => s + (Number(e.returnPct) || 0), 0) / closed.length
+      : null;
+    const stats = `<div class="followed-stats">
+      <span><strong>${wins}</strong> wins</span>
+      <span><strong>${losses}</strong> losses</span>
+      <span><strong>${openN}</strong> open</span>
+      <span>Closed avg ${avg == null ? '—' : `${avg >= 0 ? '+' : ''}${avg.toFixed(2)}%`}</span>
+    </div>`;
+    if (!list.length) {
+      return `<div class="followed-panel"><h3>✅ Suggestions you followed</h3>${stats}<p class="no-data">When you take a tool BUY/S.BUY, tap <strong>I followed this</strong> on the card (or here). Edit the exact Binance fill in Holdings so PnL matches your exchange.</p></div>`;
+    }
+    const rows = list.slice(0, 50).map(e => {
+      const ret = Number.isFinite(e.returnPct) ? `${e.returnPct >= 0 ? '+' : ''}${e.returnPct.toFixed(2)}%` : '—';
+      const cls = Number.isFinite(e.returnPct) ? (e.returnPct >= 0 ? 'pos' : 'neg') : 'flat';
+      const when = e.enteredAt ? new Date(e.enteredAt).toLocaleString('en-IN', { day:'2-digit', month:'short', hour:'2-digit', minute:'2-digit' }) : '—';
+      const closeBtn = e.status === 'OPEN'
+        ? `<button type="button" class="followed-close-btn" data-action="close-followed" data-fol-id="${e.id}" data-symbol="${e.symbol}">Close</button>`
+        : `<span class="muted">${e.status}</span>`;
+      return `<div class="followed-row">
+        <strong>${e.symbol}</strong>
+        <span>${e.signal}</span>
+        <span>@ $${this._fmt(e.entryPrice)}</span>
+        <span class="${cls}">${ret}</span>
+        <span class="muted">${when}</span>
+        ${closeBtn}
+      </div>`;
+    }).join('');
+    return `<div class="followed-panel"><h3>✅ Suggestions you followed</h3>${stats}${rows}</div>`;
+  },
+
+  _logoMarkHTML(symbol, { scannerType = '', scannerChip = '', sizeClass = '' } = {}) {
+    const logoSymbol = String(symbol || '').toLowerCase().replace(/usdt$/, '');
+    const label = String(symbol || '').replace(/USDT$/i, '').slice(0, 3);
+    const localSvg = `assets/coin-logos/${logoSymbol}.svg`;
+    const localPng = `assets/coin-logos/${logoSymbol}.png`;
+    const remoteA = `https://raw.githubusercontent.com/spothq/cryptocurrency-icons/master/128/color/${logoSymbol}.png`;
+    const remoteB = `https://assets.coincap.io/assets/icons/${logoSymbol}@2x.png`;
+    const onerr = `onerror="(function(img){const s=[img.dataset.f1,img.dataset.f2,img.dataset.f3];const i=Number(img.dataset.fi||0);if(i<s.length&&s[i]){img.dataset.fi=i+1;img.src=s[i];}else{img.style.display='none';if(img.nextElementSibling)img.nextElementSibling.style.display='flex';}})(this)"`;
+    return `<span class="asset-icon asset-visual ${sizeClass} ${scannerType ? `scanner-visual ${scannerType}-visual` : ''}"><img class="coin-logo" src="${localSvg}" alt="${logoSymbol} logo" loading="lazy" data-f1="${localPng}" data-f2="${remoteA}" data-f3="${remoteB}" data-fi="0" ${onerr}><span class="coin-logo-fallback">${label}</span>${scannerChip}</span>`;
   },
 
   _exitPolicy() {
@@ -531,7 +841,15 @@ const Dashboard = {
     // Kick off an initial background scan 5 seconds after the app loads
     setTimeout(() => this._autoScanMoonshots(), 5000);
 
-    // Scalper scanning is intentionally disabled while the feature is not in use.
+    this._bindHoldingsFollowedActions();
+
+    // 5m Scalper — pullback scanner (config-gated)
+    if (CONFIG.scalper?.enabled !== false) {
+      const scalpEvery = CONFIG.scalper?.scanIntervalMs ?? (2 * 60 * 1000);
+      const scalpDelay = CONFIG.scalper?.initialDelayMs ?? 12000;
+      this.state.scalpTimer = setInterval(() => this._autoScanScalps(), scalpEvery);
+      setTimeout(() => this._autoScanScalps(), scalpDelay);
+    }
   },
 
   // Hide filter tabs for asset categories that are empty in CONFIG.
@@ -670,7 +988,7 @@ const Dashboard = {
       // Inject active scalps from background scanner
       if (this.state.scalps && this.state.scalps.length > 0) {
         const liveScalps = await Promise.all(this.state.scalps.map(async scalp => {
-          const baseId = scalp.asset?.id.replace('_5M', 'USDT');
+          const baseId = String(scalp.asset?.id || '').replace(/_5M$/,''); // e.g. PEPEUSDT_5M -> PEPEUSDT
           const liveData = all.find(a => a.asset?.id === baseId);
           let updatedScalp = { ...scalp };
           
@@ -697,8 +1015,9 @@ const Dashboard = {
                 if (liveData.price < lows[lastIdx]) lows[lastIdx] = liveData.price;
               }
 
-              const result = Signals.generateScalp(closes, { highs, lows, volumes });
-              const prevResult = Signals.generateScalp(closes.slice(0, -1), { highs: highs.slice(0, -1), lows: lows.slice(0, -1), volumes: volumes.slice(0, -1) });
+              const regime = this.state.marketRegime || 'flat';
+              const result = Signals.generateScalp(closes, { highs, lows, volumes, marketRegime: regime });
+              const prevResult = Signals.generateScalp(closes.slice(0, -1), { highs: highs.slice(0, -1), lows: lows.slice(0, -1), volumes: volumes.slice(0, -1), marketRegime: regime });
               updatedScalp.closes = closes;
               updatedScalp.highs = highs;
               updatedScalp.lows = lows;
@@ -745,6 +1064,7 @@ const Dashboard = {
       this._autoResolvePaperPositions();
       this._updateMoonshotJournal();
       this._updateAlertOutcomes();
+      this._refreshFollowedMarks();
       this._refreshOpenModal();
       if (!silent) this._showToast(anyOk ? 'Data refreshed ✓' : 'Fetch failed — showing last known data', anyOk ? 'success' : 'warning');
     } catch (err) {
@@ -823,36 +1143,34 @@ const Dashboard = {
         return;
       }
       
+      // Graft into CONFIG for Moonshots section scoring — NEVER auto-star.
+      // Watch ⭐ is user-only; auto-star made a background list look like a personal watchlist.
       let newlyAdded = false;
+      this.state.moonshots = setups;
       setups.forEach(s => {
         const id = s.asset.id;
         this._holdMoonshotForReview(id);
-        if (!this.state.watchlist.includes(id)) {
-          this.state.watchlist.push(id);
+        if (!CONFIG.assets.crypto.some(a => a.id === id)) {
+          CONFIG.assets.crypto.push({
+            id: id,
+            symbol: s.asset.symbol,
+            name: s.asset.name,
+            currency: 'USD',
+            icon: '🚀',
+            grafted: true,
+            isMoonshot: true
+          });
           newlyAdded = true;
-          
-          // Inject into CONFIG immediately so the next loadAll() picks it up
-          if (!CONFIG.assets.crypto.some(a => a.id === id)) {
-            CONFIG.assets.crypto.push({
-              id: id,
-              symbol: s.asset.symbol,
-              name: s.asset.name,
-              currency: 'USD',
-              icon: '🚀',
-              grafted: true,
-              isMoonshot: true
-            });
-          }
         }
       });
-      
+
       if (newlyAdded) {
-        try { localStorage.setItem('trading_watchlist', JSON.stringify(this.state.watchlist)); } catch(e) {}
-        this.loadAll(true); // Re-render the dashboard to show the new coins (which also runs cleanup at the end)
-        console.log(`[Moonshots] Background scan found ${setups.length} setups and added new ones to the dashboard!`);
+        this.loadAll(true);
+        console.log(`[Moonshots] Background scan found ${setups.length} setups (shown in Moonshots — not auto-watched).`);
         if (statusEl) statusEl.innerHTML = `🚀 ${timeStr} (<b style="color:var(--pos)">+${setups.length} new!</b>)`;
       } else {
-        console.log('[Moonshots] Background scan complete: No new setups (already tracking existing ones).');
+        this._renderMoonshotGrid();
+        console.log('[Moonshots] Background scan complete: already tracking these setups.');
         if (statusEl) statusEl.innerHTML = `🚀 ${timeStr} (${setups.length} tracked)`;
       }
     } catch (err) {
@@ -873,10 +1191,10 @@ const Dashboard = {
         const d = this.state.allAssets.find(a => a.asset.id === asset.id);
         const sig = d?.signalResult?.signal ?? 'NEUTRAL';
         
-        // Remove if it loses BUY/STRONG_BUY status
+        // Remove faded grafts — but never yank a coin the user explicitly Watched ⭐
         if (sig !== 'BUY' && sig !== 'STRONG_BUY') {
+          if (this.state.watchlist.includes(asset.id)) continue;
           console.log(`[Moonshots] Auto-cleaning stale moonshot: ${asset.id} (Signal: ${sig})`);
-          this.state.watchlist = this.state.watchlist.filter(id => id !== asset.id);
           CONFIG.assets.crypto.splice(i, 1);
           if (this.state.allAssets) {
             this.state.allAssets = this.state.allAssets.filter(a => a.asset.id !== asset.id);
@@ -913,7 +1231,7 @@ const Dashboard = {
         const d = this.state.allAssets.find(a => a.asset.id === asset.id);
         const sig = d?.signalResult?.signal ?? 'NEUTRAL';
         
-        if (sig !== 'STRONG_BUY') {
+        if (sig !== 'BUY' && sig !== 'STRONG_BUY') {
           console.log(`[Scalper] Auto-cleaning stale scalp: ${asset.id} (Signal: ${sig})`);
           this.state.watchlist = this.state.watchlist.filter(id => id !== asset.id);
           CONFIG.assets.crypto.splice(i, 1);
@@ -926,8 +1244,9 @@ const Dashboard = {
     }
     if (removedAny && this.state.scalps) {
       this.state.scalps = this.state.scalps.filter(s => {
-        const d = this.state.allAssets.find(a => a.asset.id === s.asset?.id);
-        return d && d.signalResult?.signal === 'STRONG_BUY';
+        const row = this.state.allAssets.find(a => a.asset.id === s.asset?.id);
+        const sig = row?.signalResult?.signal;
+        return sig === 'BUY' || sig === 'STRONG_BUY';
       });
     }
     return removedAny;
@@ -1381,7 +1700,9 @@ const Dashboard = {
       );
     }
 
-    if (cat === 'watchlist') {
+    if (cat === 'all') {
+      assets = assets.filter(a => a.category !== 'scalper');
+    } else if (cat === 'watchlist') {
       assets = assets.filter(a => this.state.watchlist.includes(a.asset.id));
     } else if (cat === 'holdings') {
       const holdingsByCoin = new Map();
@@ -1416,9 +1737,9 @@ const Dashboard = {
     } else if (cat === 'history') {
       const history = this._getSignalHistory();
       if (history.length === 0) {
-        el.innerHTML = `${this._alertOutcomesHTML()}<p class="no-data">No signal changes recorded yet. Changes will appear here after the next refresh cycle.</p>`;
+        el.innerHTML = `${this._followedHTML()}${this._alertOutcomesHTML()}<p class="no-data">No signal changes recorded yet. Changes will appear here after the next refresh cycle.</p>`;
       } else {
-        el.innerHTML = `${this._alertOutcomesHTML()}<div class="signal-history-list">${history.map(h => {
+        el.innerHTML = `${this._followedHTML()}${this._alertOutcomesHTML()}<div class="signal-history-list">${history.map(h => {
           const time = new Date(h.time);
           const timeStr = time.toLocaleDateString('en-IN', {day:'2-digit', month:'short'}) + ' ' + time.toLocaleTimeString('en-IN', {hour:'2-digit', minute:'2-digit'});
           const fromLevel = Signals.level(h.from);
@@ -1427,13 +1748,9 @@ const Dashboard = {
           const baseId = String(h.id || '').toUpperCase().replace(/_(?:4H|5M)$/, '');
           const baseSymbol = baseId.endsWith('USDT') ? baseId.slice(0, -4) : baseId;
           const binanceId = `${baseSymbol}_USDT`;
-          const logoSymbol = baseSymbol.toLowerCase();
-          const logoUrl = `assets/coin-logos/${logoSymbol}.svg`;
-          const backupLogoUrl = `assets/coin-logos/${logoSymbol}.png`;
-          const remoteLogoUrl = `https://raw.githubusercontent.com/atomiclabs/cryptocurrency-icons/master/128/color/${logoSymbol}.png`;
           const scannerType = String(h.id || '').toUpperCase().endsWith('_4H') ? 'moonshot' : '';
           const scannerChip = scannerType ? '<span class="scanner-chip moonshot-chip">MOON</span>' : '';
-          const historyIcon = `<span class="sh-visual ${scannerType ? `scanner-visual ${scannerType}-visual` : ''}"><img class="coin-logo" src="${logoUrl}" alt="${baseSymbol} logo" loading="lazy" onerror="if(this.dataset.retry==='1'){this.dataset.retry='2';this.src='${remoteLogoUrl}';}else if(!this.dataset.retry){this.dataset.retry='1';this.src='${backupLogoUrl}';}else{this.style.display='none';this.nextElementSibling.style.display='flex';}"><span class="coin-logo-fallback">${baseSymbol.slice(0, 3)}</span>${scannerChip}</span>`;
+          const historyIcon = `<span class="sh-visual ${scannerType ? `scanner-visual ${scannerType}-visual` : ''}">${this._logoMarkHTML(baseSymbol, { scannerType, scannerChip })}</span>`;
           return `<a href="https://www.binance.com/en/trade/${binanceId}?type=spot&ref=TRENDRUNNER" target="_blank" rel="noopener noreferrer" class="signal-history-entry" style="text-decoration:none; color:inherit;">
             ${historyIcon}
             <span class="sh-name">${h.name} <small>${h.symbol}</small></span>
@@ -1455,6 +1772,11 @@ const Dashboard = {
     }
 
     this.state.filtered = assets;
+
+    if (cat === 'scalper' && assets.length === 0) {
+      el.innerHTML = `<div class="moonshot-empty-state"><div class="moonshot-empty-icon">⚡</div><p class="moonshot-empty-title">No active 5m scalps</p><p class="moonshot-empty-sub">Scanner looks for <strong>EMA pullbacks after an impulse</strong> on liquid alts. Empty is normal in chop — wait for <strong>5m CONFIRM</strong>, small size, tight stop, bank at 2R.</p></div>`;
+      return;
+    }
 
     // Sort by validated winner tier first, then trade quality, then confidence.
     // Skip this sort if we're on the 'trending' tab, which has its own percentage-based sort.
@@ -1478,25 +1800,28 @@ const Dashboard = {
   _renderMoonshotGrid() {
     const grid = document.getElementById('moonshotGrid');
     if (!grid) return;
-    
-    // Check if the user has manually scanned setups first
-    if (this.state.moonshots && this.state.moonshots.length > 0) return;
 
-    // Otherwise, pull any background-scanned moonshots directly from the live feed
-    const backgroundMoonshots = this.state.allAssets.filter(a => a.asset?.isMoonshot);
-    
-    if (backgroundMoonshots.length === 0) {
+    // Prefer latest scan results (manual or auto); else grafted moonshots from live feed
+    let moonshots = Array.isArray(this.state.moonshots) ? [...this.state.moonshots] : [];
+    if (!moonshots.length) {
+      moonshots = this.state.allAssets.filter(a => a.asset?.isMoonshot);
+    } else {
+      // Refresh prices/signals from live feed when available
+      moonshots = moonshots.map(s => {
+        const live = this.state.allAssets.find(a => a.asset?.id === s.asset?.id);
+        return live || s;
+      });
+    }
+
+    if (moonshots.length === 0) {
       grid.innerHTML = '<p class="no-data">No explosive setups found right now. Wait for the background scanner or run a manual scan.</p>';
       return;
     }
 
-    this._sortAssets(backgroundMoonshots);
-    
-    
-    // Moonshot cards are formatted slightly differently (show signal score, hide stars)
-    grid.innerHTML = backgroundMoonshots.map(s => this._assetCardHTML(s, false, true)).join('');
+    this._sortAssets(moonshots);
+    grid.innerHTML = moonshots.map(s => this._assetCardHTML(s, false, true)).join('');
     this._attachCardListeners(grid);
-    this._initSparklines(backgroundMoonshots, true);
+    this._initSparklines(moonshots, true);
   },
 
   _initSparklines(assets, isMoonshot = false) {
@@ -1596,16 +1921,32 @@ const Dashboard = {
       : (signalResult?.regimeBlocked || signalResult?.greedBlocked)
         ? `<span class="research-chip blocked-chip" title="${signalResult.regimeBlocked ? 'Blocked: BTC bear regime' : 'Blocked: Extreme Greed'}">Blocked</span>`
         : '';
+    const timingSignal = signalResult?.indicators?.timing4H?.signal
+      || signalResult?.indicators?.breakout?.entryTiming
+      || signalResult?.indicators?.scalp?.entryTiming
+      || null;
+    const timingDesc = signalResult?.indicators?.timing4H?.description
+      || signalResult?.indicators?.breakout?.entryTimingDesc
+      || signalResult?.indicators?.scalp?.entryTimingDesc
+      || '';
+    const isScalpCard = !!(asset.isScalp || d.category === 'scalper' || String(asset.id || '').includes('_5M'));
+    const isMoonCard = !!(asset.isMoonshot || String(asset.id || '').includes('_4H'));
+    let timingChip = '';
+    if (timingSignal === 'CONFIRM') {
+      const confLabel = isScalpCard ? '5m CONFIRM' : '4H CONFIRM';
+      timingChip = `<span class="timing-chip timing-confirm" title="${timingDesc || 'Timing supports entry'}">${confLabel}</span>`;
+    } else if (timingSignal === 'WAIT') {
+      const waitLabel = isScalpCard
+        ? '5m WAIT · retest'
+        : (isMoonCard ? '4H WAIT · retest' : '4H WAIT · dip');
+      timingChip = `<span class="timing-chip timing-wait" title="${timingDesc || 'Wait for a cooler entry — do not chase'}">${waitLabel}</span>`;
+    }
     const updateClass = this.state.updatedAssetIds.has(asset.id) ? ' value-updated' : '';
-    const logoSymbol = String(asset.symbol || normalizedId).replace(/USDT.*$/i, '').replace(/[^a-z0-9]/gi, '').toLowerCase();
-    const logoUrl = `assets/coin-logos/${logoSymbol}.svg`;
-    const backupLogoUrl = `assets/coin-logos/${logoSymbol}.png`;
-    const remoteLogoUrl = `https://raw.githubusercontent.com/atomiclabs/cryptocurrency-icons/master/128/color/${logoSymbol}.png`;
     const scannerType = asset.isMoonshot ? 'moonshot' : asset.isScalp ? 'scalper' : '';
     const scannerChip = scannerType
       ? `<span class="scanner-chip ${scannerType}-chip">${scannerType === 'moonshot' ? 'MOON' : 'SCALP'}</span>`
       : '';
-    const assetMark = `<span class="asset-icon asset-visual ${scannerType ? `scanner-visual ${scannerType}-visual` : ''}"><img class="coin-logo" src="${logoUrl}" alt="${asset.symbol} logo" loading="lazy" onerror="if(this.dataset.retry==='1'){this.dataset.retry='2';this.src='${remoteLogoUrl}';}else if(!this.dataset.retry){this.dataset.retry='1';this.src='${backupLogoUrl}';}else{this.style.display='none';this.nextElementSibling.style.display='flex';}"><span class="coin-logo-fallback">${String(asset.symbol || normalizedId).slice(0, 3)}</span>${scannerChip}</span>`;
+    const assetMark = this._logoMarkHTML(asset.symbol || normalizedId, { scannerType, scannerChip });
 
     let fundChip = '';
     if (d.tvl && d.tvl > 0) {
@@ -1668,14 +2009,15 @@ const Dashboard = {
                 <span class="cat-badge-inline">${catBadge}</span>
                 ${winnerBadge}
                 ${researchChip}
+                ${timingChip}
               </div>
             </div>
           </div>
           <div style="display:flex; flex-direction:column; align-items:flex-end; gap:6px;">
             ${d.category === 'scalper' ? '' : `
               <div style="display:flex; gap: 4px;">
-                <button class="lock-btn ${isLocked ? 'active' : ''}" data-lock-id="${asset.id}" title="${isLocked ? 'In Holdings — paper entry tracked. Click to unlock.' : 'Lock into Holdings (paper tracker). Saves entry price + time.'}" style="background:none; border:none; cursor:pointer; font-size:16px; opacity:${isLocked ? 1 : 0.25}; transition:0.2s; padding: 0;">🔒</button>
-                <button class="star-btn ${isStarred ? 'active' : ''}" data-star-id="${asset.id}" title="Toggle Watchlist" style="background:none; border:none; cursor:pointer; font-size:18px; opacity:${isStarred ? 1 : 0.3}; transition:0.2s; padding: 0;">⭐</button>
+                <button class="lock-btn ${isLocked ? 'active' : ''}" data-lock-id="${asset.id}" title="${isLocked ? 'HOLDING — you bought this. Paper PnL tracked. Click to unlock.' : 'HOLDING — tap after you buy. Tracks entry price + PnL. Not the same as Watch ⭐.'}" style="background:none; border:none; cursor:pointer; font-size:16px; opacity:${isLocked ? 1 : 0.25}; transition:0.2s; padding: 0;" aria-label="Toggle holding">🔒</button>
+                <button class="star-btn ${isStarred ? 'active' : ''}" data-star-id="${asset.id}" title="${isStarred ? 'WATCH — idea saved. Not a position. Click to unstar.' : 'WATCH — save idea to revisit. Does not mean you bought it (use 🔒 for that).'}" style="background:none; border:none; cursor:pointer; font-size:18px; opacity:${isStarred ? 1 : 0.3}; transition:0.2s; padding: 0;" aria-label="Toggle watch">⭐</button>
               </div>
             `}
             <div class="signal-badge signal-${level.cls} ${sig === 'STRONG_BUY' || sig === 'STRONG_SELL' ? 'pulse' : ''}" title="Signal: ${level.label}. This is the combined verdict from 4 technical indicators (RSI, MACD, Moving Averages, Bollinger Bands).${momentumTitle}">
@@ -1715,7 +2057,7 @@ const Dashboard = {
             <span class="ind-val">${rsi}</span>
           </div>
           <div class="ind-chip" title="Composite Score: Weighted blend of trend, momentum, volatility and volume. Positive = bullish bias, negative = bearish bias.${rawScore !== score ? ' Raw score before TVL adjustment: ' + (rawScore > 0 ? '+' : '') + rawScore : ''}">
-            <span class="ind-label">${asset.isMoonshot || asset.id.includes('_4H') ? 'Breakout' : 'Score'}</span>
+            <span class="ind-label">${asset.isScalp || String(asset.id||'').includes('_5M') ? 'Scalp' : (asset.isMoonshot || asset.id.includes('_4H') ? 'Breakout' : 'Score')}</span>
             <span class="ind-val">${rawScore !== score ? '<span style="opacity:0.5;font-size:0.85em">' + (rawScore > 0 ? '+' : '') + rawScore + ' →</span> ' : ''}${score > 0 ? '+' : ''}${score}</span>
           </div>
           <div class="ind-chip" title="Confidence: % of directional indicators that agree with the current signal direction. Higher is better.">
@@ -1734,6 +2076,7 @@ const Dashboard = {
         ${error ? `<div class="card-error">⚠️ ${error}</div>` : ''}
         ${this._stopLevelsHTML(signalResult, asset)}
         <div class="trade-quality-badge quality-${quality.cls}" title="${quality.tip}">${quality.icon} ${quality.label}</div>
+        ${(sig === 'BUY' || sig === 'STRONG_BUY') && d.category !== 'scalper' ? `<button type="button" class="follow-suggestion-btn" data-action="follow-suggestion" data-symbol="${asset.symbol}" data-signal="${sig}" data-price="${price ?? ''}">✅ I followed this</button>` : ''}
         <div class="card-footer">Click for full analysis →</div>
       </div>
     `;
@@ -1823,11 +2166,6 @@ const Dashboard = {
       // Fresh lock always records a real entry (replaces any estimated migration row)
       this._setHoldingsMetaEntry(id, this._resolveAssetPrice(id), { force: true });
 
-      if (sourceId.includes('_4H') && !this.state.watchlist.includes(sourceId)) {
-        this.state.watchlist.push(sourceId);
-        try { localStorage.setItem('trading_watchlist', JSON.stringify(this.state.watchlist)); } catch(e) {}
-      }
-      
       // If we are locking a Moonshot coin that isn't tracked yet in the main dashboard, graft it in!
       const hasEquivalentAsset = CONFIG.assets.crypto.some(a =>
         a.id.replace('_4H', '').replace('_5M', '') === id
@@ -1851,6 +2189,10 @@ const Dashboard = {
     } catch(e) { console.warn('Failed to save lock status', e); }
 
     const isLocked = this.state.invested.includes(id);
+    this._showToast(
+      isLocked ? `Holding locked: ${id.replace('USDT','')} — paper PnL on (bought tracker)` : `Holding unlocked: ${id.replace('USDT','')}`,
+      isLocked ? 'success' : 'info'
+    );
     // Update both the base ID and the 4H ID buttons in the UI
     document.querySelectorAll(`.lock-btn[data-lock-id="${id}"], .lock-btn[data-lock-id="${id}_4H"]`).forEach(btn => {
       if (isLocked) {
@@ -1909,6 +2251,10 @@ const Dashboard = {
     
     // Instantly update the visual star state on any visible cards (especially Moonshots)
     const isNowStarred = this.state.watchlist.includes(id);
+    this._showToast(
+      isNowStarred ? `Watch: ${id.replace(/USDT_4H|USDT/g,'')} saved (idea only — not a buy)` : `Removed from Watch`,
+      isNowStarred ? 'success' : 'info'
+    );
     document.querySelectorAll(`.star-btn[data-star-id="${id}"]`).forEach(btn => {
       if (isNowStarred) {
         btn.classList.add('active');
@@ -1932,7 +2278,6 @@ const Dashboard = {
         e.preventDefault();
         e.stopPropagation();
         const id = btn.getAttribute('data-lock-id') || btn.dataset.lockId;
-        console.log('[Lock] Clicked:', id);
         this._toggleInvested(id);
       });
     });
@@ -1941,13 +2286,73 @@ const Dashboard = {
         e.preventDefault();
         e.stopPropagation();
         const id = btn.getAttribute('data-star-id') || btn.dataset.starId;
-        console.log('[Star] Clicked:', id);
         this._toggleWatchlist(id);
       });
     });
+    container.querySelectorAll('.follow-suggestion-btn').forEach(btn => {
+      btn.addEventListener('click', (e) => {
+        e.preventDefault();
+        e.stopPropagation();
+        const symbol = btn.getAttribute('data-symbol');
+        const signal = btn.getAttribute('data-signal');
+        const price = Number(btn.getAttribute('data-price'));
+        this._markSuggestionFollowed(symbol, { signal, entryPrice: price, source: 'card' });
+      });
+    });
+    container.querySelectorAll('.holdings-editor, .follow-suggestion-btn').forEach(el => {
+      el.addEventListener('click', e => e.stopPropagation());
+    });
     container.querySelectorAll('.asset-card').forEach(card => {
-      card.onclick     = () => this._openModal(card.dataset.assetId);
+      card.onclick     = (e) => {
+        if (e.target.closest('.holdings-editor, .follow-suggestion-btn, .lock-btn, .star-btn')) return;
+        this._openModal(card.dataset.assetId);
+      };
       card.onkeydown   = e => { if (e.key === 'Enter' || e.key === ' ') this._openModal(card.dataset.assetId); };
+    });
+  },
+
+  _bindHoldingsFollowedActions() {
+    if (this._holdingsActionsBound) return;
+    this._holdingsActionsBound = true;
+    document.addEventListener('click', (e) => {
+      const btn = e.target.closest('[data-action]');
+      if (!btn) return;
+      const action = btn.getAttribute('data-action');
+      if (!action) return;
+
+      if (action === 'save-lot' || action === 'add-lot') {
+        e.preventDefault();
+        e.stopPropagation();
+        const row = btn.closest('.holdings-lot-row');
+        const holdId = btn.getAttribute('data-hold-id');
+        const price = Number(row?.querySelector('.hold-lot-price')?.value);
+        const lockedAt = row?.querySelector('.hold-lot-time')?.value;
+        const qty = Number(row?.querySelector('.hold-lot-qty')?.value);
+        this._addOrUpdateHoldingsLot(holdId, {
+          lotId: action === 'save-lot' ? btn.getAttribute('data-lot-id') : null,
+          entryPrice: price,
+          lockedAt,
+          qty,
+        });
+        return;
+      }
+      if (action === 'del-lot') {
+        e.preventDefault();
+        e.stopPropagation();
+        this._removeHoldingsLot(btn.getAttribute('data-hold-id'), btn.getAttribute('data-lot-id'));
+        return;
+      }
+      if (action === 'close-followed') {
+        e.preventDefault();
+        e.stopPropagation();
+        const sym = btn.getAttribute('data-symbol');
+        const price = this._resolveAssetPrice(`${sym}USDT`);
+        this._closeFollowed(btn.getAttribute('data-fol-id'), price, 'MANUAL');
+        return;
+      }
+      if (action === 'follow-suggestion') {
+        // handled on cards too; allow history/panel buttons later
+      }
     });
   },
 
@@ -1973,15 +2378,11 @@ const Dashboard = {
 
     const priceStr = price !== null ? (asset.currency === 'INR' ? '₹' : '$') + this._fmt(price, asset) : 'N/A';
     const chgStr   = change24h !== null ? (change24h >= 0 ? '+' : '') + change24h.toFixed(2) + '%' : '–';
-    const modalLogoSymbol = String(asset.symbol || asset.id).replace(/USDT.*$/i, '').replace(/[^a-z0-9]/gi, '').toLowerCase();
-    const modalLogoSvg = `assets/coin-logos/${modalLogoSymbol}.svg`;
-    const modalLogoPng = `assets/coin-logos/${modalLogoSymbol}.png`;
-    const modalLogoRemote = `https://raw.githubusercontent.com/atomiclabs/cryptocurrency-icons/master/128/color/${modalLogoSymbol}.png`;
     const modalScannerType = asset.isMoonshot ? 'moonshot' : asset.isScalp ? 'scalper' : '';
     const modalScannerChip = modalScannerType
       ? `<span class="scanner-chip ${modalScannerType}-chip">${modalScannerType === 'moonshot' ? 'MOON' : 'SCALP'}</span>`
       : '';
-    const modalAssetMark = `<span class="asset-icon asset-visual lg ${modalScannerType ? `scanner-visual ${modalScannerType}-visual` : ''}"><img class="coin-logo" src="${modalLogoSvg}" alt="${asset.symbol} logo" loading="lazy" onerror="if(this.dataset.retry==='1'){this.dataset.retry='2';this.src='${modalLogoRemote}';}else if(!this.dataset.retry){this.dataset.retry='1';this.src='${modalLogoPng}';}else{this.style.display='none';this.nextElementSibling.style.display='flex';}"><span class="coin-logo-fallback">${String(asset.symbol || asset.id).slice(0, 3)}</span>${modalScannerChip}</span>`;
+    const modalAssetMark = this._logoMarkHTML(asset.symbol || asset.id, { scannerType: modalScannerType, scannerChip: modalScannerChip, sizeClass: 'lg' });
 
     const tradeSymbol = String(asset.symbol || '').replace(/USDT$/i, '') || String(asset.id || '').replace(/USDT.*$/i, '');
     const binanceTradeUrl = `https://www.binance.com/en/trade/${tradeSymbol}_USDT?type=spot&ref=TRENDRUNNER`;

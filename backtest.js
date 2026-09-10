@@ -59,11 +59,15 @@ function parseArgs() {
   const walkForwardRolling = args.includes('--walk-forward-rolling');
   const costSweep = args.includes('--cost-sweep');
   const intervalArg = args.find(a => a.startsWith('--interval='));
-  const interval = intervalArg ? intervalArg.split('=')[1] : '1d';
+  let interval = intervalArg ? intervalArg.split('=')[1] : '1d';
   const moonshots = args.includes('--moonshots');
+  const scalps = args.includes('--scalps');
+  // Align CLI defaults with live engines (4H moonshots / 5m scalps)
+  if (moonshots && !intervalArg) interval = '4h';
+  if (scalps && !intervalArg) interval = '5m';
   const useTrailingExit = args.includes('--exit=trailing') || moonshots;
   const entryRealism = args.includes('--entry-realism');
-  return { walkForward, walkForwardRolling, costSweep, interval, moonshots, useTrailingExit, entryRealism };
+  return { walkForward, walkForwardRolling, costSweep, interval, moonshots, scalps, useTrailingExit, entryRealism };
 }
 
 const PARSED_ARGS = parseArgs();
@@ -99,7 +103,11 @@ function getRollingWindows() {
 
 // ─── Fetch historical data from Binance ────────────────────────────────────────
 async function fetchHistory(symbol, days = 250) {
-  const url = `https://api.binance.com/api/v3/klines?symbol=${symbol}&interval=${INTERVAL}&limit=${days}`;
+  // Intraday modes need more candles (Binance max 1000) — 250 daily bars is too short on 4h/5m
+  const limit = (INTERVAL === '4h' || INTERVAL === '5m')
+    ? Math.min(1000, Math.max(days, 500))
+    : days;
+  const url = `https://api.binance.com/api/v3/klines?symbol=${symbol}&interval=${INTERVAL}&limit=${limit}`;
   const res = await fetch(url);
   const data = await res.json();
   if (!Array.isArray(data) || data.length === 0) throw new Error(`No data for ${symbol}`);
@@ -193,7 +201,15 @@ function backtestSymbol(asset, ohlcv, btcHistory, windowDef, feeRate, slippage, 
       }
     }
 
-    const result = useTrailingExit
+    const result = PARSED_ARGS.scalps
+      ? Signals.generateScalp(slicedCloses, {
+          highs: slicedHighs,
+          lows: slicedLows,
+          volumes: slicedVols,
+          symbol: asset.symbol,
+          marketRegime
+        })
+      : useTrailingExit
       ? Signals.generateBreakout(slicedCloses, { 
           highs: slicedHighs, 
           lows: slicedLows, 
@@ -234,7 +250,10 @@ function backtestSymbol(asset, ohlcv, btcHistory, windowDef, feeRate, slippage, 
       if (position.stopLoss && lows && lows[i] <= position.stopLoss) exitReason = 'STOP_LOSS';
       else if (position.takeProfit && highs && highs[i] >= position.takeProfit) exitReason = 'TAKE_PROFIT';
       else if (sig === 'SELL' || sig === 'STRONG_SELL') exitReason = sig;
-      else if (!useTrailingExit && holdDays >= HOLD_LIMIT) exitReason = 'HOLD_LIMIT';
+      else if (PARSED_ARGS.scalps) {
+        const scalpHold = (CONFIG.scalper && CONFIG.scalper.holdBarsHint) || 12;
+        if (holdDays >= scalpHold) exitReason = 'HOLD_LIMIT';
+      } else if (!useTrailingExit && holdDays >= HOLD_LIMIT) exitReason = 'HOLD_LIMIT';
 
       if (exitReason) {
         const rawExit = ohlcv.opens[nextOpenDay];
@@ -256,11 +275,24 @@ function backtestSymbol(asset, ohlcv, btcHistory, windowDef, feeRate, slippage, 
       if (entryPrice) {
         const atrArr = Indicators.atr(slicedHighs, slicedLows, slicedCloses, 14);
         const atr = atrArr ? Indicators.last(atrArr) : null;
+        let stopMult = STOP_MULT;
+        let takeProfit = entryPrice * (1 + TP_PCT);
+        let riskDistance = atr ? atr * STOP_MULT : null;
+        if (PARSED_ARGS.scalps) {
+          const sc = CONFIG.scalper || {};
+          stopMult = sc.stopAtrMult ?? 1.2;
+          const maxStopPct = (sc.maxStopPct ?? 1.5) / 100;
+          const tpR = sc.takeProfitR ?? 2;
+          let risk = atr ? atr * stopMult : entryPrice * maxStopPct;
+          if (atr && risk > entryPrice * maxStopPct) risk = entryPrice * maxStopPct;
+          riskDistance = risk;
+          takeProfit = entryPrice + (risk || 0) * tpR;
+        }
         position = { 
           entryPrice, entryDay: nextOpenDay, signal: sig, score: result.score, confidence: result.confidence,
-          stopLoss: atr ? entryPrice - (atr * STOP_MULT) : null,
-          takeProfit: entryPrice * (1 + TP_PCT),
-          riskDistance: atr ? atr * STOP_MULT : null,
+          stopLoss: riskDistance ? entryPrice - riskDistance : null,
+          takeProfit,
+          riskDistance,
           maxPriceSeen: entryPrice,
           entryRegime: marketRegime
         };
@@ -610,6 +642,37 @@ async function runMoonshotBacktest(histories, assets, feeRate, slippage) {
   assetResults.forEach(r => console.log(`  ${parseFloat(r.avgReturn) >= 0 ? '🟢' : '🔴'} ${r.symbol.padEnd(8)} | ${r.trades} trades | Win: ${r.winRate}% | Avg: ${r.avgReturn}%`));
 }
 
+async function runScalpBacktest(histories, assets, feeRate, slippage) {
+  const btcHistory = histories.BTC;
+  const trades = [];
+  const assetResults = [];
+  console.log('\n─── 5m Scalp Pullback Results (closed 5m candles) ─────────────');
+  for (const asset of assets) {
+    const ohlcv = histories[asset.symbol];
+    if (!ohlcv || ohlcv.closes.length < 80) continue;
+    const assetTrades = backtestSymbol(asset, ohlcv, btcHistory, {
+      trainStart: MIN_HISTORY,
+      testEnd: ohlcv.closes.length - 2,
+    }, feeRate, slippage, false);
+    assetTrades.forEach(t => { t.symbol = asset.symbol; });
+    trades.push(...assetTrades);
+    const summary = summarizeAssetTrades(asset.symbol, assetTrades);
+    assetResults.push(summary);
+    if (assetTrades.length) console.log(`  ${asset.symbol.padEnd(8)} | ${summary.trades} trades | Win: ${summary.winRate}% | Avg: ${summary.avgReturn}%`);
+  }
+
+  const stats = computeStats(trades, 'returnPct');
+  if (!stats) {
+    console.log('  No Scalp trades generated.');
+    return;
+  }
+  printStatsBlock('Scalp Aggregate', stats, computeStats(trades, 'grossReturnPct'));
+  printBySignalBlock('Scalp By Entry Signal', stats);
+  assetResults.sort((a, b) => parseFloat(b.avgReturn) - parseFloat(a.avgReturn));
+  console.log('\n  Scalp Asset Leaderboard');
+  assetResults.forEach(r => console.log(`  ${parseFloat(r.avgReturn) >= 0 ? '🟢' : '🔴'} ${r.symbol.padEnd(8)} | ${r.trades} trades | Win: ${r.winRate}% | Avg: ${r.avgReturn}%`));
+}
+
 function runWalkForwardWindow(histories, assets, windowDef, feeRate, slippage) {
   const trainAssetResults = [];
   const trainTrades = [];
@@ -758,7 +821,12 @@ async function main() {
   console.log('  Entry: BUY/STRONG_BUY signal at close, fill at next-day open');
   console.log('  Exit trigger: SELL/STRONG_SELL/SL/TP/HOLD on day N, fill at day N+1 open');
   if (args.moonshots) {
-    console.log('  Mode: Moonshot breakout validation on closed 4H candles');
+    console.log(`  Mode: Moonshot breakout validation on closed ${INTERVAL} candles`);
+    console.log('  Note: Research only — does NOT update provenWinners / live allowlists');
+  }
+  if (args.scalps) {
+    console.log(`  Mode: 5m scalp pullback validation on closed ${INTERVAL} candles`);
+    console.log('  Note: Research only — does NOT update provenWinners / live allowlists');
   }
   if (args.walkForward) {
     console.log('  Mode: Walk-Forward (Train days 0-149, Test days 150-249)');
@@ -822,7 +890,7 @@ async function main() {
   }
   
   // Run Auto-Optimization Sweep (unless in moonshot mode which is highly specific)
-  if (!args.moonshots) {
+  if (!args.moonshots && !args.scalps) {
     // await runParameterSweep(histories, fgMap); // User requested 9/21 EMA permanently
   }
 
@@ -835,7 +903,21 @@ async function main() {
       await runMoonshotBacktest(histories, CONFIG.assets.crypto, scenario.feeRate, scenario.slippage);
     }
     console.log('\n═══════════════════════════════════════════════════════════════');
-    console.log('  Moonshot validation complete.');
+    console.log('  Moonshot validation complete (research only).');
+    console.log('═══════════════════════════════════════════════════════════════\n');
+    return;
+  }
+
+  if (args.scalps) {
+    for (const scenario of scenarios) {
+      console.log('\n═══════════════════════════════════════════════════════════════');
+      console.log(`  Scalp Scenario: ${scenario.label}`);
+      printCostLine(scenario.feeRate, scenario.slippage);
+      console.log('═══════════════════════════════════════════════════════════════');
+      await runScalpBacktest(histories, CONFIG.assets.crypto, scenario.feeRate, scenario.slippage);
+    }
+    console.log('\n═══════════════════════════════════════════════════════════════');
+    console.log('  Scalp validation complete (research only).');
     console.log('═══════════════════════════════════════════════════════════════\n');
     return;
   }

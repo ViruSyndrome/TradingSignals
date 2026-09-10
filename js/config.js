@@ -123,6 +123,26 @@ const CONFIG = {
   },
   // Signal thresholds are defined in signals.js LEVELS object.
 
+  // ─── 5m Scalper (volatile alts — pullback entries, not chase) ───────────────
+  // Separate from daily core and 4H moonshots. Paper/small size only.
+  scalper: {
+    enabled: true,
+    scanIntervalMs: 2 * 60 * 1000,  // rescan every 2 minutes
+    initialDelayMs: 12 * 1000,
+    minQuoteVolume: 2_000_000,      // $2M+ 24h quote vol (liquidity floor)
+    topVolatile: 80,                // scan top-N by daily range
+    maxSetups: 8,
+    minBuyScore: 4.5,
+    minStrongScore: 6.0,
+    requireImpulse: true,           // need recent upper-BB touch (momentum pullback)
+    requireConfirmForStrong: true,  // S.BUY only on EMA retest CONFIRM
+    softBearPenalty: 1.0,           // soft score hit if BTC regime bear (when passed)
+    stopAtrMult: 1.2,
+    takeProfitR: 2,
+    maxStopPct: 1.5,                // hard cap ~1.5% stop on 5m
+    holdBarsHint: 12,               // ~1 hour on 5m — time-stop mindset
+  },
+
   // ─── Data refresh & caching ─────────────────────────────────────────────────
   refresh: {
     intervalMs:  30 * 1000,    // UI refresh every 30 seconds

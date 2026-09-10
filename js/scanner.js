@@ -194,9 +194,14 @@ const Scanner = {
       const safeBCryptos = new Set(['BNBUSDT', 'USDSBUSDT', 'DGBUSDT', 'TRBUSDT', 'CKBUSDT', 'SHIBUSDT', 'MOBUSDT', 'PHBUSDT', 'VIBUSDT', 'AMBUSDT', 'ARBUSDT', 'BBUSDT', 'YBUSDT', 'MUBUSDT', 'FLBUSDT']);
       const stableCoins = new Set(['USDCUSDT', 'FDUSDUSDT', 'TUSDUSDT', 'EURUSDT', 'EULUSDT']);
 
-      // Filter for USDT pairs with > $1M volume (lower threshold for meme coins)
+      const scalpCfg = (typeof CONFIG !== 'undefined' && CONFIG.scalper) ? CONFIG.scalper : {};
+      const minQuoteVol = scalpCfg.minQuoteVolume ?? 2000000;
+      const topN = scalpCfg.topVolatile ?? 80;
+      const maxSetups = scalpCfg.maxSetups ?? 8;
+
+      // Filter for liquid USDT pairs (scalper liquidity floor)
       const validPairs = tickers.filter(t => {
-        if (!t.symbol.endsWith('USDT') || !tradingPairs.has(t.symbol) || parseFloat(t.quoteVolume) < 1000000) return false;
+        if (!t.symbol.endsWith('USDT') || !tradingPairs.has(t.symbol) || parseFloat(t.quoteVolume) < minQuoteVol) return false;
         if (stableCoins.has(t.symbol)) return false;
         if (t.symbol.endsWith('BUSDT') && !safeBCryptos.has(t.symbol)) return false;
         
@@ -219,7 +224,7 @@ const Scanner = {
 
       // Sort strictly by volatility for meme coins
       withVol.sort((a, b) => b.volatility - a.volatility);
-      const topScan = withVol.slice(0, 100);
+      const topScan = withVol.slice(0, topN);
 
       const results = [];
       let completed = 0;
@@ -248,7 +253,8 @@ const Scanner = {
               symbol: t.symbol.replace('USDT', ''),
               name: t.symbol.replace('USDT', ''),
               currency: 'USD',
-              icon: '⚡' // Lightning for quick scalps
+              icon: '⚡',
+              isScalp: true,
             };
             
             // Scalper ignores marketRegime and FearGreed entirely
@@ -281,12 +287,18 @@ const Scanner = {
         }
       }
 
-      // Sort by score and volume ratio
+      // Prefer CONFIRM entries, then score / volume quality
+      const timingRank = (r) => {
+        const tm = r.signalResult?.indicators?.scalp?.entryTiming;
+        return tm === 'CONFIRM' ? 2 : (tm === 'WAIT' ? 0 : 1);
+      };
       const setups = results.sort((a, b) => {
-        const aScalp = a.signalResult.indicators.scalp;
-        const bScalp = b.signalResult.indicators.scalp;
-        return b.signalResult.score - a.signalResult.score || bScalp.volumeRatio - aScalp.volumeRatio;
-      }).slice(0, 10);
+        const aScalp = a.signalResult.indicators.scalp || {};
+        const bScalp = b.signalResult.indicators.scalp || {};
+        return timingRank(b) - timingRank(a)
+          || b.signalResult.score - a.signalResult.score
+          || (bScalp.volumeRatio || 0) - (aScalp.volumeRatio || 0);
+      }).slice(0, maxSetups);
 
       return setups;
     } catch (err) {

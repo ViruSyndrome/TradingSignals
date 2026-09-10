@@ -122,3 +122,12 @@ We upgraded the validator with two additional modes:
 - **Config Alignment:** Flipped `winnersOnlyBuys` and `coreOnlyBuys` to `true` to match backtest findings. Removed hardcoded filters from `bot.js` so it trusts the shared `signals.js` engine.
 - **Security & Infrastructure:** Replaced dangerous `eval()` calls in `check.js` with secure `require()` modules. Added a unit testing suite (`npm test`). Created `README.md`, `LICENSE`, and `.env.example`. Renamed `portfolio.json` to `ownedAssets.json`.
 - **UI Polish:** Hidden dead asset class tabs (Stocks, Forex, Commodities) and added cache-busting strings to `scanner.js`.
+
+
+## Product updates (Sep 2026 — v6.14–6.18)
+
+- **v6.14:** Strong Buy tightened to score ≥ 4, 100% confidence, cool RSI (daily core).
+- **v6.15:** Live **50/50** exits — bank half at +10%, trail runner 2× ATR, 7d hold leftovers.
+- **v6.16:** Moonshot **4H CONFIRM/WAIT** (EMA/breakout retest; no chase); Watch vs Holdings clarified.
+- **v6.17:** **5m Scalper** re-enabled (CONFIRM/WAIT, config knobs); CLI `--scalps`; moonshot CLI defaults to **4h**; visual BT engine by timeframe.
+- **v6.18:** Moonshots **no longer auto-star** into Watch; Holdings **multi-lot** editable Binance entry (price + datetime); **I followed this** suggestion ledger (wins/losses); logo fetch script + multi-CDN fallbacks; weekly Action runs moonshot/scalp **research** logs without rewriting winners.
