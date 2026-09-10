@@ -985,20 +985,32 @@ const Dashboard = {
         return { ...d, signalResult, prevSignalResult };
       });
 
-      // Inject active scalps from background scanner
+      // Scalps live only in state.scalps (never graft into CONFIG — that duplicated coins on All).
+      // Drop any leftover _5M / isScalp rows from the main feed, then re-attach refreshed scalps.
+      this.state.allAssets = this.state.allAssets.filter(a =>
+        a.category !== 'scalper'
+        && !a.asset?.isScalp
+        && !String(a.asset?.id || '').includes('_5M')
+      );
+
       if (this.state.scalps && this.state.scalps.length > 0) {
         const liveScalps = await Promise.all(this.state.scalps.map(async scalp => {
           const baseId = String(scalp.asset?.id || '').replace(/_5M$/,''); // e.g. PEPEUSDT_5M -> PEPEUSDT
-          const liveData = all.find(a => a.asset?.id === baseId);
-          let updatedScalp = { ...scalp };
-          
+          const liveData = all.find(a =>
+            String(a.asset?.id || '').replace(/_4H$/,'').replace(/_5M$/,'') === baseId
+            || a.asset?.id === baseId
+          );
+          let updatedScalp = { ...scalp, category: 'scalper' };
+          if (updatedScalp.asset) {
+            updatedScalp.asset = { ...updatedScalp.asset, isScalp: true };
+          }
+
           if (liveData) {
             updatedScalp.price = liveData.price;
             updatedScalp.change24h = liveData.change24h;
             updatedScalp.change4h = liveData.change4h;
           }
-          
-          // Fast-fetch fresh 5m klines to keep 5m change and signal accurate every 30s
+
           try {
             const klines = await API._fetch(`https://api.binance.com/api/v3/klines?symbol=${baseId}&interval=5m&limit=100`, 5000, 0);
             if (Array.isArray(klines) && klines.length >= 50) {
@@ -1007,7 +1019,7 @@ const Dashboard = {
               const lows = klines.map(k => parseFloat(k[3]));
               const volumes = klines.map(k => parseFloat(k[5]));
               const timestamps = klines.map(k => k[0]);
-              
+
               if (liveData && liveData.price != null) {
                 const lastIdx = closes.length - 1;
                 closes[lastIdx] = liveData.price;
@@ -1017,7 +1029,9 @@ const Dashboard = {
 
               const regime = this.state.marketRegime || 'flat';
               const result = Signals.generateScalp(closes, { highs, lows, volumes, marketRegime: regime });
-              const prevResult = Signals.generateScalp(closes.slice(0, -1), { highs: highs.slice(0, -1), lows: lows.slice(0, -1), volumes: volumes.slice(0, -1), marketRegime: regime });
+              const prevResult = Signals.generateScalp(closes.slice(0, -1), {
+                highs: highs.slice(0, -1), lows: lows.slice(0, -1), volumes: volumes.slice(0, -1), marketRegime: regime
+              });
               updatedScalp.closes = closes;
               updatedScalp.highs = highs;
               updatedScalp.lows = lows;
@@ -1031,9 +1045,18 @@ const Dashboard = {
           }
           return updatedScalp;
         }));
-        
-        this.state.scalps = liveScalps;
-        this.state.allAssets.push(...liveScalps);
+
+        // Dedupe by scalp id, keep BUY/STRONG_BUY only for the tab
+        const byId = new Map();
+        for (const s of liveScalps) {
+          const id = s.asset?.id;
+          if (!id) continue;
+          const sig = s.signalResult?.signal;
+          if (sig !== 'BUY' && sig !== 'STRONG_BUY') continue;
+          byId.set(id, s);
+        }
+        this.state.scalps = [...byId.values()];
+        this.state.allAssets.push(...this.state.scalps);
       }
 
       if (this._previousSignals.size === 0) {
@@ -1222,34 +1245,28 @@ const Dashboard = {
   },
 
   _cleanStaleScalps() {
-    let removedAny = false;
+    // Remove legacy grafts that used to duplicate coins on All / tape
     for (let i = CONFIG.assets.crypto.length - 1; i >= 0; i--) {
       const asset = CONFIG.assets.crypto[i];
-      if (asset.grafted && asset.isScalp) {
-        if (this.state.invested.includes(asset.id)) continue;
-        
-        const d = this.state.allAssets.find(a => a.asset.id === asset.id);
-        const sig = d?.signalResult?.signal ?? 'NEUTRAL';
-        
-        if (sig !== 'BUY' && sig !== 'STRONG_BUY') {
-          console.log(`[Scalper] Auto-cleaning stale scalp: ${asset.id} (Signal: ${sig})`);
-          this.state.watchlist = this.state.watchlist.filter(id => id !== asset.id);
-          CONFIG.assets.crypto.splice(i, 1);
-          if (this.state.allAssets) {
-            this.state.allAssets = this.state.allAssets.filter(a => a.asset.id !== asset.id);
-          }
-          removedAny = true;
-        }
+      if (asset?.isScalp || String(asset?.id || '').includes('_5M')) {
+        CONFIG.assets.crypto.splice(i, 1);
       }
     }
-    if (removedAny && this.state.scalps) {
-      this.state.scalps = this.state.scalps.filter(s => {
-        const row = this.state.allAssets.find(a => a.asset.id === s.asset?.id);
-        const sig = row?.signalResult?.signal;
+
+    if (!Array.isArray(this.state.scalps)) return false;
+    const before = this.state.scalps.length;
+    this.state.scalps = this.state.scalps.filter(s => {
+      const sig = s.signalResult?.signal;
+      return sig === 'BUY' || sig === 'STRONG_BUY';
+    });
+    if (this.state.allAssets) {
+      this.state.allAssets = this.state.allAssets.filter(a => {
+        if (a.category !== 'scalper' && !a.asset?.isScalp && !String(a.asset?.id || '').includes('_5M')) return true;
+        const sig = a.signalResult?.signal;
         return sig === 'BUY' || sig === 'STRONG_BUY';
       });
     }
-    return removedAny;
+    return this.state.scalps.length !== before;
   },
 
   async _autoScanScalps() {
@@ -1265,28 +1282,14 @@ const Dashboard = {
       
       this._trackScalpChanges(setups);
       
+      // Keep scalps out of CONFIG — only state.scalps + Scalps filter tab
       this.state.scalps = setups;
-      
-      // Graft scalps into CONFIG so they get live 1D and 4H updates in loadAll()
-      for (const s of setups) {
-        const id = s.asset?.id;
-        if (id && !CONFIG.assets.crypto.some(a => a.id === id)) {
-          CONFIG.assets.crypto.push({
-            id: id,
-            symbol: s.asset?.symbol,
-            name: s.asset?.name,
-            currency: 'USD',
-            icon: '⚡',
-            grafted: true,
-            isScalp: true
-          });
-        }
-      }
-
-      // If we are currently on the scalper tab, trigger a re-render
+      this._cleanStaleScalps();
 
       if (this.state.activeCategory === 'scalper') {
         this.loadAll(true);
+      } else {
+        this._render();
       }
     } catch (e) {
       console.error('Scalper auto-scan failed:', e);
@@ -1322,6 +1325,7 @@ const Dashboard = {
     const seenSymbols = new Set();
     const uniqueAssets = this.state.allAssets.filter(a => {
       if (a.price == null) return false;
+      if (a.category === 'scalper' || a.asset?.isScalp || String(a.asset?.id || '').includes('_5M')) return false;
       const baseSymbol = String(a.asset.id || a.asset.symbol).replace('_4H', '').replace('_5M', '').replace('USDT', '');
       if (seenSymbols.has(baseSymbol)) return false;
       seenSymbols.add(baseSymbol);
@@ -1636,6 +1640,7 @@ const Dashboard = {
 
     // Rank by Absolute Math Score and Confidence, but ONLY show actual BUY signals
     const valid = [...this.state.allAssets].filter(a => {
+      if (a.category === 'scalper' || a.asset?.isScalp || String(a.asset?.id || '').includes('_5M')) return false;
       const s = a.signalResult?.signal;
       return a.closes?.length > 0 && (s === 'BUY' || s === 'STRONG_BUY');
     });
