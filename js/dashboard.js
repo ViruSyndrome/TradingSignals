@@ -1451,12 +1451,20 @@ const Dashboard = {
     if (!el) return;
 
     const counts = { STRONG_BUY: 0, BUY: 0, NEUTRAL: 0, SELL: 0, STRONG_SELL: 0 };
+    const scalpCounts = { STRONG_BUY: 0, BUY: 0, NEUTRAL: 0, SELL: 0, STRONG_SELL: 0 };
     this.state.allAssets.forEach(a => {
       const s = a.signalResult?.signal;
-      if (s && counts[s] !== undefined) counts[s]++;
+      if (!s || counts[s] === undefined) return;
+      counts[s]++;
+      if (a.category === 'scalper' || a.asset?.isScalp || String(a.asset?.id || '').includes('_5M')) {
+        scalpCounts[s]++;
+      }
     });
 
-    const total = this.state.allAssets.length;
+    // Total Tracked = main list only (scalps live on their own tab)
+    const total = this.state.allAssets.filter(a =>
+      a.category !== 'scalper' && !a.asset?.isScalp && !String(a.asset?.id || '').includes('_5M')
+    ).length;
     const bullPct = total > 0 ? Math.round(((counts.STRONG_BUY + counts.BUY) / total) * 100) : 0;
     const sentiment = bullPct >= 60 ? '🟢 Bullish' : bullPct <= 40 ? '🔴 Bearish' : '🟡 Mixed';
 
@@ -1476,13 +1484,13 @@ const Dashboard = {
         <span class="summary-value">${sentiment}</span>
         <span class="summary-label">Market Sentiment</span>
       </div>
-      <div class="summary-item filterable ${isActive('STRONG_BUY')}" data-signal="STRONG_BUY" title="High-conviction bullish setups where trend and momentum align. This is intentionally rare. Click to filter.">
+      <div class="summary-item filterable ${isActive('STRONG_BUY')}" data-signal="STRONG_BUY" title="Strong Buys across daily/moonshot and 5m scalps. Click to show them (scalps included when this filter is on).${scalpCounts.STRONG_BUY ? ' ' + scalpCounts.STRONG_BUY + ' are 5m scalps.' : ''}">
         <span class="summary-count strong-buy">${counts.STRONG_BUY}</span>
-        <span class="summary-label">Strong Buy</span>
+        <span class="summary-label">Strong Buy${scalpCounts.STRONG_BUY ? ` · ${scalpCounts.STRONG_BUY}⚡` : ''}</span>
       </div>
-      <div class="summary-item filterable ${isActive('BUY')}" data-signal="BUY" title="Bullish setups. In live usage, core winners are prioritized over probation and non-winner assets. Click to filter.">
+      <div class="summary-item filterable ${isActive('BUY')}" data-signal="BUY" title="Buys across daily/moonshot and 5m scalps. Click to show them.${scalpCounts.BUY ? ' ' + scalpCounts.BUY + ' are 5m scalps.' : ''}">
         <span class="summary-count buy">${counts.BUY}</span>
-        <span class="summary-label">Buy</span>
+        <span class="summary-label">Buy${scalpCounts.BUY ? ` · ${scalpCounts.BUY}⚡` : ''}</span>
       </div>
       <div class="summary-item filterable ${isActive('NEUTRAL')}" data-signal="NEUTRAL" title="No clear direction — indicators are mixed. Best to wait on the sidelines until a clearer signal forms. Click to filter.">
         <span class="summary-count neutral">${counts.NEUTRAL}</span>
@@ -1706,7 +1714,10 @@ const Dashboard = {
     }
 
     if (cat === 'all') {
-      assets = assets.filter(a => a.category !== 'scalper');
+      // Hide scalps from the main feed — unless a summary signal filter is on (so S.BUY click finds 5m scalps)
+      if (!this.state.activeSignalFilter) {
+        assets = assets.filter(a => a.category !== 'scalper' && !a.asset?.isScalp && !String(a.asset?.id || '').includes('_5M'));
+      }
     } else if (cat === 'watchlist') {
       assets = assets.filter(a => this.state.watchlist.includes(a.asset.id));
     } else if (cat === 'holdings') {
@@ -1778,7 +1789,7 @@ const Dashboard = {
 
     this.state.filtered = assets;
 
-    if (cat === 'scalper' && assets.length === 0) {
+    if (cat === 'scalper' && assets.length === 0 && !this.state.activeSignalFilter) {
       el.innerHTML = `<div class="moonshot-empty-state"><div class="moonshot-empty-icon">⚡</div><p class="moonshot-empty-title">No active 5m scalps</p><p class="moonshot-empty-sub">Scanner looks for <strong>EMA pullbacks after an impulse</strong> on liquid alts. Empty is normal in chop — wait for <strong>5m CONFIRM</strong>, small size, tight stop, bank at 2R.</p></div>`;
       return;
     }
@@ -1790,9 +1801,21 @@ const Dashboard = {
     }
 
     if (assets.length === 0) {
-      el.innerHTML = this.state.loading 
+      const sig = this.state.activeSignalFilter;
+      let msg = 'No assets match this filter currently.';
+      if (sig) {
+        const scalpN = this.state.allAssets.filter(a =>
+          (a.category === 'scalper' || a.asset?.isScalp) && a.signalResult?.signal === sig
+        ).length;
+        if (scalpN > 0 && cat !== 'all') {
+          msg = `No matches on this tab. ${scalpN}× ${sig.replace('_', ' ')} are on <strong>⚡ 5m Scalps</strong> — click Strong Buy again from All, or open that tab.`;
+        } else {
+          msg = `No ${sig.replace('_', ' ')} setups right now.`;
+        }
+      }
+      el.innerHTML = this.state.loading
         ? '<p class="no-data">No data yet — loading…</p>'
-        : '<p class="no-data">No assets match this filter currently.</p>';
+        : `<p class="no-data">${msg}</p>`;
       return;
     }
 
@@ -2652,19 +2675,37 @@ const Dashboard = {
         const item = e.target.closest('.filterable');
         if (!item) return;
         const sig = item.dataset.signal;
-        
-        // If clicking a summary filter while on a non-asset tab, force switch to 'all'
-        if (this.state.activeCategory === 'history') {
-          this.state.activeCategory = 'all';
-          document.querySelectorAll('.filter-tab').forEach(tab => {
-            tab.classList.toggle('active', tab.dataset.cat === 'all');
-          });
-        }
-        
+
         if (sig === 'ALL' || this.state.activeSignalFilter === sig) {
-          this.state.activeSignalFilter = null; // reset filter
+          this.state.activeSignalFilter = null;
+          // Stay on current tab when clearing
         } else {
           this.state.activeSignalFilter = sig;
+
+          // Always jump to All so S.BUY/BUY counts that include 5m scalps are visible
+          // (All normally hides scalps; with a signal filter they are included.)
+          const jumpCats = new Set(['history', 'holdings', 'watchlist', 'oversold', 'highconf', 'trending', 'scalper']);
+          if (jumpCats.has(this.state.activeCategory) || this.state.activeCategory !== 'all') {
+            this.state.activeCategory = 'all';
+            document.querySelectorAll('.filter-tab').forEach(tab => {
+              tab.classList.toggle('active', tab.dataset.cat === 'all');
+            });
+          }
+
+          const scalpN = this.state.allAssets.filter(a =>
+            (a.category === 'scalper' || a.asset?.isScalp || String(a.asset?.id || '').includes('_5M'))
+            && a.signalResult?.signal === sig
+          ).length;
+          const totalN = this.state.allAssets.filter(a => a.signalResult?.signal === sig).length;
+          if (scalpN > 0) {
+            this._showToast(
+              totalN === scalpN
+                ? `${scalpN}× ${sig.replace('_', ' ')} are 5m scalps — showing them below (SCALP chip)`
+                : `Filter: ${sig.replace('_', ' ')} (includes ${scalpN}× 5m scalp)`,
+              'info'
+            );
+          }
+
           document.getElementById('assetGrid')?.scrollIntoView({ behavior: 'smooth', block: 'start' });
         }
         this._renderSummaryBar();
