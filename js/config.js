@@ -90,9 +90,13 @@ const CONFIG = {
   // ─── Live exit policy (single source of truth for OCO, bots, UI, backtests) ─
   // Keep take-profit / hold-limit messaging identical everywhere.
   exits: {
-    takeProfitPct: 10,
-    holdLimitDays: 7,
-    stopAtrMult: 2,
+    takeProfitPct: 10,      // Scale A (bank) fixed TP on partial size
+    holdLimitDays: 7,       // Time stop if neither bank TP nor trail exits
+    stopAtrMult: 2,         // Initial protective stop distance
+    // 50/50 plan: bank half at +takeProfitPct; leave half as a trailing runner
+    partialPct: 50,
+    runnerTrailAtrMult: 2,
+    moveStopToBreakevenAfterPartial: true,
     feePerSide: 0.001,      // 0.10% exchange fee per side
     slippagePerSide: 0.001, // 0.10% slippage per side → 0.40% round-trip
   },

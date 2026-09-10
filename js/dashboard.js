@@ -299,6 +299,9 @@ const Dashboard = {
       takeProfitPct: exits.takeProfitPct ?? 10,
       holdLimitDays: exits.holdLimitDays ?? CONFIG.activeParams?.holdLimit ?? 7,
       stopAtrMult: exits.stopAtrMult ?? 2,
+      partialPct: exits.partialPct ?? 50,
+      runnerTrailAtrMult: exits.runnerTrailAtrMult ?? 2,
+      moveStopToBreakevenAfterPartial: exits.moveStopToBreakevenAfterPartial !== false,
       feePerSide: exits.feePerSide ?? 0.001,
       slippagePerSide: exits.slippagePerSide ?? 0.001,
     };
@@ -1187,8 +1190,8 @@ const Dashboard = {
         <span class="summary-value" style="color:#34d399">${CONFIG.signals?.coreOnlyBuys ? '🎯 Core-only live' : '🧪 All winners'}</span>
         <span class="summary-label">${(CONFIG.assets?.coreWinners || []).length} core · ${(CONFIG.assets?.probationWinners || []).length} probation research</span>
       </div>
-      <div class="summary-item" title="Live swing strategy parameters. Exits use a fixed ${this._exitPolicy().takeProfitPct}% take-profit and ${this._exitPolicy().holdLimitDays}-day hold limit.">
-        <span class="summary-value" style="color:#29b6f6">⚙️ TP ${this._exitPolicy().takeProfitPct}% · ${this._exitPolicy().holdLimitDays}d · RSI=${CONFIG.activeParams.rsiPeriod}</span>
+      <div class="summary-item" title="Live exits: bank ${this._exitPolicy().partialPct}% at +${this._exitPolicy().takeProfitPct}% OCO; trail the rest (${this._exitPolicy().runnerTrailAtrMult}×ATR). Max hold ${this._exitPolicy().holdLimitDays}d.">
+        <span class="summary-value" style="color:#29b6f6">⚙️ ${this._exitPolicy().partialPct}/${100 - this._exitPolicy().partialPct} · bank +${this._exitPolicy().takeProfitPct}% · trail ${this._exitPolicy().runnerTrailAtrMult}×ATR · ${this._exitPolicy().holdLimitDays}d</span>
         <span class="summary-label">Strategy (EMA ${CONFIG.activeParams.emaFast}/${CONFIG.activeParams.emaSlow})</span>
       </div>
       ${this._lastBacktestBadgeHTML()}
@@ -1740,12 +1743,19 @@ const Dashboard = {
   _stopLevelsHTML(signalResult, asset) {
     const s = signalResult?.stopSuggest;
     if (!s || !['BUY', 'STRONG_BUY'].includes(signalResult?.signal)) return '';
+    const policy = this._exitPolicy();
+    const partial = s.partialPct ?? policy.partialPct ?? 50;
     const cur = (v) => (asset.currency === 'INR' ? '₹' : '$') + this._fmt(v, asset);
+    const bankPct = s.bankTakeProfitPct ?? s.takeProfitPct ?? policy.takeProfitPct;
+    const trailPct = s.runnerTrailPct ?? ((policy.runnerTrailAtrMult || 2) * (s.distancePct / (policy.stopAtrMult || 2)));
     return `
-      <div class="stop-levels" title="Place these as real orders on your exchange the moment you enter. Skipping the stop-loss is the #1 cause of large losses.">
+      <div class="stop-levels" title="50/50 exit plan: bank half at fixed TP, trail the rest so runners can extend past +10%.">
         <div class="stop-levels-row">
-          <span class="stop-chip stop-chip-sl">🛑 Stop: ${cur(s.stopPrice)} (-${s.distancePct}%)</span>
-          <span class="stop-chip stop-chip-tp">🎯 Target: ${s.takeProfitPrice ? cur(s.takeProfitPrice) + ' (+' + s.takeProfitPct + '% Optimized)' : 'Trailing'}</span>
+          <span class="stop-chip stop-chip-sl">🛑 Stop (100%): ${cur(s.stopPrice)} (-${s.distancePct}%)</span>
+          <span class="stop-chip stop-chip-tp">🏦 Bank ${partial}%: ${cur(s.takeProfitPrice)} (+${bankPct}%)</span>
+        </div>
+        <div class="stop-levels-row" style="margin-top:6px">
+          <span class="stop-chip stop-chip-tp" style="opacity:0.95">🏃 Runner ${100 - partial}%: trail ~${Number(trailPct).toFixed(2)}% ATR · BE after bank</span>
         </div>
       </div>
     `;
@@ -2339,32 +2349,46 @@ const Dashboard = {
   _ocoHTML(d) {
     const s = d.signalResult?.stopSuggest;
     if (!s || !['BUY', 'STRONG_BUY'].includes(d.signalResult?.signal)) {
-      return '<div class="oco-panel oco-muted">No OCO levels: wait for a core Buy setup with a valid stop and target.</div>';
+      return '<div class="oco-panel oco-muted">No exit plan: wait for a Buy / Strong Buy with a valid stop and bank target.</div>';
     }
     const policy = this._exitPolicy();
     const price = d.price;
+    const partial = s.partialPct ?? policy.partialPct ?? 50;
+    const runnerPct = 100 - partial;
+    const bankPct = s.bankTakeProfitPct ?? s.takeProfitPct ?? policy.takeProfitPct;
+    const trailPct = s.runnerTrailPct != null ? Number(s.runnerTrailPct).toFixed(2) : '—';
     const valid = price > s.stopPrice && s.stopPrice > 0 && s.takeProfitPrice > price;
     const riskPct = Number(s.distancePct) || 0;
-    const rewardPct = Number(s.takeProfitPct) || policy.takeProfitPct;
+    const rewardPct = Number(bankPct) || 0;
     const rewardRisk = riskPct > 0 && rewardPct > 0 ? (rewardPct / riskPct).toFixed(1) : '–';
     const staleMinutes = d.fetchedAt ? (Date.now() - new Date(d.fetchedAt).getTime()) / 60000 : Infinity;
     const stale = !Number.isFinite(staleMinutes) || staleMinutes > 15;
-    const status = !valid ? 'Invalid price relationship' : stale ? 'Refresh before placing: levels are stale' : 'OCO levels ready to review';
+    const status = !valid ? 'Invalid price relationship' : stale ? 'Refresh before placing: levels are stale' : '50/50 exit plan ready';
     const statusClass = !valid || stale ? 'oco-warning' : 'oco-ready';
     const symbol = d.asset.symbol;
     const rules = d.rules || {};
-    const ruleText = rules.minNotional ? `Binance minimum order value: $${rules.minNotional}. Quantity step: ${rules.stepSize}. Price tick: ${rules.tickSize}.` : 'Binance will enforce the pair minimum value and price/quantity precision.';
+    const ruleText = rules.minNotional ? `Binance minimum order value: $${rules.minNotional}. Quantity step: ${rules.stepSize}. Price tick: ${rules.tickSize}.` : 'Binance will enforce pair minimums and precision.';
+    const beNote = (s.moveStopToBreakevenAfterPartial ?? policy.moveStopToBreakevenAfterPartial)
+      ? 'After the bank leg fills, move the runner stop to breakeven (entry).'
+      : 'Keep the runner protective stop active.';
     return `
       <div class="oco-panel">
-        <div class="oco-title">OCO order for ${symbol}</div>
-        <div class="oco-status oco-ready" style="background:rgba(14, 165, 233, 0.15);color:#38bdf8;border:1px solid #0ea5e9;margin-top:10px;">⚡ Live policy: +${policy.takeProfitPct}% TP · Max ${policy.holdLimitDays}-Day Hold</div>
+        <div class="oco-title">50/50 exit plan · ${symbol}</div>
+        <div class="oco-status oco-ready" style="background:rgba(14, 165, 233, 0.15);color:#38bdf8;border:1px solid #0ea5e9;margin-top:10px;">⚡ Bank ${partial}% @ +${bankPct}% · Runner ${runnerPct}% trail ${policy.runnerTrailAtrMult}×ATR · Max ${policy.holdLimitDays}d</div>
         <div class="oco-status ${statusClass}">${status}</div>
         <div class="oco-grid">
-          <span>Price / TP <strong>${this._fmt(s.takeProfitPrice, d.asset)}</strong></span>
-          <span>Stop price <strong>${this._fmt(s.stopPrice, d.asset)}</strong></span>
+          <span>Scale A bank TP <strong>${this._fmt(s.takeProfitPrice, d.asset)}</strong> (+${bankPct}%)</span>
+          <span>Initial stop (all) <strong>${this._fmt(s.stopPrice, d.asset)}</strong> (-${s.distancePct}%)</span>
           <span>Stop-limit <strong>${this._fmt(s.stopPrice * 0.998, d.asset)}</strong></span>
+          <span>Runner trail width <strong>~${trailPct}%</strong> (${policy.runnerTrailAtrMult}×ATR)</span>
         </div>
-        <small>Reward/risk: ${rewardRisk}R. Use the Trade on Binance button above for the pair, then place a sell OCO with these prices. ${ruleText}</small>
+        <ol class="oco-steps" style="margin:12px 0 8px;padding-left:18px;color:var(--text-muted);font-size:13px;line-height:1.45">
+          <li><strong>Buy</strong> your full size on Binance spot.</li>
+          <li><strong>Scale A (${partial}%):</strong> place a sell OCO — limit = bank TP, stop = initial stop (qty = half).</li>
+          <li><strong>Scale B (${runnerPct}%):</strong> place a stop (same initial stop) or trailing stop (~${trailPct}% / ${policy.runnerTrailAtrMult}×ATR). ${beNote}</li>
+          <li>If nothing hits in <strong>${policy.holdLimitDays} days</strong>, exit remaining size (time stop).</li>
+        </ol>
+        <small>Bank leg R:R ~${rewardRisk}R at +${bankPct}%. Runner is how 40%+ outcomes stay possible without forcing every trade to a high fixed TP. ${ruleText}</small>
       </div>
     `;
   },

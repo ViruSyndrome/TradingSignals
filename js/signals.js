@@ -385,6 +385,10 @@ const Signals = {
       const stopPrice = !isShort ? price - risk : price + risk;
       const takeProfitPrice = !isShort ? price * (1 + tpPct) : price * (1 - tpPct);
       
+      const partialPct = exits.partialPct ?? 50;
+      const trailMult = exits.runnerTrailAtrMult ?? mult;
+      const trailDist = trailMult * curAtr;
+      const beAfter = exits.moveStopToBreakevenAfterPartial !== false;
       stopSuggest = {
         atr: +curAtr.toFixed(8),
         stopPrice: +stopPrice.toFixed(8),
@@ -393,6 +397,15 @@ const Signals = {
         takeProfitPct: +((exits.takeProfitPct ?? 10)).toFixed(2),
         holdLimitDays: exits.holdLimitDays ?? CONFIG.activeParams?.holdLimit ?? 7,
         side: !isShort ? 'long' : 'short',
+        // Dual exit plan (live guidance)
+        partialPct,
+        bankTakeProfitPct: +((exits.takeProfitPct ?? 10)).toFixed(2),
+        bankTakeProfitPrice: +takeProfitPrice.toFixed(8),
+        runnerTrailAtrMult: trailMult,
+        runnerTrailDistance: +trailDist.toFixed(8),
+        runnerTrailPct: +((trailDist / price) * 100).toFixed(2),
+        moveStopToBreakevenAfterPartial: beAfter,
+        exitPlan: 'scale_50_50',
       };
     }
 
@@ -441,14 +454,14 @@ const Signals = {
         if (rsi && rsi < 35) text.push(`RSI at ${rsi} signals deeply oversold levels.`);
         if (cross === 'bullish') text.push('A MACD bullish crossover just fired — a classic entry trigger.');
         if (ma?.macroBullish && ma?.microBullish) text.push(`Dual Bullish Alignment: ${params.emaFast} EMA > ${params.emaSlow} EMA (Day Trend) and Price > 50 SMA (Macro Trend).`);
-        text.push('Consider entering with a defined stop-loss below nearest support. Risk only 1-2% of capital.');
+        text.push('Use the 50/50 exit plan: bank half at +10% OCO, trail the other half (stop → breakeven after bank fills). Risk only 1-2% of capital on the full position.');
         break;
       case 'BUY':
         text.push('📈 Favorable conditions to accumulate.');
         if (bb?.percentB < 0.2) text.push('Price is hugging the lower Bollinger Band, suggesting a potential bounce.');
         if (ma?.macroBullish && ma?.microBullish) text.push(`Both short-term (${params.emaFast}/${params.emaSlow} EMA) and long-term (50 SMA) trends are bullish.`);
         if (ma?.microBullish && !ma?.macroBullish) text.push(`Note: Day trend is bullish (${params.emaFast} EMA > ${params.emaSlow} EMA), but Macro Trend is bearish. Proceed with caution.`);
-        text.push('Look for confirmation on lower timeframes before entering a full position.');
+        text.push('If you enter, still use 50/50 exits (half bank at +10%, half trail). Prefer waiting for a cool 4H dip when the timing chip says WAIT.');
         break;
       case 'NEUTRAL':
         text.push('⏸️ Mixed signals — no clear directional edge.');
@@ -832,7 +845,7 @@ const Signals = {
     return this.LEVELS[signalKey] || this.LEVELS.NEUTRAL;
   },
 
-  _version: '6.14',
+  _version: '6.15',
 };
 
 if (typeof module !== 'undefined' && module.exports) module.exports = Signals;

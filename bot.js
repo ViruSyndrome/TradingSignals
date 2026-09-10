@@ -396,12 +396,17 @@ async function scanMarket() {
       let stopText = '';
       const winnerTier = result.winnerTier ?? 'none';
       if (result.stopSuggest) {
+        const ss = result.stopSuggest;
+        const partial = ss.partialPct ?? CONFIG.exits?.partialPct ?? 50;
+        const trail = ss.runnerTrailPct != null ? ss.runnerTrailPct : (CONFIG.exits?.runnerTrailAtrMult ?? 2);
         stopText = `
 
-🎯 Stop-Loss: $${result.stopSuggest.stopPrice} (-${result.stopSuggest.distancePct}%)
-✅ Take-Profit: $${result.stopSuggest.takeProfitPrice} (+${result.stopSuggest.takeProfitPct}%)
-  ⏳ Time Limit: Max ${result.stopSuggest.holdLimitDays || CONFIG.exits?.holdLimitDays || 7} Days Hold
-⚠️ Place both as real exchange orders now — this edge only works if losers are cut at the stop.`;
+🛡️ 50/50 exit plan
+🛑 Stop (full size): $${ss.stopPrice} (-${ss.distancePct}%)
+🏦 Bank ${partial}% @ $${ss.takeProfitPrice} (+${ss.takeProfitPct || ss.bankTakeProfitPct}%)
+🏃 Runner ${100 - partial}%: trail ~${trail}% ATR; move stop to breakeven after bank fills
+⏳ Time stop: Max ${ss.holdLimitDays || CONFIG.exits?.holdLimitDays || 7} days on leftovers
+⚠️ Place Scale A OCO + Scale B trail on Binance at entry.`;
       }
 
       if (result.signal === 'STRONG_BUY') {
