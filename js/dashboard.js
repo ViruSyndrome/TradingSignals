@@ -617,131 +617,137 @@ const Dashboard = {
     };
   },
   
-  _trackSignalChanges() {
-    const history = this._getSignalHistory();
-    const now = new Date().toISOString();
-    
-    for (const asset of this.state.allAssets) {
-      const id = asset.asset?.id;
-      const newSignal = asset.signalResult?.signal ?? 'NEUTRAL';
-      const newScore = asset.signalResult?.score ?? 0;
-      const oldSignal = this._previousSignals.get(id);
-      
-      if (oldSignal && oldSignal !== newSignal) {
-        history.unshift({
-          time: now,
-          id: id,
-          name: asset.asset?.name || id,
-          symbol: asset.asset?.symbol || id,
-          icon: asset.asset?.icon || '',
-          from: oldSignal,
-          to: newSignal,
-          score: newScore,
-          price: asset.price,
-        });
-      }
-      this._previousSignals.set(id, newSignal);
+  _getSignalHistory() {
+    try {
+      const raw = localStorage.getItem(this.SIGNAL_HISTORY_KEY);
+      const history = raw ? JSON.parse(raw) : [];
+      return Array.isArray(history) ? history : [];
+    } catch (e) { return []; }
+  },
+
+  /** Keep a real timeline (not one-row-per-coin). Drop only exact duplicate spam. */
+  _saveSignalHistory(history) {
+    const list = Array.isArray(history) ? [...history] : [];
+    const cleaned = [];
+    for (const h of list) {
+      const prev = cleaned[cleaned.length - 1];
+      // Skip back-to-back identical transitions for the same id
+      if (prev && prev.id === h.id && prev.from === h.from && prev.to === h.to) continue;
+      cleaned.push(h);
     }
-    // Deduplicate to keep only the most recent event per asset, so arrows don't vanish due to spam
-    const uniqueHistory = [];
-    const seenIds = new Set();
-    for (const h of history) {
-      if (!seenIds.has(h.id)) {
-        seenIds.add(h.id);
-        uniqueHistory.push(h);
-      }
-    }
-    
-    // Keep last 300 unique entries (plenty for all tracked assets)
-    const trimmed = uniqueHistory.slice(0, 300);
+    const trimmed = cleaned.slice(0, 300);
     this.state.latestSignalHistory = trimmed;
     try {
       localStorage.setItem(this.SIGNAL_HISTORY_KEY, JSON.stringify(trimmed));
     } catch (e) {
-      console.warn('Failed to save signal history to localStorage', e);
+      console.warn('Failed to save signal history', e);
     }
+    return trimmed;
+  },
+
+  _appendSignalEvent(entry) {
+    if (!entry?.id || !entry.to) return;
+    const history = this._getSignalHistory();
+    history.unshift({
+      time: entry.time || new Date().toISOString(),
+      id: entry.id,
+      name: entry.name || entry.id,
+      symbol: entry.symbol || entry.id,
+      icon: entry.icon || '',
+      from: entry.from || 'NEUTRAL',
+      to: entry.to,
+      score: entry.score ?? 0,
+      price: entry.price ?? null,
+      kind: entry.kind || null,
+    });
+    this._saveSignalHistory(history);
+  },
+
+  _trackSignalChanges() {
+    const history = this._getSignalHistory();
+    const now = new Date().toISOString();
+    let changed = false;
+
+    for (const asset of this.state.allAssets) {
+      const id = asset.asset?.id;
+      if (!id) continue;
+      // Scalps are logged by _trackScalpChanges (appear/expire) + loadAll refresh below via same map
+      const newSignal = asset.signalResult?.signal ?? 'NEUTRAL';
+      const oldSignal = this._previousSignals.get(id);
+
+      if (oldSignal && oldSignal !== newSignal) {
+        const isScalp = asset.category === 'scalper' || asset.asset?.isScalp || String(id).includes('_5M');
+        history.unshift({
+          time: now,
+          id,
+          name: asset.asset?.name || id,
+          symbol: isScalp ? `${asset.asset?.symbol || id} (5m)` : (asset.asset?.symbol || id),
+          icon: isScalp ? '⚡' : (asset.asset?.icon || ''),
+          from: oldSignal,
+          to: newSignal,
+          score: asset.signalResult?.score ?? 0,
+          price: asset.price,
+          kind: isScalp ? 'scalp' : (asset.asset?.isMoonshot || String(id).includes('_4H') ? 'moonshot' : 'daily'),
+        });
+        changed = true;
+      }
+      this._previousSignals.set(id, newSignal);
+    }
+    if (changed || history !== this.state.latestSignalHistory) this._saveSignalHistory(history);
   },
 
   _trackScalpChanges(setups) {
     const history = this._getSignalHistory();
     const now = new Date().toISOString();
     const currentSetupIds = new Set();
-    
-    // Check for new or changed scalps
-    for (const s of setups) {
+    let changed = false;
+
+    for (const s of setups || []) {
       const id = s.asset?.id;
       if (!id) continue;
       currentSetupIds.add(id);
-      
       const oldSignal = this._previousScalps.get(id);
       const newSignal = s.signalResult?.signal ?? 'BUY';
-      
+
       if (!oldSignal || oldSignal !== newSignal) {
         history.unshift({
           time: now,
-          id: id,
+          id,
           name: s.asset?.name || id,
-          symbol: (s.asset?.symbol || id) + ' (5m)',
+          symbol: `${s.asset?.symbol || id} (5m)`,
           icon: '⚡',
           from: oldSignal || 'NEUTRAL',
           to: newSignal,
           score: s.signalResult?.score ?? 0,
           price: s.price,
+          kind: 'scalp',
         });
         this._previousScalps.set(id, newSignal);
+        this._previousSignals.set(id, newSignal);
+        changed = true;
       }
     }
 
-    // Check for expired scalps
-    for (const [id, oldSignal] of this._previousScalps.entries()) {
-      if (!currentSetupIds.has(id)) {
-        history.unshift({
-          time: now,
-          id: id,
-          name: id,
-          symbol: id.replace('_5M', '').replace('_4H', '') + ' (5m)',
-          icon: '⚡',
-          from: oldSignal,
-          to: 'EXPIRED',
-          score: 0,
-          price: 0,
-        });
-        this._previousScalps.delete(id);
-      }
+    for (const [id, oldSignal] of [...this._previousScalps.entries()]) {
+      if (currentSetupIds.has(id)) continue;
+      history.unshift({
+        time: now,
+        id,
+        name: String(id).replace(/_5M$/, '').replace(/USDT$/, ''),
+        symbol: `${String(id).replace(/_5M$/, '').replace(/USDT$/, '')} (5m)`,
+        icon: '⚡',
+        from: oldSignal,
+        to: 'EXPIRED',
+        score: 0,
+        price: 0,
+        kind: 'scalp',
+      });
+      this._previousScalps.delete(id);
+      this._previousSignals.delete(id);
+      changed = true;
     }
 
-    // Deduplicate to keep only the most recent event per asset
-    const uniqueHistory = [];
-    const seenIds = new Set();
-    for (const h of history) {
-      if (!seenIds.has(h.id)) {
-        seenIds.add(h.id);
-        uniqueHistory.push(h);
-      }
-    }
-
-    // Keep last 300 unique entries
-    const trimmed = uniqueHistory.slice(0, 300);
-    this.state.latestSignalHistory = trimmed;
-    try {
-      localStorage.setItem(this.SIGNAL_HISTORY_KEY, JSON.stringify(trimmed));
-    } catch (e) {
-      console.warn('Failed to save scalp history', e);
-    }
-  },
-  
-  _getSignalHistory() {
-    try {
-      const raw = localStorage.getItem(this.SIGNAL_HISTORY_KEY);
-      const history = raw ? JSON.parse(raw) : [];
-      const cleanedHistory = Array.isArray(history)
-        ? history.filter(entry => !String(entry.id || '').toUpperCase().endsWith('_5M'))
-        : [];
-      if (Array.isArray(history) && cleanedHistory.length !== history.length) {
-        localStorage.setItem(this.SIGNAL_HISTORY_KEY, JSON.stringify(cleanedHistory));
-      }
-      return cleanedHistory;
-    } catch(e) { return []; }
+    if (changed) this._saveSignalHistory(history);
   },
 
   // ─── Boot ────────────────────────────────────────────────────────────────────
@@ -1288,6 +1294,8 @@ const Dashboard = {
 
       if (this.state.activeCategory === 'scalper') {
         this.loadAll(true);
+      } else if (this.state.activeCategory === 'history') {
+        this._renderAssetGrid();
       } else {
         this._render();
       }
@@ -1764,15 +1772,22 @@ const Dashboard = {
           const baseId = String(h.id || '').toUpperCase().replace(/_(?:4H|5M)$/, '');
           const baseSymbol = baseId.endsWith('USDT') ? baseId.slice(0, -4) : baseId;
           const binanceId = `${baseSymbol}_USDT`;
-          const scannerType = String(h.id || '').toUpperCase().endsWith('_4H') ? 'moonshot' : '';
-          const scannerChip = scannerType ? '<span class="scanner-chip moonshot-chip">MOON</span>' : '';
+          const idUp = String(h.id || '').toUpperCase();
+          const scannerType = h.kind === 'scalp' || idUp.endsWith('_5M')
+            ? 'scalper'
+            : (h.kind === 'moonshot' || idUp.endsWith('_4H') ? 'moonshot' : '');
+          const scannerChip = scannerType === 'moonshot'
+            ? '<span class="scanner-chip moonshot-chip">MOON</span>'
+            : (scannerType === 'scalper' ? '<span class="scanner-chip scalper-chip">SCALP</span>' : '');
           const historyIcon = `<span class="sh-visual ${scannerType ? `scanner-visual ${scannerType}-visual` : ''}">${this._logoMarkHTML(baseSymbol, { scannerType, scannerChip })}</span>`;
+          const toShort = h.to === 'EXPIRED' ? 'OUT' : toLevel.short;
+          const toCls = h.to === 'EXPIRED' ? 'neutral' : toLevel.cls;
           return `<a href="https://www.binance.com/en/trade/${binanceId}?type=spot&ref=TRENDRUNNER" target="_blank" rel="noopener noreferrer" class="signal-history-entry" style="text-decoration:none; color:inherit;">
             ${historyIcon}
             <span class="sh-name">${h.name} <small>${h.symbol}</small></span>
             <span class="signal-badge signal-${fromLevel.cls}" style="font-size:11px;padding:2px 6px;">${fromLevel.short}</span>
             <span class="sh-arrow">→</span>
-            <span class="signal-badge signal-${toLevel.cls}" style="font-size:11px;padding:2px 6px;">${toLevel.short}</span>
+            <span class="signal-badge signal-${toCls}" style="font-size:11px;padding:2px 6px;">${toShort}</span>
             <span class="sh-price">${priceStr}</span>
             <span class="sh-time">${timeStr}</span>
             </a>`;
