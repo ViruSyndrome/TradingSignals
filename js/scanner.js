@@ -268,6 +268,7 @@ const Scanner = {
               change24h: parseFloat(t.priceChangePercent),
               change5m: ((closes[closes.length - 1] - closes[closes.length - 2]) / closes[closes.length - 2]) * 100,
               closes: closes,
+              closes1D: closes, // sparkline left = 5m series until loadAll attaches 4H
               timestamps: timestamps,
               signalResult: result
             };

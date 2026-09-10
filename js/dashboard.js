@@ -1018,13 +1018,25 @@ const Dashboard = {
           }
 
           try {
-            const klines = await API._fetch(`https://api.binance.com/api/v3/klines?symbol=${baseId}&interval=5m&limit=100`, 5000, 0);
-            if (Array.isArray(klines) && klines.length >= 50) {
-              const closes = klines.map(k => parseFloat(k[4]));
-              const highs = klines.map(k => parseFloat(k[2]));
-              const lows = klines.map(k => parseFloat(k[3]));
-              const volumes = klines.map(k => parseFloat(k[5]));
-              const timestamps = klines.map(k => k[0]);
+            const [klines5m, klines4h] = await Promise.all([
+              API._fetch(`https://api.binance.com/api/v3/klines?symbol=${baseId}&interval=5m&limit=100`, 5000, 0),
+              API._fetch(`https://api.binance.com/api/v3/klines?symbol=${baseId}&interval=4h&limit=100`, 5000, 0),
+            ]);
+
+            if (Array.isArray(klines4h) && klines4h.length >= 2) {
+              const closes4H = klines4h.map(k => parseFloat(k[4]));
+              updatedScalp.closes4H = closes4H;
+              const prev4 = closes4H[closes4H.length - 2];
+              const last4 = closes4H[closes4H.length - 1];
+              if (prev4 > 0) updatedScalp.change4h = ((last4 - prev4) / prev4) * 100;
+            }
+
+            if (Array.isArray(klines5m) && klines5m.length >= 50) {
+              const closes = klines5m.map(k => parseFloat(k[4]));
+              const highs = klines5m.map(k => parseFloat(k[2]));
+              const lows = klines5m.map(k => parseFloat(k[3]));
+              const volumes = klines5m.map(k => parseFloat(k[5]));
+              const timestamps = klines5m.map(k => k[0]);
 
               if (liveData && liveData.price != null) {
                 const lastIdx = closes.length - 1;
@@ -1039,6 +1051,7 @@ const Dashboard = {
                 highs: highs.slice(0, -1), lows: lows.slice(0, -1), volumes: volumes.slice(0, -1), marketRegime: regime
               });
               updatedScalp.closes = closes;
+              updatedScalp.closes1D = closes; // left sparkline canvas id ends in _1d but shows 5m for scalps
               updatedScalp.highs = highs;
               updatedScalp.lows = lows;
               updatedScalp.timestamps = timestamps;
@@ -1047,7 +1060,7 @@ const Dashboard = {
               updatedScalp.change5m = ((closes[closes.length - 1] - closes[closes.length - 2]) / closes[closes.length - 2]) * 100;
             }
           } catch (e) {
-            console.warn(`[Dashboard] Failed to refresh 5m klines for ${baseId}:`, e.message);
+            console.warn(`[Dashboard] Failed to refresh scalp klines for ${baseId}:`, e.message);
           }
           return updatedScalp;
         }));
@@ -1869,15 +1882,19 @@ const Dashboard = {
 
   _initSparklines(assets, isMoonshot = false) {
     assets.forEach(a => {
-      const isPos24 = (a.change24h ?? 0) >= 0;
-      const isPos4 = (a.change4h ?? 0) >= 0;
+      const isScalp = a.category === 'scalper' || a.asset?.isScalp || String(a.asset?.id || '').includes('_5M');
       const prefix = isMoonshot ? 'spark_moonshot_' : 'spark_';
-      
-      if (a.closes1D?.length > 0) {
-        Charts.renderSparkline(`${prefix}${a.asset.id}_1d`, a.closes1D, isPos24);
+      // Scalp cards: left canvas is 5m (closes / closes1D alias), right is 4H
+      const seriesLeft = isScalp ? (a.closes || a.closes1D) : a.closes1D;
+      const seriesRight = a.closes4H;
+      const isPosLeft = isScalp ? ((a.change5m ?? a.change24h ?? 0) >= 0) : ((a.change24h ?? 0) >= 0);
+      const isPosRight = (a.change4h ?? 0) >= 0;
+
+      if (seriesLeft?.length > 0) {
+        Charts.renderSparkline(`${prefix}${a.asset.id}_1d`, seriesLeft, isPosLeft);
       }
-      if (a.closes4H?.length > 0) {
-        Charts.renderSparkline(`${prefix}${a.asset.id}_4h`, a.closes4H, isPos4);
+      if (seriesRight?.length > 0) {
+        Charts.renderSparkline(`${prefix}${a.asset.id}_4h`, seriesRight, isPosRight);
       }
     });
   },
