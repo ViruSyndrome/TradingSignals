@@ -215,6 +215,22 @@ const Signals = {
       indDetails.smc = { signal: sig, score: s, description: desc };
     }
 
+    // ── Wyckoff Spring & Volume Profile ──────────────────────────────────────
+    const wyckoff = (lows && volumes) ? Indicators.wyckoffSpring(closes, lows, volumes, 20) : { bullish: false };
+    if (wyckoff.bullish) {
+      score += 1.5;
+      indDetails.wyckoff = { signal: 'BUY', score: 1.5, description: `🐋 Wyckoff Spring: Price faked a breakdown from tight accumulation and reclaimed on high volume.` };
+    }
+    
+    const vpoc = (highs && lows && volumes) ? Indicators.volumeProfilePOC(closes, highs, lows, volumes, 50) : null;
+    if (vpoc) {
+      const distToPoc = Math.abs(price - vpoc) / vpoc;
+      if (distToPoc < 0.02 && price > vpoc) {
+        score += 1.0;
+        indDetails.vpoc = { signal: 'BUY', score: 1.0, description: `🛡️ Point of Control (POC): Price is sitting perfectly on massive volume support.` };
+      }
+    }
+
     // ── 7. Fundamental Analysis (DefiLlama TVL) ─────────────
     // Deep Value = >$1B TVL, Value = >$100M TVL, Speculative = <$10M TVL
     const rawScore = +score.toFixed(2); // Capture score BEFORE TVL adjustment
@@ -891,6 +907,21 @@ const Signals = {
       desc.push(tDesc);
     }
 
+    const wyckoff = (lows && volumes) ? Indicators.wyckoffSpring(closes, lows, volumes, 20) : { bullish: false };
+    if (wyckoff.bullish) {
+      score += 1.5;
+      desc.push(`🐋 Wyckoff Spring: Tight range broken and reclaimed. Institutional buying detected.`);
+    }
+
+    const vpoc = (highs && lows && volumes) ? Indicators.volumeProfilePOC(closes, highs, lows, volumes, 30) : null;
+    if (vpoc) {
+      const distToPoc = Math.abs(price - vpoc) / vpoc;
+      if (distToPoc < 0.015 && price > vpoc) {
+        score += 1.5;
+        desc.push(`🛡️ POC Bounce: Price perfectly rejecting off the highest volume node support.`);
+      }
+    }
+
     // Soft BTC regime (optional) — scalps still fire in bear, just scored harder
     if (marketRegime === 'bear' && softBearPenalty > 0) {
       score -= softBearPenalty;
@@ -1002,7 +1033,7 @@ const Signals = {
     return this.LEVELS[signalKey] || this.LEVELS.NEUTRAL;
   },
 
-  _version: '6.24',
+  _version: '6.25',
 };
 
 if (typeof module !== 'undefined' && module.exports) module.exports = Signals;

@@ -277,6 +277,87 @@ const Indicators = {
        volumeConfirmed: volSpike,
        sweptLevel: lowestLow
     };
+  },
+
+  /**
+   * Wyckoff Spring / Accumulation Squeeze
+   * Detects a tight trading range (accumulation) followed by a fake breakdown (spring)
+   * and a strong reclaim. It signifies whales finishing accumulation.
+   */
+  wyckoffSpring(closes, lows, volumes, lookback = 20) {
+    if (!closes || closes.length < lookback + 2) return { bullish: false };
+    
+    const currentIdx = closes.length - 1;
+    let maxClose = -Infinity, minClose = Infinity;
+    let avgVol = 0;
+    
+    // Find the trading range of the bodies over the accumulation period
+    for (let i = currentIdx - lookback; i < currentIdx; i++) {
+      if (closes[i] > maxClose) maxClose = closes[i];
+      if (closes[i] < minClose) minClose = closes[i];
+      if (volumes) avgVol += volumes[i];
+    }
+    avgVol = avgVol / lookback;
+    
+    // Check if the range was tight (less than 4% variance in closes)
+    const isTightRange = (maxClose - minClose) / minClose < 0.04;
+    
+    // Check if the latest candle dipped below the accumulation floor and reclaimed
+    const sweepLow = lows[currentIdx];
+    const sweepClose = closes[currentIdx];
+    
+    const isSpring = isTightRange && (sweepLow < minClose) && (sweepClose >= minClose);
+    const volExpansion = (volumes && volumes[currentIdx] > avgVol * 1.2);
+    
+    return {
+      bullish: isSpring && volExpansion,
+      tradingRangeBottom: minClose
+    };
+  },
+
+  /**
+   * Volume Profile - Point of Control (POC)
+   * Calculates the price level with the highest traded volume over the lookback.
+   * Acts as a massive gravitational magnet or unbreakable support floor.
+   */
+  volumeProfilePOC(closes, highs, lows, volumes, lookback = 50) {
+    if (!closes || !volumes || closes.length < lookback) return null;
+    
+    const currentIdx = closes.length - 1;
+    let maxH = -Infinity, minL = Infinity;
+    
+    for (let i = currentIdx - lookback + 1; i <= currentIdx; i++) {
+      const h = highs ? highs[i] : closes[i];
+      const l = lows ? lows[i] : closes[i];
+      if (h > maxH) maxH = h;
+      if (l < minL) minL = l;
+    }
+    
+    const bins = 12;
+    const binSize = (maxH - minL) / bins;
+    if (binSize === 0) return closes[currentIdx];
+    
+    const volumeMap = new Array(bins).fill(0);
+    
+    for (let i = currentIdx - lookback + 1; i <= currentIdx; i++) {
+      const typPrice = highs && lows ? (highs[i] + lows[i] + closes[i]) / 3 : closes[i];
+      const vol = volumes[i] || 0;
+      let binIdx = Math.floor((typPrice - minL) / binSize);
+      if (binIdx >= bins) binIdx = bins - 1;
+      volumeMap[binIdx] += vol;
+    }
+    
+    let maxVol = -1;
+    let pocBin = -1;
+    for (let b = 0; b < bins; b++) {
+      if (volumeMap[b] > maxVol) {
+        maxVol = volumeMap[b];
+        pocBin = b;
+      }
+    }
+    
+    // Return the exact price of the POC
+    return minL + (pocBin * binSize) + (binSize / 2);
   }
 };
 
