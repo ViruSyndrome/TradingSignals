@@ -46,6 +46,7 @@ const Signals = {
     const macdData= Indicators.macd(closes);
     const bbData  = Indicators.bollingerBands(closes);
     const atrArr  = (highs && lows) ? Indicators.atr(highs, lows, closes, 14) : null;
+    const smcData = (highs && lows && volumes) ? Indicators.smcLiquiditySweep(closes, highs, lows, volumes, 20) : { bullish: false, volumeConfirmed: false };
 
     // ── Get current (latest) values ─────────────────────────────────────────
     const price     = Indicators.last(closes);
@@ -199,6 +200,19 @@ const Signals = {
           description: desc, score: s,
         };
       }
+    }
+
+    // ── SMC Liquidity Sweep ──────────────────────────────────────────────────
+    if (smcData.bullish) {
+      let s = 2.0;
+      let sig = 'STRONG_BUY';
+      let desc = `💎 Smart Money Concept: Bullish Liquidity Sweep. Price hunted stops below local low and rejected strongly.`;
+      if (smcData.volumeConfirmed) {
+        s += 1.0;
+        desc += ` (Volume Confirmed)`;
+      }
+      score += s;
+      indDetails.smc = { signal: sig, score: s, description: desc };
     }
 
     // ── 7. Fundamental Analysis (DefiLlama TVL) ─────────────
@@ -754,6 +768,7 @@ const Signals = {
     const sma50Arr = Indicators.sma(closes, 50);
     const rsiArr = Indicators.rsi(closes, 14);
     const bbData = Indicators.bollingerBands(closes, 20, 2);
+    const smcData = (highs && lows && volumes) ? Indicators.smcLiquiditySweep(closes, highs, lows, volumes, 15) : { bullish: false, volumeConfirmed: false };
 
     const price = Indicators.last(closes);
     const ema9 = Indicators.last(ema9Arr);
@@ -862,6 +877,20 @@ const Signals = {
       }
     }
 
+    // ── SMC Liquidity Sweep (The ultimate scalper signal) ──────────────
+    let smcSweepFired = false;
+    if (smcData.bullish) {
+      smcSweepFired = true;
+      let s = 2.5;
+      let tDesc = `💎 SMC Liquidity Sweep! Stops hunted below local low and rejected strongly. Excellent reversal scalp.`;
+      if (smcData.volumeConfirmed) {
+        s += 1.0;
+        tDesc += ` (Volume absorption confirmed)`;
+      }
+      score += s;
+      desc.push(tDesc);
+    }
+
     // Soft BTC regime (optional) — scalps still fire in bear, just scored harder
     if (marketRegime === 'bear' && softBearPenalty > 0) {
       score -= softBearPenalty;
@@ -871,7 +900,12 @@ const Signals = {
     // ── 7. Entry timing chip (CONFIRM = retest; WAIT = don't chase) ──
     let entryTiming = 'NEUTRAL';
     let entryTimingDesc = '';
-    if (uptrendAligned && (nearEma9 || nearEma21) && hadRecentImpulse && isBullishCandle && rsiVal != null && rsiVal <= 65) {
+    if (smcSweepFired) {
+      entryTiming = 'CONFIRM';
+      entryTimingDesc = 'SMC Sweep detected — immediate reversal scalp entry.';
+      score += 1.0;
+      desc.push(entryTimingDesc);
+    } else if (uptrendAligned && (nearEma9 || nearEma21) && hadRecentImpulse && isBullishCandle && rsiVal != null && rsiVal <= 65) {
       entryTiming = 'CONFIRM';
       entryTimingDesc = '5m EMA retest + impulse + reclaim — preferred scalp entry.';
       score += 0.75;

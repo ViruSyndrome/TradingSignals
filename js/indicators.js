@@ -230,6 +230,54 @@ const Indicators = {
     }
     return count > 0 ? sum / count : null;
   },
+
+  /**
+   * Smart Money Concepts (SMC): Liquidity Sweep (Stop Hunt Detector)
+   * Detects if the latest candle dropped below a recent swing low (hunting stops),
+   * absorbed the sell pressure, and closed back above it with a long lower wick.
+   * Extremely powerful bottom-reversal signal for Crypto.
+   */
+  smcLiquiditySweep(closes, highs, lows, volumes, lookback = 20) {
+    if (!closes || !lows || closes.length < lookback + 2) return { bullish: false, bearish: false };
+    
+    const currentIdx = closes.length - 1;
+    const sweepCandleIdx = currentIdx;
+    
+    let lowestLow = Infinity;
+    for(let i = sweepCandleIdx - lookback; i < sweepCandleIdx; i++) {
+       if (lows[i] < lowestLow) lowestLow = lows[i];
+    }
+    
+    const sweepLow = lows[sweepCandleIdx];
+    const sweepClose = closes[sweepCandleIdx];
+    const sweepOpen = closes[sweepCandleIdx - 1]; 
+    const sweepHigh = highs ? highs[sweepCandleIdx] : sweepClose;
+    
+    const bodyBottom = Math.min(sweepOpen, sweepClose);
+    const bodyTop = Math.max(sweepOpen, sweepClose);
+    const totalRange = sweepHigh - sweepLow;
+    const lowerWick = bodyBottom - sweepLow;
+    
+    const sweptBelow = sweepLow < lowestLow;
+    const closedAbove = sweepClose > lowestLow;
+    const longLowerWick = totalRange > 0 && (lowerWick > totalRange * 0.4);
+    const meaningfulDip = sweepLow > 0 && ((bodyBottom - sweepLow) / sweepLow > 0.003); 
+
+    let bullish = sweptBelow && closedAbove && longLowerWick && meaningfulDip;
+    
+    let volSpike = false;
+    if (bullish && volumes && volumes.length > sweepCandleIdx) {
+       const avgVol = volumes.slice(sweepCandleIdx - 10, sweepCandleIdx).reduce((a,b)=>a+b,0)/10;
+       if (volumes[sweepCandleIdx] > avgVol * 1.3) volSpike = true;
+    }
+    
+    return {
+       bullish: bullish,
+       bearish: false,
+       volumeConfirmed: volSpike,
+       sweptLevel: lowestLow
+    };
+  }
 };
 
 if (typeof module !== 'undefined' && module.exports) module.exports = Indicators;
