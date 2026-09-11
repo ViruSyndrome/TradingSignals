@@ -2873,10 +2873,14 @@ const Dashboard = {
   },
 
   _forceRefresh() {
+    if (this.state.loading) {
+      console.warn('Dashboard is already loading, ignoring refresh click.');
+      return;
+    }
     Object.keys(localStorage).forEach(key => {
       if (key.startsWith('trading_cache_')) localStorage.removeItem(key);
     });
-    return this.loadAll();
+    return this.loadAll(false);
   },
 
 };
