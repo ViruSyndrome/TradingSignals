@@ -76,13 +76,20 @@ const API = {
           headers['Accept'] = 'application/json';
         }
         const r = await fetch(url, { signal: ctrl.signal, headers });
-        clearTimeout(timer);
         if (!r.ok) {
+          clearTimeout(timer);
           const err = new Error(`HTTP ${r.status}`);
           err.status = r.status;
           throw err;
         }
-        return await r.json();
+        // Enforce timeout on the JSON body parsing as well, since large payloads can hang indefinitely
+        const jsonPromise = r.json();
+        const timeoutPromise = new Promise((_, reject) => {
+          setTimeout(() => reject(new Error('JSON Parse Timeout')), timeoutMs);
+        });
+        const result = await Promise.race([jsonPromise, timeoutPromise]);
+        clearTimeout(timer);
+        return result;
       } catch (e) {
         clearTimeout(timer);
         lastErr = e;
