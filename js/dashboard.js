@@ -2832,28 +2832,83 @@ const Dashboard = {
     }
     const policy = this._exitPolicy();
     const price = d.price;
+    const valid = price > s.stopPrice && s.stopPrice > 0 && s.takeProfitPrice > price;
+    const staleMinutes = d.fetchedAt ? (Date.now() - new Date(d.fetchedAt).getTime()) / 60000 : Infinity;
+    const stale = !Number.isFinite(staleMinutes) || staleMinutes > 15;
+    const statusClass = !valid || stale ? 'oco-warning' : 'oco-ready';
+    const status = !valid ? 'Invalid price relationship' : stale ? 'Refresh before placing: levels are stale' : 'Exit plan ready';
+    const symbol = d.asset.symbol;
+    const rules = d.rules || {};
+    const ruleText = rules.minNotional ? `Binance min: $${rules.minNotional}. Qty step: ${rules.stepSize}.` : 'Binance will enforce pair minimums.';
+
+    // Specialized Scalper Plan (100% All-in, All-out)
+    if (d.category === 'scalper' || d.asset?.isScalp || String(d.asset?.id||'').includes('_5M')) {
+      const tpPct = Number(s.takeProfitPct).toFixed(2);
+      const riskPct = Number(s.distancePct).toFixed(2);
+      const rr = s.riskMultiple ? Number(s.riskMultiple).toFixed(1) : (tpPct / riskPct).toFixed(1);
+      return `
+        <div class="oco-panel">
+          <div class="oco-title">Scalp Exit Plan — ${symbol}</div>
+          <div class="oco-status oco-ready" style="background:rgba(14, 165, 233, 0.15);color:#38bdf8;border:1px solid #0ea5e9;margin-top:10px;">⚡ High Velocity: 100% TP at ${rr}R</div>
+          <div class="oco-status ${statusClass}">${status}</div>
+          <div class="oco-grid">
+            <span>Take Profit <strong>${this._fmt(s.takeProfitPrice, d.asset)}</strong> (+${tpPct}%)</span>
+            <span>Stop Loss <strong>${this._fmt(s.stopPrice, d.asset)}</strong> (-${riskPct}%)</span>
+            <span>R:R Ratio <strong>${rr}:1</strong></span>
+            <span>Time Stop <strong>${s.holdBarsHint ? `~${Math.round(s.holdBarsHint * 5)} mins` : '1 Hour'}</strong></span>
+          </div>
+          <ol class="oco-steps" style="margin:12px 0 8px;padding-left:18px;color:var(--text-muted);font-size:13px;line-height:1.45">
+            <li><strong>Buy</strong> position size.</li>
+            <li><strong>Place OCO:</strong> set limit sell at Take Profit and stop-limit at Stop Loss.</li>
+            <li>No trailing. If trade stalls and takes too long to move, exit at market price.</li>
+          </ol>
+          <small>${ruleText}</small>
+        </div>
+      `;
+    }
+
+    // Specialized Breakout/Moonshot Plan
+    if (d.asset?.isMoonshot || String(d.asset?.id||'').includes('_4H')) {
+      const tpPct = Number(s.takeProfitPct).toFixed(2);
+      const riskPct = Number(s.distancePct).toFixed(2);
+      const rr = s.riskMultiple ? Number(s.riskMultiple).toFixed(1) : (tpPct / riskPct).toFixed(1);
+      return `
+        <div class="oco-panel">
+          <div class="oco-title">Breakout Exit Plan — ${symbol}</div>
+          <div class="oco-status oco-ready" style="background:rgba(14, 165, 233, 0.15);color:#38bdf8;border:1px solid #0ea5e9;margin-top:10px;">🚀 Asymmetric Breakout: Fixed TP</div>
+          <div class="oco-status ${statusClass}">${status}</div>
+          <div class="oco-grid">
+            <span>Take Profit <strong>${this._fmt(s.takeProfitPrice, d.asset)}</strong> (+${tpPct}%)</span>
+            <span>Stop Loss <strong>${this._fmt(s.stopPrice, d.asset)}</strong> (-${riskPct}%)</span>
+            <span>R:R Ratio <strong>${rr}:1</strong></span>
+            <span>Hold Limit <strong>~3 Days</strong></span>
+          </div>
+          <ol class="oco-steps" style="margin:12px 0 8px;padding-left:18px;color:var(--text-muted);font-size:13px;line-height:1.45">
+            <li><strong>Buy</strong> breakout position.</li>
+            <li><strong>Place full OCO</strong> (Limit = TP, Stop = Stop Loss).</li>
+            <li>Alternatively, manually trail stop <em>only after</em> it pushes deep into profit.</li>
+          </ol>
+          <small>Moonshots are highly volatile. Respect the hard stop loss. ${ruleText}</small>
+        </div>
+      `;
+    }
+
+    // Default 1D Swing Plan (50/50 OCO with trailing runner)
     const partial = s.partialPct ?? policy.partialPct ?? 50;
     const runnerPct = 100 - partial;
     const bankPct = s.bankTakeProfitPct ?? s.takeProfitPct ?? policy.takeProfitPct;
     const trailPct = s.runnerTrailPct != null ? Number(s.runnerTrailPct).toFixed(2) : '—';
-    const valid = price > s.stopPrice && s.stopPrice > 0 && s.takeProfitPrice > price;
     const riskPct = Number(s.distancePct) || 0;
     const rewardPct = Number(bankPct) || 0;
-    const rewardRisk = riskPct > 0 && rewardPct > 0 ? (rewardPct / riskPct).toFixed(1) : '–';
-    const staleMinutes = d.fetchedAt ? (Date.now() - new Date(d.fetchedAt).getTime()) / 60000 : Infinity;
-    const stale = !Number.isFinite(staleMinutes) || staleMinutes > 15;
-    const status = !valid ? 'Invalid price relationship' : stale ? 'Refresh before placing: levels are stale' : '50/50 exit plan ready';
-    const statusClass = !valid || stale ? 'oco-warning' : 'oco-ready';
-    const symbol = d.asset.symbol;
-    const rules = d.rules || {};
-    const ruleText = rules.minNotional ? `Binance minimum order value: $${rules.minNotional}. Quantity step: ${rules.stepSize}. Price tick: ${rules.tickSize}.` : 'Binance will enforce pair minimums and precision.';
+    const rewardRisk = riskPct > 0 && rewardPct > 0 ? (rewardPct / riskPct).toFixed(1) : '—';
     const beNote = (s.moveStopToBreakevenAfterPartial ?? policy.moveStopToBreakevenAfterPartial)
       ? 'After the bank leg fills, move the runner stop to breakeven (entry).'
       : 'Keep the runner protective stop active.';
+
     return `
       <div class="oco-panel">
-        <div class="oco-title">50/50 exit plan · ${symbol}</div>
-        <div class="oco-status oco-ready" style="background:rgba(14, 165, 233, 0.15);color:#38bdf8;border:1px solid #0ea5e9;margin-top:10px;">⚡ Bank ${partial}% @ +${bankPct}% · Runner ${runnerPct}% trail ${policy.runnerTrailAtrMult}×ATR · Max ${policy.holdLimitDays}d</div>
+        <div class="oco-title">50/50 Swing Exit Plan — ${symbol}</div>
+        <div class="oco-status oco-ready" style="background:rgba(14, 165, 233, 0.15);color:#38bdf8;border:1px solid #0ea5e9;margin-top:10px;">⚖️ Bank ${partial}% @ +${bankPct}% • Runner ${runnerPct}% trail ${policy.runnerTrailAtrMult}×ATR • Max ${policy.holdLimitDays}d</div>
         <div class="oco-status ${statusClass}">${status}</div>
         <div class="oco-grid">
           <span>Scale A bank TP <strong>${this._fmt(s.takeProfitPrice, d.asset)}</strong> (+${bankPct}%)</span>
@@ -2863,11 +2918,11 @@ const Dashboard = {
         </div>
         <ol class="oco-steps" style="margin:12px 0 8px;padding-left:18px;color:var(--text-muted);font-size:13px;line-height:1.45">
           <li><strong>Buy</strong> your full size on Binance spot.</li>
-          <li><strong>Scale A (${partial}%):</strong> place a sell OCO — limit = bank TP, stop = initial stop (qty = half).</li>
-          <li><strong>Scale B (${runnerPct}%):</strong> place a stop (same initial stop) or trailing stop (~${trailPct}% / ${policy.runnerTrailAtrMult}×ATR). ${beNote}</li>
+          <li><strong>Scale A (${partial}%):</strong> place a sell OCO — limit = bank TP, stop = initial stop.</li>
+          <li><strong>Scale B (${runnerPct}%):</strong> place a trailing stop (~${trailPct}% / ${policy.runnerTrailAtrMult}×ATR). ${beNote}</li>
           <li>If nothing hits in <strong>${policy.holdLimitDays} days</strong>, exit remaining size (time stop).</li>
         </ol>
-        <small>Bank leg R:R ~${rewardRisk}R at +${bankPct}%. Runner is how 40%+ outcomes stay possible without forcing every trade to a high fixed TP. ${ruleText}</small>
+        <small>Bank leg R:R ~${rewardRisk}R at +${bankPct}%. ${ruleText}</small>
       </div>
     `;
   },
