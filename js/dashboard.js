@@ -938,6 +938,10 @@ const Dashboard = {
 
   // ─── Load all asset data ─────────────────────────────────────────────────────
   async loadAll(silent = false) {
+    if (this.state.loading) {
+      console.warn('[Dashboard] loadAll called but already loading, skipping concurrent fetch.');
+      return;
+    }
     this.state.loading = true;
     this._updateLiveStatus();
     if (!silent) this._setLoading(true);
@@ -2951,6 +2955,23 @@ document.addEventListener('DOMContentLoaded', () => {
     if (window.scrollY > 0 || window.scrollX > 0) window.scrollTo(0, 0);
   }, { passive: true });
   
+  // Wake-up from tab suspension (Mobile/Android fix)
+  document.addEventListener('visibilitychange', () => {
+    if (document.visibilityState === 'visible') {
+      // If the loading lock has been stuck for more than 30 seconds due to a suspended network fetch, break it.
+      const now = Date.now();
+      if (Dashboard.state.loading && Dashboard.state.refreshDueAt && now > Dashboard.state.refreshDueAt + 30000) {
+        console.warn('Dashboard was stuck in loading state from a suspended tab. Forcing lock release.');
+        Dashboard.state.loading = false;
+        Dashboard._setLoading(false);
+      }
+      // If the data is stale, trigger a background refresh immediately upon waking up
+      if (!Dashboard.state.loading && now > Dashboard.state.refreshDueAt) {
+        Dashboard.loadAll(true);
+      }
+    }
+  });
+
   const mainContent = document.querySelector('.main-content');
   if (mainContent) {
     mainContent.addEventListener('scroll', function() {
