@@ -2907,22 +2907,22 @@ const Dashboard = {
 
     return `
       <div class="oco-panel">
-        <div class="oco-title">50/50 Swing Exit Plan — ${symbol}</div>
-        <div class="oco-status oco-ready" style="background:rgba(14, 165, 233, 0.15);color:#38bdf8;border:1px solid #0ea5e9;margin-top:10px;">⚖️ Bank ${partial}% @ +${bankPct}% • Runner ${runnerPct}% trail ${policy.runnerTrailAtrMult}×ATR • Max ${policy.holdLimitDays}d</div>
+        <div class="oco-title">Swing Exit Plan — ${symbol}</div>
+        <div class="oco-status oco-ready" style="background:rgba(14, 165, 233, 0.15);color:#38bdf8;border:1px solid #0ea5e9;margin-top:10px;">⚖️ Sell ${partial}% at Target • Trail remaining ${runnerPct}%</div>
         <div class="oco-status ${statusClass}">${status}</div>
         <div class="oco-grid">
-          <span>Scale A bank TP <strong>${this._fmt(s.takeProfitPrice, d.asset)}</strong> (+${bankPct}%)</span>
-          <span>Initial stop (all) <strong>${this._fmt(s.stopPrice, d.asset)}</strong> (-${s.distancePct}%)</span>
-          <span>Stop-limit <strong>${this._fmt(s.stopPrice * 0.998, d.asset)}</strong></span>
-          <span>Runner trail width <strong>~${trailPct}%</strong> (${policy.runnerTrailAtrMult}×ATR)</span>
+          <span>Binance "Price" (Target) <strong>${this._fmt(s.takeProfitPrice, d.asset)}</strong> (+${bankPct}%)</span>
+          <span>Binance "Stop" <strong>${this._fmt(s.stopPrice, d.asset)}</strong> (-${s.distancePct}%)</span>
+          <span>Binance "Limit" <strong>${this._fmt(s.stopPrice * 0.998, d.asset)}</strong></span>
+          <span>Trailing Stop Delta <strong>~${trailPct}%</strong></span>
         </div>
         <ol class="oco-steps" style="margin:12px 0 8px;padding-left:18px;color:var(--text-muted);font-size:13px;line-height:1.45">
-          <li><strong>Buy</strong> your full size on Binance spot.</li>
-          <li><strong>Scale A (${partial}%):</strong> place a sell OCO — limit = bank TP, stop = initial stop.</li>
-          <li><strong>Scale B (${runnerPct}%):</strong> place a trailing stop (~${trailPct}% / ${policy.runnerTrailAtrMult}×ATR). ${beNote}</li>
-          <li>If nothing hits in <strong>${policy.holdLimitDays} days</strong>, exit remaining size (time stop).</li>
+          <li><strong>Buy</strong> your position on Binance spot.</li>
+          <li><strong>Sell 1st Half:</strong> Use Binance <strong>OCO</strong>. Enter the exact Price, Stop, and Limit from above. Set amount to ${partial}%.</li>
+          <li><strong>Sell 2nd Half:</strong> Use Binance <strong>Trailing Stop</strong>. Activation Price = blank. Trailing Delta = ${trailPct}%.</li>
+          <li><strong>Time Limit:</strong> If nothing hits in <strong>${policy.holdLimitDays} days</strong>, sell everything at market price.</li>
         </ol>
-        <small>Bank leg R:R ~${rewardRisk}R at +${bankPct}%. ${ruleText}</small>
+        <small>${ruleText}</small>
       </div>
     `;
   },
