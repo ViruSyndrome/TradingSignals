@@ -836,8 +836,7 @@ const Dashboard = {
     this._initNewsTape();
       // Paint instantly from last-known snapshot while the live fetch runs.
       if (this._restoreSnapshot()) this._render();
-      this.state.loading = true;
-      this._updateLiveStatus(); // immediately show "Updating" in status bar
+      
       await this._fetchFearGreed();  // sentiment feeds the signal engine — fetch first
       await this.loadAll(true);
       this._scheduleRefresh();
