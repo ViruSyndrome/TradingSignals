@@ -355,9 +355,16 @@ const API = {
       }
     } catch(e) {}
     
-    const prices = await this.getCryptoPrices();
-    const rules = await this.getCryptoSymbolRules();
-    const llamaData = await this.getDefiLlamaProtocols();
+      const [prices, rules] = await Promise.all([
+        this.getCryptoPrices(),
+        this.getCryptoSymbolRules()
+      ]);
+      const llamaData = await this.getDefiLlamaProtocols();
+      
+      // Fast-fail: If we couldn't even fetch basic prices, both Binance and OKX are blocked/offline.
+      if (!prices || Object.keys(prices).length === 0) {
+        throw new Error('All crypto exchange APIs (Binance/OKX) are unreachable. Please check your connection, ad-blocker, or VPN.');
+      }
 
     // Create a fast lookup map for DefiLlama data by symbol (keep the one with highest TVL)
     const llamaMap = new Map();

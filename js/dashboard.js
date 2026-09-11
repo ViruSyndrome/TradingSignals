@@ -1118,6 +1118,7 @@ const Dashboard = {
       this.state.loading = false;
       this.state.refreshDueAt = Date.now() + CONFIG.refresh.intervalMs;
       if (!silent) this._setLoading(false);
+      this._render(); // Force a render to clear the skeleton and show error state
       if (!silent) this._showToast('Some data failed to load — check internet connection', 'warning');
     }
   },
@@ -1654,21 +1655,28 @@ const Dashboard = {
 
   async _fetchFearGreed() {
     try {
-      const res = await fetch('https://api.alternative.me/fng/?limit=1');
+      const controller = new AbortController();
+      const timeoutId = setTimeout(() => controller.abort(), 3000);
+      const res = await fetch('https://api.alternative.me/fng/?limit=1', { signal: controller.signal });
+      clearTimeout(timeoutId);
       const json = await res.json();
       if (json.data && json.data[0]) {
         this.state.fearGreed = json.data[0];
         this._renderSummaryBar();
       }
     } catch (e) {
-      console.warn('Fear & Greed fetch failed:', e.message);
+      console.warn('Fear & Greed fetch failed or timed out:', e.message);
     }
   },
 
-  // ─── Top 4 opportunities ────────────────────────────────────────────────────
+  // ─── Top 4 opportunities ──────────────────────────────────────────────────
   _renderTopOpportunities() {
     const el = document.getElementById('topOpportunities');
     if (!el) return;
+    if (!this.state.allAssets || !this.state.allAssets.length) {
+      el.innerHTML = '<div class="muted">No data available</div>';
+      return;
+    }
 
     // Rank by Absolute Math Score and Confidence, but ONLY show actual BUY signals
     const valid = [...this.state.allAssets].filter(a => {
