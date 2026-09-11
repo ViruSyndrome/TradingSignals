@@ -674,11 +674,11 @@ const Signals = {
         stopPrice: +stopPrice.toFixed(8),
         takeProfitPrice: +takeProfitPrice.toFixed(8),
         distancePct: +distPct,
-        takeProfitPct: +(((risk * 2) / price) * 100).toFixed(2),
-        riskMultiple: 2,
+        takeProfitPct: +(((risk * 3) / price) * 100).toFixed(2),
+        riskMultiple: 3,
         side: isLong ? 'long' : 'short'
       };
-      desc.push(`Suggested Stop: ${stopPrice.toFixed(8)} (${distPct}% away) with a 2R partial-profit target.`);
+      desc.push(`Suggested Stop: ${stopPrice.toFixed(8)} (${distPct}% away) with a 3R take-profit target.`);
     }
 
     return {
