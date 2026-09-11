@@ -381,7 +381,12 @@ const Signals = {
       const exits = (typeof CONFIG !== 'undefined' && CONFIG.exits) || {};
       const mult = exits.stopAtrMult ?? 2;
       const tpPct = (exits.takeProfitPct ?? 10) / 100;
-      const risk = mult * curAtr;
+      let risk = mult * curAtr;
+      
+      // Enforce minimum risk so swing targets are at least ~3% (assuming 2R bank)
+      const minRisk = price * 0.015;
+      if (risk < minRisk) risk = minRisk;
+
       const stopPrice = !isShort ? price - risk : price + risk;
       const takeProfitPrice = !isShort ? price * (1 + tpPct) : price * (1 - tpPct);
       
@@ -659,15 +664,19 @@ const Signals = {
     if (curAtr && (signal.includes('BUY') || signal.includes('SELL'))) {
       const isLong = signal.includes('BUY');
       const mult = 2.5; // Slightly wider stop for highly volatile moonshots
-        let risk = curAtr * mult;
+      let risk = curAtr * mult;
+      
+      // Enforce minimum risk so breakout targets are at least ~2% 
+      const minRisk = price * 0.007;
+      if (risk < minRisk) risk = minRisk;
+
+      // Enforce strict 5% max stop-loss rule for Moonshots
+      const maxRisk = price * 0.05;
+      if (risk > maxRisk) risk = maxRisk;
         
-        // Enforce strict 5% max stop-loss rule for Moonshots
-        const maxRisk = price * 0.05;
-        if (risk > maxRisk) risk = maxRisk;
-        
-        const stopPrice = isLong ? price - risk : price + risk;
-        // Keep Take Profit highly asymmetric (3R for moonshots)
-        const takeProfitPrice = isLong ? price + risk * 3 : price - risk * 3;
+      const stopPrice = isLong ? price - risk : price + risk;
+      // Keep Take Profit highly asymmetric (3R for moonshots)
+      const takeProfitPrice = isLong ? price + risk * 3 : price - risk * 3;
       const distPct = ((risk / price) * 100).toFixed(2);
       
       stopSuggest = {
@@ -904,6 +913,12 @@ const Signals = {
 
     if (curAtr && signal.includes('BUY')) {
       let risk = curAtr * stopMult;
+      
+      // Prevent mathematically impossible micro-scalps (e.g., 0.02% profit) that get eaten by Binance fees
+      // Min Risk 0.3% means a 2R Take Profit will always be at least +0.6%.
+      const minRisk = price * 0.003; 
+      if (risk < minRisk) risk = minRisk;
+
       const maxRisk = price * maxStopPct;
       if (risk > maxRisk) risk = maxRisk;
       const stopPrice = price - risk;
