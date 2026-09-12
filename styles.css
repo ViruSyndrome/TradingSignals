@@ -82,11 +82,65 @@ button:focus-visible { outline: 2px solid var(--accent); border-radius: 4px; }
   color: var(--text-main);
   font-family: 'Outfit', sans-serif;
 }
-.trendrunner-loader-img {
-  width: 80px;
-  height: 80px;
-  margin-bottom: 24px;
-  animation: pulseGlow-loader 1.5s ease-in-out infinite alternate;
+.climbing-loader {
+  width: 120px;
+  height: 100px;
+  position: relative;
+  margin-bottom: 30px;
+}
+.loader-step {
+  position: absolute;
+  bottom: 0;
+  width: 18px;
+  background: var(--c-green);
+  border-radius: 3px;
+  box-shadow: 0 0 10px rgba(0, 255, 136, 0.4);
+}
+.loader-step.step-1 { left: 10px; height: 25px; animation: glowStep 1.5s infinite alternate 0.1s; }
+.loader-step.step-2 { left: 35px; height: 50px; animation: glowStep 1.5s infinite alternate 0.2s; }
+.loader-step.step-3 { left: 60px; height: 75px; animation: glowStep 1.5s infinite alternate 0.3s; }
+.loader-step.step-4 { left: 85px; height: 100px; animation: glowStep 1.5s infinite alternate 0.4s; }
+
+.loader-wick {
+  position: absolute;
+  top: -15px;
+  left: 50%;
+  transform: translateX(-50%);
+  width: 2px;
+  height: calc(100% + 30px);
+  background: var(--c-green);
+  opacity: 0.5;
+  z-index: -1;
+}
+
+.loader-climbing-logo {
+  position: absolute;
+  width: 24px;
+  height: 24px;
+  left: -20px;
+  bottom: 0px;
+  animation: climbJump 2s infinite ease-in-out;
+  filter: drop-shadow(0 0 8px rgba(0, 242, 254, 0.8));
+}
+
+@keyframes glowStep {
+  0% { filter: brightness(1); }
+  100% { filter: brightness(1.5); box-shadow: 0 0 15px rgba(0, 255, 136, 0.8); }
+}
+
+@keyframes climbJump {
+  0%   { left: -20px; bottom: 0px; transform: rotate(0deg); opacity: 0; }
+  5%   { left: -20px; bottom: 0px; transform: rotate(0deg); opacity: 1; }
+  15%  { left: -5px; bottom: 40px; transform: rotate(90deg) scale(1.1); }
+  25%  { left: 7px; bottom: 30px; transform: rotate(180deg) scale(1); }
+  35%  { left: 20px; bottom: 65px; transform: rotate(270deg) scale(1.1); }
+  45%  { left: 32px; bottom: 55px; transform: rotate(360deg) scale(1); }
+  55%  { left: 45px; bottom: 90px; transform: rotate(450deg) scale(1.1); }
+  65%  { left: 57px; bottom: 80px; transform: rotate(540deg) scale(1); }
+  75%  { left: 70px; bottom: 115px; transform: rotate(630deg) scale(1.1); }
+  85%  { left: 82px; bottom: 105px; transform: rotate(720deg) scale(1); }
+  92%  { left: 105px; bottom: -20px; transform: rotate(900deg) scale(0.8); opacity: 1; }
+  100% { left: 115px; bottom: -40px; transform: rotate(1080deg) scale(0); opacity: 0; }
 }
 .trendrunner-loader-title {
   margin: 0 0 10px 0;
