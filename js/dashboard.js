@@ -752,6 +752,7 @@ const Dashboard = {
 
   // ─── Boot ────────────────────────────────────────────────────────────────────
   async init() {
+    this.state.loading = true; // Set to true immediately so global boot loader stays up
     this.state.latestSignalHistory = this._getSignalHistory();
     // Holdings always use one base entry per coin (ZENUSDT, never ZENUSDT_4H)
     this.state.invested = [...new Set(this.state.invested.map(id => String(id).toUpperCase().replace('_4H', '').replace('_5M', '')))];
@@ -1331,10 +1332,14 @@ const Dashboard = {
     this._updateLiveStatus();
   },
 
-  // ─── Main render ─────────────────────────────────────────────────────────────
+  // ─── Main render ───────────────────────────────────────────────────────────
   _render() {
-    const globalLoader = document.getElementById('trendrunner-loader');
-    if (globalLoader) globalLoader.style.display = 'none';
+    // Only hide the global boot loader when we are completely done loading live data
+    if (!this.state.loading) {
+      const globalLoader = document.getElementById('trendrunner-loader');
+      if (globalLoader) globalLoader.style.display = 'none';
+    }
+    
     this._renderSummaryBar();
     this._renderTopOpportunities();
     this._renderAssetGrid();
