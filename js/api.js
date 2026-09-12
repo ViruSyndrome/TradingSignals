@@ -396,20 +396,34 @@ const API = {
       }
     }
 
-    // Browser: Use a chunk size of 5 (10 concurrent requests) to prevent Chrome's 6-connection limit 
-    // from queuing requests so long that they hit the AbortController timeout before even sending.
+    // Browser: Use a dynamic async worker pool to prevent Head-of-Line blocking. 
+    // If one coin hangs, the other workers continue processing the queue instantly.
     const onServer = this._isNode();
-    const chunkSize = onServer ? 2 : 5;
-    const chunkDelay = onServer ? 800 : 100;
+    const poolLimit = onServer ? 1 : 5;
+    const chunkDelay = onServer ? 800 : 50;
     const results = [];
+    
+    let currentIndex = 0;
+    const workerTask = async () => {
+      while (currentIndex < CONFIG.assets.crypto.length) {
+        const i = currentIndex++;
+        const asset = CONFIG.assets.crypto[i];
+        try {
+          const res = await this._processAssetData(asset, prices, llamaMap);
+          results.push(res);
+        } catch (err) {
+          console.warn(`[API] Worker failed for ${asset.id}:`, err);
+        }
+        await this._delay(chunkDelay);
+      }
+    };
 
-    for (let i = 0; i < CONFIG.assets.crypto.length; i += chunkSize) {
-      const chunk = CONFIG.assets.crypto.slice(i, i + chunkSize);
-      const promises = chunk.map(asset => this._processAssetData(asset, prices, llamaMap));
-      const chunkResults = await Promise.all(promises);
-      results.push(...chunkResults);
-      if (i + chunkSize < CONFIG.assets.crypto.length) await this._delay(chunkDelay);
+    // Spawn workers
+    const workers = [];
+    for (let w = 0; w < Math.min(poolLimit, CONFIG.assets.crypto.length); w++) {
+      workers.push(workerTask());
     }
+    await Promise.all(workers);
 
     return results.sort((a, b) => (b.tvl || 0) - (a.tvl || 0));
   },
