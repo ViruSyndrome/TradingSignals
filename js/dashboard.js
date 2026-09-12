@@ -845,7 +845,7 @@ const Dashboard = {
   },
 
   async init() {
-    this.state.loading = true; // Set to true immediately so global boot loader stays up
+    this.state.loading = false;
     this.state.latestSignalHistory = this._getSignalHistory();
     // Holdings always use one base entry per coin (ZENUSDT, never ZENUSDT_4H)
     this.state.invested = [...new Set(this.state.invested.map(id => String(id).toUpperCase().replace('_4H', '').replace('_5M', '')))];
@@ -1063,13 +1063,17 @@ const Dashboard = {
 
   // ─── Load all asset data ─────────────────────────────────────────────────────
   async loadAll(silent = false, opts = {}) {
-    if (this.state.loading) {
-      console.warn('[Dashboard] loadAll called but already loading, skipping concurrent fetch.');
-      return;
+    // Separate in-flight mutex from UI "loading" — boot used to set loading=true
+    // then call loadAll, which skipped the entire market fetch (0 coins forever).
+    if (this._fetchInFlight) {
+      console.warn('[Dashboard] loadAll already in flight, skipping concurrent fetch.');
+      return this._fetchInFlight;
     }
     this.state.loading = true;
     this._updateLiveStatus();
     if (!silent) this._setLoading(true);
+
+    const fetchPromise = (async () => {
     try {
       const phase = opts.phase || 'full';
       const crypto = await API.getAllCrypto({ phase });
@@ -1249,7 +1253,13 @@ const Dashboard = {
       this._hideBootLoader(true);
       this._render(); // Force a render to clear the skeleton and show error state
       if (!silent) this._showToast('Some data failed to load — check internet connection', 'warning');
+    } finally {
+      this._fetchInFlight = null;
     }
+    })();
+
+    this._fetchInFlight = fetchPromise;
+    return fetchPromise;
   },
 
   _hideBootLoader(force = false) {
