@@ -168,18 +168,32 @@ const Auth = {
       googleBtn.addEventListener('click', async (e) => {
         e.preventDefault();
         const errEl = document.getElementById('authError');
+        if (errEl) errEl.style.display = 'none';
+        
         try {
-          const { error } = await supabaseClient.auth.signInWithOAuth({
+          const originalText = googleBtn.innerHTML;
+          googleBtn.innerHTML = '<span style="font-size:12px;">Connecting to Auth Server...</span>';
+          
+          // Timeout wrapper in case ISP is throttling/blocking Supabase OAuth
+          const timeoutPromise = new Promise((_, reject) => 
+            setTimeout(() => reject(new Error('Auth server timeout. Your ISP may be blocking Supabase. Please try a VPN or a different network.')), 15000)
+          );
+          
+          const authPromise = supabaseClient.auth.signInWithOAuth({
             provider: 'google',
             options: { redirectTo, skipBrowserRedirect: false },
           });
+
+          const { error } = await Promise.race([authPromise, timeoutPromise]);
           if (error) throw error;
         } catch (err) {
           if (errEl) {
             errEl.style.color = 'var(--c-red)';
-            errEl.textContent = err.message || 'Google sign-in failed';
+            errEl.innerText = err.message;
             errEl.style.display = 'block';
           }
+          googleBtn.innerHTML = '<img src="https://upload.wikimedia.org/wikipedia/commons/c/c1/Google_%22G%22_logo.svg" alt="Google"> Continue with Google';
+          console.error('[Auth] Google login error:', err);
         }
       });
     }
