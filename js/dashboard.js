@@ -1593,7 +1593,7 @@ const Dashboard = {
       const itemsStr = items.map(item => `<span class="tape-item"><a href="${item.link}" target="_blank" rel="noopener noreferrer" class="news-link">${item.title}</a> <em class="news-time">[${new Date(item.pubDate).toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'})}]</em></span>`).join('');
       el.innerHTML = itemsStr + itemsStr;
       el.classList.add('moving');
-      this._setTapeScrollSpeed(el, 110);
+      this._setTapeScrollSpeed(el, 82); // ~25% slower than 110 px/s
     };
     const renderCached = () => {
       try {
