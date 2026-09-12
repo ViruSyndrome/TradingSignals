@@ -7,22 +7,24 @@
   <title>TrendRunner — Algorithmic Crypto Intelligence</title>
     <!-- Supabase -->
     <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2" defer></script>
-  <meta name="description" content="Real-time buy/sell signals for cryptocurrencies and moonshots using a proprietary 9-factor algorithm." />
+  <meta name="description" content="Free algorithmic crypto buy/sell signals with stop-loss, take-profit, and 7-day hold limits. Daily core winners, moonshots, and 5m scalps on TrendRunner." />
   <meta name="msvalidate.01" content="FA7405A0B7623E8A404F74AE4952777C" />
-  
+  <meta name="keywords" content="crypto trading signals, binance signals, algorithmic crypto, strong buy alert, RSI MACD crypto, trendrunner" />
+
   <!-- Open Graph / Facebook -->
   <meta property="og:type" content="website">
   <meta property="og:url" content="https://trendrunner.app/">
-  <meta property="og:title" content="TrendRunner | Algorithmic Crypto Dashboard">
-  <meta property="og:description" content="Real-time buy/sell signals for cryptocurrencies and moonshots using a proprietary 9-factor algorithm.">
-  <meta property="og:image" content="https://trendrunner.app/og-preview.png?v=20260906">
+  <meta property="og:title" content="TrendRunner | Free Algorithmic Crypto Signals">
+  <meta property="og:description" content="Live buy/sell signals with SL/TP and 7-day exits. Core winners, moonshots, and scalps — educational research tool.">
+  <meta property="og:image" content="https://trendrunner.app/og-preview.png?v=20260912">
 
   <!-- Twitter -->
   <meta name="twitter:card" content="summary_large_image">
   <meta name="twitter:url" content="https://trendrunner.app/">
-  <meta name="twitter:title" content="TrendRunner | Algorithmic Crypto Dashboard">
-  <meta name="twitter:description" content="Real-time buy/sell signals for cryptocurrencies and moonshots using a proprietary 9-factor algorithm.">
-  <meta name="twitter:image" content="https://trendrunner.app/og-preview.png?v=20260906">
+  <meta name="twitter:title" content="TrendRunner | Free Algorithmic Crypto Signals">
+  <meta name="twitter:description" content="Live buy/sell signals with SL/TP and 7-day exits. Core winners, moonshots, and scalps — educational research tool.">
+  <meta name="twitter:image" content="https://trendrunner.app/og-preview.png?v=20260912">
+  <meta name="twitter:site" content="@TrendRunnerApp">
   
   <link rel="canonical" href="https://trendrunner.app/" />
 
@@ -39,7 +41,7 @@
 
   <!-- Chart.js -->
   <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.4/dist/chart.umd.min.js" defer></script>
-  <link rel="stylesheet" href="styles.css?v=6.34" />
+  <link rel="stylesheet" href="styles.css?v=6.35" />
   
   <!-- Favicon & PWA Manifest -->
   <link rel="icon" type="image/png" href="icon-192.png">
@@ -52,7 +54,7 @@
     if ('serviceWorker' in navigator) {
       window.addEventListener('load', () => {
         const hadController = Boolean(navigator.serviceWorker.controller);
-        navigator.serviceWorker.register('./service-worker.js?v=6.34', { updateViaCache: 'none' })
+        navigator.serviceWorker.register('./service-worker.js?v=6.35', { updateViaCache: 'none' })
           .then(reg => {
             reg.update().catch(() => {});
             navigator.serviceWorker.addEventListener('controllerchange', () => {
@@ -123,6 +125,9 @@
       </a>
       <a href="#" class="nav-link" data-section="moonshotsSection" title="Scan the entire market for highly volatile opportunities.">
         <span class="nav-icon">🚀</span> <span class="nav-text">Moonshots</span>
+      </a>
+      <a href="#" class="nav-link" data-section="listingsSection" title="Binance new-listing announcements — research only, never auto-buy.">
+        <span class="nav-icon">📢</span> <span class="nav-text">New Listings</span>
       </a>
 
       <a href="#" class="nav-link" data-section="backtestSection" title="Test your strategies on historical data.">
@@ -274,6 +279,33 @@
       </div>
     </section>
 
+    <!-- ─── NEW LISTINGS (research / alerts — not a sniper) ─────────────────── -->
+    <section class="main-section" id="listingsSection">
+      <div class="section-block">
+        <div class="section-heading">
+          <h2>📢 Binance New Listings</h2>
+          <p class="section-sub">Research panel only — <strong>no auto-buy</strong>. New coins can rip 50–100%+ then dump just as fast. Always use OCO / a trailing stop.</p>
+        </div>
+
+        <div class="moonshot-warning-box">
+          <strong>⚠️ Reality check:</strong> Not every new listing moons. Early pumps are often liquidity-hunting exits for insiders. Catching listings = knowing <em>when</em> Binance announces + having a stop ready — not FOMO-buying the top of a green candle.
+        </div>
+
+        <div class="listings-links">
+          <a href="https://www.binance.info/en/events/new-listing-promos" target="_blank" rel="noopener noreferrer">Official listing promos</a>
+          <a href="https://www.binance.com/en/support/announcement/new-cryptocurrency-listing?c=48" target="_blank" rel="noopener noreferrer">New cryptocurrency listings</a>
+        </div>
+
+        <div class="moonshot-controls">
+          <button id="refreshListingsBtn" class="btn-primary" type="button">Refresh listings</button>
+          <span id="listingsStatus" class="scan-progress"></span>
+        </div>
+
+        <div id="listingsAnnouncements" class="listings-panel"></div>
+        <div id="listingsNewPairs" class="listings-panel"></div>
+      </div>
+    </section>
+
     <!-- ─── EDUCATION SECTION ────────────────────────────────────────────────── -->
     <section class="main-section" id="educationSection">
       <div class="section-block">
@@ -317,6 +349,27 @@
               </ul>
             </div>
 
+            <div class="edu-full-card highlight-card edu-card-warning">
+              <div class="edu-header"><span>💎</span><h3>SMC, Wyckoff &amp; Volume Profile (POC)</h3></div>
+              <p>These are <strong>heuristic score boosters</strong> — useful pattern detectors, <em>not</em> full institutional “smart money” systems. They can inflate a BUY score but still cannot mint a trusted Strong Buy alone (S.BUY still needs score ≥ 4, 100% confidence, cool RSI).</p>
+              <ul>
+                <li><strong>💎 SMC Liquidity Sweep (~+2 / +3):</strong> Price briefly takes liquidity below a local low, then rejects hard (optional volume confirm). Idea: stop-hunt then reclaim.</li>
+                <li><strong>🐋 Wyckoff Spring (~+1.5):</strong> Tight range → fake breakdown below the floor → reclaim on stronger volume. Idea: shakeout before markup.</li>
+                <li><strong>🛡️ VPOC / Point of Control (~+1 / +1.5 on scalps):</strong> Price sits just above the highest-volume price bin in the recent window — treated as a volume “wall” / support bounce.</li>
+                <li><strong>Validation:</strong> Weekly Action runs <code>node backtest.js --smc-ablation</code> (ON vs OFF). Until that consistently helps, treat these factors as experimental.</li>
+              </ul>
+              <div class="edu-tip">💡 <strong>Honest wording:</strong> “Inspired by” SMC / Wyckoff / volume profile — not a claim that whales are detected in real time.</div>
+            </div>
+
+            <div class="edu-full-card">
+              <div class="edu-header"><span>📢</span><h3>New Listings (How Pumps Happen)</h3></div>
+              <p>Binance listing announcements often spark violent moves — but <strong>not every new coin moons</strong>, and many give back the entire pump.</p>
+              <ul>
+                <li><strong>How to watch:</strong> Use the <strong>New Listings</strong> tab + official Binance listing pages. The cloud bot can Telegram-alert on new CMS articles when enabled.</li>
+                <li><strong>How not to trade them:</strong> No auto-sniper yet. Do not chase a candle that already ran +50–80% without a stop.</li>
+                <li><strong>Rule you already learned:</strong> If you buy early heat, place a <strong>trailing stop or OCO immediately</strong> — paper gains evaporate fast on listing days.</li>
+              </ul>
+            </div>
 
             <div class="edu-full-card">
             <div class="edu-header"><span>📱</span><h3>How to Use TrendRunner</h3></div>
@@ -350,7 +403,8 @@
             <ul>
               <li><strong>Visual Backtester:</strong> Pick asset + timeframe. <code>1d</code> = daily core, <code>4h</code> = moonshot breakout, <code>5m</code> = scalp.</li>
               <li><strong>Weekly Action:</strong> Runs <code>node backtest.js</code> and may update <code>provenWinners</code> / the trust badge when results change.</li>
-              <li><strong>Research CLI:</strong> <code>node backtest.js --moonshots</code> and <code>--scalps</code> (also logged weekly) — research only, does <em>not</em> rewrite live allowlists.</li>
+              <li><strong>Research CLI:</strong> <code>node backtest.js --moonshots</code>, <code>--scalps</code>, and <code>--smc-ablation</code> (also logged weekly) — research only, does <em>not</em> rewrite live allowlists.</li>
+              <li><strong>SMC A/B:</strong> A Sunday badge alone is not a controlled test. Ablation runs the same backtest with factors ON vs OFF so you can see if SMC/Wyckoff/VPOC actually help.</li>
               <li><strong>Read net return, win rate, and trade count together</strong>; check the equity curve for drawdowns.</li>
             </ul>
             <div class="edu-tip">💡 <strong>Important:</strong> Historical results are research, not a guarantee. Use fees, a stop, and a take-profit on every live trade.</div>
@@ -628,7 +682,7 @@
   <!-- Version guard: if signals.js loaded is older than expected, force a full reload -->
   <script>
     // Version bumper to defeat GitHub Pages aggressive caching
-    window.__APP_VERSION__ = '6.34';
+    window.__APP_VERSION__ = '6.35';
     try {
       // Bulletproof scrub of corrupted data from localStorage before the app boots
       const wlStr = localStorage.getItem('trading_watchlist');
@@ -642,16 +696,16 @@
       // Nuke bloated caches that are causing QuotaExceededError (Removed to allow instant paint)
     } catch(e) {}
   </script>
-  <script src="js/config.js?v=6.34" defer></script>
-  <script src="js/api.js?v=6.34" defer></script>
-  <script src="js/indicators.js?v=6.34" defer></script>
-  <script src="js/signals.js?v=6.34" defer></script>
-  <script src="js/charts.js?v=6.34" defer></script>
+  <script src="js/config.js?v=6.35" defer></script>
+  <script src="js/api.js?v=6.35" defer></script>
+  <script src="js/indicators.js?v=6.35" defer></script>
+  <script src="js/signals.js?v=6.35" defer></script>
+  <script src="js/charts.js?v=6.35" defer></script>
   
-  <script src="js/scanner.js?v=6.34" defer></script>
-  <script src="js/backtest_ui.js?v=6.34" defer></script>
-  <script src="js/auth.js?v=6.34" defer></script>
-    <script src="js/dashboard.js?v=6.34" defer></script>
+  <script src="js/scanner.js?v=6.35" defer></script>
+  <script src="js/backtest_ui.js?v=6.35" defer></script>
+  <script src="js/auth.js?v=6.35" defer></script>
+    <script src="js/dashboard.js?v=6.35" defer></script>
   <script>
     // If signals.js didn't expose the right version, cached old code is running — force reload.
     if (typeof Signals === 'undefined' || Signals._version !== window.__APP_VERSION__) {

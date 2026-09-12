@@ -344,7 +344,120 @@ const Auth = {
     return String(id).toUpperCase().replace('_4H', '').replace('_5M', '');
   },
 
-  async syncToCloud(invested, watchlist, holdingsMeta, { force = false } = {}) {
+  FOLLOWED_KEY: 'trading_followed_v1',
+
+  _unionIds(...lists) {
+    const out = [];
+    const seen = new Set();
+    for (const list of lists) {
+      if (!Array.isArray(list)) continue;
+      for (const raw of list) {
+        const id = this._normId(raw);
+        if (!id || seen.has(id)) continue;
+        seen.add(id);
+        out.push(id);
+      }
+    }
+    return out;
+  },
+
+  _unionMeta(...metas) {
+    let merged = {};
+    for (const meta of metas) {
+      if (!meta || typeof meta !== 'object' || Array.isArray(meta)) continue;
+      merged = this._mergeHoldingsMeta(merged, meta);
+    }
+    return merged;
+  },
+
+  _mergeFollowed(localList = [], cloudList = []) {
+    const byId = new Map();
+    const push = (row) => {
+      if (!row || typeof row !== 'object' || !row.id) return;
+      const prev = byId.get(row.id);
+      if (!prev) {
+        byId.set(row.id, row);
+        return;
+      }
+      // Prefer closed rows; else newer enteredAt / exitedAt
+      const prevClosed = prev.status && prev.status !== 'OPEN';
+      const nextClosed = row.status && row.status !== 'OPEN';
+      if (nextClosed && !prevClosed) {
+        byId.set(row.id, row);
+        return;
+      }
+      if (prevClosed && !nextClosed) return;
+      const prevTs = Date.parse(prev.exitedAt || prev.enteredAt || '') || 0;
+      const nextTs = Date.parse(row.exitedAt || row.enteredAt || '') || 0;
+      if (nextTs >= prevTs) byId.set(row.id, row);
+    };
+    (Array.isArray(localList) ? localList : []).forEach(push);
+    (Array.isArray(cloudList) ? cloudList : []).forEach(push);
+    return [...byId.values()]
+      .sort((a, b) => (Date.parse(b.enteredAt || '') || 0) - (Date.parse(a.enteredAt || '') || 0))
+      .slice(0, 400);
+  },
+
+  _localFollowed() {
+    return this._readLocalJson(this.FOLLOWED_KEY, []);
+  },
+
+  /** Table-first portfolio read. Returns null if table missing / RLS not set up yet. */
+  async _readPortfolioTable(userId) {
+    try {
+      const { data, error } = await supabaseClient
+        .from('user_portfolios')
+        .select('invested, watchlist, holdings_meta, followed, updated_at')
+        .eq('user_id', userId)
+        .maybeSingle();
+      if (error) {
+        // 42P01 / PGRST205 = relation missing — fall back to metadata quietly
+        console.warn('☁️ Portfolio table unavailable, using metadata:', error.message);
+        this._portfolioTableOk = false;
+        return null;
+      }
+      this._portfolioTableOk = true;
+      if (!data) return { invested: [], watchlist: [], holdings_meta: {}, followed: [], empty: true };
+      return {
+        invested: Array.isArray(data.invested) ? data.invested : [],
+        watchlist: Array.isArray(data.watchlist) ? data.watchlist : [],
+        holdings_meta: data.holdings_meta && typeof data.holdings_meta === 'object' ? data.holdings_meta : {},
+        followed: Array.isArray(data.followed) ? data.followed : [],
+        empty: false,
+      };
+    } catch (e) {
+      this._portfolioTableOk = false;
+      console.warn('☁️ Portfolio table read failed:', e.message);
+      return null;
+    }
+  },
+
+  async _writePortfolioTable(userId, payload) {
+    if (this._portfolioTableOk === false) return false;
+    try {
+      const { error } = await supabaseClient.from('user_portfolios').upsert({
+        user_id: userId,
+        invested: payload.invested,
+        watchlist: payload.watchlist,
+        holdings_meta: payload.holdingsMeta,
+        followed: payload.followed,
+        updated_at: new Date().toISOString(),
+      }, { onConflict: 'user_id' });
+      if (error) {
+        console.warn('☁️ Portfolio table write failed:', error.message);
+        this._portfolioTableOk = false;
+        return false;
+      }
+      this._portfolioTableOk = true;
+      return true;
+    } catch (e) {
+      console.warn('☁️ Portfolio table write exception:', e.message);
+      this._portfolioTableOk = false;
+      return false;
+    }
+  },
+
+  async syncToCloud(invested, watchlist, holdingsMeta, { force = false, followed } = {}) {
     if (!this.user) return false;
 
     try {
@@ -360,13 +473,30 @@ const Auth = {
       const localWatchlist = Array.isArray(watchlist)
         ? watchlist
         : this._unionIds(window.Dashboard?.state?.watchlist, this._readLocalJson('trading_watchlist', []));
+      const localFollowed = Array.isArray(followed)
+        ? followed
+        : (window.Dashboard?._getFollowed?.() || this._localFollowed());
 
       const { data: userData, error: getErr } = await supabaseClient.auth.getUser();
       if (getErr) throw getErr;
-      const cloudMetaRaw = userData?.user?.user_metadata?.trading_holdings_meta;
-      const cloudInvested = Array.isArray(userData?.user?.user_metadata?.trading_invested)
-        ? userData.user.user_metadata.trading_invested
-        : [];
+      const userId = userData?.user?.id;
+      if (!userId) return false;
+
+      const tableRow = await this._readPortfolioTable(userId);
+      const meta = userData?.user?.user_metadata || {};
+      const cloudInvested = this._unionIds(
+        tableRow?.invested,
+        Array.isArray(meta.trading_invested) ? meta.trading_invested : []
+      );
+      const cloudMetaRaw = this._unionMeta(
+        tableRow?.holdings_meta,
+        meta.trading_holdings_meta
+      );
+      const cloudFollowed = this._mergeFollowed(
+        [],
+        Array.isArray(tableRow?.followed) ? tableRow.followed
+          : (Array.isArray(meta.trading_followed) ? meta.trading_followed : [])
+      );
 
       // Never wipe cloud holdings with an empty local push unless user explicitly unlocked (force).
       if (!force && localInvested.length === 0 && cloudInvested.length > 0) {
@@ -380,25 +510,39 @@ const Auth = {
         const base = this._normId(id);
         if (mergedMeta[base]) prunedMeta[base] = mergedMeta[base];
       }
+      const mergedFollowed = this._mergeFollowed(localFollowed, cloudFollowed);
 
       if (window.Dashboard?.state) {
         window.Dashboard.state.holdingsMeta = prunedMeta;
         window.Dashboard._persistHoldingsMeta?.();
       }
+      try {
+        localStorage.setItem(this.FOLLOWED_KEY, JSON.stringify(mergedFollowed));
+      } catch (e) { /* quota */ }
 
+      const payload = {
+        invested: localInvested,
+        watchlist: localWatchlist,
+        holdingsMeta: prunedMeta,
+        followed: mergedFollowed,
+      };
+
+      // Prefer durable table; keep metadata as secondary backup (size-limited).
+      const tableOk = await this._writePortfolioTable(userId, payload);
       const { error } = await supabaseClient.auth.updateUser({
         data: {
           trading_invested: localInvested,
           trading_watchlist: localWatchlist,
-          trading_holdings_meta: prunedMeta
+          trading_holdings_meta: prunedMeta,
+          trading_followed: mergedFollowed.slice(0, 80), // metadata size guard
         }
       });
-      if (error) {
+      if (error && !tableOk) {
         console.error('Failed to sync to cloud:', error);
         window.Dashboard?._showToast?.('Cloud sync failed — saved locally only', 'warning');
         return false;
       }
-      console.log('☁️ Successfully synced locked coins to Supabase Cloud', localInvested);
+      console.log('☁️ Synced portfolio', { tableOk, holdings: localInvested.length, followed: mergedFollowed.length });
       return true;
     } catch (err) {
       console.error('Failed to sync to cloud:', err);
@@ -462,11 +606,25 @@ const Auth = {
       if (!user) return;
 
       const metadata = user.user_metadata || {};
-      const cloudInvested = Array.isArray(metadata.trading_invested) ? metadata.trading_invested : [];
-      const cloudWatchlist = Array.isArray(metadata.trading_watchlist) ? metadata.trading_watchlist : [];
-      const cloudHoldingsMeta = metadata.trading_holdings_meta && typeof metadata.trading_holdings_meta === 'object'
-        ? metadata.trading_holdings_meta
-        : {};
+      const tableRow = await this._readPortfolioTable(user.id);
+
+      const cloudInvested = this._unionIds(
+        tableRow?.invested,
+        Array.isArray(metadata.trading_invested) ? metadata.trading_invested : []
+      );
+      const cloudWatchlist = this._unionIds(
+        tableRow?.watchlist,
+        Array.isArray(metadata.trading_watchlist) ? metadata.trading_watchlist : []
+      );
+      const cloudHoldingsMeta = this._unionMeta(
+        tableRow?.holdings_meta,
+        metadata.trading_holdings_meta
+      );
+      const cloudFollowed = this._mergeFollowed(
+        [],
+        Array.isArray(tableRow?.followed) ? tableRow.followed
+          : (Array.isArray(metadata.trading_followed) ? metadata.trading_followed : [])
+      );
 
       // Union Dashboard state + localStorage + cloud. Empty [] must not hide LS data.
       const localInvested = this._unionIds(
@@ -481,10 +639,12 @@ const Auth = {
         window.Dashboard?.state?.holdingsMeta,
         this._readLocalJson('trading_holdings_meta', {})
       );
+      const localFollowed = window.Dashboard?._getFollowed?.() || this._localFollowed();
 
       const mergedInvested = this._unionIds(localInvested, cloudInvested);
       const mergedWatchlist = this._unionIds(localWatchlist, cloudWatchlist);
       const mergedMeta = this._mergeHoldingsMeta(localMeta, cloudHoldingsMeta);
+      const mergedFollowed = this._mergeFollowed(localFollowed, cloudFollowed);
 
       if (window.Dashboard?.state) {
         window.Dashboard.state.invested = mergedInvested;
@@ -496,24 +656,25 @@ const Auth = {
       localStorage.setItem('trading_invested', JSON.stringify(mergedInvested));
       localStorage.setItem('trading_watchlist', JSON.stringify(mergedWatchlist));
       try { localStorage.setItem('trading_holdings_meta', JSON.stringify(mergedMeta)); } catch (e) { /* quota */ }
+      try { localStorage.setItem(this.FOLLOWED_KEY, JSON.stringify(mergedFollowed)); } catch (e) { /* quota */ }
 
       const cloudInvSet = new Set(cloudInvested.map((id) => this._normId(id)));
       const uploadedLocalOnly = mergedInvested.some((id) => !cloudInvSet.has(this._normId(id)));
 
       let ok = true;
-      if (mergedInvested.length > 0 || mergedWatchlist.length > 0 || cloudInvested.length === 0) {
-        // force only when we are not wiping non-empty cloud with empty local
+      if (mergedInvested.length > 0 || mergedWatchlist.length > 0 || mergedFollowed.length > 0 || cloudInvested.length === 0) {
         const force = mergedInvested.length > 0 || cloudInvested.length === 0;
-        ok = await this.syncToCloud(mergedInvested, mergedWatchlist, mergedMeta, { force });
+        ok = await this.syncToCloud(mergedInvested, mergedWatchlist, mergedMeta, { force, followed: mergedFollowed });
       }
 
+      const via = this._portfolioTableOk ? 'table' : 'metadata';
       const msg = mergedInvested.length === 0 && cloudInvested.length === 0
         ? 'No locked holdings to sync yet — lock a coin while signed in'
         : !ok
           ? `Holdings on this device: ${mergedInvested.length} — cloud save failed`
           : uploadedLocalOnly
-            ? `Holdings saved to your account (${mergedInvested.length} coins)`
-            : `Holdings synced (${mergedInvested.length} coins)`;
+            ? `Holdings saved to your account (${mergedInvested.length} coins, ${via})`
+            : `Holdings synced (${mergedInvested.length} coins, ${via})`;
       // Toast even if Dashboard.init has not finished — write directly to container
       const container = document.getElementById('toastContainer');
       if (container) {
@@ -526,7 +687,7 @@ const Auth = {
       } else {
         window.Dashboard?._showToast?.(msg, ok ? 'success' : 'warning');
       }
-      console.log('☁️ Sync complete', { mergedInvested, uploadedLocalOnly, ok });
+      console.log('☁️ Sync complete', { mergedInvested, uploadedLocalOnly, ok, via });
 
       if (window.Dashboard?.state?.allAssets?.length) {
         window.Dashboard.loadAll(true);

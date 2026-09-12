@@ -472,6 +472,12 @@ const Dashboard = {
     try {
       localStorage.setItem(this.FOLLOWED_KEY, JSON.stringify((list || []).slice(0, 400)));
     } catch (e) {}
+    if (window.Auth?.user) {
+      window.Auth.syncToCloud(this.state.invested, this.state.watchlist, this.state.holdingsMeta, {
+        force: true,
+        followed: list,
+      });
+    }
   },
 
   _markSuggestionFollowed(symbol, opts = {}) {
@@ -751,6 +757,83 @@ const Dashboard = {
   },
 
   // ─── Boot ────────────────────────────────────────────────────────────────────
+  // ─── New listings research (announcements + newly seen spot pairs) ─────────
+  async refreshListings({ silent = false } = {}) {
+    const status = document.getElementById('listingsStatus');
+    const annEl = document.getElementById('listingsAnnouncements');
+    const pairsEl = document.getElementById('listingsNewPairs');
+    if (!annEl || !pairsEl) return;
+
+    if (!silent && status) status.textContent = 'Loading Binance listing feed…';
+
+    const cfg = CONFIG.listings || {};
+    const snapKey = cfg.snapshotKey || 'trading_listings_symbols_v1';
+    const artKey = cfg.seenArticlesKey || 'trading_listings_articles_v1';
+
+    let articles = null;
+    try {
+      articles = await API.getListingAnnouncements({ pageSize: 12 });
+    } catch (e) {
+      articles = null;
+    }
+
+    if (articles && articles.length) {
+      let seen = {};
+      try { seen = JSON.parse(localStorage.getItem(artKey) || '{}') || {}; } catch { seen = {}; }
+      const rows = articles.map(a => {
+        const isNew = !seen[a.id];
+        return `<a class="listings-row${isNew ? ' listings-row-new' : ''}" href="${a.url}" target="_blank" rel="noopener noreferrer">
+          <span class="listings-title">${isNew ? '🆕 ' : ''}${this._esc(a.title)}</span>
+        </a>`;
+      }).join('');
+      annEl.innerHTML = `<h3>Listing announcements</h3>${rows}`;
+      const nextSeen = { ...seen };
+      articles.forEach(a => { nextSeen[a.id] = Date.now(); });
+      try { localStorage.setItem(artKey, JSON.stringify(nextSeen)); } catch (e) {}
+    } else {
+      annEl.innerHTML = `<h3>Listing announcements</h3>
+        <p class="no-data">Live CMS feed blocked in this browser (CORS) or temporarily unavailable.
+        Use the official links above — the Telegram bot can still alert when <code>LISTINGS_ALERTS</code> is on.</p>`;
+    }
+
+    const symbols = await API.getSpotUsdtSymbols();
+    if (symbols && symbols.length) {
+      let prev = [];
+      try { prev = JSON.parse(localStorage.getItem(snapKey) || '[]') || []; } catch { prev = []; }
+      const prevSet = new Set(prev);
+      const firstRun = prev.length === 0;
+      const fresh = firstRun ? [] : symbols.filter(s => !prevSet.has(s));
+      try { localStorage.setItem(snapKey, JSON.stringify(symbols)); } catch (e) {}
+
+      if (firstRun) {
+        pairsEl.innerHTML = `<h3>Newly seen spot pairs</h3>
+          <p class="no-data">Baseline saved (${symbols.length} USDT spot pairs). New pairs that appear after this refresh will show here.</p>`;
+      } else if (!fresh.length) {
+        pairsEl.innerHTML = `<h3>Newly seen spot pairs</h3>
+          <p class="no-data">No new USDT spot pairs since last snapshot (${symbols.length} tracked).</p>`;
+      } else {
+        pairsEl.innerHTML = `<h3>Newly seen spot pairs</h3>
+          <div class="listings-chips">${fresh.slice(0, 40).map(s => {
+            const base = s.replace(/USDT$/, '');
+            return `<a class="listings-chip" href="https://www.binance.com/en/trade/${base}_USDT" target="_blank" rel="noopener noreferrer">${base}</a>`;
+          }).join('')}</div>
+          <p class="edu-tip" style="margin-top:12px">💡 Before buying: place OCO (TP + stop) or a trailing stop immediately. Your missed trail on a +80% rip is exactly why.</p>`;
+      }
+    } else {
+      pairsEl.innerHTML = `<h3>Newly seen spot pairs</h3><p class="no-data">Could not load exchangeInfo (Binance rate-limit / IP). Try Refresh later.</p>`;
+    }
+
+    if (status) status.textContent = silent ? 'Auto-refreshed' : 'Updated';
+  },
+
+  _esc(str) {
+    return String(str || '')
+      .replace(/&/g, '&amp;')
+      .replace(/</g, '&lt;')
+      .replace(/>/g, '&gt;')
+      .replace(/"/g, '&quot;');
+  },
+
   async init() {
     this.state.loading = true; // Set to true immediately so global boot loader stays up
     this.state.latestSignalHistory = this._getSignalHistory();
@@ -848,6 +931,13 @@ const Dashboard = {
     setTimeout(() => this._autoScanMoonshots(), 5000);
 
     this._bindHoldingsFollowedActions();
+
+    // New listings research panel (no auto-buy)
+    if (CONFIG.listings?.enabled !== false) {
+      setTimeout(() => this.refreshListings(), 8000);
+      const pollMs = CONFIG.listings?.pollMs || (5 * 60 * 1000);
+      this.state.listingsTimer = setInterval(() => this.refreshListings({ silent: true }), pollMs);
+    }
 
     // 5m Scalper — pullback scanner (config-gated)
     if (CONFIG.scalper?.enabled !== false) {
@@ -2802,6 +2892,8 @@ const Dashboard = {
         document.querySelectorAll('.nav-link').forEach(l => l.classList.toggle('active', l === link));
       };
     });
+
+    document.getElementById('refreshListingsBtn')?.addEventListener('click', () => this.refreshListings());
 
     // Moonshots
     document.getElementById('scanMoonshotsBtn')?.addEventListener('click', async () => {

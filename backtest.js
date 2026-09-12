@@ -67,7 +67,49 @@ function parseArgs() {
   if (scalps && !intervalArg) interval = '5m';
   const useTrailingExit = args.includes('--exit=trailing') || moonshots;
   const entryRealism = args.includes('--entry-realism');
-  return { walkForward, walkForwardRolling, costSweep, interval, moonshots, scalps, useTrailingExit, entryRealism };
+  const noSmc = args.includes('--no-smc');
+  const smcAblation = args.includes('--smc-ablation');
+  return { walkForward, walkForwardRolling, costSweep, interval, moonshots, scalps, useTrailingExit, entryRealism, noSmc, smcAblation };
+}
+
+function setFactorFlags(enabled) {
+  if (!CONFIG.factors) CONFIG.factors = {};
+  CONFIG.factors.enableSmc = enabled;
+  CONFIG.factors.enableWyckoff = enabled;
+  CONFIG.factors.enableVpoc = enabled;
+}
+
+function collectDailyTrades(histories, fgMap, btcCloses, feeRate, slippage) {
+  const allTrades = [];
+  for (const asset of CONFIG.assets.crypto) {
+    const ohlcv = histories[asset.symbol];
+    if (!ohlcv) continue;
+    const trades = backtestAsset(asset.name, asset.symbol, ohlcv, {
+      feeRate,
+      slippage,
+      fgMap,
+      btcCloses,
+      ignoreWinnersFilter: false,
+    });
+    trades.forEach(t => { t.symbol = asset.symbol; });
+    allTrades.push(...trades);
+  }
+  const coreList = CONFIG.assets.coreWinners || [];
+  const winnersList = CONFIG.assets.provenWinners || [];
+  return {
+    allTrades,
+    allNet: computeStats(allTrades, 'returnPct'),
+    coreNet: computeStats(allTrades.filter(t => coreList.includes(t.symbol)), 'returnPct'),
+    winnersNet: computeStats(allTrades.filter(t => winnersList.includes(t.symbol)), 'returnPct'),
+  };
+}
+
+function fmtAblationStats(label, stats) {
+  if (!stats) {
+    console.log(`  ${label}: no trades`);
+    return;
+  }
+  console.log(`  ${label}: trades=${stats.totalTrades}  win=${stats.winRate}  avgNet=${stats.avgReturn}`);
 }
 
 const PARSED_ARGS = parseArgs();
@@ -839,6 +881,13 @@ async function main() {
   if (args.entryRealism) {
     console.log('  Mode: Entry realism (next_open vs signal_close)');
   }
+  if (args.noSmc) {
+    setFactorFlags(false);
+    console.log('  Mode: --no-smc (SMC / Wyckoff / VPOC OFF — research only, no winner rewrite)');
+  }
+  if (args.smcAblation) {
+    console.log('  Mode: --smc-ablation (compare factors ON vs OFF — research only)');
+  }
   console.log('═══════════════════════════════════════════════════════════════\n');
 
   const histories = {};
@@ -853,6 +902,34 @@ async function main() {
   
   const fgMap = await fetchFearGreedHistory(250);
   const btcCloses = histories.BTC?.closes || null;
+
+  if (args.smcAblation) {
+    console.log('\n═══════════════════════════════════════════════════════════════');
+    console.log('  SMC / Wyckoff / VPOC ABLATION');
+    console.log('  Same universe, exits, and gates — only factor flags differ');
+    console.log('═══════════════════════════════════════════════════════════════');
+
+    setFactorFlags(true);
+    const withF = collectDailyTrades(histories, fgMap, btcCloses, FEE_RATE, SLIPPAGE);
+    setFactorFlags(false);
+    const withoutF = collectDailyTrades(histories, fgMap, btcCloses, FEE_RATE, SLIPPAGE);
+    setFactorFlags(true); // restore live default
+
+    console.log('\n─── Factors ON (live default) ───');
+    fmtAblationStats('All', withF.allNet);
+    fmtAblationStats('Core', withF.coreNet);
+    fmtAblationStats('Winners', withF.winnersNet);
+    console.log('\n─── Factors OFF (--no-smc) ───');
+    fmtAblationStats('All', withoutF.allNet);
+    fmtAblationStats('Core', withoutF.coreNet);
+    fmtAblationStats('Winners', withoutF.winnersNet);
+    console.log('\n  Interpret: if ON is clearly better on core avgNet + win rate with similar trade count, keep factors.');
+    console.log('  If flat/worse, treat SMC stack as experimental and prefer --no-smc until more evidence.');
+    console.log('\n═══════════════════════════════════════════════════════════════');
+    console.log('  Ablation complete (did NOT rewrite provenWinners).');
+    console.log('═══════════════════════════════════════════════════════════════\n');
+    return;
+  }
 
   if (args.entryRealism) {
     console.log('\n═══════════════════════════════════════════════════════════════');
@@ -1075,7 +1152,7 @@ async function main() {
     printStatsBlock('Probation Winners Only:', probationStatsNet, computeStats(probationTrades, 'grossReturnPct'));
 
     // ─── Save Database & Auto-Update Config ─────────────────────────────────────
-    if (!args.walkForward && !args.walkForwardRolling && !args.costSweep && !args.moonshots) {
+    if (!args.walkForward && !args.walkForwardRolling && !args.costSweep && !args.moonshots && !args.scalps && !args.noSmc && !args.smcAblation) {
       try {
         const dbPath = path.join(__dirname, 'js', 'backtest_database.json');
         let db = { meta: { totalRuns: 0 }, runs: [], accumulated: {} };

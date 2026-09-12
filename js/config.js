@@ -87,6 +87,23 @@ const CONFIG = {
     strongSellMinRsi: 60,
   },
 
+  // ─── Experimental score factors (A/B via backtest --no-smc / --smc-ablation) ─
+  // Heuristics — not full institutional SMC/Wyckoff. Live defaults ON; validate with CLI.
+  factors: {
+    enableSmc: true,       // Liquidity sweep (+2 / +3 vol confirm)
+    enableWyckoff: true,   // Spring (+1.5)
+    enableVpoc: true,      // Near POC support (+1)
+  },
+
+  // ─── New listings research (watch/alert only — never auto-buy) ─────────────
+  listings: {
+    enabled: true,
+    catalogId: 48,         // Binance CMS "New Cryptocurrency Listing"
+    pollMs: 5 * 60 * 1000,
+    snapshotKey: 'trading_listings_symbols_v1',
+    seenArticlesKey: 'trading_listings_articles_v1',
+  },
+
   // ─── Live exit policy (single source of truth for OCO, bots, UI, backtests) ─
   // Keep take-profit / hold-limit messaging identical everywhere.
   exits: {

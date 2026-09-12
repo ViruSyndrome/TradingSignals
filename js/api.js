@@ -271,6 +271,52 @@ const API = {
   },
 
   /**
+   * Binance new-listing CMS catalog (unofficial public endpoint).
+   * Works in Node (bot). Browser may block CORS — callers must handle null.
+   */
+  async getListingAnnouncements({ pageSize = 12 } = {}) {
+    const catalogId = CONFIG.listings?.catalogId ?? 48;
+    const size = Math.min(Math.max(pageSize, 5), 20);
+    const url = `https://www.binance.com/bapi/composite/v1/public/cms/article/catalog/list/query?catalogId=${catalogId}&pageNo=1&pageSize=${size}`;
+    try {
+      const data = await this._fetch(url, 8000, 1);
+      const articles = Array.isArray(data?.data?.articles)
+        ? data.data.articles
+        : (Array.isArray(data?.data?.catalogs?.[0]?.articles) ? data.data.catalogs[0].articles : []);
+      return articles.map(a => ({
+        id: a.id,
+        code: a.code,
+        title: a.title || '',
+        url: a.code
+          ? `https://www.binance.com/en/support/announcement/detail/${a.code}`
+          : 'https://www.binance.com/en/support/announcement/new-cryptocurrency-listing?c=48',
+      })).filter(a => a.title);
+    } catch (e) {
+      console.warn('[API] Listing announcements failed:', e.message);
+      return null;
+    }
+  },
+
+  /** All tradable spot USDT symbols (for new-pair snapshot diffs). */
+  async getSpotUsdtSymbols() {
+    const key = 'spot_usdt_symbols';
+    const cached = this._get(key);
+    if (cached) return cached;
+    try {
+      if (this._binanceIsHardBanned() || this._preferOkx) throw new Error('Binance unavailable');
+      const data = await this._fetchBinance('/api/v3/exchangeInfo', 12000);
+      const symbols = (data.symbols || [])
+        .filter(s => s.quoteAsset === 'USDT' && s.status === 'TRADING' && s.isSpotTradingAllowed !== false)
+        .map(s => s.symbol)
+        .filter(s => /^[A-Z0-9]+USDT$/.test(s));
+      return this._set(key, symbols, 10 * 60 * 1000);
+    } catch (e) {
+      console.warn('[API] Spot USDT symbol list failed:', e.message);
+      return null;
+    }
+  },
+
+  /**
    * Fetch current prices for all crypto in one call (Binance).
    */
   async getCryptoPrices() {

@@ -422,31 +422,41 @@ ${result.recommendation}${stopText}
 
 If you buy this, reply /buy ${asset.symbol}`;
         
-        const cleanSymbol = asset.symbol.replace('USDT','');
-        const holdDays = result.stopSuggest?.holdLimitDays || CONFIG.exits?.holdLimitDays || 7;
-        const tpPct = result.stopSuggest?.takeProfitPct || CONFIG.exits?.takeProfitPct || 10;
-        tweetMessage = buildStrongBuyTweet({
-          cleanSymbol,
-          score: result.score,
-          confidence: result.confidence,
-          price,
-          tpPct,
-          holdDays,
-        });
-        tweetCardOpts = {
-          symbol: cleanSymbol,
-          name: asset.name || cleanSymbol,
-          score: result.score,
-          confidence: result.confidence,
-          price,
-          tpPct,
-          holdDays,
-          stopPrice: result.stopSuggest?.stopPrice,
-          takeProfitPrice: result.stopSuggest?.takeProfitPrice,
-          tierLabel: winnerTier === 'core' ? 'Core Winner' : winnerTier === 'probation' ? 'Probation' : 'Watchlist',
-          change1d: d.change24h ?? null,
-          change4h: d.change4h ?? null,
-        };
+        // Public X: only trusted core S.BUY (matches live Strong Buy gates)
+        const confGate = CONFIG.signals?.strongConfidenceGate ?? CONFIG.refresh?.strongConfidenceGate ?? 100;
+        const tweetOk =
+          winnerTier === 'core' &&
+          Number(result.confidence) >= confGate &&
+          !result.regimeBlocked &&
+          !result.greedBlocked &&
+          !result.coreOnlyFiltered;
+        if (tweetOk) {
+          const cleanSymbol = String(asset.symbol || '').replace(/USDT$/i, '');
+          const holdDays = result.stopSuggest?.holdLimitDays || CONFIG.exits?.holdLimitDays || 7;
+          const tpPct = result.stopSuggest?.takeProfitPct || CONFIG.exits?.takeProfitPct || 10;
+          tweetMessage = buildStrongBuyTweet({
+            cleanSymbol,
+            score: result.score,
+            confidence: result.confidence,
+            price,
+            tpPct,
+            holdDays,
+          });
+          tweetCardOpts = {
+            symbol: cleanSymbol,
+            name: asset.name || cleanSymbol,
+            score: result.score,
+            confidence: result.confidence,
+            price,
+            tpPct,
+            holdDays,
+            stopPrice: result.stopSuggest?.stopPrice,
+            takeProfitPrice: result.stopSuggest?.takeProfitPrice,
+            tierLabel: 'Core Winner',
+            change1d: d.change24h ?? null,
+            change4h: d.change4h ?? null,
+          };
+        }
       } else if (result.signal === 'STRONG_SELL' && owned) {
         const binanceLink = `https://www.binance.com/en/trade/${asset.symbol}_USDT?type=spot&ref=TRENDRUNNER`;
         message = `🔴 STRONG SELL ALERT: ${asset.symbol}
@@ -570,6 +580,54 @@ setInterval(scanMarket, 3600000);
 
 // Delay first scan so Render restarts do not immediately re-trigger a Binance 418 ban
 setTimeout(scanMarket, 20000);
+
+// ─── New listing announcements (alert only — never auto-buy) ─────────────────
+const LISTINGS_STATE_FILE = 'listings_seen.json';
+function loadListingsSeen() {
+  try {
+    if (!fs.existsSync(LISTINGS_STATE_FILE)) return { ids: {} };
+    return JSON.parse(fs.readFileSync(LISTINGS_STATE_FILE, 'utf8')) || { ids: {} };
+  } catch {
+    return { ids: {} };
+  }
+}
+function saveListingsSeen(state) {
+  try {
+    fs.writeFileSync(LISTINGS_STATE_FILE, JSON.stringify(state, null, 2));
+  } catch (e) {
+    console.warn('[Listings] Could not save state:', e.message);
+  }
+}
+
+async function pollNewListings() {
+  if (String(process.env.LISTINGS_ALERTS || 'true').toLowerCase() === 'false') return;
+  if (!bot || !chatId) return;
+  try {
+    const articles = await API.getListingAnnouncements({ pageSize: 10 });
+    if (!articles || !articles.length) return;
+    const state = loadListingsSeen();
+    const known = state.ids || {};
+    const firstRun = Object.keys(known).length === 0;
+    const fresh = articles.filter(a => a.id != null && !known[a.id]);
+    articles.forEach(a => { if (a.id != null) known[a.id] = Date.now(); });
+    state.ids = known;
+    saveListingsSeen(state);
+    if (firstRun) {
+      console.log(`[Listings] Baseline saved (${articles.length} articles). Next new ones will alert.`);
+      return;
+    }
+    for (const a of fresh.slice(0, 5).reverse()) {
+      const text = `📢 *Binance listing / listing-related*\n${a.title}\n${a.url}\n\n⚠️ Research only — *not* auto-buy. Use OCO or a trailing stop if you trade it.`;
+      await bot.sendMessage(chatId, text, { parse_mode: 'Markdown', disable_web_page_preview: false });
+    }
+    if (fresh.length) console.log(`[Listings] Alerted ${Math.min(fresh.length, 5)} new article(s).`);
+  } catch (e) {
+    console.warn('[Listings] Poll failed:', e.message);
+  }
+}
+
+setInterval(pollNewListings, 5 * 60 * 1000);
+setTimeout(pollNewListings, 45000);
 
 // --- Cloud Keep-Alive Server ---
 if (!process.env.BOT_WORKER_ONLY) {

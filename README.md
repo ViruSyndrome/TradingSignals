@@ -26,15 +26,16 @@ Dashboard OCO copy, bots, visual backtester, and CLI all read this policy for da
 
 ## Architecture
 
-- **`js/indicators.js`** — RSI, MACD, Bollinger, EMA, SMA, ATR
-- **`js/signals.js`** — Daily / breakout / scalp scoring + stop suggestions
+- **`js/indicators.js`** — RSI, MACD, Bollinger, EMA, SMA, ATR + heuristic SMC / Wyckoff / VPOC
+- **`js/signals.js`** — Daily / breakout / scalp scoring + stop suggestions (`CONFIG.factors` gates)
 - **`js/config.js`** — Universe, winners, exits, scalper knobs, `lastBacktest` badge
 - **`js/dashboard.js`** — UI, Holdings lots, Watch, followed ledger, scanners
-- **`js/auth.js`** — Optional Supabase sync (invested / watchlist / holdings meta)
+- **`js/auth.js`** — Optional Supabase sync (Watch / Holdings / followed ledger). Prefer `user_portfolios` table; falls back to auth metadata
 - **`js/scanner.js`** — Moonshot market scan + 5m scalp scan
-- **`bot.js`** — Telegram (+ optional X) alerts
+- **`bot.js`** — Telegram (+ optional X) alerts; optional new-listing Telegram alerts
 - **`backtest.js`** — CLI validation; weekly Action refreshes daily winners
 - **`scripts/fetch-coin-logos.js`** — Download missing logos into `assets/coin-logos/`
+- **`supabase/portfolio.sql`** — Durable portfolio table (run once in Supabase SQL Editor)
 
 ## Setup
 
@@ -45,6 +46,7 @@ Serve the directory with any static host (or `npx serve .`) and open `index.html
 - `https://YOUR_DOMAIN/index.html`
 - `https://YOUR_DOMAIN/`
 
+**Durable cloud sync (recommended):** in the Supabase SQL Editor, run `supabase/portfolio.sql`. Until that table exists, sync still uses auth `user_metadata` as a fallback.
 
 ### Telegram / X bot
 1. `npm install`
@@ -62,10 +64,14 @@ Serve the directory with any static host (or `npx serve .`) and open `index.html
 | `node backtest.js --entry-realism` | next_open vs signal_close fills | No |
 | `node backtest.js --moonshots` | 4H breakout research (defaults to 4h) | **No** |
 | `node backtest.js --scalps` | 5m scalp research | **No** |
+| `node backtest.js --no-smc` | Daily engine with SMC/Wyckoff/VPOC off | **No** |
+| `node backtest.js --smc-ablation` | Compare factors ON vs OFF (controlled A/B) | **No** |
 
 Visual Backtester timeframe → engine: **1d** daily core, **4h** moonshot breakout, **5m** scalp.
 
-Weekly Action also appends moonshot/scalp research logs (`continue-on-error`); only the plain daily run may commit winner-list changes.
+Weekly Action also appends moonshot/scalp research logs and **SMC ablation** (`continue-on-error`); only the plain daily run may commit winner-list changes.
+
+**New Listings:** research tab + optional Telegram CMS alerts (`LISTINGS_ALERTS`). Not an auto-buy sniper.
 
 Unit tests: `npm test`
 

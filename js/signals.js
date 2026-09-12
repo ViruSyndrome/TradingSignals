@@ -46,7 +46,13 @@ const Signals = {
     const macdData= Indicators.macd(closes);
     const bbData  = Indicators.bollingerBands(closes);
     const atrArr  = (highs && lows) ? Indicators.atr(highs, lows, closes, 14) : null;
-    const smcData = (highs && lows && volumes) ? Indicators.smcLiquiditySweep(closes, highs, lows, volumes, 20) : { bullish: false, volumeConfirmed: false };
+    const factors = (typeof CONFIG !== 'undefined' && CONFIG.factors) || {};
+    const smcOn = factors.enableSmc !== false;
+    const wyckOffOn = factors.enableWyckoff !== false;
+    const vpocOn = factors.enableVpoc !== false;
+    const smcData = (smcOn && highs && lows && volumes)
+      ? Indicators.smcLiquiditySweep(closes, highs, lows, volumes, 20)
+      : { bullish: false, volumeConfirmed: false };
 
     // ── Get current (latest) values ─────────────────────────────────────────
     const price     = Indicators.last(closes);
@@ -203,7 +209,7 @@ const Signals = {
     }
 
     // ── SMC Liquidity Sweep ──────────────────────────────────────────────────
-    if (smcData.bullish) {
+    if (smcOn && smcData.bullish) {
       let s = 2.0;
       let sig = 'STRONG_BUY';
       let desc = `💎 Smart Money Concept: Bullish Liquidity Sweep. Price hunted stops below local low and rejected strongly.`;
@@ -216,18 +222,22 @@ const Signals = {
     }
 
     // ── Wyckoff Spring & Volume Profile ──────────────────────────────────────
-    const wyckoff = (lows && volumes) ? Indicators.wyckoffSpring(closes, lows, volumes, 20) : { bullish: false };
-    if (wyckoff.bullish) {
-      score += 1.5;
-      indDetails.wyckoff = { signal: 'BUY', score: 1.5, description: `🐋 Wyckoff Spring: Price faked a breakdown from tight accumulation and reclaimed on high volume.` };
+    if (wyckOffOn) {
+      const wyckoff = (lows && volumes) ? Indicators.wyckoffSpring(closes, lows, volumes, 20) : { bullish: false };
+      if (wyckoff.bullish) {
+        score += 1.5;
+        indDetails.wyckoff = { signal: 'BUY', score: 1.5, description: `🐋 Wyckoff Spring: Price faked a breakdown from tight accumulation and reclaimed on high volume.` };
+      }
     }
-    
-    const vpoc = (highs && lows && volumes) ? Indicators.volumeProfilePOC(closes, highs, lows, volumes, 50) : null;
-    if (vpoc) {
-      const distToPoc = Math.abs(price - vpoc) / vpoc;
-      if (distToPoc < 0.02 && price > vpoc) {
-        score += 1.0;
-        indDetails.vpoc = { signal: 'BUY', score: 1.0, description: `🛡️ Point of Control (POC): Price is sitting perfectly on massive volume support.` };
+
+    if (vpocOn) {
+      const vpoc = (highs && lows && volumes) ? Indicators.volumeProfilePOC(closes, highs, lows, volumes, 50) : null;
+      if (vpoc) {
+        const distToPoc = Math.abs(price - vpoc) / vpoc;
+        if (distToPoc < 0.02 && price > vpoc) {
+          score += 1.0;
+          indDetails.vpoc = { signal: 'BUY', score: 1.0, description: `🛡️ Point of Control (POC): Price is sitting perfectly on massive volume support.` };
+        }
       }
     }
 
@@ -784,7 +794,13 @@ const Signals = {
     const sma50Arr = Indicators.sma(closes, 50);
     const rsiArr = Indicators.rsi(closes, 14);
     const bbData = Indicators.bollingerBands(closes, 20, 2);
-    const smcData = (highs && lows && volumes) ? Indicators.smcLiquiditySweep(closes, highs, lows, volumes, 15) : { bullish: false, volumeConfirmed: false };
+    const factors = (typeof CONFIG !== 'undefined' && CONFIG.factors) || {};
+    const smcOn = factors.enableSmc !== false;
+    const wyckOffOn = factors.enableWyckoff !== false;
+    const vpocOn = factors.enableVpoc !== false;
+    const smcData = (smcOn && highs && lows && volumes)
+      ? Indicators.smcLiquiditySweep(closes, highs, lows, volumes, 15)
+      : { bullish: false, volumeConfirmed: false };
 
     const price = Indicators.last(closes);
     const ema9 = Indicators.last(ema9Arr);
@@ -895,7 +911,7 @@ const Signals = {
 
     // ── SMC Liquidity Sweep (The ultimate scalper signal) ──────────────
     let smcSweepFired = false;
-    if (smcData.bullish) {
+    if (smcOn && smcData.bullish) {
       smcSweepFired = true;
       let s = 2.5;
       let tDesc = `💎 SMC Liquidity Sweep! Stops hunted below local low and rejected strongly. Excellent reversal scalp.`;
@@ -907,18 +923,22 @@ const Signals = {
       desc.push(tDesc);
     }
 
-    const wyckoff = (lows && volumes) ? Indicators.wyckoffSpring(closes, lows, volumes, 20) : { bullish: false };
-    if (wyckoff.bullish) {
-      score += 1.5;
-      desc.push(`🐋 Wyckoff Spring: Tight range broken and reclaimed. Institutional buying detected.`);
+    if (wyckOffOn) {
+      const wyckoff = (lows && volumes) ? Indicators.wyckoffSpring(closes, lows, volumes, 20) : { bullish: false };
+      if (wyckoff.bullish) {
+        score += 1.5;
+        desc.push(`🐋 Wyckoff Spring: Tight range broken and reclaimed. Institutional buying detected.`);
+      }
     }
 
-    const vpoc = (highs && lows && volumes) ? Indicators.volumeProfilePOC(closes, highs, lows, volumes, 30) : null;
-    if (vpoc) {
-      const distToPoc = Math.abs(price - vpoc) / vpoc;
-      if (distToPoc < 0.015 && price > vpoc) {
-        score += 1.5;
-        desc.push(`🛡️ POC Bounce: Price perfectly rejecting off the highest volume node support.`);
+    if (vpocOn) {
+      const vpoc = (highs && lows && volumes) ? Indicators.volumeProfilePOC(closes, highs, lows, volumes, 30) : null;
+      if (vpoc) {
+        const distToPoc = Math.abs(price - vpoc) / vpoc;
+        if (distToPoc < 0.015 && price > vpoc) {
+          score += 1.5;
+          desc.push(`🛡️ POC Bounce: Price perfectly rejecting off the highest volume node support.`);
+        }
       }
     }
 
@@ -1033,7 +1053,7 @@ const Signals = {
     return this.LEVELS[signalKey] || this.LEVELS.NEUTRAL;
   },
 
-  _version: '6.34',
+  _version: '6.35',
 };
 
 if (typeof module !== 'undefined' && module.exports) module.exports = Signals;

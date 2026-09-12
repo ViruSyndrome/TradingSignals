@@ -40,6 +40,11 @@ jobs:
           node backtest.js --moonshots 2>&1 | tee -a backtest_output.txt
           node backtest.js --scalps 2>&1 | tee -a backtest_output.txt
 
+      # Controlled A/B for SMC / Wyckoff / VPOC (does NOT rewrite winners)
+      - name: SMC factor ablation
+        continue-on-error: true
+        run: node backtest.js --smc-ablation 2>&1 | tee -a backtest_output.txt
+
       - name: Check if config changed
         id: changes
         run: |
