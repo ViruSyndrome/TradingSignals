@@ -263,6 +263,19 @@ button:focus-visible { outline: 2px solid var(--accent); border-radius: 4px; }
 .mkt-dot.green { background: var(--c-green); box-shadow: 0 0 8px var(--c-green); }
 .mkt-dot.red { background: var(--c-red); box-shadow: 0 0 8px var(--c-red); }
 .sidebar-disclaimer { color: rgba(255,255,255,0.3); line-height: 1.4; }
+.sidebar-affiliate {
+  margin-top: 10px;
+  font-size: 11px;
+  line-height: 1.35;
+}
+.sidebar-affiliate a {
+  color: rgba(240, 185, 11, 0.75);
+  text-decoration: none;
+}
+.sidebar-affiliate a:hover {
+  color: #f0b90b;
+  text-decoration: underline;
+}
 
 /* ═══════════════════════════════════════════════════════════════════════════
    MAIN CONTENT AREA
@@ -801,6 +814,19 @@ body.modal-open { overflow: hidden; }
   white-space: nowrap;
 }
 .modal-trade-btn:hover { background: rgba(240, 185, 11, 0.2); }
+.modal-trade-wrap {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 6px;
+}
+.modal-affiliate-note {
+  margin: 0;
+  font-size: 11px;
+  line-height: 1.35;
+  color: var(--text-muted);
+  max-width: 280px;
+}
 .modal-prices { text-align: right; }
 .modal-price { font-size: 48px; font-weight: 800; line-height: 1; letter-spacing: -1px; margin-bottom: 8px; }
 

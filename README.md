@@ -46,7 +46,13 @@ Serve the directory with any static host (or `npx serve .`) and open `index.html
 - `https://YOUR_DOMAIN/index.html`
 - `https://YOUR_DOMAIN/`
 
-**Durable cloud sync (recommended):** in the Supabase SQL Editor, run `supabase/portfolio.sql`. Until that table exists, sync still uses auth `user_metadata` as a fallback.
+**Durable cloud sync (recommended):** in the Supabase SQL Editor, run `supabase/portfolio.sql` (the DROP POLICY/TRIGGER IF EXISTS lines are idempotent setup — they do not wipe user accounts). Until that table exists, sync still uses auth `user_metadata` as a fallback.
+
+**After each production deploy:**
+1. Confirm the Render bot redeployed on the latest `main` (X posts: core S.BUY @ ≥100% confidence only).
+2. Hard-refresh the PWA (or bump is automatic via service-worker cache version).
+3. Google Search Console → Sitemaps → resubmit `https://trendrunner.app/sitemap.xml`.
+4. Spot-check a coin ticker hover + asset modal Trade button for referral / 10% kickback copy.
 
 ### Telegram / X bot
 1. `npm install`

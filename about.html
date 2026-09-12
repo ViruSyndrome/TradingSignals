@@ -1,12 +1,16 @@
 <!DOCTYPE html>
 <html lang="en">
 <head>
-    <meta name="description" content="Discover algorithmic crypto intelligence with TrendRunner. Track trends, identify breakouts, and backtest strategies for Bitcoin and top altcoins.">
   <meta charset="UTF-8">
-  <title>About - TrendRunner</title>
+  <meta name="description" content="Learn how TrendRunner builds free algorithmic crypto signals: daily core winners, 4H moonshots, 5m scalps, Strong Buy rules, 50/50 exits, and honest SMC / Wyckoff / VPOC heuristics.">
+  <title>About TrendRunner | Algorithmic Crypto Signals</title>
+  <link rel="canonical" href="https://trendrunner.app/about.html" />
   <link rel="icon" type="image/png" href="icon-192.png">
   <link rel="apple-touch-icon" href="icon-192.png">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <meta property="og:title" content="About TrendRunner | Algorithmic Crypto Signals">
+  <meta property="og:description" content="How TrendRunner scores crypto markets: daily core, moonshots, scalps, exits, and Binance referral fee kickback.">
+  <meta property="og:url" content="https://trendrunner.app/about.html">
   <link rel="stylesheet" href="styles.css">
   <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;500;600;700&display=swap" rel="stylesheet">
   <style>
@@ -17,16 +21,17 @@
     .back-btn:hover { text-decoration: underline; }
     ul { padding-left: 20px; }
     li { margin-bottom: 8px; }
-      html, body { display: block !important; overflow: auto !important; height: auto !important; min-height: 100%; }
+    a { color: var(--accent); }
+    html, body { display: block !important; overflow: auto !important; height: auto !important; min-height: 100%; }
   </style>
 </head>
 <body>
   <a href="index.html" class="back-btn">← Back to Dashboard</a>
   <h1>About TrendRunner</h1>
-  <p>TrendRunner is an algorithm-driven trading dashboard for cryptocurrency markets. Our mission is to cut through social hype and emotional trading with transparent, data-driven technical analysis.</p>
+  <p>TrendRunner is an algorithm-driven trading dashboard for cryptocurrency markets. Our mission is to cut through social hype and emotional trading with transparent, data-driven technical analysis. Signals are educational research — not financial advice, and TrendRunner does not execute trades for you.</p>
   
   <h2>How It Works</h2>
-  <p>A shared composite engine scores each asset in real time. Factors include:</p>
+  <p>A shared composite engine scores each asset in real time. Core factors include:</p>
   <ul>
     <li>Dual Moving Average Crossovers (EMA 9/21 &amp; SMA 50/200)</li>
     <li>Momentum (RSI)</li>
@@ -35,22 +40,29 @@
     <li>Fundamental TVL (Total Value Locked) via DefiLlama (where available)</li>
     <li>Global Market Sentiment (Fear &amp; Greed Index)</li>
     <li>Entry timing chips: <strong>CONFIRM</strong> vs <strong>WAIT</strong> (daily 4H dips, moonshot retests, 5m scalp retests)</li>
+    <li>Heuristic boosters (experimental): SMC liquidity sweep, Wyckoff spring, volume-profile POC — pattern detectors, not a claim of live “whale tracking”</li>
   </ul>
 
   <h2>Three Engines</h2>
   <ul>
-    <li><strong>Daily core</strong> — validated winner lists, hard regime/greed gates, strict Strong Buy rules.</li>
+    <li><strong>Daily core</strong> — validated winner lists, hard regime/greed gates, strict Strong Buy rules (score ≥ 4, 100% confidence, cool RSI).</li>
     <li><strong>Moonshot scanner (4H)</strong> — breakout setups with retest timing; high risk. Results stay in the Moonshots tab unless <em>you</em> Watch or Lock them.</li>
     <li><strong>5m Scalps</strong> — short EMA-pullback plays on liquid volatile alts; small size only.</li>
   </ul>
 
+  <h2>Strong Buy Rule</h2>
+  <p>Trusted Strong Buy badges require agreement across directional factors plus a cool RSI. Heuristic SMC / Wyckoff / POC points can raise a score toward Buy, but they cannot mint a trusted Strong Buy alone.</p>
+
   <h2>Holdings &amp; Suggestions</h2>
-  <p>Lock 🔒 after you buy to paper-track positions. You can correct the exact Binance fill price and date/time, and add multiple entry lots. Tap <strong>I followed this</strong> on a Buy signal to log suggestions you took and track wins vs losses in Signal Log.</p>
+  <p>Lock 🔒 after you buy to paper-track positions. You can correct the exact Binance fill price and date/time, and add multiple entry lots. Tap <strong>I followed this</strong> on a Buy signal to log suggestions you took and track wins vs losses in Signal Log. Signed-in users can sync Watch, Holdings, and followed ledger via Supabase.</p>
 
   <h2>Exits</h2>
-  <p>Live playbook is a <strong>50/50</strong> plan: bank half near +10%, trail the rest, with a 7-day max hold on leftovers. Always place protective stops on the exchange — TrendRunner does not execute trades.</p>
+  <p>Live playbook is a <strong>50/50</strong> plan: bank half near +10%, trail the rest, with a 7-day max hold on leftovers. Always place protective stops on the exchange.</p>
+
+  <h2>Binance Referral</h2>
+  <p>Trade and signup links on TrendRunner include our Binance referral code (<code>ref=TRENDRUNNER</code>). New accounts created through those links may receive a <strong>10% trading-fee kickback</strong> from Binance at no extra cost to you. Full explanation lives in the dashboard <a href="index.html#">Learn Trading</a> section. See also <a href="privacy.html">Privacy</a> and <a href="terms.html">Terms</a> for affiliate disclosure.</p>
   
   <h2>Our Philosophy</h2>
-  <p>We believe in transparent, mechanical trading. Every BUY and SELL is the result of stated mathematical conditions — not a black-box AI. Historical backtests refresh weekly for the daily core list; moonshot and scalp backtests are research-only.</p>
+  <p>We believe in transparent, mechanical trading. Every BUY and SELL is the result of stated mathematical conditions — not a black-box AI. Historical backtests refresh weekly for the daily core list; moonshot, scalp, and SMC ablation runs are research-only and do not rewrite live allowlists by themselves.</p>
 </body>
 </html>

@@ -39,8 +39,18 @@ const Dashboard = {
   ALERT_OUTCOMES_KEY: 'trading_alert_outcomes_v1',
   FOLLOWED_KEY: 'trading_followed_v1',
   MOONSHOT_REVIEW_MS: 4 * 60 * 60 * 1000, // 4 hours to reduce clutter
+  BINANCE_REF: 'TRENDRUNNER',
+  BINANCE_REF_TITLE: 'Opens Binance (TrendRunner referral — new accounts can get 10% fee kickback)',
   _previousSignals: new Map(),
   _previousScalps: new Map(),
+
+  /** Spot trade URL with affiliate ref (always include ref=). */
+  _binanceTradeUrl(symbolOrPair) {
+    let s = String(symbolOrPair || '').toUpperCase().replace(/_4H|_5M/g, '');
+    if (s.endsWith('_USDT')) s = s.replace('_USDT', 'USDT');
+    const base = s.replace(/USDT$/i, '');
+    return `https://www.binance.com/en/trade/${base}_USDT?type=spot&ref=${this.BINANCE_REF}`;
+  },
 
   _getAlertOutcomes() {
     try {
@@ -815,7 +825,7 @@ const Dashboard = {
         pairsEl.innerHTML = `<h3>Newly seen spot pairs</h3>
           <div class="listings-chips">${fresh.slice(0, 40).map(s => {
             const base = s.replace(/USDT$/, '');
-            return `<a class="listings-chip" href="https://www.binance.com/en/trade/${base}_USDT" target="_blank" rel="noopener noreferrer">${base}</a>`;
+            return `<a class="listings-chip" href="${this._binanceTradeUrl(base)}" target="_blank" rel="noopener noreferrer" title="${this.BINANCE_REF_TITLE}">${base}</a>`;
           }).join('')}</div>
           <p class="edu-tip" style="margin-top:12px">💡 Before buying: place OCO (TP + stop) or a trailing stop immediately. Your missed trail on a +80% rip is exactly why.</p>`;
       }
@@ -1890,7 +1900,6 @@ const Dashboard = {
           const priceStr = h.price ? '$' + (h.price < 1 ? h.price.toFixed(4) : h.price.toFixed(2)) : '';
           const baseId = String(h.id || '').toUpperCase().replace(/_(?:4H|5M)$/, '');
           const baseSymbol = baseId.endsWith('USDT') ? baseId.slice(0, -4) : baseId;
-          const binanceId = `${baseSymbol}_USDT`;
           const idUp = String(h.id || '').toUpperCase();
           const scannerType = h.kind === 'scalp' || idUp.endsWith('_5M')
             ? 'scalper'
@@ -1901,7 +1910,7 @@ const Dashboard = {
           const historyIcon = `<span class="sh-visual ${scannerType ? `scanner-visual ${scannerType}-visual` : ''}">${this._logoMarkHTML(baseSymbol, { scannerType, scannerChip })}</span>`;
           const toShort = h.to === 'EXPIRED' ? 'OUT' : toLevel.short;
           const toCls = h.to === 'EXPIRED' ? 'neutral' : toLevel.cls;
-          return `<a href="https://www.binance.com/en/trade/${binanceId}?type=spot&ref=TRENDRUNNER" target="_blank" rel="noopener noreferrer" class="signal-history-entry" style="text-decoration:none; color:inherit;">
+          return `<a href="${this._binanceTradeUrl(baseSymbol)}" target="_blank" rel="noopener noreferrer" class="signal-history-entry" style="text-decoration:none; color:inherit;" title="${this.BINANCE_REF_TITLE}">
             ${historyIcon}
             <span class="sh-name">${h.name} <small>${h.symbol}</small></span>
             <span class="signal-badge signal-${fromLevel.cls}" style="font-size:11px;padding:2px 6px;">${fromLevel.short}</span>
@@ -2170,7 +2179,7 @@ const Dashboard = {
             ${assetMark}
             <div class="asset-meta">
               <div class="asset-name">${asset.name}</div>
-              <a href="https://www.binance.com/en/trade/${asset.symbol}_USDT?type=spot&ref=TRENDRUNNER" target="_blank" class="asset-symbol" style="text-decoration:none; color:var(--text-secondary); pointer-events: auto;" title="Trade on Binance">${asset.symbol}USDT ↗</a>
+              <a href="${this._binanceTradeUrl(asset.symbol)}" target="_blank" rel="noopener noreferrer" class="asset-symbol" style="text-decoration:none; color:var(--text-secondary); pointer-events: auto;" title="${this.BINANCE_REF_TITLE}">${asset.symbol}USDT ↗</a>
               <div class="card-badges">
                 <span class="cat-badge-inline">${catBadge}</span>
                 ${winnerBadge}
@@ -2551,7 +2560,7 @@ const Dashboard = {
     const modalAssetMark = this._logoMarkHTML(asset.symbol || asset.id, { scannerType: modalScannerType, scannerChip: modalScannerChip, sizeClass: 'lg' });
 
     const tradeSymbol = String(asset.symbol || '').replace(/USDT$/i, '') || String(asset.id || '').replace(/USDT.*$/i, '');
-    const binanceTradeUrl = `https://www.binance.com/en/trade/${tradeSymbol}_USDT?type=spot&ref=TRENDRUNNER`;
+    const binanceTradeUrl = this._binanceTradeUrl(tradeSymbol);
 
     content.innerHTML = `
       <div class="modal-header">
@@ -2568,7 +2577,10 @@ const Dashboard = {
         <div class="modal-prices">
           <div class="modal-price">${priceStr}</div>
           <div class="price-change ${change24h == null ? 'flat' : change24h >= 0 ? 'pos' : 'neg'} lg">${chgStr} (24h)</div>
-          <a href="${binanceTradeUrl}" target="_blank" rel="noopener noreferrer" class="modal-trade-btn" title="Open this pair on Binance">Trade ${tradeSymbol}USDT on Binance ↗</a>
+          <div class="modal-trade-wrap">
+            <a href="${binanceTradeUrl}" target="_blank" rel="noopener noreferrer" class="modal-trade-btn" title="${this.BINANCE_REF_TITLE}">Trade ${tradeSymbol}USDT on Binance ↗</a>
+            <p class="modal-affiliate-note">Referral link · 10% fee kickback for new Binance signups. Details in Learn Trading.</p>
+          </div>
         </div>
         ${ocoHTML}
       </div>
