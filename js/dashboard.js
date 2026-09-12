@@ -1070,6 +1070,7 @@ const Dashboard = {
       return this._fetchInFlight;
     }
     this.state.loading = true;
+    this._fetchStartedAt = Date.now();
     this._updateLiveStatus();
     if (!silent) this._setLoading(true);
 
@@ -1255,11 +1256,72 @@ const Dashboard = {
       if (!silent) this._showToast('Some data failed to load — check internet connection', 'warning');
     } finally {
       this._fetchInFlight = null;
+      this._fetchStartedAt = 0;
     }
     })();
 
     this._fetchInFlight = fetchPromise;
     return fetchPromise;
+  },
+
+  /** Clear hung fetch mutex left behind by tab/PWA suspension. */
+  _clearStuckFetch(reason = 'resume') {
+    const now = Date.now();
+    const started = this._fetchStartedAt || 0;
+    const age = started ? now - started : (this._fetchInFlight ? Infinity : 0);
+    const STUCK_MS = 20000;
+    if (!this._fetchInFlight && !this.state.loading) return false;
+    if (age < STUCK_MS && this._fetchInFlight) return false;
+    console.warn(`[Dashboard] Clearing stuck fetch/loading after ${reason} (age=${Math.round(age / 1000)}s)`);
+    this._fetchInFlight = null;
+    this._fetchStartedAt = 0;
+    this.state.loading = false;
+    this._setLoading(false);
+    return true;
+  },
+
+  /**
+   * Wake from background: browsers freeze timers + in-flight fetches when the
+   * tab/PWA is hidden. Restart polling and refresh if data is stale.
+   */
+  _wakeFromBackground(reason = 'visibility') {
+    if (typeof document !== 'undefined' && document.visibilityState === 'hidden') return;
+
+    const now = Date.now();
+    const hiddenMs = this._hiddenAt ? now - this._hiddenAt : 0;
+    this._hiddenAt = null;
+
+    const clearedStuck = this._clearStuckFetch(reason);
+    const wasAway = hiddenMs > 0 || reason === 'online' || reason === 'pageshow' || reason === 'resume';
+
+    const lastMs = this.state.lastUpdate instanceof Date
+      ? this.state.lastUpdate.getTime()
+      : (typeof this.state.lastUpdate === 'number' ? this.state.lastUpdate : 0);
+    const dataAge = lastMs ? now - lastMs : Infinity;
+    const interval = (CONFIG?.refresh?.intervalMs) || 30000;
+    // Refresh if overdue, data older than one interval, or user was away ≥8s
+    // (timers often don't fire while suspended, so refreshDueAt alone is unreliable).
+    const needsRefresh =
+      dataAge >= interval
+      || hiddenMs >= 8000
+      || (this.state.refreshDueAt != null && now >= this.state.refreshDueAt)
+      || clearedStuck;
+
+    // Restart intervals only after a real background stretch — plain window
+    // focus must not keep resetting the 30s cadence.
+    if (wasAway || clearedStuck) {
+      this._scheduleRefresh();
+    }
+
+    if (needsRefresh && !this._fetchInFlight) {
+      console.info(`[Dashboard] Resume refresh (${reason}, hidden=${Math.round(hiddenMs / 1000)}s, age=${Math.round(dataAge / 1000)}s)`);
+      this.loadAll(true).catch(e => console.warn('[Dashboard] Resume refresh failed:', e));
+    }
+  },
+
+  _onAppVisible(reason = 'visibility') {
+    clearTimeout(this._wakeDebounce);
+    this._wakeDebounce = setTimeout(() => this._wakeFromBackground(reason), 120);
   },
 
   _hideBootLoader(force = false) {
@@ -3123,10 +3185,8 @@ const Dashboard = {
   },
 
   _forceRefresh() {
-    if (this.state.loading) {
-      console.warn('Dashboard is already loading, ignoring refresh click.');
-      return;
-    }
+    // Manual refresh must never be blocked by a hung background fetch.
+    this._clearStuckFetch('manual');
     Object.keys(localStorage).forEach(key => {
       if (key.startsWith('trading_cache_')) localStorage.removeItem(key);
     });
@@ -3145,23 +3205,26 @@ document.addEventListener('DOMContentLoaded', () => {
   window.addEventListener('scroll', () => {
     if (window.scrollY > 0 || window.scrollX > 0) window.scrollTo(0, 0);
   }, { passive: true });
-  
-  // Wake-up from tab suspension (Mobile/Android fix)
+
+  // Tab / PWA resume: Chrome freezes timers + in-flight fetches while hidden.
+  // Old handler only checked loading/refreshDueAt and never cleared _fetchInFlight,
+  // so a suspended fetch could leave the dash permanently stale until hard refresh.
   document.addEventListener('visibilitychange', () => {
-    if (document.visibilityState === 'visible') {
-      // If the loading lock has been stuck for more than 30 seconds due to a suspended network fetch, break it.
-      const now = Date.now();
-      if (Dashboard.state.loading && Dashboard.state.refreshDueAt && now > Dashboard.state.refreshDueAt + 30000) {
-        console.warn('Dashboard was stuck in loading state from a suspended tab. Forcing lock release.');
-        Dashboard.state.loading = false;
-        Dashboard._setLoading(false);
-      }
-      // If the data is stale, trigger a background refresh immediately upon waking up
-      if (!Dashboard.state.loading && now > Dashboard.state.refreshDueAt) {
-        Dashboard.loadAll(true);
-      }
+    if (document.visibilityState === 'hidden') {
+      Dashboard._hiddenAt = Date.now();
+      return;
     }
+    Dashboard._onAppVisible('visibility');
   });
+  window.addEventListener('pageshow', (e) => {
+    if (e.persisted) Dashboard._onAppVisible('pageshow');
+  });
+  // Focus alone is noisy; only wake if we previously marked the page hidden.
+  window.addEventListener('focus', () => {
+    if (Dashboard._hiddenAt) Dashboard._onAppVisible('focus');
+  });
+  window.addEventListener('online', () => Dashboard._onAppVisible('online'));
+  document.addEventListener('resume', () => Dashboard._onAppVisible('resume')); // Cordova/Capacitor-style
 
   const mainContent = document.querySelector('.main-content');
   if (mainContent) {
