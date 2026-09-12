@@ -578,6 +578,6 @@ if (!process.env.BOT_WORKER_ONLY) {
   app.get('/', (req, res) => res.send('Bot is running.'));
   app.get('/health', (req, res) => res.status(200).json({ status: 'ok' }));
   const PORT = process.env.PORT || 3000;
-  const server = app.listen(PORT, () => console.log(`Web server listening on port ${PORT}`));
+  const server = app.listen(PORT, '0.0.0.0', () => console.log(`Web server listening on port ${PORT}`));
   server.on('error', error => console.error(`[Server] Failed to bind port ${PORT}: ${error.message}`));
 }

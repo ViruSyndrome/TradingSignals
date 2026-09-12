@@ -8,7 +8,7 @@ app.get('/', (req, res) => res.type('text').send('TrendRunner bot is running.'))
 app.get('/health', (req, res) => res.status(200).json({ status: 'ok' }));
 
 const port = process.env.PORT || 3000;
-app.listen(port, () => {
+app.listen(port, '0.0.0.0', () => {
   console.log(`Health server listening on port ${port}`);
   startWorker();
 });
