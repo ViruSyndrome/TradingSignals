@@ -63,8 +63,8 @@ const API = {
     return Date.now() < this._binanceHardBanUntil;
   },
 
-  // ─── Generic fetch with timeout + retry ───────────────────────────────────
-  async _fetch(url, timeoutMs = 12000, retries = 1) {
+  // ─── Generic fetch with timeout + retry ────────────────────────────────────────
+  async _fetch(url, timeoutMs = 8000, retries = 1) {
     let lastErr;
     for (let attempt = 0; attempt <= retries; attempt++) {
       const ctrl = new AbortController();
@@ -93,17 +93,20 @@ const API = {
       } catch (e) {
         clearTimeout(timer);
         lastErr = e;
-        if (attempt < retries) await this._delay(400 * (attempt + 1));
+        // If it's a 418 or 403, don't retry, it's a hard block
+        if (e.status === 418 || e.status === 403) break;
+        if (attempt < retries) await this._delay(300 * (attempt + 1));
       }
     }
     throw lastErr;
   },
 
   /**
-   * Binance market-data fetch with host failover on 418/429/403.
+   * Fetch from Binance API with automatic fallback routing through alternative public hosts.
+   * Handles 418 IP bans by cycling endpoints and backing off gracefully.
    * pathQuery example: `/api/v3/klines?symbol=BTCUSDT&interval=1d&limit=250`
    */
-  async _fetchBinance(pathQuery, timeoutMs = 15000, retries = 4) {
+  async _fetchBinance(pathQuery, timeoutMs = 6000, retries = 2) {
     if (this._binanceIsHardBanned() || this._preferOkx) {
       const err = new Error('HTTP 418');
       err.status = 418;
@@ -115,31 +118,32 @@ const API = {
 
     let lastErr;
     const triedHosts = new Set();
-    const maxAttempts = Math.max(retries + 1, this._binanceHosts.length);
+    const maxAttempts = retries + 1;
+    
     for (let attempt = 0; attempt < maxAttempts; attempt++) {
       const host = this._binanceBase();
+      triedHosts.add(host);
       const url = `${host}${pathQuery}`;
+      
       try {
-        return await this._fetch(url, timeoutMs, 0);
+        return await this._fetch(url, timeoutMs, 0); // No inner retries, handle them here
       } catch (e) {
         lastErr = e;
-        const status = e?.status || Number((String(e.message).match(/HTTP (\d+)/) || [])[1]);
-        const banned = status === 418 || status === 429 || status === 403;
-        if (banned) {
-          triedHosts.add(host);
-          this._rotateBinanceHost(`HTTP ${status}`);
+        if (e.status === 418 || e.status === 429 || e.status === 403) {
+          this._rotateBinanceHost(e.status);
           // Every public host rejected us — treat IP as banned and stop retrying Binance
           if (triedHosts.size >= this._binanceHosts.length) {
             this._preferOkx = true;
             this._markBinanceHardBan(45);
             break;
           }
-          const backoff = Math.min(4000, 800 * (attempt + 1));
+          const backoff = Math.min(2000, 500 * (attempt + 1));
           this._binanceCooloffUntil = Date.now() + backoff;
           await this._delay(backoff);
           continue;
         }
-        if (attempt < maxAttempts - 1) await this._delay(500 * (attempt + 1));
+        // For network timeouts/ISP blocks, fail fast
+        if (attempt < maxAttempts - 1) await this._delay(300 * (attempt + 1));
       }
     }
     throw lastErr;
@@ -389,9 +393,9 @@ const API = {
     }
 
     const results = [];
-    // Browser: small parallel chunks. Node/Render: slower to avoid Binance 418 IP bans.
+    // Browser: larger parallel chunks to speed up boot. Node/Render: slower to avoid Binance 418 IP bans.
     const onServer = this._isNode();
-    const chunkSize = onServer ? 1 : 3;
+    const chunkSize = onServer ? 1 : 6;
     const chunkDelay = onServer ? 700 : 100;
 
     for (let i = 0; i < CONFIG.assets.crypto.length; i += chunkSize) {
