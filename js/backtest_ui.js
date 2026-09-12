@@ -82,7 +82,6 @@ class BacktestUI {
   }
 
   async runBacktest() {
-    this._populateAssets();
     this._syncContextLabel();
     this.runBtn.textContent = 'Fetching market data...';
     this.runBtn.disabled = true;
