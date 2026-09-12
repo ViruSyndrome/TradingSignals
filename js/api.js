@@ -14,7 +14,7 @@ const API = {
       const stored = localStorage.getItem(`trading_cache_${key}`);
       if (!stored) return null;
       const entry = JSON.parse(stored);
-      if (Date.now() - entry.ts < Math.min(entry.ttl, 60000)) return entry.data;
+      if (Date.now() - entry.ts < Math.min(entry.ttl, 40000)) return entry.data;
       return null;
     } catch(e) { return null; }
   },
@@ -64,7 +64,7 @@ const API = {
   },
 
   // ─── Generic fetch with timeout + retry ────────────────────────────────────────
-  async _fetch(url, timeoutMs = 8000, retries = 1) {
+  async _fetch(url, timeoutMs = 5000, retries = 1) {
     let lastErr;
     for (let attempt = 0; attempt <= retries; attempt++) {
       const ctrl = new AbortController();
@@ -106,7 +106,7 @@ const API = {
    * Handles 418 IP bans by cycling endpoints and backing off gracefully.
    * pathQuery example: `/api/v3/klines?symbol=BTCUSDT&interval=1d&limit=250`
    */
-  async _fetchBinance(pathQuery, timeoutMs = 6000, retries = 2) {
+  async _fetchBinance(pathQuery, timeoutMs = 4000, retries = 0) {
     if (this._binanceIsHardBanned() || this._preferOkx) {
       const err = new Error('HTTP 418');
       err.status = 418;
@@ -154,7 +154,7 @@ const API = {
 
   /** OKX public tickers → Binance-shaped price map { BTCUSDT: { lastPrice, priceChangePercent, quoteVolume } } */
   async _getCryptoPricesOkx(wantedSymbols) {
-    const data = await this._fetch('https://www.okx.com/api/v5/market/tickers?instType=SPOT', 15000, 2);
+    const data = await this._fetch('https://www.okx.com/api/v5/market/tickers?instType=SPOT', 5000, 0);
     const rows = Array.isArray(data?.data) ? data.data : [];
     const wanted = new Set((wantedSymbols || []).map(s => String(s).toUpperCase()));
     const mapped = {};
@@ -192,7 +192,7 @@ const API = {
     const limit = Math.min(CONFIG.refresh?.historyDays || 250, 300);
     const data = await this._fetch(
       `https://www.okx.com/api/v5/market/candles?instId=${encodeURIComponent(instId)}&bar=${bar}&limit=${limit}`,
-      15000,
+      5000,
       2
     );
     const rows = Array.isArray(data?.data) ? data.data.slice() : [];
@@ -221,8 +221,8 @@ const API = {
     
     try {
       const [protocolsRes, chainsRes] = await Promise.all([
-        this._fetch('https://api.llama.fi/protocols', 8000),
-        this._fetch('https://api.llama.fi/chains', 8000)
+        this._fetch('https://api.llama.fi/protocols', 5000),
+        this._fetch('https://api.llama.fi/chains', 5000)
       ]);
       
       const merged = [];
@@ -235,7 +235,7 @@ const API = {
           name: c.name
         })));
       }
-      return this._set(key, merged, 3600000); 
+      return this._set(key, merged, 3400000); 
     } catch (e) {
       console.warn('[API] DefiLlama fetch failed:', e.message);
       return [];
@@ -252,7 +252,7 @@ const API = {
       const rawSymbols = CONFIG.assets.crypto.map(a => a.id.replace('_4H', '').replace('_5M', ''));
       const uniqueSymbols = [...new Set(rawSymbols)];
       const symbols = JSON.stringify(uniqueSymbols);
-      const data = await this._fetchBinance(`/api/v3/exchangeInfo?symbols=${encodeURIComponent(symbols)}`, 8000);
+      const data = await this._fetchBinance(`/api/v3/exchangeInfo?symbols=${encodeURIComponent(symbols)}`, 5000);
       const rules = {};
       for (const item of data.symbols || []) {
         const filters = Object.fromEntries((item.filters || []).map(f => [f.filterType, f]));
@@ -284,7 +284,7 @@ const API = {
     const urlPath = `/api/v3/ticker/24hr?symbols=${encodeURIComponent(symbols)}`;
     try {
       if (!this._binanceIsHardBanned()) {
-        const data = await this._fetchBinance(urlPath, 15000);
+        const data = await this._fetchBinance(urlPath, 5000);
         const mapped = {};
         for (const t of data) mapped[t.symbol] = t;
         return this._set(key, mapped);
@@ -317,7 +317,7 @@ const API = {
     const path = `/api/v3/klines?symbol=${binanceSymbol}&interval=${interval}&limit=${days}`;
     try {
       if (!this._binanceIsHardBanned()) {
-        const data = await this._fetchBinance(path, 15000);
+        const data = await this._fetchBinance(path, 5000);
         if (!Array.isArray(data) || data.length === 0) throw new Error('Empty klines');
         return this._set(key, data, CONFIG.refresh.cacheMs);
       }
@@ -392,93 +392,95 @@ const API = {
       }
     }
 
-    const results = [];
-    // Browser: larger parallel chunks to speed up boot. Node/Render: slower to avoid Binance 418 IP bans.
+    // Browser: Fire all requests in parallel to let the browser manage multiplexing/queuing.
+    // Node/Render: Use chunks to avoid Binance 418 IP bans.
     const onServer = this._isNode();
-    const chunkSize = onServer ? 1 : 6;
-    const chunkDelay = onServer ? 700 : 100;
+    const results = [];
 
-    for (let i = 0; i < CONFIG.assets.crypto.length; i += chunkSize) {
-      const chunk = CONFIG.assets.crypto.slice(i, i + chunkSize);
-      const promises = chunk.map(async (asset) => {
-        // On server, fetch 1d then 4h sequentially to cut burst weight in half
-        let hist1D, hist4H;
-        if (onServer) {
-          hist1D = await this.getCryptoOHLC(asset.id, '1d');
-          await this._delay(120);
-          hist4H = await this.getCryptoOHLC(asset.id, '4h');
-        } else {
-          [hist1D, hist4H] = await Promise.all([
-            this.getCryptoOHLC(asset.id, '1d'),
-            this.getCryptoOHLC(asset.id, '4h')
-          ]);
-        }
-        const binanceSymbol = asset.id.replace('_4H', '').replace('_5M', '');
-        const baseSymbol = binanceSymbol.replace('USDT', '');
-        
-        const priceInfo = prices?.[binanceSymbol] ?? {};
-        const livePrice = priceInfo.lastPrice ? parseFloat(priceInfo.lastPrice) : null;
-        
-        const llamaProtocol = llamaMap.get(baseSymbol);
-
-        const hist = asset.grafted ? hist4H : hist1D; // Default engine history
-        
-        const closes     = hist ? hist.map(r => parseFloat(r[4])) : [];
-        const opens      = hist ? hist.map(r => parseFloat(r[1])) : [];
-        const highs      = hist ? hist.map(r => parseFloat(r[2])) : [];
-        const lows       = hist ? hist.map(r => parseFloat(r[3])) : [];
-        const volumes    = hist ? hist.map(r => parseFloat(r[5])) : [];
-        const timestamps = hist ? hist.map(r => r[0]) : [];
-
-        const closes1D   = hist1D ? hist1D.map(r => parseFloat(r[4])) : [];
-        const closes4H   = hist4H ? hist4H.map(r => parseFloat(r[4])) : [];
-
-        // Calculate 4H percentage change (Last 4H close vs Previous 4H close)
-        let change4h = null;
-        if (closes4H.length >= 2 && livePrice != null) {
-          const prev4HClose = closes4H[closes4H.length - 2]; // Previous completed 4H candle
-          if (prev4HClose > 0) {
-            change4h = ((livePrice - prev4HClose) / prev4HClose) * 100;
-          }
-        }
-
-        // Patch the still-forming daily candle with the live ticker so indicators aren't stale.
-        if (livePrice != null && closes.length > 0) {
-          const lastIdx = closes.length - 1;
-          closes[lastIdx] = livePrice;
-          if (highs[lastIdx] != null && livePrice > highs[lastIdx]) highs[lastIdx] = livePrice;
-          if (lows[lastIdx]  != null && livePrice < lows[lastIdx])  lows[lastIdx]  = livePrice;
-        }
-
-        return {
-          asset,
-          rules: rules[binanceSymbol] || null,
-          price:      livePrice,
-          change24h:  priceInfo.priceChangePercent != null ? parseFloat(priceInfo.priceChangePercent) : null,
-          change4h,
-          volume:     priceInfo.quoteVolume ? parseFloat(priceInfo.quoteVolume) : null,
-          marketCap:  llamaProtocol?.mcap || null,
-          tvl:        llamaProtocol?.tvl || null,
-          closes,
-          opens,
-          highs,
-          lows,
-          volumes,
-          timestamps,
-          closes1D,
-          closes4H,
-          rawOHLC:    hist ?? [],
-          source:     'binance',
-          fetchedAt:  new Date().toISOString(),
-          error:      hist ? null : 'Data unavailable',
-        };
-      });
+    if (onServer) {
+      const chunkSize = 2;
+      for (let i = 0; i < CONFIG.assets.crypto.length; i += chunkSize) {
+        const chunk = CONFIG.assets.crypto.slice(i, i + chunkSize);
+        const promises = chunk.map(asset => this._processAssetData(asset, prices, llamaMap));
+        const chunkResults = await Promise.all(promises);
+        results.push(...chunkResults);
+        if (i + chunkSize < CONFIG.assets.crypto.length) await this._delay(800);
+      }
+    } else {
+      const promises = CONFIG.assets.crypto.map(asset => this._processAssetData(asset, prices, llamaMap));
       const chunkResults = await Promise.all(promises);
       results.push(...chunkResults);
-      if (i + chunkSize < CONFIG.assets.crypto.length) await this._delay(chunkDelay);
     }
 
-    return results;
+    return results.sort((a, b) => (b.tvl || 0) - (a.tvl || 0));
+  },
+
+  async _processAssetData(asset, prices, llamaMap) {
+    const onServer = this._isNode();
+    let hist1D, hist4H;
+    if (onServer) {
+      hist1D = await this.getCryptoOHLC(asset.id, '1d');
+      await this._delay(120);
+      hist4H = await this.getCryptoOHLC(asset.id, '4h');
+    } else {
+      [hist1D, hist4H] = await Promise.all([
+        this.getCryptoOHLC(asset.id, '1d'),
+        this.getCryptoOHLC(asset.id, '4h')
+      ]);
+    }
+    const binanceSymbol = asset.id.replace('_4H', '').replace('_5M', '');
+    const baseSymbol = binanceSymbol.replace('USDT', '');
+    
+    const priceInfo = prices?.[binanceSymbol] ?? {};
+    const livePrice = priceInfo.lastPrice ? parseFloat(priceInfo.lastPrice) : null;
+    
+    const llamaProtocol = llamaMap.get(baseSymbol);
+
+    const hist = asset.grafted ? hist4H : hist1D; // Default engine history
+    
+    const closes     = hist ? hist.map(r => parseFloat(r[4])) : [];
+    const opens      = hist ? hist.map(r => parseFloat(r[1])) : [];
+    const highs      = hist ? hist.map(r => parseFloat(r[2])) : [];
+    const lows       = hist ? hist.map(r => parseFloat(r[3])) : [];
+    const volumes    = hist ? hist.map(r => parseFloat(r[5])) : [];
+    const timestamps = hist ? hist.map(r => r[0]) : [];
+
+    const closes1D   = hist1D ? hist1D.map(r => parseFloat(r[4])) : [];
+    const closes4H   = hist4H ? hist4H.map(r => parseFloat(r[4])) : [];
+
+    // Calculate 4H percentage change (Last 4H close vs Previous 4H close)
+    let change4h = null;
+    if (closes4H.length >= 2 && livePrice != null) {
+      const prev4HClose = closes4H[closes4H.length - 2];
+      if (prev4HClose > 0) {
+        change4h = ((livePrice - prev4HClose) / prev4HClose) * 100;
+      }
+    }
+
+    // Patch the still-forming daily candle with the live ticker so indicators aren't stale.
+    if (livePrice != null && closes.length > 0) {
+      const lastIdx = closes.length - 1;
+      closes[lastIdx] = livePrice;
+      if (highs[lastIdx] != null && livePrice > highs[lastIdx]) highs[lastIdx] = livePrice;
+      if (lows[lastIdx]  != null && livePrice < lows[lastIdx])  lows[lastIdx]  = livePrice;
+    }
+
+    return {
+      asset,
+      rules: null, // Removed individual rules fetch to speed up
+      price:      livePrice,
+      change24h:  priceInfo.priceChangePercent != null ? parseFloat(priceInfo.priceChangePercent) : null,
+      change4h,
+      volume:     priceInfo.quoteVolume ? parseFloat(priceInfo.quoteVolume) : null,
+      marketCap:  llamaProtocol?.mcap || null,
+      tvl:        llamaProtocol?.tvl || null,
+      closes, opens, highs, lows, volumes, timestamps,
+      closes1D, closes4H,
+      rawOHLC:    hist ?? [],
+      source:     'binance',
+      fetchedAt:  new Date().toISOString(),
+      error:      hist ? null : 'Data unavailable',
+    };
   },
 };
 
