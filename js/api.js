@@ -384,7 +384,9 @@ const API = {
    * Live-patches the last close with the current ticker price so signals
    * react to intraday moves instead of a stale (still-forming) daily candle.
    */
-  async getAllCrypto() {
+  async getAllCrypto(opts = {}) {
+    const phase = opts.phase || 'full'; // 'boot' = fast first paint; 'full' = include 4H + rules
+    const boot = phase === 'boot';
     // --- Dynamic Private Coin Injection ---
     try {
       if (typeof localStorage !== 'undefined') {
@@ -412,26 +414,29 @@ const API = {
       }
     } catch(e) {}
     
-      const [prices, rules] = await Promise.all([
-        this.getCryptoPrices(),
-        this.getCryptoSymbolRules()
-      ]);
-      
-      // Fire DefiLlama in the background so it caches for later, but DO NOT await it.
-      // Downloading 8.4MB of JSON on boot saturates the network and breaks auth/UI.
+    const prices = await this.getCryptoPrices();
+    // Symbol rules are not needed to paint the dashboard — defer off the critical path
+    this.getCryptoSymbolRules().catch(() => {});
+
+    // DefiLlama is huge (~8MB) — never on boot; delay so it cannot saturate the first paint
+    if (boot) {
+      setTimeout(() => {
+        this.getDefiLlamaProtocols().catch(e => console.warn('Background Llama fetch failed', e));
+      }, 60000);
+    } else {
       this.getDefiLlamaProtocols().catch(e => console.warn('Background Llama fetch failed', e));
-      const llamaData = []; // Skip parsing massive TVL data on initial fast-boot
+    }
+    const llamaData = [];
       
-      // Fast-fail: If we couldn't even fetch basic prices, both Binance and OKX are blocked/offline.
-      if (!prices || Object.keys(prices).length === 0) {
-        throw new Error('All crypto exchange APIs (Binance/OKX) are unreachable. Please check your connection, ad-blocker, or VPN.');
-      }
+    // Fast-fail: If we couldn't even fetch basic prices, both Binance and OKX are blocked/offline.
+    if (!prices || Object.keys(prices).length === 0) {
+      throw new Error('All crypto exchange APIs (Binance/OKX) are unreachable. Please check your connection, ad-blocker, or VPN.');
+    }
 
     // Create a fast lookup map for DefiLlama data by symbol (keep the one with highest TVL)
     const llamaMap = new Map();
     if (Array.isArray(llamaData)) {
       for (const p of llamaData) {
-        // Ignore dead/fake protocols with < $100k TVL to prevent them from hijacking L1 tickers (e.g. "Solana Farm" hijacking "SOL")
         if (p.symbol && p.tvl > 100000) {
           const sym = p.symbol.toUpperCase();
           const existing = llamaMap.get(sym);
@@ -442,11 +447,12 @@ const API = {
       }
     }
 
-    // Browser: Use a dynamic async worker pool to prevent Head-of-Line blocking. 
-    // If one coin hangs, the other workers continue processing the queue instantly.
+    // Browser: dynamic async worker pool (avoid head-of-line blocking)
     const onServer = this._isNode();
-    const poolLimit = onServer ? 1 : 5;
-    const chunkDelay = onServer ? 800 : 50;
+    const bootPool = CONFIG.refresh?.bootPoolLimit ?? 8;
+    const poolLimit = onServer ? 1 : (boot ? bootPool : 6);
+    const chunkDelay = onServer ? 800 : (boot ? 0 : 20);
+    const skip4H = boot && CONFIG.refresh?.bootSkip4H !== false;
     const results = [];
     
     let currentIndex = 0;
@@ -455,16 +461,15 @@ const API = {
         const i = currentIndex++;
         const asset = CONFIG.assets.crypto[i];
         try {
-          const res = await this._processAssetData(asset, prices, llamaMap);
+          const res = await this._processAssetData(asset, prices, llamaMap, { skip4H });
           results.push(res);
         } catch (err) {
           console.warn(`[API] Worker failed for ${asset.id}:`, err);
         }
-        await this._delay(chunkDelay);
+        if (chunkDelay > 0) await this._delay(chunkDelay);
       }
     };
 
-    // Spawn workers
     const workers = [];
     for (let w = 0; w < Math.min(poolLimit, CONFIG.assets.crypto.length); w++) {
       workers.push(workerTask());
@@ -474,13 +479,17 @@ const API = {
     return results.sort((a, b) => (b.tvl || 0) - (a.tvl || 0));
   },
 
-  async _processAssetData(asset, prices, llamaMap) {
+  async _processAssetData(asset, prices, llamaMap, opts = {}) {
     const onServer = this._isNode();
+    const skip4H = !!opts.skip4H && !asset.grafted; // grafted moonshots still need 4H
     let hist1D, hist4H;
     if (onServer) {
       hist1D = await this.getCryptoOHLC(asset.id, '1d');
       await this._delay(120);
-      hist4H = await this.getCryptoOHLC(asset.id, '4h');
+      hist4H = skip4H ? null : await this.getCryptoOHLC(asset.id, '4h');
+    } else if (skip4H) {
+      hist1D = await this.getCryptoOHLC(asset.id, '1d');
+      hist4H = null;
     } else {
       [hist1D, hist4H] = await Promise.all([
         this.getCryptoOHLC(asset.id, '1d'),
@@ -495,7 +504,7 @@ const API = {
     
     const llamaProtocol = llamaMap.get(baseSymbol);
 
-    const hist = asset.grafted ? hist4H : hist1D; // Default engine history
+    const hist = asset.grafted ? (hist4H || hist1D) : hist1D;
     
     const closes     = hist ? hist.map(r => parseFloat(r[4])) : [];
     const opens      = hist ? hist.map(r => parseFloat(r[1])) : [];
@@ -507,7 +516,6 @@ const API = {
     const closes1D   = hist1D ? hist1D.map(r => parseFloat(r[4])) : [];
     const closes4H   = hist4H ? hist4H.map(r => parseFloat(r[4])) : [];
 
-    // Calculate 4H percentage change (Last 4H close vs Previous 4H close)
     let change4h = null;
     if (closes4H.length >= 2 && livePrice != null) {
       const prev4HClose = closes4H[closes4H.length - 2];
@@ -516,7 +524,6 @@ const API = {
       }
     }
 
-    // Patch the still-forming daily candle with the live ticker so indicators aren't stale.
     if (livePrice != null && closes.length > 0) {
       const lastIdx = closes.length - 1;
       closes[lastIdx] = livePrice;
@@ -526,7 +533,7 @@ const API = {
 
     return {
       asset,
-      rules: null, // Removed individual rules fetch to speed up
+      rules: null,
       price:      livePrice,
       change24h:  priceInfo.priceChangePercent != null ? parseFloat(priceInfo.priceChangePercent) : null,
       change4h,
@@ -539,6 +546,7 @@ const API = {
       source:     'binance',
       fetchedAt:  new Date().toISOString(),
       error:      hist ? null : 'Data unavailable',
+      _bootPartial: skip4H,
     };
   },
 };

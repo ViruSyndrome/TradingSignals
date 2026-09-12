@@ -929,12 +929,36 @@ const Dashboard = {
     }
 
     this._initNewsTape();
-      // Paint instantly from last-known snapshot while the live fetch runs.
-      if (this._restoreSnapshot()) this._render();
-      
-      await this._fetchFearGreed();  // sentiment feeds the signal engine — fetch first
-      await this.loadAll(true);
-      this._scheduleRefresh();
+
+    // Failsafe: never leave the full-screen boot loader stuck more than ~7s
+    this._bootLoaderFailsafe = setTimeout(() => this._hideBootLoader(true), 7000);
+
+    // Paint instantly from last-known snapshot — hide loader so users aren't blocked
+    // while ~50× OHLC requests finish in the background.
+    const hadSnap = this._restoreSnapshot();
+    if (hadSnap) {
+      this.state.loading = false;
+      this._render();
+      this._hideBootLoader();
+    }
+
+    // Live boot: Fear & Greed in parallel with a fast 1d-only market pass
+    try {
+      const fgP = this._fetchFearGreed();
+      await this.loadAll(true, { phase: 'boot' });
+      await fgP;
+    } catch (e) {
+      console.warn('[Dashboard] Boot load failed:', e);
+      this.state.loading = false;
+      this._hideBootLoader(true);
+      if (!hadSnap) this._render();
+    }
+    this._scheduleRefresh();
+
+    // Backfill 4H + full pass shortly after first paint (non-blocking)
+    setTimeout(() => {
+      this.loadAll(true, { phase: 'full' }).catch(e => console.warn('[Dashboard] Full backfill failed:', e));
+    }, hadSnap ? 400 : 800);
 
     // Auto-scan moonshots in the background every 5 minutes (300,000 ms)
     this.state.moonshotTimer = setInterval(() => this._autoScanMoonshots(), 5 * 60 * 1000);
@@ -1038,7 +1062,7 @@ const Dashboard = {
   },
 
   // ─── Load all asset data ─────────────────────────────────────────────────────
-  async loadAll(silent = false) {
+  async loadAll(silent = false, opts = {}) {
     if (this.state.loading) {
       console.warn('[Dashboard] loadAll called but already loading, skipping concurrent fetch.');
       return;
@@ -1047,7 +1071,8 @@ const Dashboard = {
     this._updateLiveStatus();
     if (!silent) this._setLoading(true);
     try {
-      const crypto = await API.getAllCrypto();
+      const phase = opts.phase || 'full';
+      const crypto = await API.getAllCrypto({ phase });
 
       const all = [
         ...(crypto || [])
@@ -1202,6 +1227,7 @@ const Dashboard = {
       this.state.refreshDueAt = Date.now() + CONFIG.refresh.intervalMs;
       this.state.loading = false; // Always clear the internal loading flag
       if (!silent) this._setLoading(false); // Only clear UI spinner if not silent
+      this._hideBootLoader();
       this._cleanStaleMoonshots(); // Instantly remove any moonshots that dropped below BUY
       this._cleanStaleScalps(); // Instantly remove any scalps that dropped below STRONG_BUY
       this._backfillHoldingsMeta();
@@ -1220,8 +1246,21 @@ const Dashboard = {
       this.state.loading = false;
       this.state.refreshDueAt = Date.now() + CONFIG.refresh.intervalMs;
       if (!silent) this._setLoading(false);
+      this._hideBootLoader(true);
       this._render(); // Force a render to clear the skeleton and show error state
       if (!silent) this._showToast('Some data failed to load — check internet connection', 'warning');
+    }
+  },
+
+  _hideBootLoader(force = false) {
+    const globalLoader = document.getElementById('trendrunner-loader');
+    if (!globalLoader) return;
+    if (!force && this.state.loading && !this.state.allAssets?.length) return;
+    globalLoader.style.display = 'none';
+    globalLoader.classList.add('is-hidden');
+    if (this._bootLoaderFailsafe) {
+      clearTimeout(this._bootLoaderFailsafe);
+      this._bootLoaderFailsafe = null;
     }
   },
 
@@ -1435,10 +1474,9 @@ const Dashboard = {
 
   // ─── Main render ───────────────────────────────────────────────────────────
   _render() {
-    // Only hide the global boot loader when we are completely done loading live data
-    if (!this.state.loading) {
-      const globalLoader = document.getElementById('trendrunner-loader');
-      if (globalLoader) globalLoader.style.display = 'none';
+    // Hide full-screen boot loader once we have anything to show (snapshot or live)
+    if (!this.state.loading || (this.state.allAssets && this.state.allAssets.length)) {
+      this._hideBootLoader();
     }
     
     this._renderSummaryBar();

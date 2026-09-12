@@ -165,6 +165,8 @@ const CONFIG = {
     intervalMs:  30 * 1000,    // UI refresh every 30 seconds
     cacheMs:     25 * 1000,    // cache data for 25 seconds
     historyDays: 250,          // days of OHLCV history to fetch (>=200 so SMA200 computes)
+    bootPoolLimit: 8,          // parallel OHLC workers on first paint
+    bootSkip4H: true,          // first pass: 1d only (halves requests); 4H backfills after paint
     // Prefer CONFIG.signals.strongConfidenceGate (kept here for older UI readers)
     strongConfidenceGate: 100,
   },
