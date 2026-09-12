@@ -392,24 +392,19 @@ const API = {
       }
     }
 
-    // Browser: Fire all requests in parallel to let the browser manage multiplexing/queuing.
-    // Node/Render: Use chunks to avoid Binance 418 IP bans.
+    // Browser: Use a chunk size of 5 (10 concurrent requests) to prevent Chrome's 6-connection limit 
+    // from queuing requests so long that they hit the AbortController timeout before even sending.
     const onServer = this._isNode();
+    const chunkSize = onServer ? 2 : 5;
+    const chunkDelay = onServer ? 800 : 100;
     const results = [];
 
-    if (onServer) {
-      const chunkSize = 2;
-      for (let i = 0; i < CONFIG.assets.crypto.length; i += chunkSize) {
-        const chunk = CONFIG.assets.crypto.slice(i, i + chunkSize);
-        const promises = chunk.map(asset => this._processAssetData(asset, prices, llamaMap));
-        const chunkResults = await Promise.all(promises);
-        results.push(...chunkResults);
-        if (i + chunkSize < CONFIG.assets.crypto.length) await this._delay(800);
-      }
-    } else {
-      const promises = CONFIG.assets.crypto.map(asset => this._processAssetData(asset, prices, llamaMap));
+    for (let i = 0; i < CONFIG.assets.crypto.length; i += chunkSize) {
+      const chunk = CONFIG.assets.crypto.slice(i, i + chunkSize);
+      const promises = chunk.map(asset => this._processAssetData(asset, prices, llamaMap));
       const chunkResults = await Promise.all(promises);
       results.push(...chunkResults);
+      if (i + chunkSize < CONFIG.assets.crypto.length) await this._delay(chunkDelay);
     }
 
     return results.sort((a, b) => (b.tvl || 0) - (a.tvl || 0));
