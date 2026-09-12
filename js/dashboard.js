@@ -1268,6 +1268,8 @@ const Dashboard = {
     if (!force && this.state.loading && !this.state.allAssets?.length) return;
     globalLoader.style.display = 'none';
     globalLoader.classList.add('is-hidden');
+    globalLoader.setAttribute('aria-busy', 'false');
+    document.body.classList.remove('is-booting');
     if (this._bootLoaderFailsafe) {
       clearTimeout(this._bootLoaderFailsafe);
       this._bootLoaderFailsafe = null;
