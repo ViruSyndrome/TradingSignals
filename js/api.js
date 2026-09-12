@@ -370,7 +370,11 @@ const API = {
         this.getCryptoPrices(),
         this.getCryptoSymbolRules()
       ]);
-      const llamaData = await this.getDefiLlamaProtocols();
+      
+      // Fire DefiLlama in the background so it caches for later, but DO NOT await it.
+      // Downloading 8.4MB of JSON on boot saturates the network and breaks auth/UI.
+      this.getDefiLlamaProtocols().catch(e => console.warn('Background Llama fetch failed', e));
+      const llamaData = []; // Skip parsing massive TVL data on initial fast-boot
       
       // Fast-fail: If we couldn't even fetch basic prices, both Binance and OKX are blocked/offline.
       if (!prices || Object.keys(prices).length === 0) {
