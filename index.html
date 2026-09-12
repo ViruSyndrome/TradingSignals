@@ -39,7 +39,7 @@
 
   <!-- Chart.js -->
   <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.4/dist/chart.umd.min.js"></script>
-  <link rel="stylesheet" href="styles.css?v=6.28" />
+  <link rel="stylesheet" href="styles.css?v=6.29" />
   
   <!-- Favicon & PWA Manifest -->
   <link rel="icon" type="image/png" href="icon-192.png">
@@ -52,7 +52,7 @@
     if ('serviceWorker' in navigator) {
       window.addEventListener('load', () => {
         const hadController = Boolean(navigator.serviceWorker.controller);
-        navigator.serviceWorker.register('./service-worker.js?v=6.28', { updateViaCache: 'none' })
+        navigator.serviceWorker.register('./service-worker.js?v=6.29', { updateViaCache: 'none' })
           .then(reg => {
             reg.update().catch(() => {});
             navigator.serviceWorker.addEventListener('controllerchange', () => {
@@ -628,7 +628,7 @@
   <!-- Version guard: if signals.js loaded is older than expected, force a full reload -->
   <script>
     // Version bumper to defeat GitHub Pages aggressive caching
-    window.__APP_VERSION__ = '6.28';
+    window.__APP_VERSION__ = '6.29';
     try {
       // Bulletproof scrub of corrupted data from localStorage before the app boots
       const wlStr = localStorage.getItem('trading_watchlist');
@@ -642,16 +642,16 @@
       // Nuke bloated caches that are causing QuotaExceededError (Removed to allow instant paint)
     } catch(e) {}
   </script>
-  <script src="js/config.js?v=6.28"></script>
-  <script src="js/api.js?v=6.28"></script>
-  <script src="js/indicators.js?v=6.28"></script>
-  <script src="js/signals.js?v=6.28"></script>
-  <script src="js/charts.js?v=6.28"></script>
+  <script src="js/config.js?v=6.29"></script>
+  <script src="js/api.js?v=6.29"></script>
+  <script src="js/indicators.js?v=6.29"></script>
+  <script src="js/signals.js?v=6.29"></script>
+  <script src="js/charts.js?v=6.29"></script>
   
-  <script src="js/scanner.js?v=6.28"></script>
-  <script src="js/backtest_ui.js?v=6.28"></script>
-  <script src="js/auth.js?v=6.28"></script>
-    <script src="js/dashboard.js?v=6.28"></script>
+  <script src="js/scanner.js?v=6.29"></script>
+  <script src="js/backtest_ui.js?v=6.29"></script>
+  <script src="js/auth.js?v=6.29"></script>
+    <script src="js/dashboard.js?v=6.29"></script>
   <script>
     // If signals.js didn't expose the right version, cached old code is running — force reload.
     if (typeof Signals === 'undefined' || Signals._version !== window.__APP_VERSION__) {
