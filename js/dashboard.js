@@ -1508,7 +1508,7 @@ const Dashboard = {
       .join('');
     el.innerHTML = items + items;
     el.classList.toggle('moving', items.length > 0);
-    if (items.length > 0) this._setTapeScrollSpeed(el, 100);
+    if (items.length > 0) this._setTapeScrollSpeed(el, 52);
   },
 
   async _initNewsTape() {

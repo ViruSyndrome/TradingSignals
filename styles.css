@@ -653,7 +653,7 @@ button:focus-visible { outline: 2px solid var(--accent); border-radius: 4px; }
 .backtest-chart-container { height: 400px; margin-top: 20px; }
 .live-tape-window { min-width: 0; overflow: hidden; }
 .live-tape-track { display: flex; width: max-content; gap: 28px; }
-.live-tape-track.moving { animation: tape-scroll 28s linear infinite; }
+.live-tape-track.moving { animation: tape-scroll 45s linear infinite; }
 .tape-item { display: inline-flex; align-items: center; gap: 8px; color: var(--text-muted); font-size: 12px; white-space: nowrap; }
 .tape-item strong { color: var(--text-main); }
 .tape-item em { font-style: normal; font-weight: 700; }
