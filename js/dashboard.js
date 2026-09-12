@@ -893,6 +893,7 @@ const Dashboard = {
     });
 
     this._bindUI();
+    this._updateListLegend();
     this._hideEmptyCategoryTabs();
     this._initTooltips();
     // Mobile hamburger menu from Topbar
@@ -1469,6 +1470,7 @@ const Dashboard = {
       .join('');
     el.innerHTML = items + items;
     el.classList.toggle('moving', items.length > 0);
+    if (items.length > 0) this._setTapeScrollSpeed(el, 100);
   },
 
   async _initNewsTape() {
@@ -1479,6 +1481,7 @@ const Dashboard = {
       const itemsStr = items.map(item => `<span class="tape-item"><a href="${item.link}" target="_blank" rel="noopener noreferrer" class="news-link">${item.title}</a> <em class="news-time">[${new Date(item.pubDate).toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'})}]</em></span>`).join('');
       el.innerHTML = itemsStr + itemsStr;
       el.classList.add('moving');
+      this._setTapeScrollSpeed(el, 110);
     };
     const renderCached = () => {
       try {
@@ -2086,7 +2089,11 @@ const Dashboard = {
 
     // Normalize asset ID for invested check (strip _4H/_5M since all locks store base USDT ID)
     const normalizedId = asset.id.replace('_4H', '').replace('_5M', '');
-    const isStarred = this.state.watchlist.includes(asset.id);
+    const isScalpCard = !!(asset.isScalp || d.category === 'scalper' || String(asset.id || '').includes('_5M'));
+    const isMoonCard = !!(asset.isMoonshot || String(asset.id || '').includes('_4H'));
+    // Scalps: star/lock the base spot pair (never persist *_5M into Watch)
+    const actionId = isScalpCard ? normalizedId : asset.id;
+    const isStarred = this.state.watchlist.includes(actionId) || this.state.watchlist.includes(normalizedId);
     const isLocked = this.state.invested.includes(normalizedId);
     const quality = this._tradeQuality(signalResult);
     const catBadge = { crypto: '₿ Crypto', stocks: '🇮🇳 Stock', commodities: '🪙 Commodity', forex: '💱 Forex' }[category] ?? category;
@@ -2104,8 +2111,6 @@ const Dashboard = {
       || signalResult?.indicators?.breakout?.entryTimingDesc
       || signalResult?.indicators?.scalp?.entryTimingDesc
       || '';
-    const isScalpCard = !!(asset.isScalp || d.category === 'scalper' || String(asset.id || '').includes('_5M'));
-    const isMoonCard = !!(asset.isMoonshot || String(asset.id || '').includes('_4H'));
     let timingChip = '';
     if (timingSignal === 'CONFIRM') {
       const confLabel = isScalpCard ? '5m CONFIRM' : '4H CONFIRM';
@@ -2189,12 +2194,10 @@ const Dashboard = {
             </div>
           </div>
           <div style="display:flex; flex-direction:column; align-items:flex-end; gap:6px;">
-            ${d.category === 'scalper' ? '' : `
-              <div style="display:flex; gap: 4px;">
-                <button class="lock-btn ${isLocked ? 'active' : ''}" data-lock-id="${asset.id}" title="${isLocked ? 'HOLDING — you bought this. Paper PnL tracked. Click to unlock.' : 'HOLDING — tap after you buy. Tracks entry price + PnL. Not the same as Watch ⭐.'}" style="background:none; border:none; cursor:pointer; font-size:16px; opacity:${isLocked ? 1 : 0.25}; transition:0.2s; padding: 0;" aria-label="Toggle holding">🔒</button>
-                <button class="star-btn ${isStarred ? 'active' : ''}" data-star-id="${asset.id}" title="${isStarred ? 'WATCH — idea saved. Not a position. Click to unstar.' : 'WATCH — save idea to revisit. Does not mean you bought it (use 🔒 for that).'}" style="background:none; border:none; cursor:pointer; font-size:18px; opacity:${isStarred ? 1 : 0.3}; transition:0.2s; padding: 0;" aria-label="Toggle watch">⭐</button>
-              </div>
-            `}
+            <div style="display:flex; gap: 4px;">
+              <button class="lock-btn ${isLocked ? 'active' : ''}" data-lock-id="${actionId}" title="${isLocked ? 'HOLDING — you bought this. Paper PnL tracked. Click to unlock.' : (isScalpCard ? 'HOLDING — lock the base pair after you buy this scalp (same as Holdings tab).' : 'HOLDING — tap after you buy. Tracks entry price + PnL. Not the same as Watch ⭐.')}" style="background:none; border:none; cursor:pointer; font-size:16px; opacity:${isLocked ? 1 : 0.25}; transition:0.2s; padding: 0;" aria-label="Toggle holding">🔒</button>
+              <button class="star-btn ${isStarred ? 'active' : ''}" data-star-id="${actionId}" title="${isStarred ? 'WATCH — idea saved. Not a position. Click to unstar.' : (isScalpCard ? 'WATCH — save the base pair to revisit (not a buy).' : 'WATCH — save idea to revisit. Does not mean you bought it (use 🔒 for that).')}" style="background:none; border:none; cursor:pointer; font-size:18px; opacity:${isStarred ? 1 : 0.3}; transition:0.2s; padding: 0;" aria-label="Toggle watch">⭐</button>
+            </div>
             <div class="signal-badge signal-${level.cls} ${sig === 'STRONG_BUY' || sig === 'STRONG_SELL' ? 'pulse' : ''}" title="Signal: ${level.label}. This is the combined verdict from 4 technical indicators (RSI, MACD, Moving Averages, Bollinger Bands).${momentumTitle}">
               <span>${level.icon}</span> ${level.short}${momentumIcon}
             </div>
@@ -2384,12 +2387,12 @@ const Dashboard = {
   },
 
   _toggleWatchlist(id) {
+    // Never persist scalp scanner IDs (*_5M) — Watch stores the base spot pair
+    id = String(id || '').toUpperCase().replace('_5M', '');
     // Normalize old IDs (e.g. 'eden' -> 'EDENUSDT') just in case
     // If it's a 4H Moonshot, it already ends in _4H so we leave it alone
-    if (!id.toUpperCase().endsWith('USDT') && !id.toUpperCase().includes('_4H')) {
-      id = id.toUpperCase() + 'USDT';
-    } else {
-      id = id.toUpperCase();
+    if (!id.endsWith('USDT') && !id.includes('_4H')) {
+      id = id + 'USDT';
     }
 
     if (this.state.watchlist.includes(id)) {
@@ -2404,18 +2407,18 @@ const Dashboard = {
     } else {
       this.state.watchlist.push(id);
       
-      // If we are starring a Moonshot coin that isn't tracked yet, graft it in!
+      // If we are starring a coin that isn't tracked yet, graft it in
       if (!CONFIG.assets.crypto.some(a => a.id === id)) {
+        const isMoon = id.includes('_4H');
         CONFIG.assets.crypto.push({
           id: id,
           symbol: id.replace('USDT_4H', '').replace('USDT', ''),
           name: id.replace('USDT_4H', '').replace('USDT', ''),
           currency: 'USD',
-          icon: '🚀',
-          grafted: true, // Flag it so we know it can be deleted later
-          isMoonshot: true // Ensures it gets scored by the Breakout engine on the main dash
+          icon: isMoon ? '🚀' : '⭐',
+          grafted: true,
+          isMoonshot: isMoon,
         });
-        // Trigger a background load to instantly fetch its history for the main dash
         setTimeout(() => this.loadAll(true), 10);
       }
     }
@@ -2736,7 +2739,29 @@ const Dashboard = {
     document.querySelectorAll('.filter-tab').forEach(tab => {
       tab.classList.toggle('active', tab.dataset.cat === cat);
     });
+    this._updateListLegend(cat);
     this._renderAssetGrid();
+  },
+
+  _updateListLegend(cat = this.state.activeCategory) {
+    const el = document.querySelector('.list-legend');
+    if (!el) return;
+    if (cat === 'scalper') {
+      el.innerHTML = `⚡ <strong>5m Scalps</strong> = short plays. Use ⭐ / 🔒 on the card to Watch or Hold the <em>base</em> pair (same Holdings tab). Prefer <strong>5m CONFIRM</strong>; tiny size + stop immediately.`;
+    } else {
+      el.innerHTML = `⭐ <strong>Watch</strong> = you starred it (ideas only — moonshots no longer auto-star) &nbsp;·&nbsp; 🔒 <strong>Holdings</strong> = you bought it (edit Binance entry/lots) &nbsp;·&nbsp; ⚡ <strong>5m Scalps</strong> = short plays.`;
+    }
+  },
+
+  /** Match scroll duration to content width so long tapes don't crawl. */
+  _setTapeScrollSpeed(el, pxPerSec = 95) {
+    if (!el) return;
+    requestAnimationFrame(() => {
+      const half = el.scrollWidth / 2;
+      if (!(half > 20)) return;
+      const sec = Math.max(14, Math.min(42, half / pxPerSec));
+      el.style.animationDuration = `${sec.toFixed(1)}s`;
+    });
   },
 
   // ─── Loading state ────────────────────────────────────────────────────────────
