@@ -75,8 +75,8 @@ const CONFIG = {
   },
 
   signals: {
-    winnersOnlyBuys: true, // Only allow BUY/STRONG_BUY on provenWinners
-    coreOnlyBuys: false,   // Week experiment: allow probation S.BUY too (still winners-only)
+    winnersOnlyBuys: false, // Week experiment: allow S.BUY on any tracked coin (you still only take S.BUY)
+    coreOnlyBuys: false,   // Week experiment: allow probation S.BUY too
     // Hard gates (kill buys after scoring — stronger than soft dampeners)
     bearRegimeBlockBuys: true,     // No alt BUY/STRONG_BUY when BTC regime is bear
     extremeGreedBlockBuys: true,   // No BUY/STRONG_BUY when Fear & Greed >= threshold
