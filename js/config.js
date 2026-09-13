@@ -76,7 +76,7 @@ const CONFIG = {
 
   signals: {
     winnersOnlyBuys: true, // Only allow BUY/STRONG_BUY on provenWinners
-    coreOnlyBuys: true,    // Live buys: core winners only (probation = research/paper)
+    coreOnlyBuys: false,   // Week experiment: allow probation S.BUY too (still winners-only)
     // Hard gates (kill buys after scoring — stronger than soft dampeners)
     bearRegimeBlockBuys: true,     // No alt BUY/STRONG_BUY when BTC regime is bear
     extremeGreedBlockBuys: true,   // No BUY/STRONG_BUY when Fear & Greed >= threshold
