@@ -3238,9 +3238,8 @@ document.addEventListener('DOMContentLoaded', () => {
   window.addEventListener('pagehide', markHidden);
   document.addEventListener('freeze', markHidden); // Page Lifecycle API
   window.addEventListener('pageshow', (e) => {
-    if (e.persisted || document.visibilityState === 'visible') {
-      Dashboard._onAppVisible(e.persisted ? 'pageshow' : 'pageshow-nav');
-    }
+    // Only bfcache restores — initial load already refreshes via Dashboard.init().
+    if (e.persisted) Dashboard._onAppVisible('pageshow');
   });
   window.addEventListener('focus', () => Dashboard._onAppVisible('focus'));
   window.addEventListener('online', () => Dashboard._onAppVisible('online'));
