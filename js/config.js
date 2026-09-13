@@ -70,8 +70,8 @@ const CONFIG = {
     // Core: consistently profitable with >1% avg return AND >40% win rate.
     // Probation: profitable but marginal (<1% avg return OR low win rate).
     coreWinners: ['ARB', 'DASH', 'INJ', 'LDO', 'NEAR'],
-    probationWinners: ['ASTR', 'BTC', 'ETH', 'LINK', 'POL', 'RENDER', 'RUNE', 'TAO', 'THETA', 'TRX'],
-    provenWinners: ['ARB', 'ASTR', 'BTC', 'DASH', 'ETH', 'INJ', 'LDO', 'LINK', 'NEAR', 'POL', 'RENDER', 'RUNE', 'TAO', 'THETA', 'TRX'],
+    probationWinners: ['ASTR', 'BTC', 'EGLD', 'ETH', 'LINK', 'POL', 'RENDER', 'RUNE', 'TAO', 'THETA', 'TRX'],
+    provenWinners: ['ARB', 'ASTR', 'BTC', 'DASH', 'EGLD', 'ETH', 'INJ', 'LDO', 'LINK', 'NEAR', 'POL', 'RENDER', 'RUNE', 'TAO', 'THETA', 'TRX'],
   },
 
   signals: {
@@ -130,15 +130,30 @@ const CONFIG = {
 
   // Public trust badge — refreshed by weekly `node backtest.js` / GitHub Action.
   lastBacktest: {
-    runAt: '2026-09-07T13:33:41.171Z',
-    totalRuns: 9,
+    runAt: '2026-09-12T21:30:28.082Z',
+    totalRuns: 10,
     coreCount: 5,
-    probationCount: 10,
-    winnersTrades: 2059,
-    winnersWinRate: 48.0,
+    probationCount: 11,
+    winnersTrades: 2394,
+    winnersWinRate: 48.2,
     winnersAvgReturn: 1.08,
   },
   // Signal thresholds are defined in signals.js LEVELS object.
+
+  // ─── Scanner denylist (moonshots + scalps) ─────────────────────────────────
+  // Stables / fiat / gold pegs can print fake S.BUY on tiny range noise.
+  scanner: {
+    denyExact: [
+      'USDCUSDT', 'FDUSDUSDT', 'TUSDUSDT', 'USDPUSDT', 'DAIUSDT',
+      'RLUSDUSDT', 'XUSDUSDT', 'USDEUSDT', 'BFUSDUSDT', 'USD1USDT',
+      'EURUSDT', 'EURIUSDT', 'AEURUSDT', 'EULUSDT',
+      'XAUTUSDT', 'PAXGUSDT', // gold — not crypto momentum
+    ],
+    denyBases: [
+      'USDC', 'FDUSD', 'TUSD', 'USDP', 'DAI', 'RLUSD', 'XUSD', 'USDE',
+      'BFUSD', 'USD1', 'EUR', 'EURI', 'AEUR', 'EUL', 'XAUT', 'PAXG',
+    ],
+  },
 
   // ─── 5m Scalper (volatile alts — pullback entries, not chase) ───────────────
   // Separate from daily core and 4H moonshots. Paper/small size only.

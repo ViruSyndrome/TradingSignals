@@ -1,6 +1,26 @@
 'use strict';
 
 const Scanner = {
+  /** Stables / fiat / gold pegs — never moonshot or scalp these. */
+  _isDeniedPair(symbol) {
+    const sym = String(symbol || '').toUpperCase();
+    const base = sym.replace(/USDT$/, '');
+    const cfg = (typeof CONFIG !== 'undefined' && CONFIG.scanner) ? CONFIG.scanner : {};
+    const exact = new Set([
+      'USDCUSDT', 'FDUSDUSDT', 'TUSDUSDT', 'USDPUSDT', 'DAIUSDT',
+      'RLUSDUSDT', 'XUSDUSDT', 'USDEUSDT', 'BFUSDUSDT', 'USD1USDT',
+      'EURUSDT', 'EURIUSDT', 'AEURUSDT', 'EULUSDT',
+      'XAUTUSDT', 'PAXGUSDT',
+      ...(cfg.denyExact || []),
+    ]);
+    const bases = new Set([
+      'USDC', 'FDUSD', 'TUSD', 'USDP', 'DAI', 'RLUSD', 'XUSD', 'USDE',
+      'BFUSD', 'USD1', 'EUR', 'EURI', 'AEUR', 'EUL', 'XAUT', 'PAXG',
+      ...(cfg.denyBases || []),
+    ]);
+    return exact.has(sym) || bases.has(base);
+  },
+
   async scanMarket(onProgress) {
     try {
       if (onProgress) onProgress('Fetching active trading pairs...');
@@ -21,12 +41,11 @@ const Scanner = {
       }
       
       const safeBCryptos = new Set(['BNBUSDT', 'USDSBUSDT', 'DGBUSDT', 'TRBUSDT', 'CKBUSDT', 'SHIBUSDT', 'MOBUSDT', 'PHBUSDT', 'VIBUSDT', 'AMBUSDT', 'ARBUSDT', 'BBUSDT', 'YBUSDT', 'MUBUSDT', 'FLBUSDT']);
-      const stableCoins = new Set(['USDCUSDT', 'FDUSDUSDT', 'TUSDUSDT', 'EURUSDT', 'EULUSDT']);
 
       // Filter for USDT pairs that are currently TRADING with > $2M volume
       const validPairs = tickers.filter(t => {
         if (!t.symbol.endsWith('USDT') || !tradingPairs.has(t.symbol) || parseFloat(t.quoteVolume) < 2000000) return false;
-        if (stableCoins.has(t.symbol)) return false;
+        if (this._isDeniedPair(t.symbol)) return false;
         if (t.symbol.endsWith('BUSDT') && !safeBCryptos.has(t.symbol)) return false;
         // Strictly avoid duplicating ANY coin that is already tracked on the dashboard (Core, Scalp, or Moonshot)
         if (typeof CONFIG !== 'undefined' && CONFIG.assets && CONFIG.assets.crypto) {
@@ -192,7 +211,6 @@ const Scanner = {
       if (!Array.isArray(tickers)) return [];
       
       const safeBCryptos = new Set(['BNBUSDT', 'USDSBUSDT', 'DGBUSDT', 'TRBUSDT', 'CKBUSDT', 'SHIBUSDT', 'MOBUSDT', 'PHBUSDT', 'VIBUSDT', 'AMBUSDT', 'ARBUSDT', 'BBUSDT', 'YBUSDT', 'MUBUSDT', 'FLBUSDT']);
-      const stableCoins = new Set(['USDCUSDT', 'FDUSDUSDT', 'TUSDUSDT', 'EURUSDT', 'EULUSDT']);
 
       const scalpCfg = (typeof CONFIG !== 'undefined' && CONFIG.scalper) ? CONFIG.scalper : {};
       const minQuoteVol = scalpCfg.minQuoteVolume ?? 2000000;
@@ -202,7 +220,7 @@ const Scanner = {
       // Filter for liquid USDT pairs (scalper liquidity floor)
       const validPairs = tickers.filter(t => {
         if (!t.symbol.endsWith('USDT') || !tradingPairs.has(t.symbol) || parseFloat(t.quoteVolume) < minQuoteVol) return false;
-        if (stableCoins.has(t.symbol)) return false;
+        if (this._isDeniedPair(t.symbol)) return false;
         if (t.symbol.endsWith('BUSDT') && !safeBCryptos.has(t.symbol)) return false;
         
         // Strictly avoid duplicating ANY coin that is already tracked on the dashboard (Core, Scalp, or Moonshot)
