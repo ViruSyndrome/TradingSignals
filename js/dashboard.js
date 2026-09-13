@@ -1065,10 +1065,17 @@ const Dashboard = {
   async loadAll(silent = false, opts = {}) {
     // Separate in-flight mutex from UI "loading" — boot used to set loading=true
     // then call loadAll, which skipped the entire market fetch (0 coins forever).
-    if (this._fetchInFlight) {
+    // `force` supersedes any hung/zombie promise left after tab/PWA suspension.
+    if (opts.force) {
+      this._fetchEpoch = (this._fetchEpoch || 0) + 1;
+      this._fetchInFlight = null;
+      this._fetchStartedAt = 0;
+      this.state.loading = false;
+    } else if (this._fetchInFlight) {
       console.warn('[Dashboard] loadAll already in flight, skipping concurrent fetch.');
       return this._fetchInFlight;
     }
+    const epoch = this._fetchEpoch || 0;
     this.state.loading = true;
     this._fetchStartedAt = Date.now();
     this._updateLiveStatus();
@@ -1077,7 +1084,9 @@ const Dashboard = {
     const fetchPromise = (async () => {
     try {
       const phase = opts.phase || 'full';
-      const crypto = await API.getAllCrypto({ phase });
+      const crypto = await API.getAllCrypto({ phase, bypassCache: !!opts.bypassCache });
+      // A newer force-refresh superseded this run — discard results.
+      if (epoch !== (this._fetchEpoch || 0)) return;
 
       const all = [
         ...(crypto || [])
@@ -1200,6 +1209,8 @@ const Dashboard = {
           return updatedScalp;
         }));
 
+        if (epoch !== (this._fetchEpoch || 0)) return;
+
         // Dedupe by scalp id, keep BUY/STRONG_BUY only for the tab
         const byId = new Map();
         for (const s of liveScalps) {
@@ -1212,6 +1223,8 @@ const Dashboard = {
         this.state.scalps = [...byId.values()];
         this.state.allAssets.push(...this.state.scalps);
       }
+
+      if (epoch !== (this._fetchEpoch || 0)) return;
 
       if (this._previousSignals.size === 0) {
         this.state.allAssets.forEach(a => {
@@ -1246,6 +1259,7 @@ const Dashboard = {
       this._refreshOpenModal();
       if (!silent) this._showToast(anyOk ? 'Data refreshed ✓' : 'Fetch failed — showing last known data', anyOk ? 'success' : 'warning');
     } catch (err) {
+      if (epoch !== (this._fetchEpoch || 0)) return;
       console.error('[Dashboard] loadAll error:', err);
       this.state.dataStale = true;
       this.state.loading = false;
@@ -1255,8 +1269,10 @@ const Dashboard = {
       this._render(); // Force a render to clear the skeleton and show error state
       if (!silent) this._showToast('Some data failed to load — check internet connection', 'warning');
     } finally {
-      this._fetchInFlight = null;
-      this._fetchStartedAt = 0;
+      if (epoch === (this._fetchEpoch || 0)) {
+        this._fetchInFlight = null;
+        this._fetchStartedAt = 0;
+      }
     }
     })();
 
@@ -1265,14 +1281,15 @@ const Dashboard = {
   },
 
   /** Clear hung fetch mutex left behind by tab/PWA suspension. */
-  _clearStuckFetch(reason = 'resume') {
+  _clearStuckFetch(reason = 'resume', { force = false } = {}) {
     const now = Date.now();
     const started = this._fetchStartedAt || 0;
     const age = started ? now - started : (this._fetchInFlight ? Infinity : 0);
-    const STUCK_MS = 20000;
+    const STUCK_MS = 12000;
     if (!this._fetchInFlight && !this.state.loading) return false;
-    if (age < STUCK_MS && this._fetchInFlight) return false;
-    console.warn(`[Dashboard] Clearing stuck fetch/loading after ${reason} (age=${Math.round(age / 1000)}s)`);
+    if (!force && age < STUCK_MS && this._fetchInFlight) return false;
+    console.warn(`[Dashboard] Clearing stuck fetch/loading after ${reason} (age=${Math.round(age / 1000)}s, force=${force})`);
+    this._fetchEpoch = (this._fetchEpoch || 0) + 1;
     this._fetchInFlight = null;
     this._fetchStartedAt = 0;
     this.state.loading = false;
@@ -1282,7 +1299,7 @@ const Dashboard = {
 
   /**
    * Wake from background: browsers freeze timers + in-flight fetches when the
-   * tab/PWA is hidden. Restart polling and refresh if data is stale.
+   * tab/PWA is hidden. Restart polling and force a network refresh.
    */
   _wakeFromBackground(reason = 'visibility') {
     if (typeof document !== 'undefined' && document.visibilityState === 'hidden') return;
@@ -1291,31 +1308,29 @@ const Dashboard = {
     const hiddenMs = this._hiddenAt ? now - this._hiddenAt : 0;
     this._hiddenAt = null;
 
-    const clearedStuck = this._clearStuckFetch(reason);
-    const wasAway = hiddenMs > 0 || reason === 'online' || reason === 'pageshow' || reason === 'resume';
+    const wasAway = hiddenMs > 0 || reason === 'online' || reason === 'pageshow' || reason === 'resume' || reason === 'visibility';
+    // Any real background stretch: drop zombie in-flight immediately (don't wait 12s).
+    if (wasAway || reason === 'focus') this._clearStuckFetch(reason, { force: hiddenMs >= 3000 || wasAway });
+    else this._clearStuckFetch(reason);
 
     const lastMs = this.state.lastUpdate instanceof Date
       ? this.state.lastUpdate.getTime()
       : (typeof this.state.lastUpdate === 'number' ? this.state.lastUpdate : 0);
     const dataAge = lastMs ? now - lastMs : Infinity;
     const interval = (CONFIG?.refresh?.intervalMs) || 30000;
-    // Refresh if overdue, data older than one interval, or user was away ≥8s
-    // (timers often don't fire while suspended, so refreshDueAt alone is unreliable).
     const needsRefresh =
-      dataAge >= interval
-      || hiddenMs >= 8000
-      || (this.state.refreshDueAt != null && now >= this.state.refreshDueAt)
-      || clearedStuck;
+      (wasAway && hiddenMs >= 2000)
+      || dataAge >= interval
+      || hiddenMs >= 3000
+      || (this.state.refreshDueAt != null && now >= this.state.refreshDueAt);
 
-    // Restart intervals only after a real background stretch — plain window
-    // focus must not keep resetting the 30s cadence.
-    if (wasAway || clearedStuck) {
-      this._scheduleRefresh();
-    }
+    if (wasAway && hiddenMs >= 2000) this._scheduleRefresh();
 
-    if (needsRefresh && !this._fetchInFlight) {
+    if (needsRefresh) {
       console.info(`[Dashboard] Resume refresh (${reason}, hidden=${Math.round(hiddenMs / 1000)}s, age=${Math.round(dataAge / 1000)}s)`);
-      this.loadAll(true).catch(e => console.warn('[Dashboard] Resume refresh failed:', e));
+      if (typeof API !== 'undefined' && API.clearMarketCache) API.clearMarketCache();
+      this.loadAll(true, { force: true, bypassCache: true })
+        .catch(e => console.warn('[Dashboard] Resume refresh failed:', e));
     }
   },
 
@@ -3185,12 +3200,15 @@ const Dashboard = {
   },
 
   _forceRefresh() {
-    // Manual refresh must never be blocked by a hung background fetch.
-    this._clearStuckFetch('manual');
-    Object.keys(localStorage).forEach(key => {
-      if (key.startsWith('trading_cache_')) localStorage.removeItem(key);
-    });
-    return this.loadAll(false);
+    // Manual refresh must never be blocked by a hung/zombie background fetch.
+    this._clearStuckFetch('manual', { force: true });
+    if (typeof API !== 'undefined' && API.clearMarketCache) API.clearMarketCache();
+    else {
+      Object.keys(localStorage).forEach(key => {
+        if (key.startsWith('trading_cache_')) localStorage.removeItem(key);
+      });
+    }
+    return this.loadAll(false, { force: true, bypassCache: true });
   },
 
 };
@@ -3207,24 +3225,26 @@ document.addEventListener('DOMContentLoaded', () => {
   }, { passive: true });
 
   // Tab / PWA resume: Chrome freezes timers + in-flight fetches while hidden.
-  // Old handler only checked loading/refreshDueAt and never cleared _fetchInFlight,
-  // so a suspended fetch could leave the dash permanently stale until hard refresh.
+  // Force a bypass-cache network refresh on return; manual refresh must never
+  // wait on a zombie _fetchInFlight from a suspended tab.
+  const markHidden = () => { Dashboard._hiddenAt = Date.now(); };
   document.addEventListener('visibilitychange', () => {
     if (document.visibilityState === 'hidden') {
-      Dashboard._hiddenAt = Date.now();
+      markHidden();
       return;
     }
     Dashboard._onAppVisible('visibility');
   });
+  window.addEventListener('pagehide', markHidden);
+  document.addEventListener('freeze', markHidden); // Page Lifecycle API
   window.addEventListener('pageshow', (e) => {
-    if (e.persisted) Dashboard._onAppVisible('pageshow');
+    if (e.persisted || document.visibilityState === 'visible') {
+      Dashboard._onAppVisible(e.persisted ? 'pageshow' : 'pageshow-nav');
+    }
   });
-  // Focus alone is noisy; only wake if we previously marked the page hidden.
-  window.addEventListener('focus', () => {
-    if (Dashboard._hiddenAt) Dashboard._onAppVisible('focus');
-  });
+  window.addEventListener('focus', () => Dashboard._onAppVisible('focus'));
   window.addEventListener('online', () => Dashboard._onAppVisible('online'));
-  document.addEventListener('resume', () => Dashboard._onAppVisible('resume')); // Cordova/Capacitor-style
+  document.addEventListener('resume', () => Dashboard._onAppVisible('resume'));
 
   const mainContent = document.querySelector('.main-content');
   if (mainContent) {

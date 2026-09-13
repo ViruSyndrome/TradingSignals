@@ -1,4 +1,4 @@
-const CACHE_NAME = 'trendrunner-cache-v76';
+const CACHE_NAME = 'trendrunner-cache-v77';
 
 self.addEventListener('message', event => {
   if (event.data?.type === 'SKIP_WAITING') self.skipWaiting();
@@ -50,9 +50,10 @@ function isAuthCallback(url) {
   }
 }
 
-// Fetch event - NETWORK FIRST strategy
-// This solves the 'stale app' problem. It always tries the internet first,
-// and only uses the cache if the user is completely offline.
+// Fetch event - NETWORK FIRST strategy for same-origin app shell only.
+// Never intercept cross-origin market APIs (Binance/OKX/etc.) — after tab
+// suspension a SW-mediated fetch can hang or serve confusing failures, and
+// refresh/reload should talk to exchanges directly.
 self.addEventListener('fetch', event => {
   // Only handle GET requests
   if (event.request.method !== 'GET') return;
@@ -62,8 +63,16 @@ self.addEventListener('fetch', event => {
     return;
   }
 
+  let reqUrl;
+  try {
+    reqUrl = new URL(event.request.url);
+  } catch {
+    return;
+  }
+  if (reqUrl.origin !== self.location.origin) return;
+
   event.respondWith(
-    fetch(event.request)
+    fetch(event.request, { cache: 'no-store' })
       .then(response => {
         // If the network fetch is successful, clone it and update the cache
         if (response && response.status === 200 && response.type === 'basic') {

@@ -9,7 +9,10 @@
 const API = {
 
   // ─── Cache helpers (localStorage-backed) ───────────────────────────────────
+  _forceNetwork: false, // when true, skip localStorage reads (resume / manual refresh)
+
   _get(key) {
+    if (this._forceNetwork) return null;
     try {
       const stored = localStorage.getItem(`trading_cache_${key}`);
       if (!stored) return null;
@@ -23,6 +26,23 @@ const API = {
       localStorage.setItem(`trading_cache_${key}`, JSON.stringify({ data, ts: Date.now(), ttl }));
     } catch(e) {}
     return data;
+  },
+
+  /** Drop market-data localStorage entries (prices + klines). */
+  clearMarketCache() {
+    try {
+      Object.keys(localStorage).forEach(key => {
+        if (key.startsWith('trading_cache_')) localStorage.removeItem(key);
+      });
+    } catch (e) {}
+  },
+
+  withBypassCache(fn) {
+    const prev = this._forceNetwork;
+    this._forceNetwork = true;
+    return Promise.resolve()
+      .then(() => fn())
+      .finally(() => { this._forceNetwork = prev; });
   },
 
   // Binance blocks some cloud IPs with HTTP 418. Rotate public market-data hosts.
@@ -75,7 +95,7 @@ const API = {
           headers['User-Agent'] = 'Mozilla/5.0 (compatible; TrendRunnerBot/1.0; +https://trendrunner.app)';
           headers['Accept'] = 'application/json';
         }
-        const r = await fetch(url, { signal: ctrl.signal, headers });
+        const r = await fetch(url, { signal: ctrl.signal, headers, cache: 'no-store' });
         if (!r.ok) {
           clearTimeout(timer);
           const err = new Error(`HTTP ${r.status}`);
@@ -385,6 +405,9 @@ const API = {
    * react to intraday moves instead of a stale (still-forming) daily candle.
    */
   async getAllCrypto(opts = {}) {
+    if (opts.bypassCache) {
+      return this.withBypassCache(() => this.getAllCrypto({ ...opts, bypassCache: false }));
+    }
     const phase = opts.phase || 'full'; // 'boot' = fast first paint; 'full' = include 4H + rules
     const boot = phase === 'boot';
     // --- Dynamic Private Coin Injection ---
