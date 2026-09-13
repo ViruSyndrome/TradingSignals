@@ -41,7 +41,7 @@
 
   <!-- Chart.js -->
   <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.4/dist/chart.umd.min.js" defer></script>
-  <link rel="stylesheet" href="styles.css?v=6.48" />
+  <link rel="stylesheet" href="styles.css?v=6.49" />
   <!-- Critical boot overlay (prevents sidebar flash before styles.css applies) -->
   <style>
     html, body { margin: 0; background: #080a14; }
@@ -68,7 +68,7 @@
     if ('serviceWorker' in navigator) {
       window.addEventListener('load', () => {
         const hadController = Boolean(navigator.serviceWorker.controller);
-        navigator.serviceWorker.register('./service-worker.js?v=6.48', { updateViaCache: 'none' })
+        navigator.serviceWorker.register('./service-worker.js?v=6.49', { updateViaCache: 'none' })
           .then(reg => {
             reg.update().catch(() => {});
             navigator.serviceWorker.addEventListener('controllerchange', () => {
@@ -155,20 +155,12 @@
       </a>
     
       <div class="sidebar-bottom-actions">
+        <a href="#" class="nav-link" id="settingsBtn" title="Account &amp; owner click-trade settings">
+          <span class="nav-icon">⚙️</span> <span class="nav-text">Settings</span>
+        </a>
         <a href="#" class="nav-link auth-nav-link" id="authBtn">
           <span class="nav-icon">👤</span> <span class="nav-text" id="authBtnText">Sign In / Register</span>
         </a>
-      </div>
-      <div class="trade-settings" id="tradeSettings">
-        <div class="trade-settings-title">Owner click-trade</div>
-        <label class="trade-settings-label">Bot URL
-          <input type="url" id="tradeBotUrl" class="trade-settings-input" placeholder="https://your-bot.onrender.com" autocomplete="off">
-        </label>
-        <label class="trade-settings-label">Trade secret
-          <input type="password" id="tradeApiSecret" class="trade-settings-input" placeholder="TRADE_API_SECRET" autocomplete="off">
-        </label>
-        <button type="button" id="tradeSaveSettingsBtn" class="trade-settings-save">Save</button>
-        <div id="tradeStatusHint" class="trade-settings-hint">Not connected</div>
       </div>
     </nav>
 
@@ -713,7 +705,7 @@
   <!-- Version guard: if signals.js loaded is older than expected, force a full reload -->
   <script>
     // Version bumper to defeat GitHub Pages aggressive caching
-    window.__APP_VERSION__ = '6.48';
+    window.__APP_VERSION__ = '6.49';
     try {
       // Bulletproof scrub of corrupted data from localStorage before the app boots
       const wlStr = localStorage.getItem('trading_watchlist');
@@ -727,16 +719,16 @@
       // Nuke bloated caches that are causing QuotaExceededError (Removed to allow instant paint)
     } catch(e) {}
   </script>
-  <script src="js/config.js?v=6.48" defer></script>
-  <script src="js/api.js?v=6.48" defer></script>
-  <script src="js/indicators.js?v=6.48" defer></script>
-  <script src="js/signals.js?v=6.48" defer></script>
-  <script src="js/charts.js?v=6.48" defer></script>
+  <script src="js/config.js?v=6.49" defer></script>
+  <script src="js/api.js?v=6.49" defer></script>
+  <script src="js/indicators.js?v=6.49" defer></script>
+  <script src="js/signals.js?v=6.49" defer></script>
+  <script src="js/charts.js?v=6.49" defer></script>
   
-  <script src="js/scanner.js?v=6.48" defer></script>
-  <script src="js/backtest_ui.js?v=6.48" defer></script>
-  <script src="js/auth.js?v=6.48" defer></script>
-    <script src="js/dashboard.js?v=6.48" defer></script>
+  <script src="js/scanner.js?v=6.49" defer></script>
+  <script src="js/backtest_ui.js?v=6.49" defer></script>
+  <script src="js/auth.js?v=6.49" defer></script>
+    <script src="js/dashboard.js?v=6.49" defer></script>
   <script>
     // If signals.js didn't expose the right version, cached old code is running — force reload.
     if (typeof Signals === 'undefined' || Signals._version !== window.__APP_VERSION__) {
@@ -788,6 +780,30 @@
 
   </script>
 
+
+  <!-- Settings (account / owner click-trade) -->
+  <div class="modal-overlay" id="settingsModal">
+    <div class="modal-box settings-modal-box">
+      <div class="modal-header">
+        <h2>Settings</h2>
+        <button class="modal-close-btn" id="closeSettingsModal" type="button">&times;</button>
+      </div>
+      <div class="modal-body">
+        <p class="settings-intro">Account sync uses Sign In. Owner click-trade talks to your Render bot — keys stay on the server; only the bot URL and trade secret are stored on this device.</p>
+        <div class="trade-settings trade-settings-in-modal" id="tradeSettings">
+          <div class="trade-settings-title">Owner click-trade</div>
+          <label class="trade-settings-label">Bot URL
+            <input type="url" id="tradeBotUrl" class="trade-settings-input" placeholder="https://your-bot.onrender.com" autocomplete="off">
+          </label>
+          <label class="trade-settings-label">Trade secret
+            <input type="password" id="tradeApiSecret" class="trade-settings-input" placeholder="TRADE_API_SECRET" autocomplete="off">
+          </label>
+          <button type="button" id="tradeSaveSettingsBtn" class="trade-settings-save">Save</button>
+          <div id="tradeStatusHint" class="trade-settings-hint">Not connected</div>
+        </div>
+      </div>
+    </div>
+  </div>
 
   <!-- Owner click-to-trade confirm -->
   <div class="modal-overlay" id="tradeConfirmModal">

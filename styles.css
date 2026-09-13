@@ -515,9 +515,11 @@ body.is-booting .ios-banner {
 .asset-symbol { font-size: 13px; color: var(--text-muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 
 /* Authentication */
-.sidebar-bottom-actions { margin-top: auto; padding: 0 16px; margin-bottom: 20px; }
+.sidebar-bottom-actions { margin-top: auto; padding: 0 16px; margin-bottom: 20px; display: flex; flex-direction: column; gap: 8px; }
 .auth-nav-link { background: rgba(0, 242, 254, 0.1); border: 1px solid var(--accent); justify-content: center; }
 .auth-modal-box { max-width: 400px; padding: 40px; margin: 20px auto; }
+.settings-modal-box { max-width: 440px; padding: 28px 28px 24px; margin: 20px auto; }
+.settings-intro { color: var(--text-muted); margin-bottom: 16px; font-size: 13px; line-height: 1.45; }
 .auth-intro { color: var(--text-muted); margin-bottom: 20px; font-size: 14px; }
 .auth-provider-row { display: flex; gap: 12px; margin-bottom: 16px; }
 .auth-provider-btn { flex: 1; padding: 10px; display: flex; align-items: center; justify-content: center; gap: 8px; border: none; border-radius: 6px; font-weight: 600; cursor: pointer; }
@@ -859,11 +861,14 @@ body.modal-open { overflow: hidden; }
   max-width: 320px;
 }
 .trade-settings {
-  margin: 12px 12px 8px;
-  padding: 10px;
+  margin: 0;
+  padding: 12px;
   border: 1px solid rgba(148, 163, 184, 0.2);
   border-radius: 8px;
   background: rgba(15, 23, 42, 0.45);
+}
+.trade-settings-in-modal {
+  margin: 0;
 }
 .trade-settings-title {
   font-size: 11px;

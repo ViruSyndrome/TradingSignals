@@ -65,8 +65,8 @@ const Dashboard = {
   async _tradeFetch(path, { method = 'GET', body = null } = {}) {
     const base = this._tradeBotUrl();
     const secret = this._tradeSecret();
-    if (!base) throw new Error('Set Bot URL in the sidebar (Owner click-trade)');
-    if (!secret) throw new Error('Set Trade secret in the sidebar');
+    if (!base) throw new Error('Set Bot URL in Settings → Owner click-trade');
+    if (!secret) throw new Error('Set Trade secret in Settings');
     const res = await fetch(`${base}${path}`, {
       method,
       headers: {
@@ -108,11 +108,33 @@ const Dashboard = {
     }
   },
 
+  _openSettingsModal() {
+    const urlInput = document.getElementById('tradeBotUrl');
+    const secretInput = document.getElementById('tradeApiSecret');
+    if (urlInput) urlInput.value = this._tradeBotUrl();
+    if (secretInput) secretInput.value = this._tradeSecret();
+    document.getElementById('settingsModal')?.classList.add('open');
+    this._refreshTradeStatus();
+  },
+
+  _closeSettingsModal() {
+    document.getElementById('settingsModal')?.classList.remove('open');
+  },
+
   _initTradeUi() {
     const urlInput = document.getElementById('tradeBotUrl');
     const secretInput = document.getElementById('tradeApiSecret');
     if (urlInput) urlInput.value = this._tradeBotUrl();
     if (secretInput) secretInput.value = this._tradeSecret();
+
+    document.getElementById('settingsBtn')?.addEventListener('click', (e) => {
+      e.preventDefault();
+      this._openSettingsModal();
+    });
+    document.getElementById('closeSettingsModal')?.addEventListener('click', () => this._closeSettingsModal());
+    document.getElementById('settingsModal')?.addEventListener('click', (e) => {
+      if (e.target?.id === 'settingsModal') this._closeSettingsModal();
+    });
 
     document.getElementById('tradeSaveSettingsBtn')?.addEventListener('click', () => {
       try {
@@ -143,7 +165,8 @@ const Dashboard = {
     const sym = String(symbol || '').toUpperCase().replace(/USDT$/i, '');
     if (!sym) return;
     if (!this._tradeStatus?.tradeEnabled) {
-      this._showToast('Click-trade not ready — check sidebar bot URL / secret / Render env', 'warning');
+      this._showToast('Click-trade not ready — open Settings → Owner click-trade', 'warning');
+      this._openSettingsModal();
       return;
     }
     this._tradePendingSymbol = `${sym}USDT`;
@@ -220,7 +243,7 @@ const Dashboard = {
     btn.disabled = !ready;
     btn.title = ready
       ? 'Market buy + bank 50% at +10% + trail remaining 50%'
-      : 'Configure owner click-trade in the sidebar first';
+      : 'Configure owner click-trade in Settings first';
   },
 
   async _loadLiveBinanceHoldings(force = false) {

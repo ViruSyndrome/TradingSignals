@@ -70,7 +70,7 @@ Places a **market buy** then the TrendRunner **50/50 exits** (limit sell half at
    - `TRADE_API_SECRET` (long random string)
    - optional: `TRADE_MAX_USDT=50`, `TRADE_DEFAULT_TRAIL_PCT=2`
 3. Redeploy the bot. Confirm `GET https://YOUR-BOT.onrender.com/api/trade/status` shows `tradeEnabled: true` when secret/env are correct.
-4. In the PWA sidebar **Owner click-trade**: paste bot URL + the same `TRADE_API_SECRET` (stored only in this browser’s localStorage).
+4. In the PWA **Settings** (sidebar, above Sign In): paste bot URL + the same `TRADE_API_SECRET` (stored only in this browser’s localStorage).
 5. Open a coin modal → **Buy + 50/50 exits** → confirm USDT size and trail %.
 
 Holdings tab can load **live Binance balances / open orders** using the same secret. Public visitors still only see the affiliate Trade link.
