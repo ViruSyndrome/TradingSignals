@@ -140,6 +140,13 @@ const CONFIG = {
   },
   // Signal thresholds are defined in signals.js LEVELS object.
 
+  // ─── Owner click-to-trade (Render bot; keys never in browser) ──────────────
+  trade: {
+    // Public Render URL of bot.js (no trailing slash). Override in localStorage trade_bot_url.
+    botBaseUrl: '',
+    defaultQuoteUsdt: 50,
+  },
+
   // ─── Scanner denylist (moonshots + scalps) ─────────────────────────────────
   // Stables / fiat / gold pegs can print fake S.BUY on tiny range noise.
   scanner: {

@@ -41,8 +41,253 @@ const Dashboard = {
   MOONSHOT_REVIEW_MS: 4 * 60 * 60 * 1000, // 4 hours to reduce clutter
   BINANCE_REF: 'TRENDRUNNER',
   BINANCE_REF_TITLE: 'Opens Binance (TrendRunner referral — new accounts can get 10% fee kickback)',
+  TRADE_BOT_URL_KEY: 'trade_bot_url',
+  TRADE_SECRET_KEY: 'trade_api_secret',
+  _tradeStatus: null,
+  _tradePendingSymbol: null,
   _previousSignals: new Map(),
   _previousScalps: new Map(),
+
+  _tradeBotUrl() {
+    try {
+      const local = localStorage.getItem(this.TRADE_BOT_URL_KEY);
+      if (local && local.trim()) return local.trim().replace(/\/$/, '');
+    } catch (_) {}
+    return String(CONFIG.trade?.botBaseUrl || '').replace(/\/$/, '');
+  },
+
+  _tradeSecret() {
+    try {
+      return localStorage.getItem(this.TRADE_SECRET_KEY) || '';
+    } catch (_) { return ''; }
+  },
+
+  async _tradeFetch(path, { method = 'GET', body = null } = {}) {
+    const base = this._tradeBotUrl();
+    const secret = this._tradeSecret();
+    if (!base) throw new Error('Set Bot URL in the sidebar (Owner click-trade)');
+    if (!secret) throw new Error('Set Trade secret in the sidebar');
+    const res = await fetch(`${base}${path}`, {
+      method,
+      headers: {
+        'Content-Type': 'application/json',
+        'X-TrendRunner-Trade-Secret': secret,
+      },
+      body: body ? JSON.stringify(body) : undefined,
+      cache: 'no-store',
+    });
+    const data = await res.json().catch(() => ({}));
+    if (!res.ok && res.status !== 207) {
+      throw new Error(data.error || `Trade API HTTP ${res.status}`);
+    }
+    return { status: res.status, data };
+  },
+
+  async _refreshTradeStatus() {
+    const hint = document.getElementById('tradeStatusHint');
+    try {
+      if (!this._tradeBotUrl()) {
+        this._tradeStatus = null;
+        if (hint) hint.textContent = 'Set bot URL + secret (owner only)';
+        return null;
+      }
+      const base = this._tradeBotUrl();
+      const res = await fetch(`${base}/api/trade/status`, { cache: 'no-store' });
+      const data = await res.json();
+      this._tradeStatus = data;
+      if (hint) {
+        hint.textContent = data.tradeEnabled
+          ? `Ready · max $${data.maxUsdt} · trail ${data.defaultTrailPct}%`
+          : (data.keysConfigured ? 'Bot up — enable TRADE_ENABLED + secret' : 'Bot up — Binance keys not set');
+      }
+      return data;
+    } catch (e) {
+      this._tradeStatus = null;
+      if (hint) hint.textContent = 'Bot unreachable';
+      return null;
+    }
+  },
+
+  _initTradeUi() {
+    const urlInput = document.getElementById('tradeBotUrl');
+    const secretInput = document.getElementById('tradeApiSecret');
+    if (urlInput) urlInput.value = this._tradeBotUrl();
+    if (secretInput) secretInput.value = this._tradeSecret();
+
+    document.getElementById('tradeSaveSettingsBtn')?.addEventListener('click', () => {
+      try {
+        localStorage.setItem(this.TRADE_BOT_URL_KEY, (urlInput?.value || '').trim().replace(/\/$/, ''));
+        localStorage.setItem(this.TRADE_SECRET_KEY, secretInput?.value || '');
+        this._showToast('Click-trade settings saved (this device only)', 'success');
+        this._refreshTradeStatus().then(() => this._refreshOpenModalTradeBtn());
+      } catch (e) {
+        this._showToast('Could not save settings', 'warning');
+      }
+    });
+
+    document.getElementById('closeTradeConfirmModal')?.addEventListener('click', () => this._closeTradeConfirm());
+    document.getElementById('tradeConfirmModal')?.addEventListener('click', (e) => {
+      if (e.target?.id === 'tradeConfirmModal') this._closeTradeConfirm();
+    });
+    document.getElementById('tradeConfirmSubmit')?.addEventListener('click', () => this._submitTradeBuy());
+
+    this._refreshTradeStatus();
+  },
+
+  _closeTradeConfirm() {
+    document.getElementById('tradeConfirmModal')?.classList.remove('open');
+    this._tradePendingSymbol = null;
+  },
+
+  _openTradeConfirm(symbol) {
+    const sym = String(symbol || '').toUpperCase().replace(/USDT$/i, '');
+    if (!sym) return;
+    if (!this._tradeStatus?.tradeEnabled) {
+      this._showToast('Click-trade not ready — check sidebar bot URL / secret / Render env', 'warning');
+      return;
+    }
+    this._tradePendingSymbol = `${sym}USDT`;
+    const max = this._tradeStatus.maxUsdt || CONFIG.trade?.defaultQuoteUsdt || 50;
+    const trail = this._tradeStatus.defaultTrailPct || 2;
+    const tp = this._tradeStatus.takeProfitPct || 10;
+    const partial = this._tradeStatus.partialPct || 50;
+    document.getElementById('tradeConfirmTitle').textContent = `Buy ${sym} + 50/50 exits`;
+    document.getElementById('tradeConfirmSummary').textContent =
+      `Market buy ${sym}USDT → sell ${partial}% at +${tp}% → trail remaining ${100 - partial}%`;
+    const q = document.getElementById('tradeQuoteUsdt');
+    const t = document.getElementById('tradeTrailPct');
+    if (q) { q.value = Math.min(max, CONFIG.trade?.defaultQuoteUsdt || 50); q.max = max; }
+    if (t) t.value = trail;
+    const err = document.getElementById('tradeConfirmError');
+    if (err) err.textContent = '';
+    document.getElementById('tradeConfirmModal')?.classList.add('open');
+  },
+
+  async _submitTradeBuy() {
+    const errEl = document.getElementById('tradeConfirmError');
+    const btn = document.getElementById('tradeConfirmSubmit');
+    if (!this._tradePendingSymbol) return;
+    const quoteUsdt = Number(document.getElementById('tradeQuoteUsdt')?.value);
+    const callbackRate = Number(document.getElementById('tradeTrailPct')?.value);
+    if (errEl) errEl.textContent = '';
+    if (btn) { btn.disabled = true; btn.textContent = 'Submitting…'; }
+    try {
+      const { status, data } = await this._tradeFetch('/api/trade/buy-with-exits', {
+        method: 'POST',
+        body: {
+          symbol: this._tradePendingSymbol,
+          quoteUsdt,
+          callbackRate,
+        },
+      });
+      const bought = data.buy?.executedQty > 0;
+      if (bought) {
+        this._setHoldingsMetaEntry(data.symbol, data.buy.avgPrice, {
+          force: true,
+          addLot: true,
+          qty: data.buy.executedQty,
+          note: `click-trade ${data.buy.orderId}`,
+        });
+        if (!this.state.invested.includes(this._baseHoldingsId(data.symbol))) {
+          this.state.invested.push(this._baseHoldingsId(data.symbol));
+          try { localStorage.setItem('trading_invested', JSON.stringify(this.state.invested)); } catch (_) {}
+        }
+      }
+      const parts = [];
+      if (data.buy) parts.push(`filled ${data.buy.executedQty} @ $${Number(data.buy.avgPrice).toPrecision(6)}`);
+      if (data.bank) parts.push(`bank TP #${data.bank.orderId}`);
+      if (data.trail) parts.push(`trail #${data.trail.orderId}`);
+      if (data.warnings?.length) parts.push(data.warnings.join('; '));
+      const msg = (data.ok ? 'Bought + exits set: ' : (bought ? 'Bought — exits incomplete: ' : 'Buy failed: '))
+        + (parts.join(' · ') || data.error || '');
+      this._showToast(msg, data.ok ? 'success' : 'warning');
+      if (data.ok || bought) this._closeTradeConfirm();
+      else if (errEl) errEl.textContent = data.error || 'Order failed';
+      this._render();
+      this._loadLiveBinanceHoldings(true);
+    } catch (e) {
+      if (errEl) errEl.textContent = e.message;
+      this._showToast(e.message, 'warning');
+    } finally {
+      if (btn) { btn.disabled = false; btn.textContent = 'Confirm buy on Binance'; }
+    }
+  },
+
+  _refreshOpenModalTradeBtn() {
+    const btn = document.getElementById('modalClickTradeBtn');
+    if (!btn) return;
+    const ready = !!this._tradeStatus?.tradeEnabled;
+    btn.disabled = !ready;
+    btn.title = ready
+      ? 'Market buy + bank 50% at +10% + trail remaining 50%'
+      : 'Configure owner click-trade in the sidebar first';
+  },
+
+  async _loadLiveBinanceHoldings(force = false) {
+    const panel = document.getElementById('liveBinanceHoldings');
+    if (!panel) return;
+    if (!this._tradeBotUrl() || !this._tradeSecret()) {
+      panel.innerHTML = '';
+      return;
+    }
+    if (!force && panel.dataset.loaded === '1' && this.state.activeCategory !== 'holdings') return;
+    panel.innerHTML = '<p class="live-bn-hint">Loading Binance balances…</p>';
+    try {
+      const [{ data: bal }, { data: open }] = await Promise.all([
+        this._tradeFetch('/api/trade/balances'),
+        this._tradeFetch('/api/trade/open-orders'),
+      ]);
+      const rows = (bal.balances || []).slice(0, 24);
+      const orders = open.orders || [];
+      let fillsHtml = '';
+      const fillAssets = rows.filter(b => !['USDT', 'USDC', 'FDUSD', 'BNB'].includes(b.asset)).slice(0, 3);
+      if (fillAssets.length) {
+        const fillBlocks = [];
+        for (const b of fillAssets) {
+          try {
+            const { data: tr } = await this._tradeFetch(`/api/trade/trades?symbol=${encodeURIComponent(b.asset)}&limit=8`);
+            const trows = (tr.trades || []).slice(-8).reverse();
+            if (trows.length) {
+              fillBlocks.push(`<h4>Recent ${b.asset} fills</h4><ul class="live-bn-orders">${trows.map(t => {
+                const when = t.time ? new Date(t.time).toLocaleString() : '';
+                return `<li>${t.isBuyer ? 'BUY' : 'SELL'} ${t.qty} @ ${t.price} <span class="muted">${when}</span></li>`;
+              }).join('')}</ul>`);
+            }
+          } catch (_) { /* skip */ }
+        }
+        fillsHtml = fillBlocks.join('');
+      }
+      if (!rows.length) {
+        panel.innerHTML = '<p class="live-bn-hint">No Binance balances &gt; $1 (or API empty).</p>';
+        panel.dataset.loaded = '1';
+        return;
+      }
+      const orderBits = orders.slice(0, 12).map(o => {
+        const typ = o.type || '';
+        const side = o.side || '';
+        return `<li><code>${o.symbol}</code> ${side} ${typ} qty=${o.origQty}${o.price && o.price !== '0' ? ` @ ${o.price}` : ''}${o.callbackRate ? ` trail ${o.callbackRate}%` : ''}</li>`;
+      }).join('');
+      panel.innerHTML = `
+        <div class="live-bn-panel">
+          <h3>Binance live (owner API)</h3>
+          <div class="live-bn-grid">
+            ${rows.map(b => `
+              <div class="live-bn-row">
+                <strong>${b.asset}</strong>
+                <span>${(b.total || 0).toPrecision(6)}</span>
+                <span class="muted">${b.usdtValue != null ? '~$' + b.usdtValue.toFixed(2) : '—'}</span>
+              </div>`).join('')}
+          </div>
+          ${orderBits ? `<h4>Open orders</h4><ul class="live-bn-orders">${orderBits}</ul>` : '<p class="live-bn-hint">No open orders</p>'}
+          ${fillsHtml}
+          <button type="button" class="trade-settings-save" id="refreshLiveBnBtn">Refresh Binance</button>
+        </div>`;
+      panel.dataset.loaded = '1';
+      document.getElementById('refreshLiveBnBtn')?.addEventListener('click', () => this._loadLiveBinanceHoldings(true));
+    } catch (e) {
+      panel.innerHTML = `<p class="live-bn-hint">Binance sync: ${e.message}</p>`;
+    }
+  },
 
   /** Spot trade URL with affiliate ref (always include ref=). */
   _binanceTradeUrl(symbolOrPair) {
@@ -893,6 +1138,7 @@ const Dashboard = {
     });
 
     this._bindUI();
+    this._initTradeUi();
     this._updateListLegend();
     this._hideEmptyCategoryTabs();
     this._initTooltips();
@@ -1962,6 +2208,16 @@ const Dashboard = {
     const el = document.getElementById('assetGrid');
     if (!el) return;
 
+    const liveHost = document.getElementById('liveBinanceHoldings');
+    if (liveHost) {
+      if (this.state.activeCategory === 'holdings') {
+        liveHost.hidden = false;
+        this._loadLiveBinanceHoldings(false);
+      } else {
+        liveHost.hidden = true;
+      }
+    }
+
     // Populate datalist with all unique symbols for autocomplete
     const datalist = document.getElementById('coinSuggestions');
     if (datalist) {
@@ -2709,7 +2965,8 @@ const Dashboard = {
           <div class="price-change ${change24h == null ? 'flat' : change24h >= 0 ? 'pos' : 'neg'} lg">${chgStr} (24h)</div>
           <div class="modal-trade-wrap">
             <a href="${binanceTradeUrl}" target="_blank" rel="noopener noreferrer" class="modal-trade-btn" title="${this.BINANCE_REF_TITLE}">Trade ${tradeSymbol}USDT on Binance ↗</a>
-            <p class="modal-affiliate-note">Referral link · 10% fee kickback for new Binance signups. Details in Learn Trading.</p>
+            <button type="button" id="modalClickTradeBtn" class="modal-click-trade-btn">Buy + 50/50 exits</button>
+            <p class="modal-affiliate-note">Referral link for everyone · Owner click-trade uses your Render bot (market buy → bank 50% at +10% → trail 50%).</p>
           </div>
         </div>
         ${ocoHTML}
@@ -2752,6 +3009,12 @@ const Dashboard = {
 
     modal.classList.add('open');
     document.body.classList.add('modal-open');
+
+    const clickBtn = document.getElementById('modalClickTradeBtn');
+    if (clickBtn) {
+      clickBtn.addEventListener('click', () => this._openTradeConfirm(tradeSymbol));
+      this._refreshOpenModalTradeBtn();
+    }
 
     // Render charts after DOM update
     requestAnimationFrame(() => {

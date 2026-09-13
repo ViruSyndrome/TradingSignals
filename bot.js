@@ -629,12 +629,222 @@ async function pollNewListings() {
 setInterval(pollNewListings, 5 * 60 * 1000);
 setTimeout(pollNewListings, 45000);
 
-// --- Cloud Keep-Alive Server ---
+// --- Cloud Keep-Alive + owner click-to-trade API ---
 if (!process.env.BOT_WORKER_ONLY) {
   const express = require('express');
+  const { createBinanceTrade, isTradeConfigured, env: tradeEnv } = require('./js/binance_trade.js');
   const app = express();
+  app.use(express.json({ limit: '32kb' }));
+
+  const ALLOWED_ORIGINS = new Set([
+    'https://trendrunner.app',
+    'https://www.trendrunner.app',
+    'http://localhost:3000',
+    'http://localhost:5173',
+    'http://127.0.0.1:3000',
+    'http://127.0.0.1:5500',
+    'null', // file:// or some sandboxed previews
+  ]);
+
+  app.use((req, res, next) => {
+    const origin = req.headers.origin || '';
+    if (ALLOWED_ORIGINS.has(origin) || !origin) {
+      if (origin) res.setHeader('Access-Control-Allow-Origin', origin);
+      res.setHeader('Vary', 'Origin');
+    }
+    res.setHeader('Access-Control-Allow-Methods', 'GET,POST,OPTIONS');
+    res.setHeader('Access-Control-Allow-Headers', 'Content-Type, X-TrendRunner-Trade-Secret');
+    if (req.method === 'OPTIONS') return res.sendStatus(204);
+    next();
+  });
+
   app.get('/', (req, res) => res.send('Bot is running.'));
   app.get('/health', (req, res) => res.status(200).json({ status: 'ok' }));
+
+  const TRADE_SECRET = tradeEnv('TRADE_API_SECRET');
+  const TRADE_MAX_USDT = Math.max(5, Number(tradeEnv('TRADE_MAX_USDT', '50')) || 50);
+  const TRADE_DEFAULT_TRAIL = Math.min(10, Math.max(0.1, Number(tradeEnv('TRADE_DEFAULT_TRAIL_PCT', '2')) || 2));
+  let lastTradeAt = 0;
+
+  function requireTradeSecret(req, res) {
+    if (!TRADE_SECRET) {
+      res.status(503).json({ ok: false, error: 'TRADE_API_SECRET not set on server' });
+      return false;
+    }
+    const got = req.headers['x-trendrunner-trade-secret'] || req.query.secret || '';
+    if (got !== TRADE_SECRET) {
+      res.status(401).json({ ok: false, error: 'Unauthorized' });
+      return false;
+    }
+    return true;
+  }
+
+  function getTrader() {
+    return createBinanceTrade();
+  }
+
+  app.get('/api/trade/status', (req, res) => {
+    const enabled = String(process.env.TRADE_ENABLED || '').toLowerCase() === 'true';
+    const keysOk = Boolean(tradeEnv('BINANCE_API_KEY') && tradeEnv('BINANCE_API_SECRET'));
+    res.json({
+      ok: true,
+      tradeEnabled: enabled && keysOk && Boolean(TRADE_SECRET),
+      keysConfigured: keysOk,
+      secretConfigured: Boolean(TRADE_SECRET),
+      maxUsdt: TRADE_MAX_USDT,
+      defaultTrailPct: TRADE_DEFAULT_TRAIL,
+      takeProfitPct: CONFIG.exits?.takeProfitPct ?? 10,
+      partialPct: CONFIG.exits?.partialPct ?? 50,
+    });
+  });
+
+  app.get('/api/trade/balances', async (req, res) => {
+    if (!requireTradeSecret(req, res)) return;
+    if (!isTradeConfigured() && !(tradeEnv('BINANCE_API_KEY') && tradeEnv('BINANCE_API_SECRET'))) {
+      return res.status(503).json({ ok: false, error: 'Binance keys not configured' });
+    }
+    try {
+      const trader = getTrader();
+      const data = await trader.getBalances({ minUsdt: 1 });
+      // Enrich with rough USDT value via public ticker when possible
+      const balances = [];
+      for (const b of data.balances) {
+        const total = b.free + b.locked;
+        let usdtValue = null;
+        if (b.asset === 'USDT' || b.asset === 'FDUSD' || b.asset === 'USDC') {
+          usdtValue = total;
+        } else {
+          try {
+            const t = await fetch(`https://api.binance.com/api/v3/ticker/price?symbol=${b.asset}USDT`, { cache: 'no-store' });
+            const j = await t.json();
+            const px = parseFloat(j.price);
+            if (Number.isFinite(px)) usdtValue = total * px;
+          } catch (_) { /* ignore */ }
+        }
+        if (usdtValue != null && usdtValue < 1) continue;
+        balances.push({ ...b, total, usdtValue });
+      }
+      balances.sort((a, b) => (b.usdtValue || 0) - (a.usdtValue || 0));
+      res.json({ ok: true, balances, updateTime: data.updateTime });
+    } catch (e) {
+      console.error('[Trade] balances error:', e.message);
+      res.status(500).json({ ok: false, error: e.message });
+    }
+  });
+
+  app.get('/api/trade/trades', async (req, res) => {
+    if (!requireTradeSecret(req, res)) return;
+    try {
+      const symbol = String(req.query.symbol || '').toUpperCase();
+      if (!symbol) return res.status(400).json({ ok: false, error: 'symbol required' });
+      const pair = symbol.endsWith('USDT') ? symbol : `${symbol}USDT`;
+      const trader = getTrader();
+      const trades = await trader.getMyTrades(pair, Math.min(100, Number(req.query.limit) || 40));
+      res.json({ ok: true, symbol: pair, trades });
+    } catch (e) {
+      console.error('[Trade] trades error:', e.message);
+      res.status(500).json({ ok: false, error: e.message });
+    }
+  });
+
+  app.get('/api/trade/open-orders', async (req, res) => {
+    if (!requireTradeSecret(req, res)) return;
+    try {
+      const trader = getTrader();
+      const symbol = req.query.symbol ? String(req.query.symbol).toUpperCase() : undefined;
+      const pair = symbol ? (symbol.endsWith('USDT') ? symbol : `${symbol}USDT`) : undefined;
+      const orders = await trader.getOpenOrders(pair);
+      res.json({ ok: true, orders });
+    } catch (e) {
+      console.error('[Trade] open-orders error:', e.message);
+      res.status(500).json({ ok: false, error: e.message });
+    }
+  });
+
+  app.post('/api/trade/buy-with-exits', async (req, res) => {
+    if (!requireTradeSecret(req, res)) return;
+    if (String(process.env.TRADE_ENABLED || '').toLowerCase() !== 'true') {
+      return res.status(503).json({ ok: false, error: 'TRADE_ENABLED is not true' });
+    }
+    if (!tradeEnv('BINANCE_API_KEY') || !tradeEnv('BINANCE_API_SECRET')) {
+      return res.status(503).json({ ok: false, error: 'Binance API keys missing' });
+    }
+
+    const now = Date.now();
+    if (now - lastTradeAt < 5000) {
+      return res.status(429).json({ ok: false, error: 'Rate limit: wait a few seconds between buys' });
+    }
+
+    let symbol = String(req.body?.symbol || '').toUpperCase().replace(/[^A-Z0-9]/g, '');
+    if (!symbol) return res.status(400).json({ ok: false, error: 'symbol required' });
+    if (!symbol.endsWith('USDT')) symbol = `${symbol}USDT`;
+
+    let quoteUsdt = Number(req.body?.quoteUsdt);
+    if (!Number.isFinite(quoteUsdt) || quoteUsdt <= 0) {
+      return res.status(400).json({ ok: false, error: 'quoteUsdt must be a positive number' });
+    }
+    if (quoteUsdt > TRADE_MAX_USDT) quoteUsdt = TRADE_MAX_USDT;
+
+    let callbackRate = Number(req.body?.callbackRate);
+    if (!Number.isFinite(callbackRate)) callbackRate = TRADE_DEFAULT_TRAIL;
+    callbackRate = Math.min(10, Math.max(0.1, callbackRate));
+
+    const takeProfitPct = Number(req.body?.takeProfitPct) || (CONFIG.exits?.takeProfitPct ?? 10);
+    const partialPct = Number(req.body?.partialPct) || (CONFIG.exits?.partialPct ?? 50);
+
+    lastTradeAt = now;
+    try {
+      const trader = getTrader();
+      console.log(`[Trade] buy-with-exits ${symbol} $${quoteUsdt} trail=${callbackRate}% tp=${takeProfitPct}% bank=${partialPct}%`);
+      const result = await trader.buyWithFiftyFiftyExits({
+        symbol,
+        quoteUsdt,
+        takeProfitPct,
+        partialPct,
+        callbackRate,
+      });
+
+      console.log(`[Trade] result ok=${result.ok} buy=${result.buy?.orderId} bank=${result.bank?.orderId} trail=${result.trail?.orderId} warn=${(result.warnings || []).join('|')}`);
+
+      if (result.buy?.executedQty > 0 && (result.bankError || result.trailError) && bot && chatId) {
+        const warn = `⚠️ *Click-trade partial*\nBought ${symbol} but exits incomplete:\n${(result.warnings || []).join('\n')}\nSet stops manually on Binance.`;
+        bot.sendMessage(chatId, warn, { parse_mode: 'Markdown' }).catch(() => {});
+      }
+
+      const status = result.ok ? 200 : (result.buy?.executedQty > 0 ? 207 : 500);
+      res.status(status).json({
+        ok: result.ok,
+        symbol: result.symbol || symbol,
+        buy: result.buy ? {
+          orderId: result.buy.orderId,
+          executedQty: result.buy.executedQty,
+          avgPrice: result.buy.avgPrice,
+          cumQuote: result.buy.cumQuote,
+        } : null,
+        bank: result.bank ? {
+          orderId: result.bank.orderId,
+          quantity: result.bank.quantity,
+          price: result.bank.price,
+        } : null,
+        trail: result.trail ? {
+          orderId: result.trail.orderId,
+          quantity: result.trail.quantity,
+          callbackRate: result.trail.callbackRate,
+        } : null,
+        takeProfitPct,
+        partialPct,
+        callbackRate,
+        tpPrice: result.tpPrice,
+        warnings: result.warnings || [],
+        error: result.error || null,
+      });
+    } catch (e) {
+      console.error('[Trade] buy-with-exits error:', e.message, e.binanceBody || '');
+      lastTradeAt = 0; // allow retry on hard failure before buy
+      res.status(500).json({ ok: false, error: e.message, binanceCode: e.binanceCode });
+    }
+  });
+
   const PORT = process.env.PORT || 3000;
   const server = app.listen(PORT, '0.0.0.0', () => console.log(`Web server listening on port ${PORT}`));
   server.on('error', error => console.error(`[Server] Failed to bind port ${PORT}: ${error.message}`));

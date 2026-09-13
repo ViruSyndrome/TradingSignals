@@ -825,19 +825,109 @@ body.modal-open { overflow: hidden; }
   white-space: nowrap;
 }
 .modal-trade-btn:hover { background: rgba(240, 185, 11, 0.2); }
+.modal-click-trade-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  margin-top: 12px;
+  margin-left: 0;
+  padding: 8px 14px;
+  border-radius: 8px;
+  background: rgba(16, 185, 129, 0.15);
+  border: 1px solid rgba(16, 185, 129, 0.45);
+  color: #34d399;
+  font-size: 13px;
+  font-weight: 600;
+  cursor: pointer;
+  white-space: nowrap;
+}
+.modal-click-trade-btn:hover { background: rgba(16, 185, 129, 0.25); }
+.modal-click-trade-btn:disabled { opacity: 0.45; cursor: not-allowed; }
 .modal-trade-wrap {
   display: flex;
   flex-direction: column;
   align-items: flex-start;
   gap: 6px;
 }
+.modal-trade-wrap .modal-trade-btn,
+.modal-trade-wrap .modal-click-trade-btn { margin-top: 4px; }
 .modal-affiliate-note {
   margin: 0;
   font-size: 11px;
   line-height: 1.35;
   color: var(--text-muted);
-  max-width: 280px;
+  max-width: 320px;
 }
+.trade-settings {
+  margin: 12px 12px 8px;
+  padding: 10px;
+  border: 1px solid rgba(148, 163, 184, 0.2);
+  border-radius: 8px;
+  background: rgba(15, 23, 42, 0.45);
+}
+.trade-settings-title {
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--text-muted);
+  margin-bottom: 8px;
+}
+.trade-settings-label {
+  display: block;
+  font-size: 11px;
+  color: var(--text-muted);
+  margin-bottom: 8px;
+}
+.trade-settings-input {
+  display: block;
+  width: 100%;
+  margin-top: 4px;
+  padding: 6px 8px;
+  border-radius: 6px;
+  border: 1px solid rgba(148, 163, 184, 0.25);
+  background: rgba(2, 6, 23, 0.6);
+  color: var(--text-main);
+  font-size: 12px;
+  box-sizing: border-box;
+}
+.trade-settings-save {
+  width: 100%;
+  margin-top: 4px;
+  padding: 6px 8px;
+  border-radius: 6px;
+  border: 1px solid rgba(99, 102, 241, 0.4);
+  background: rgba(99, 102, 241, 0.15);
+  color: #a5b4fc;
+  font-size: 12px;
+  cursor: pointer;
+}
+.trade-settings-hint {
+  margin-top: 8px;
+  font-size: 11px;
+  color: var(--text-muted);
+  line-height: 1.35;
+}
+.trade-confirm-box { max-width: 420px; }
+.trade-confirm-summary { color: var(--text-main); margin-bottom: 12px; }
+.trade-confirm-note { font-size: 12px; color: var(--text-muted); margin: 10px 0; line-height: 1.4; }
+.live-bn-host { margin: 0 0 16px; }
+.live-bn-panel {
+  padding: 14px 16px;
+  border: 1px solid rgba(148, 163, 184, 0.2);
+  border-radius: 10px;
+  background: rgba(15, 23, 42, 0.5);
+}
+.live-bn-panel h3 { margin: 0 0 10px; font-size: 15px; }
+.live-bn-panel h4 { margin: 12px 0 6px; font-size: 13px; color: var(--text-muted); }
+.live-bn-grid { display: grid; gap: 6px; }
+.live-bn-row {
+  display: grid;
+  grid-template-columns: 72px 1fr 90px;
+  gap: 8px;
+  font-size: 13px;
+}
+.live-bn-orders { margin: 0; padding-left: 18px; font-size: 12px; color: var(--text-muted); }
+.live-bn-hint { font-size: 12px; color: var(--text-muted); margin: 0; }
 .modal-prices { text-align: right; }
 .modal-price { font-size: 48px; font-weight: 800; line-height: 1; letter-spacing: -1px; margin-bottom: 8px; }
 

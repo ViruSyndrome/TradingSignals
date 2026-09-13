@@ -32,7 +32,7 @@ Dashboard OCO copy, bots, visual backtester, and CLI all read this policy for da
 - **`js/dashboard.js`** — UI, Holdings lots, Watch, followed ledger, scanners
 - **`js/auth.js`** — Optional Supabase sync (Watch / Holdings / followed ledger). Prefer `user_portfolios` table; falls back to auth metadata
 - **`js/scanner.js`** — Moonshot market scan + 5m scalp scan
-- **`bot.js`** — Telegram (+ optional X) alerts; optional new-listing Telegram alerts
+- **`bot.js`** — Telegram (+ optional X) alerts; optional new-listing Telegram alerts; **owner click-to-trade API** (`/api/trade/*`) when Binance keys + `TRADE_ENABLED` are set
 - **`backtest.js`** — CLI validation; weekly Action refreshes daily winners
 - **`scripts/fetch-coin-logos.js`** — Download missing logos into `assets/coin-logos/`
 - **`supabase/portfolio.sql`** — Durable portfolio table (run once in Supabase SQL Editor)
@@ -59,6 +59,21 @@ Serve the directory with any static host (or `npx serve .`) and open `index.html
 2. Copy `.env.example` → `.env` (Telegram + optional Twitter keys)
 3. Set `TELEGRAM_POLLING=true` only on the single process that should receive commands
 4. `node bot.js` (or `npm start` via `server.js`)
+
+### Owner click-to-trade (optional)
+Places a **market buy** then the TrendRunner **50/50 exits** (limit sell half at +10%, trailing stop on the rest) via your Render bot. Binance API keys never go in the browser.
+
+1. On Binance: create an API key with **Spot trading** only — **disable withdrawals**. Prefer IP-restrict to your Render egress if available.
+2. On Render (bot service) set:
+   - `TRADE_ENABLED=true`
+   - `BINANCE_API_KEY` / `BINANCE_API_SECRET`
+   - `TRADE_API_SECRET` (long random string)
+   - optional: `TRADE_MAX_USDT=50`, `TRADE_DEFAULT_TRAIL_PCT=2`
+3. Redeploy the bot. Confirm `GET https://YOUR-BOT.onrender.com/api/trade/status` shows `tradeEnabled: true` when secret/env are correct.
+4. In the PWA sidebar **Owner click-trade**: paste bot URL + the same `TRADE_API_SECRET` (stored only in this browser’s localStorage).
+5. Open a coin modal → **Buy + 50/50 exits** → confirm USDT size and trail %.
+
+Holdings tab can load **live Binance balances / open orders** using the same secret. Public visitors still only see the affiliate Trade link.
 
 ## Validation & backtests
 
