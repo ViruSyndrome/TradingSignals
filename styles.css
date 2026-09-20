@@ -788,29 +788,33 @@ body.is-booting .ios-banner {
 .live-tape-label { display: flex; align-items: center; gap: 7px; flex: 0 0 auto; color: var(--text-muted); font-size: 10px; font-weight: 700; letter-spacing: 1px; }
 .news-tape-label { padding: 4px 8px; color: #e67e22; background: rgba(230, 126, 34, 0.15); border-radius: 4px; }
 .news-tape-label .live-dot { background: #e67e22; }
-.news-tape-label + .live-tape-window #newsTapeTrack.moving { animation: tape-scroll 35s linear infinite; }
+.news-tape-label + .live-tape-window #newsTapeTrack.moving { animation: tape-scroll 55s linear infinite; }
 .news-tape-label + .live-tape-window #newsTapeTrack:hover { animation-play-state: paused; }
 .news-tape-empty { color: var(--text-muted); }
-@keyframes filter-flash {
-  0% { box-shadow: 0 0 0 0 rgba(0, 229, 255, 0); }
-  35% { box-shadow: 0 0 0 3px rgba(0, 229, 255, 0.35); }
-  100% { box-shadow: 0 0 0 0 rgba(0, 229, 255, 0); }
+@keyframes filter-arrive-heading {
+  0% { opacity: 0.55; transform: translateY(10px); }
+  100% { opacity: 1; transform: translateY(0); }
 }
-.asset-list-heading.filter-flash,
-#assetGrid.filter-flash {
-  border-radius: 12px;
-  animation: filter-flash 1s var(--ease-out, ease) both;
+@keyframes filter-card-in {
+  0% { opacity: 0; transform: translateY(18px) scale(0.985); }
+  100% { opacity: 1; transform: translateY(0) scale(1); }
 }
-#assetGrid.filter-flash .asset-card {
-  animation: card-rise 0.4s var(--ease-out, ease) both;
+#dashboardSection.is-filter-scrolling {
+  scroll-behavior: auto;
+}
+.asset-list-heading.filter-arrive {
+  animation: filter-arrive-heading 0.55s var(--ease-out, cubic-bezier(0.22, 1, 0.36, 1)) both;
+}
+#assetGrid.filter-arrive .asset-card {
+  animation: filter-card-in 0.55s var(--ease-out, cubic-bezier(0.22, 1, 0.36, 1)) both;
+  animation-delay: var(--stagger, 0ms);
 }
 @media (prefers-reduced-motion: reduce) {
-  .asset-list-heading.filter-flash,
-  #assetGrid.filter-flash,
-  #assetGrid.filter-flash .asset-card { animation: none !important; }
+  .asset-list-heading.filter-arrive,
+  #assetGrid.filter-arrive .asset-card { animation: none !important; }
 }
 .news-time { margin-left: 6px; color: var(--text-muted); font-size: 10px; font-weight: 400; }
-#newsTapeTrack.moving { animation: tape-scroll 35s linear infinite; }
+#newsTapeTrack.moving { animation: tape-scroll 55s linear infinite; }
 #newsTapeTrack:hover { animation-play-state: paused; }
 .scalper-filter-tab { color: var(--accent); }
 .hidden-filter-tab { display: none; }

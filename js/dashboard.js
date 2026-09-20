@@ -2025,7 +2025,7 @@ const Dashboard = {
       // Restart CSS animation cleanly
       void el.offsetWidth;
       el.classList.add('moving');
-      this._setTapeScrollSpeed(el, 72);
+      this._setTapeScrollSpeed(el, 40, { minSec: 28, maxSec: 75 });
     };
     const renderCached = () => {
       try {
@@ -2126,35 +2126,74 @@ const Dashboard = {
     setInterval(fetchNews, 15 * 60 * 1000);
   },
 
+  _easeInOutCubic(t) {
+    return t < 0.5 ? 4 * t * t * t : 1 - Math.pow(-2 * t + 2, 3) / 2;
+  },
+
+  _animateScrollTo(scroller, targetTop, durationMs = 720) {
+    return new Promise((resolve) => {
+      if (!scroller) { resolve(); return; }
+      const prefersReduce = typeof window !== 'undefined'
+        && window.matchMedia
+        && window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+      const start = scroller.scrollTop;
+      const delta = targetTop - start;
+      if (prefersReduce || Math.abs(delta) < 6) {
+        scroller.scrollTop = targetTop;
+        resolve();
+        return;
+      }
+      cancelAnimationFrame(this._filterScrollRaf);
+      const t0 = performance.now();
+      const step = (now) => {
+        const t = Math.min(1, (now - t0) / durationMs);
+        scroller.scrollTop = start + delta * this._easeInOutCubic(t);
+        if (t < 1) this._filterScrollRaf = requestAnimationFrame(step);
+        else resolve();
+      };
+      this._filterScrollRaf = requestAnimationFrame(step);
+    });
+  },
+
   _scrollToFilteredAssets() {
     const scroller = document.getElementById('dashboardSection');
     const heading = document.querySelector('#dashboardSection .asset-list-heading')
       || document.getElementById('assetGrid');
+    const grid = document.getElementById('assetGrid');
     if (!scroller || !heading) return;
 
-    const run = () => {
+    const run = async () => {
       const sRect = scroller.getBoundingClientRect();
       const hRect = heading.getBoundingClientRect();
-      const nextTop = scroller.scrollTop + (hRect.top - sRect.top) - 10;
-      scroller.scrollTo({ top: Math.max(0, nextTop), behavior: 'smooth' });
-      heading.classList.remove('filter-flash');
-      void heading.offsetWidth;
-      heading.classList.add('filter-flash');
-      const grid = document.getElementById('assetGrid');
-      grid?.classList.remove('filter-flash');
+      const nextTop = Math.max(0, scroller.scrollTop + (hRect.top - sRect.top) - 12);
+      const distance = Math.abs(nextTop - scroller.scrollTop);
+      const duration = Math.min(900, Math.max(520, 380 + distance * 0.55));
+
+      scroller.classList.add('is-filter-scrolling');
+      heading.classList.remove('filter-arrive');
+      grid?.classList.remove('filter-arrive');
+
+      await this._animateScrollTo(scroller, nextTop, duration);
+
+      scroller.classList.remove('is-filter-scrolling');
+      heading.classList.add('filter-arrive');
       if (grid) {
-        void grid.offsetWidth;
-        grid.classList.add('filter-flash');
-        clearTimeout(this._filterFlashTimer);
-        this._filterFlashTimer = setTimeout(() => {
-          heading.classList.remove('filter-flash');
-          grid.classList.remove('filter-flash');
-        }, 1100);
+        grid.querySelectorAll('.asset-card').forEach((card, i) => {
+          card.style.setProperty('--stagger', `${Math.min(i, 12) * 48}ms`);
+        });
+        grid.classList.add('filter-arrive');
       }
+      clearTimeout(this._filterFlashTimer);
+      this._filterFlashTimer = setTimeout(() => {
+        heading.classList.remove('filter-arrive');
+        grid?.classList.remove('filter-arrive');
+        grid?.querySelectorAll('.asset-card').forEach((card) => {
+          card.style.removeProperty('--stagger');
+        });
+      }, 1400);
     };
 
-    // Render finishes in this tick — wait two frames so layout is stable.
-    requestAnimationFrame(() => requestAnimationFrame(run));
+    requestAnimationFrame(() => requestAnimationFrame(() => { run(); }));
   },
 
   _updateLiveStatus() {
@@ -3493,12 +3532,12 @@ const Dashboard = {
   },
 
   /** Match scroll duration to content width so long tapes don't crawl. */
-  _setTapeScrollSpeed(el, pxPerSec = 95) {
+  _setTapeScrollSpeed(el, pxPerSec = 95, { minSec = 14, maxSec = 42 } = {}) {
     if (!el) return;
     requestAnimationFrame(() => {
       const half = el.scrollWidth / 2;
       if (!(half > 20)) return;
-      const sec = Math.max(14, Math.min(42, half / pxPerSec));
+      const sec = Math.max(minSec, Math.min(maxSec, half / pxPerSec));
       el.style.animationDuration = `${sec.toFixed(1)}s`;
     });
   },
