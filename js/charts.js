@@ -89,14 +89,18 @@ const Charts = {
     };
 
     if (enableZoom) {
+      const coarse = typeof window !== 'undefined'
+        && window.matchMedia
+        && window.matchMedia('(pointer: coarse)').matches;
       opts.plugins.zoom = {
         limits: { x: { min: 'original', max: 'original' }, y: { min: 'original', max: 'original' } },
-        pan: { enabled: true, mode: 'x', threshold: 6 },
+        pan: { enabled: true, mode: 'x', threshold: coarse ? 10 : 6 },
         zoom: {
-          wheel: { enabled: true, speed: 0.12 },
+          wheel: { enabled: !coarse, speed: 0.12 },
           pinch: { enabled: true },
+          // Drag-brush fights finger scroll on phones — pinch + pan only there
           drag: {
-            enabled: true,
+            enabled: !coarse,
             backgroundColor: 'rgba(124, 106, 245, 0.18)',
             borderColor: 'rgba(124, 106, 245, 0.45)',
             borderWidth: 1,

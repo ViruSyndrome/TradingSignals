@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8" />
     <meta name="google-site-verification" content="0EE4LD8CMDBYJ02h7i7oQvgXkUZbCPcrDGMSJZFux9s" />
-  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
   <title>TrendRunner — Algorithmic Crypto Intelligence</title>
     <!-- Supabase -->
     <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2" defer></script>
@@ -43,7 +43,7 @@
   <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.4/dist/chart.umd.min.js" defer></script>
   <script src="https://cdn.jsdelivr.net/npm/hammerjs@2.0.8/hammer.min.js" defer></script>
   <script src="https://cdn.jsdelivr.net/npm/chartjs-plugin-zoom@2.2.0/dist/chartjs-plugin-zoom.min.js" defer></script>
-  <link rel="stylesheet" href="styles.css?v=6.57" />
+  <link rel="stylesheet" href="styles.css?v=6.58" />
   <!-- Critical boot overlay (prevents sidebar flash before styles.css applies) -->
   <style>
     html, body { margin: 0; background: #080a14; }
@@ -70,7 +70,7 @@
     if ('serviceWorker' in navigator) {
       window.addEventListener('load', () => {
         const hadController = Boolean(navigator.serviceWorker.controller);
-        navigator.serviceWorker.register('./service-worker.js?v=6.57', { updateViaCache: 'none' })
+        navigator.serviceWorker.register('./service-worker.js?v=6.58', { updateViaCache: 'none' })
           .then(reg => {
             reg.update().catch(() => {});
             navigator.serviceWorker.addEventListener('controllerchange', () => {
@@ -697,7 +697,7 @@
           <button type="button" class="chart-zoom-close" id="chartZoomClose" aria-label="Close enlarged chart">✕</button>
         </div>
       </div>
-      <p class="chart-zoom-hint">Pinch, scroll-wheel, or drag to zoom the time axis · Reset or Esc to exit</p>
+      <p class="chart-zoom-hint" id="chartZoomHint">Pinch, scroll-wheel, or drag to zoom · Reset or Esc to exit</p>
       <div class="chart-zoom-wrap">
         <canvas id="chartZoomCanvas"></canvas>
       </div>
@@ -724,7 +724,7 @@
   <!-- Version guard: if signals.js loaded is older than expected, force a full reload -->
   <script>
     // Version bumper to defeat GitHub Pages aggressive caching
-    window.__APP_VERSION__ = '6.57';
+    window.__APP_VERSION__ = '6.58';
     try {
       // Bulletproof scrub of corrupted data from localStorage before the app boots
       const wlStr = localStorage.getItem('trading_watchlist');
@@ -738,16 +738,16 @@
       // Nuke bloated caches that are causing QuotaExceededError (Removed to allow instant paint)
     } catch(e) {}
   </script>
-  <script src="js/config.js?v=6.57" defer></script>
-  <script src="js/api.js?v=6.57" defer></script>
-  <script src="js/indicators.js?v=6.57" defer></script>
-  <script src="js/signals.js?v=6.57" defer></script>
-  <script src="js/charts.js?v=6.57" defer></script>
+  <script src="js/config.js?v=6.58" defer></script>
+  <script src="js/api.js?v=6.58" defer></script>
+  <script src="js/indicators.js?v=6.58" defer></script>
+  <script src="js/signals.js?v=6.58" defer></script>
+  <script src="js/charts.js?v=6.58" defer></script>
   
-  <script src="js/scanner.js?v=6.57" defer></script>
-  <script src="js/backtest_ui.js?v=6.57" defer></script>
-  <script src="js/auth.js?v=6.57" defer></script>
-    <script src="js/dashboard.js?v=6.57" defer></script>
+  <script src="js/scanner.js?v=6.58" defer></script>
+  <script src="js/backtest_ui.js?v=6.58" defer></script>
+  <script src="js/auth.js?v=6.58" defer></script>
+    <script src="js/dashboard.js?v=6.58" defer></script>
   <script>
     // If signals.js didn't expose the right version, cached old code is running — force reload.
     if (typeof Signals === 'undefined' || Signals._version !== window.__APP_VERSION__) {

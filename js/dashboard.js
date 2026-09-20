@@ -3263,6 +3263,13 @@ const Dashboard = {
       macd: `MACD · ${asset?.symbol || ''}`,
     };
     titleEl.textContent = titles[kind] || 'Chart';
+    const hint = document.getElementById('chartZoomHint');
+    if (hint) {
+      const coarse = window.matchMedia('(pointer: coarse)').matches;
+      hint.textContent = coarse
+        ? 'Pinch to zoom · drag sideways to pan · Reset or Esc to exit'
+        : 'Pinch, scroll-wheel, or drag to zoom · Reset or Esc to exit';
+    }
     overlay.hidden = false;
     overlay.classList.add('open');
     document.body.classList.add('chart-zoom-open');
