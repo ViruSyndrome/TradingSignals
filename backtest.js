@@ -149,19 +149,42 @@ async function fetchHistory(symbol, days = 250) {
   const limit = (INTERVAL === '4h' || INTERVAL === '5m')
     ? Math.min(1000, Math.max(days, 500))
     : days;
-  const url = `https://api.binance.com/api/v3/klines?symbol=${symbol}&interval=${INTERVAL}&limit=${limit}`;
-  const res = await fetch(url);
-  const data = await res.json();
-  if (!Array.isArray(data) || data.length === 0) throw new Error(`No data for ${symbol}`);
-  const closedData = data.length > 1 ? data.slice(0, -1) : data;
-  return {
-    opens:      closedData.map(r => parseFloat(r[1])),
-    highs:      closedData.map(r => parseFloat(r[2])),
-    lows:       closedData.map(r => parseFloat(r[3])),
-    closes:     closedData.map(r => parseFloat(r[4])),
-    volumes:    closedData.map(r => parseFloat(r[5])),
-    timestamps: closedData.map(r => r[0]),
-  };
+  // GitHub Actions / cloud IPs often get 418 on api.binance.com — rotate public hosts.
+  const hosts = [
+    'https://data-api.binance.vision',
+    'https://api1.binance.com',
+    'https://api2.binance.com',
+    'https://api3.binance.com',
+    'https://api.binance.com',
+  ];
+  let lastErr = null;
+  for (const host of hosts) {
+    try {
+      const url = `${host}/api/v3/klines?symbol=${symbol}&interval=${INTERVAL}&limit=${limit}`;
+      const res = await fetch(url, { cache: 'no-store' });
+      if (!res.ok) {
+        lastErr = new Error(`HTTP ${res.status} @ ${host}`);
+        continue;
+      }
+      const data = await res.json();
+      if (!Array.isArray(data) || data.length === 0) {
+        lastErr = new Error(`No data for ${symbol} @ ${host}`);
+        continue;
+      }
+      const closedData = data.length > 1 ? data.slice(0, -1) : data;
+      return {
+        opens:      closedData.map(r => parseFloat(r[1])),
+        highs:      closedData.map(r => parseFloat(r[2])),
+        lows:       closedData.map(r => parseFloat(r[3])),
+        closes:     closedData.map(r => parseFloat(r[4])),
+        volumes:    closedData.map(r => parseFloat(r[5])),
+        timestamps: closedData.map(r => r[0]),
+      };
+    } catch (e) {
+      lastErr = e;
+    }
+  }
+  throw lastErr || new Error(`No data for ${symbol}`);
 }
 
 // ─── Fetch historical Fear & Greed Index ───────────────────────────────────────
@@ -891,13 +914,26 @@ async function main() {
   console.log('═══════════════════════════════════════════════════════════════\n');
 
   const histories = {};
+  let fetchOk = 0;
+  let fetchFail = 0;
   for (const asset of CONFIG.assets.crypto) {
     try {
       histories[asset.symbol] = await fetchHistory(asset.id, 250);
+      fetchOk += 1;
     } catch (e) {
+      fetchFail += 1;
       console.log(`Failed to fetch ${asset.symbol}: ${e.message}`);
     }
     await new Promise(r => setTimeout(r, 150));
+  }
+  const universe = CONFIG.assets.crypto.length || 1;
+  console.log(`\n  [DATA] Fetched ${fetchOk}/${universe} assets (${fetchFail} failed)`);
+  // GitHub Actions often gets Binance IP bans — empty runs used to exit 0 with "No changes".
+  const minOk = Math.max(8, Math.ceil(universe * 0.35));
+  if (fetchOk < minOk) {
+    console.error(`\n  [FATAL] Too few histories (${fetchOk} < ${minOk}). Refusing to update winners.`);
+    console.error('  Tip: Binance may be blocking this IP — try data-api hosts or run locally.');
+    process.exit(2);
   }
   
   const fgMap = await fetchFearGreedHistory(250);
@@ -1083,8 +1119,8 @@ async function main() {
     const statsNet = computeStats(allTrades, 'returnPct');
     const statsGross = computeStats(allTrades, 'grossReturnPct');
     if (!statsNet) {
-      console.log('No trades generated. Check your signal thresholds.');
-      continue;
+      console.error('No trades generated after a successful data fetch. Check signal thresholds.');
+      process.exit(3);
     }
 
     console.log(`  Total Trades:      ${statsNet.totalTrades}`);
@@ -1238,24 +1274,10 @@ async function main() {
         configStr = configStr.replace(probRegex, `$1${probationWinners.map(s => `'${s}'`).join(', ')}$3`);
         configStr = configStr.replace(provRegex, `$1${allWinners.map(s => `'${s}'`).join(', ')}$3`);
         
-        // Auto-enable winners filters if this is the first real database run
-        if (db.meta.totalRuns >= 1) {
-          configStr = configStr.replace(/(winnersOnlyBuys:\s*)false/, '$1true');
-        }
+        // Do NOT auto-flip winnersOnlyBuys — live experiments / user prefs own that flag.
+        // Only refresh allowlists + public lastBacktest badge.
 
-        // Write activeParams + keep exits.holdLimitDays in sync with live policy
-        CONFIG.activeParams.holdLimit = CONFIG.activeParams.holdLimit || HOLD_LIMIT;
-        if (!CONFIG.exits) CONFIG.exits = {};
-        CONFIG.exits.holdLimitDays = CONFIG.activeParams.holdLimit;
-        CONFIG.exits.takeProfitPct = CONFIG.exits.takeProfitPct ?? 10;
-
-        const paramsStr = `activeParams: {\n    holdLimit: ${CONFIG.activeParams.holdLimit},\n    emaFast: ${CONFIG.activeParams.emaFast},\n    emaSlow: ${CONFIG.activeParams.emaSlow},\n    rsiPeriod: ${CONFIG.activeParams.rsiPeriod}\n  },`;
-        configStr = configStr.replace(/activeParams:\s*\{[\s\S]*?\},/, paramsStr);
-
-        const exitsStr = `exits: {\n    takeProfitPct: ${CONFIG.exits.takeProfitPct},\n    holdLimitDays: ${CONFIG.exits.holdLimitDays},\n    stopAtrMult: ${CONFIG.exits.stopAtrMult ?? 2},\n    feePerSide: ${CONFIG.exits.feePerSide ?? 0.001},\n    slippagePerSide: ${CONFIG.exits.slippagePerSide ?? 0.001},\n  },`;
-        if (/exits:\s*\{[\s\S]*?\},/.test(configStr)) {
-          configStr = configStr.replace(/exits:\s*\{[\s\S]*?\},/, exitsStr);
-        }
+        // Keep activeParams / exits blocks intact (do not rewrite and strip fields).
 
         // Public trust badge summary (core + probation accumulated)
         let badgeTrades = 0, badgeWrNum = 0, badgeRetNum = 0;
@@ -1276,7 +1298,6 @@ async function main() {
 
         fs.writeFileSync(configPath, configStr);
         console.log(`  [CONFIG] Auto-updated coreWinners (${coreWinners.length}) and probationWinners (${probationWinners.length}) in js/config.js`);
-        console.log(`  [CONFIG] Saved optimized parameters: HOLD=${CONFIG.activeParams.holdLimit}, RSI=${CONFIG.activeParams.rsiPeriod}, EMA=${CONFIG.activeParams.emaFast}/${CONFIG.activeParams.emaSlow}`);
         console.log(`  [CONFIG] lastBacktest badge: ${badgeWr}% WR, ${badgeRet}% avg, ${badgeTrades} trades`);
       } catch (e) {
         console.error('  [ERROR] Failed to save database or update config:', e);

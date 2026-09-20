@@ -520,6 +520,7 @@ If you sell, reply /sell ${asset.symbol}`;
     }
 
     // Cadence: alert > daily summary (24h) > heartbeat (12h idle). Global 2h gap between any posts.
+    // Only mark timers AFTER a successful post — failed tweets used to look "already sent".
     if (twitterClient && !alertPostedThisScan && twCanPostGlobal()) {
       const now = Date.now();
       const sinceDaily = now - (twitterState.lastDailySummary || 0);
@@ -534,15 +535,13 @@ If you sell, reply /sell ${asset.symbol}`;
           buyCount,
           topBuy,
         });
-        const prevGlobal = twitterState.lastGlobalTweet || 0;
-        twitterState.lastGlobalTweet = now;
-        twitterState.lastDailySummary = now;
         const ok = await postTweet(textDaily, 'daily summary', { withImage: true });
         if (ok) {
+          twitterState.lastGlobalTweet = now;
+          twitterState.lastDailySummary = now;
           saveTwitterState(twitterState);
         } else {
-          twitterState.lastGlobalTweet = prevGlobal;
-          twitterState.lastDailySummary = now - sinceDaily;
+          console.warn('🐦 Daily summary failed — will retry next scan.');
         }
       } else if (
         sinceHeartbeat >= TW_TWELVE_HOURS &&
@@ -550,21 +549,42 @@ If you sell, reply /sell ${asset.symbol}`;
         sinceAny >= TW_TWELVE_HOURS
       ) {
         const textBeat = buildHeartbeatTweet({ fearGreed, marketRegime });
-        const prevGlobal = twitterState.lastGlobalTweet || 0;
-        const prevBeat = twitterState.lastHeartbeat || 0;
-        twitterState.lastGlobalTweet = now;
-        twitterState.lastHeartbeat = now;
         const ok = await postTweet(textBeat, 'heartbeat');
         if (ok) {
+          twitterState.lastGlobalTweet = now;
+          twitterState.lastHeartbeat = now;
           saveTwitterState(twitterState);
         } else {
-          twitterState.lastGlobalTweet = prevGlobal;
-          twitterState.lastHeartbeat = prevBeat;
+          console.warn('🐦 Heartbeat failed — will retry next scan.');
         }
       }
     }
   } catch (err) {
     console.error('Fatal error during scanMarket:', err);
+    // Still try a lean daily/heartbeat so X doesn't go silent when Binance scan fails.
+    try {
+      if (twitterClient && twCanPostGlobal()) {
+        const now = Date.now();
+        const sinceDaily = now - (twitterState.lastDailySummary || 0);
+        if (sinceDaily >= TW_DAY_MS) {
+          const textDaily = buildDailySummaryTweet({
+            fearGreed: undefined,
+            marketRegime: 'unknown',
+            strongBuyCount: 0,
+            buyCount: 0,
+            topBuy: null,
+          });
+          const ok = await postTweet(textDaily, 'daily summary (scan-failed fallback)', { withImage: true });
+          if (ok) {
+            twitterState.lastGlobalTweet = now;
+            twitterState.lastDailySummary = now;
+            saveTwitterState(twitterState);
+          }
+        }
+      }
+    } catch (twErr) {
+      console.warn('🐦 Fallback daily tweet failed:', twErr?.message || twErr);
+    }
   } finally {
     // Restore full asset list so later scans / modules are not permanently trimmed
     if (typeof fullUniverse !== 'undefined' && Array.isArray(fullUniverse) && fullUniverse.length) {

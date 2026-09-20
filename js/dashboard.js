@@ -48,6 +48,16 @@ const Dashboard = {
   _previousSignals: new Map(),
   _previousScalps: new Map(),
 
+  _syncPortfolioCloud() {
+    if (!window.Auth?.user) return;
+    try {
+      window.Auth.touchPortfolioRev?.();
+      window.Auth.syncToCloud(this.state.invested, this.state.watchlist, this.state.holdingsMeta, { force: true });
+    } catch (e) {
+      console.warn('Portfolio cloud sync failed', e);
+    }
+  },
+
   _tradeBotUrl() {
     try {
       const local = localStorage.getItem(this.TRADE_BOT_URL_KEY);
@@ -595,7 +605,7 @@ const Dashboard = {
     this._writeHoldingsLots(base, lots);
     try {
       localStorage.setItem('trading_invested', JSON.stringify(this.state.invested));
-      if (window.Auth) window.Auth.syncToCloud(this.state.invested, this.state.watchlist, this.state.holdingsMeta, { force: true });
+      this._syncPortfolioCloud();
     } catch (e) {}
     this._showToast(`${base.replace('USDT','')}: entry saved (${lots.length} lot${lots.length > 1 ? 's' : ''})`, 'success');
     this._render();
@@ -610,13 +620,13 @@ const Dashboard = {
       this._writeHoldingsLots(base, []);
       try {
         localStorage.setItem('trading_invested', JSON.stringify(this.state.invested));
-        if (window.Auth) window.Auth.syncToCloud(this.state.invested, this.state.watchlist, this.state.holdingsMeta, { force: true });
+        this._syncPortfolioCloud();
       } catch (e) {}
       this._showToast(`Holding unlocked: ${base.replace('USDT','')}`, 'info');
     } else {
       this._writeHoldingsLots(base, lots);
       try {
-        if (window.Auth) window.Auth.syncToCloud(this.state.invested, this.state.watchlist, this.state.holdingsMeta, { force: true });
+        this._syncPortfolioCloud();
       } catch (e) {}
       this._showToast('Entry lot removed', 'info');
     }
@@ -751,6 +761,7 @@ const Dashboard = {
       localStorage.setItem(this.FOLLOWED_KEY, JSON.stringify((list || []).slice(0, 400)));
     } catch (e) {}
     if (window.Auth?.user) {
+      window.Auth.touchPortfolioRev?.();
       window.Auth.syncToCloud(this.state.invested, this.state.watchlist, this.state.holdingsMeta, {
         force: true,
         followed: list,
@@ -791,7 +802,7 @@ const Dashboard = {
       });
       try {
         localStorage.setItem('trading_invested', JSON.stringify(this.state.invested));
-        if (window.Auth) window.Auth.syncToCloud(this.state.invested, this.state.watchlist, this.state.holdingsMeta, { force: true });
+        this._syncPortfolioCloud();
       } catch (e) {}
     }
 
@@ -1211,10 +1222,19 @@ const Dashboard = {
       this._hideBootLoader();
     }
 
-    // Live boot: Fear & Greed in parallel with a fast 1d-only market pass
+    // Live boot: Fear & Greed in parallel with a fast 1d-only market pass.
+    // If the snapshot is older than ~15s (typical when reopening the PWA), skip
+    // localStorage market cache so the first paint isn't hours-old prices.
     try {
       const fgP = this._fetchFearGreed();
-      await this.loadAll(true, { phase: 'boot' });
+      const snapAge = this.state.lastUpdate instanceof Date
+        ? Date.now() - this.state.lastUpdate.getTime()
+        : Infinity;
+      await this.loadAll(true, {
+        phase: 'boot',
+        force: true,
+        bypassCache: !hadSnap || snapAge > 15000 || !!this.state.dataStale,
+      });
       await fgP;
     } catch (e) {
       console.warn('[Dashboard] Boot load failed:', e);
@@ -1226,7 +1246,7 @@ const Dashboard = {
 
     // Backfill 4H + full pass shortly after first paint (non-blocking)
     setTimeout(() => {
-      this.loadAll(true, { phase: 'full' }).catch(e => console.warn('[Dashboard] Full backfill failed:', e));
+      this.loadAll(true, { phase: 'full', bypassCache: true }).catch(e => console.warn('[Dashboard] Full backfill failed:', e));
     }, hadSnap ? 400 : 800);
 
     // Auto-scan moonshots in the background every 5 minutes (300,000 ms)
@@ -1250,6 +1270,8 @@ const Dashboard = {
       this.state.scalpTimer = setInterval(() => this._autoScanScalps(), scalpEvery);
       setTimeout(() => this._autoScanScalps(), scalpDelay);
     }
+
+    this._bootComplete = true;
   },
 
   // Hide filter tabs for asset categories that are empty in CONFIG.
@@ -1566,46 +1588,144 @@ const Dashboard = {
     return true;
   },
 
+  /** Android Chrome / installed PWAs freeze harder than desktop — detect for aggressive resume. */
+  _clientEnv() {
+    try {
+      const ua = navigator.userAgent || '';
+      const android = /Android/i.test(ua);
+      const ios = /iPhone|iPad|iPod/i.test(ua);
+      const mobile = android || ios || /Mobile/i.test(ua)
+        || !!(window.matchMedia && window.matchMedia('(pointer: coarse)').matches);
+      const standalone = !!(window.matchMedia && window.matchMedia('(display-mode: standalone)').matches)
+        || window.navigator.standalone === true;
+      return { android, ios, mobile, standalone };
+    } catch (_) {
+      return { android: false, ios: false, mobile: false, standalone: false };
+    }
+  },
+
+  _dataAgeMs() {
+    const lastMs = this.state.lastUpdate instanceof Date
+      ? this.state.lastUpdate.getTime()
+      : (typeof this.state.lastUpdate === 'number' ? this.state.lastUpdate : 0);
+    return lastMs ? Date.now() - lastMs : Infinity;
+  },
+
+  _forceResumeRefresh(reason = 'resume') {
+    this._clearStuckFetch(reason, { force: true });
+    if (typeof API !== 'undefined' && API.clearMarketCache) API.clearMarketCache();
+    this._lastWakeRefreshAt = Date.now();
+    console.info(`[Dashboard] Force resume refresh (${reason})`);
+    return this.loadAll(true, { force: true, bypassCache: true })
+      .catch(e => console.warn(`[Dashboard] Resume refresh failed (${reason}):`, e));
+  },
+
+  /** After Android freeze, the first fetch often fails/hangs — retry while still visible. */
+  _scheduleResumeRetries(reason = 'visibility') {
+    clearTimeout(this._resumeRetry1);
+    clearTimeout(this._resumeRetry2);
+    const bump = (tag, waitMs, maxAgeMs) => {
+      this[tag] = setTimeout(() => {
+        if (typeof document !== 'undefined' && document.visibilityState === 'hidden') return;
+        if (this.state.dataStale || this._dataAgeMs() >= maxAgeMs) {
+          this._forceResumeRefresh(`${reason}-${tag}`);
+        }
+      }, waitMs);
+    };
+    bump('_resumeRetry1', 1800, 6000);
+    bump('_resumeRetry2', 4500, 8000);
+  },
+
   /**
    * Wake from background: browsers freeze timers + in-flight fetches when the
    * tab/PWA is hidden. Restart polling and force a network refresh.
+   * Android Chrome/PWA: always refresh + retry (desktop thresholds were too soft).
    */
   _wakeFromBackground(reason = 'visibility') {
     if (typeof document !== 'undefined' && document.visibilityState === 'hidden') return;
 
     const now = Date.now();
     const hiddenMs = this._hiddenAt ? now - this._hiddenAt : 0;
+    const hadHiddenMark = this._hiddenAt != null;
     this._hiddenAt = null;
 
-    const wasAway = hiddenMs > 0 || reason === 'online' || reason === 'pageshow' || reason === 'resume' || reason === 'visibility';
-    // Any real background stretch: drop zombie in-flight immediately (don't wait 12s).
-    if (wasAway || reason === 'focus') this._clearStuckFetch(reason, { force: hiddenMs >= 3000 || wasAway });
-    else this._clearStuckFetch(reason);
+    this._clearStuckFetch(reason, { force: true });
 
-    const lastMs = this.state.lastUpdate instanceof Date
-      ? this.state.lastUpdate.getTime()
-      : (typeof this.state.lastUpdate === 'number' ? this.state.lastUpdate : 0);
-    const dataAge = lastMs ? now - lastMs : Infinity;
+    const dataAge = this._dataAgeMs();
     const interval = (CONFIG?.refresh?.intervalMs) || 30000;
-    const needsRefresh =
-      (wasAway && hiddenMs >= 2000)
-      || dataAge >= interval
-      || hiddenMs >= 3000
-      || (this.state.refreshDueAt != null && now >= this.state.refreshDueAt);
+    const env = this._clientEnv();
+    const aggressive = env.android || env.standalone || env.mobile;
 
-    if (wasAway && hiddenMs >= 2000) this._scheduleRefresh();
+    const hardResume = reason === 'pageshow' || reason === 'resume' || reason === 'online';
+    const visibleAgain = reason === 'visibility';
+    const unknownAway = visibleAgain && !hadHiddenMark && dataAge >= 5000;
+    const awayLongEnough = hiddenMs >= (aggressive ? 300 : 800);
+
+    // Deduplicate wake storms (focus+visibility) within 1s unless data is clearly stale.
+    if (
+      this._lastWakeRefreshAt
+      && now - this._lastWakeRefreshAt < 1000
+      && !this.state.dataStale
+      && dataAge < 8000
+      && !hardResume
+    ) {
+      if (aggressive) this._scheduleRefresh();
+      return;
+    }
+
+    const needsRefresh = aggressive
+      ? (
+        hardResume
+        || visibleAgain
+        || awayLongEnough
+        || unknownAway
+        || hadHiddenMark
+        || reason === 'focus'
+        || dataAge >= 5000
+        || !!this.state.dataStale
+        || (this.state.refreshDueAt != null && now >= this.state.refreshDueAt)
+      )
+      : (
+        hardResume
+        || awayLongEnough
+        || unknownAway
+        || (visibleAgain && (awayLongEnough || dataAge >= 10000))
+        || (reason === 'focus' && (awayLongEnough || dataAge >= interval))
+        || dataAge >= interval
+        || (this.state.refreshDueAt != null && now >= this.state.refreshDueAt)
+        || !!this.state.dataStale
+      );
+
+    if (hardResume || visibleAgain || awayLongEnough || unknownAway || (aggressive && hadHiddenMark)) {
+      this._scheduleRefresh();
+    }
 
     if (needsRefresh) {
-      console.info(`[Dashboard] Resume refresh (${reason}, hidden=${Math.round(hiddenMs / 1000)}s, age=${Math.round(dataAge / 1000)}s)`);
-      if (typeof API !== 'undefined' && API.clearMarketCache) API.clearMarketCache();
-      this.loadAll(true, { force: true, bypassCache: true })
-        .catch(e => console.warn('[Dashboard] Resume refresh failed:', e));
+      console.info(`[Dashboard] Resume refresh (${reason}, hidden=${Math.round(hiddenMs / 1000)}s, age=${Math.round(dataAge / 1000)}s, aggressive=${aggressive})`);
+      this._forceResumeRefresh(reason);
+      if (aggressive) this._scheduleResumeRetries(reason);
+    }
+
+    // Pull Watch/Holdings from account so unstar/unlock on another device sticks.
+    if (hardResume || visibleAgain || awayLongEnough || hadHiddenMark) {
+      window.Auth?.pullIfStale?.(5000)?.catch(() => {});
     }
   },
 
   _onAppVisible(reason = 'visibility') {
     clearTimeout(this._wakeDebounce);
-    this._wakeDebounce = setTimeout(() => this._wakeFromBackground(reason), 120);
+    // Android needs a short delay so radio/network wakes before the first fetch.
+    const env = this._clientEnv();
+    const delay = (env.android || env.standalone) ? 350 : 120;
+    this._wakeDebounce = setTimeout(() => this._wakeFromBackground(reason), delay);
+  },
+
+  _markAppHidden() {
+    if (!this._hiddenAt) this._hiddenAt = Date.now();
+    this._hasBeenHidden = true;
+    // Freeze can last minutes — show Stale immediately so Android doesn't look "live".
+    this.state.dataStale = true;
+    try { this._updateLiveStatus(); } catch (_) {}
   },
 
   _hideBootLoader(force = false) {
@@ -1825,7 +1945,12 @@ const Dashboard = {
     clearInterval(this.state.refreshTimer);
     clearInterval(this.state.countdownTimer);
     this.state.refreshDueAt = Date.now() + CONFIG.refresh.intervalMs;
-    this.state.refreshTimer = setInterval(() => this.loadAll(true), CONFIG.refresh.intervalMs);
+    // Always bypass localStorage market cache on the poll — otherwise a
+    // backgrounded tab can keep "refreshing" lastUpdate from stale cache.
+    this.state.refreshTimer = setInterval(
+      () => this.loadAll(true, { bypassCache: true }),
+      CONFIG.refresh.intervalMs
+    );
     this.state.countdownTimer = setInterval(() => this._updateLiveStatus(), 1000);
     this._updateLiveStatus();
   },
@@ -2233,12 +2358,9 @@ const Dashboard = {
 
     const liveHost = document.getElementById('liveBinanceHoldings');
     if (liveHost) {
-      if (this.state.activeCategory === 'holdings') {
-        liveHost.hidden = false;
-        this._loadLiveBinanceHoldings(false);
-      } else {
-        liveHost.hidden = true;
-      }
+      const onHoldings = this.state.activeCategory === 'holdings';
+      liveHost.hidden = !onHoldings;
+      if (onHoldings) this._loadLiveBinanceHoldings(false);
     }
 
     // Populate datalist with all unique symbols for autocomplete
@@ -2621,7 +2743,7 @@ const Dashboard = {
             }
           </div>
         </div>
-        ${this.state.activeCategory === 'holdings' && isLocked ? this._holdingsPnLHTML(normalizedId, price) : ''}
+        ${!isTop && !isMoonshot && this.state.activeCategory === 'holdings' && isLocked ? this._holdingsPnLHTML(normalizedId, price) : ''}
         ${quickTargets}
 
         <div class="sparklines-container${updateClass}">
@@ -2769,7 +2891,7 @@ const Dashboard = {
     
     try {
       localStorage.setItem('trading_invested', JSON.stringify(this.state.invested));
-      if (window.Auth) window.Auth.syncToCloud(this.state.invested, this.state.watchlist, this.state.holdingsMeta, { force: true });
+      this._syncPortfolioCloud();
     } catch(e) { console.warn('Failed to save lock status', e); }
 
     const isLocked = this.state.invested.includes(id);
@@ -2830,7 +2952,7 @@ const Dashboard = {
     }
     try {
       localStorage.setItem('trading_watchlist', JSON.stringify(this.state.watchlist));
-      if (window.Auth) window.Auth.syncToCloud(this.state.invested, this.state.watchlist, this.state.holdingsMeta, { force: true });
+      this._syncPortfolioCloud();
     } catch(e) { console.warn('Failed to save watchlist', e); }
     
     // Instantly update the visual star state on any visible cards (especially Moonshots)
@@ -3220,10 +3342,37 @@ const Dashboard = {
       }
     } catch (e) { /* ignore */ }
     const level = Signals.level(d.signalResult.signal);
-    new Notification(`${level.icon} ${d.asset.name}: ${level.label}`, {
-      body: d.signalResult.recommendation.slice(0, 100) + '…',
-      silent: true
-    });
+    const score = d.signalResult?.score;
+    const conf = d.signalResult?.confidence;
+    const price = d.price != null ? this._fmt(d.price, d.asset) : '—';
+    const rec = String(d.signalResult?.recommendation || '')
+      .replace(/\s+/g, ' ')
+      .trim()
+      .slice(0, 120);
+    const title = `${level.short} · ${d.asset.symbol}`;
+    const bodyBits = [
+      d.asset.name,
+      price !== '—' ? `$${price}` : null,
+      Number.isFinite(score) ? `score ${score > 0 ? '+' : ''}${score}` : null,
+      Number.isFinite(conf) ? `${conf}% conf` : null,
+    ].filter(Boolean);
+    const body = `${bodyBits.join(' · ')}${rec ? `\n${rec}` : ''}`;
+    try {
+      const n = new Notification(title, {
+        body,
+        icon: new URL('icon-192.png', window.location.href).href,
+        badge: new URL('icon-192.png', window.location.href).href,
+        tag: `trendrunner-${d.asset.id}-${sig}`,
+        renotify: true,
+        silent: true,
+      });
+      n.onclick = () => {
+        try { window.focus(); } catch (_) {}
+        n.close();
+      };
+    } catch (e) {
+      console.warn('Notification failed', e);
+    }
     try { localStorage.setItem(key, Date.now().toString()); } catch (e) { /* ignore */ }
   },
 
@@ -3231,15 +3380,24 @@ const Dashboard = {
   _showToast(msg, type = 'info') {
     const container = document.getElementById('toastContainer');
     if (!container) return;
+    const icons = { success: '✓', warning: '!', error: '✕', info: 'i' };
+    const titles = { success: 'Saved', warning: 'Heads up', error: 'Error', info: 'TrendRunner' };
     const toast = document.createElement('div');
     toast.className = `toast toast-${type}`;
-    toast.textContent = msg;
+    toast.setAttribute('role', 'status');
+    toast.innerHTML = `
+      <span class="toast-icon" aria-hidden="true">${icons[type] || icons.info}</span>
+      <div class="toast-copy">
+        <div class="toast-title">${titles[type] || titles.info}</div>
+        <div class="toast-msg"></div>
+      </div>`;
+    toast.querySelector('.toast-msg').textContent = msg;
     container.appendChild(toast);
     requestAnimationFrame(() => toast.classList.add('show'));
     setTimeout(() => {
       toast.classList.remove('show');
-      setTimeout(() => toast.remove(), 400);
-    }, 3000);
+      setTimeout(() => toast.remove(), 350);
+    }, 3800);
   },
 
   // ─── Bind all static UI events ───────────────────────────────────────────────
@@ -3511,9 +3669,8 @@ document.addEventListener('DOMContentLoaded', () => {
   }, { passive: true });
 
   // Tab / PWA resume: Chrome freezes timers + in-flight fetches while hidden.
-  // Force a bypass-cache network refresh on return; manual refresh must never
-  // wait on a zombie _fetchInFlight from a suspended tab.
-  const markHidden = () => { Dashboard._hiddenAt = Date.now(); };
+  // Android is stricter — mark stale on hide, force + retry network refresh on show.
+  const markHidden = () => Dashboard._markAppHidden();
   document.addEventListener('visibilitychange', () => {
     if (document.visibilityState === 'hidden') {
       markHidden();
@@ -3524,8 +3681,11 @@ document.addEventListener('DOMContentLoaded', () => {
   window.addEventListener('pagehide', markHidden);
   document.addEventListener('freeze', markHidden); // Page Lifecycle API
   window.addEventListener('pageshow', (e) => {
-    // Only bfcache restores — initial load already refreshes via Dashboard.init().
-    if (e.persisted) Dashboard._onAppVisible('pageshow');
+    const env = Dashboard._clientEnv();
+    // bfcache, or Android/PWA return after the app was actually backgrounded.
+    if (e.persisted || ((env.android || env.standalone) && Dashboard._bootComplete && Dashboard._hasBeenHidden)) {
+      Dashboard._onAppVisible('pageshow');
+    }
   });
   window.addEventListener('focus', () => Dashboard._onAppVisible('focus'));
   window.addEventListener('online', () => Dashboard._onAppVisible('online'));

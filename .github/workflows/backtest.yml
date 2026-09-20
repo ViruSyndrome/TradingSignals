@@ -27,6 +27,14 @@ jobs:
       - name: Run Backtest
         run: node backtest.js 2>&1 | tee backtest_output.txt
 
+      - name: Upload backtest log
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: backtest-output
+          path: backtest_output.txt
+          if-no-files-found: ignore
+
       # Optional robustness log (does not rewrite winners — informational only)
       # Continues even if rolling mode errors, so the main winners update still commits.
       - name: Rolling walk-forward check
