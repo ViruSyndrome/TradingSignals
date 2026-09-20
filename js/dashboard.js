@@ -2620,6 +2620,7 @@ const Dashboard = {
     if (!el) return;
     this._updateListHeading();
     this._updateFilterTabCounts();
+    document.body.classList.toggle('is-history-view', this.state.activeCategory === 'history');
 
     const liveHost = document.getElementById('liveBinanceHoldings');
     if (liveHost) {
@@ -3745,9 +3746,16 @@ const Dashboard = {
     document.addEventListener('click', askOnce, true);
     document.addEventListener('keydown', askOnce, true);
 
-    // Category filter tabs
+    // Category filter tabs — click the active tab again to return to All
     document.querySelectorAll('.filter-tab').forEach(tab => {
-      tab.onclick = () => this._setCategory(tab.dataset.cat);
+      tab.onclick = () => {
+        const cat = tab.dataset.cat;
+        if (cat && cat !== 'all' && this.state.activeCategory === cat) {
+          this._setCategory('all');
+          return;
+        }
+        this._setCategory(cat);
+      };
     });
 
     // Summary Signal Filtering
@@ -3757,6 +3765,10 @@ const Dashboard = {
 
         const catJump = item.dataset.cat;
         if (catJump) {
+          if (this.state.activeCategory === catJump && !this.state.activeSignalFilter) {
+            this._setCategory('all');
+            return;
+          }
           const n = this._countForCategory(catJump);
           if (n === 0) {
             this._showToast(catJump === 'highconf'
