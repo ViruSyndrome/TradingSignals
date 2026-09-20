@@ -31,9 +31,9 @@ const Charts = {
   },
 
   // ─── Shared defaults ─────────────────────────────────────────────────────────
-  _baseOptions(showXLabels = true) {
-    return {
-      animation: { duration: 400 },
+  _baseOptions(showXLabels = true, { enableZoom = false } = {}) {
+    const opts = {
+      animation: { duration: enableZoom ? 280 : 420, easing: 'easeOutQuart' },
       responsive: true,
       maintainAspectRatio: false,
       interaction: { mode: 'index', intersect: false },
@@ -87,6 +87,35 @@ const Charts = {
         },
       },
     };
+
+    if (enableZoom) {
+      opts.plugins.zoom = {
+        limits: { x: { min: 'original', max: 'original' }, y: { min: 'original', max: 'original' } },
+        pan: { enabled: true, mode: 'x', threshold: 6 },
+        zoom: {
+          wheel: { enabled: true, speed: 0.12 },
+          pinch: { enabled: true },
+          drag: {
+            enabled: true,
+            backgroundColor: 'rgba(124, 106, 245, 0.18)',
+            borderColor: 'rgba(124, 106, 245, 0.45)',
+            borderWidth: 1,
+          },
+          mode: 'x',
+        },
+      };
+    }
+
+    return opts;
+  },
+
+  _zoomEnabledFor(canvasId) {
+    return canvasId === 'chartZoomCanvas';
+  },
+
+  resetZoom(canvasId = 'chartZoomCanvas') {
+    const chart = this._instances[canvasId];
+    if (chart?.resetZoom) chart.resetZoom();
   },
 
   // ─── Format timestamps for labels ────────────────────────────────────────────
@@ -214,7 +243,7 @@ const Charts = {
       },
     ];
 
-    const opts = this._baseOptions(false);
+    const opts = this._baseOptions(true, { enableZoom: this._zoomEnabledFor(canvasId) });
     opts.plugins.legend.display = true;
 
     this._instances[canvasId] = new Chart(ctx, { type: 'line', data: { labels, datasets }, options: opts });
@@ -231,7 +260,7 @@ const Charts = {
     const labels = this._labels(timestamps);
     const aligned = this._align(timestamps, rsiArr);
 
-    const opts = this._baseOptions(false);
+    const opts = this._baseOptions(true, { enableZoom: this._zoomEnabledFor(canvasId) });
     opts.scales.y.min = 0;
     opts.scales.y.max = 100;
     opts.plugins.legend.display = false;
@@ -294,7 +323,7 @@ const Charts = {
     // Histogram colour: green positive, red negative
     const histColors = hist.map(v => v === null ? 'transparent' : v >= 0 ? this.C.macdPos : this.C.macdNeg);
 
-    const opts = this._baseOptions(true);
+    const opts = this._baseOptions(true, { enableZoom: this._zoomEnabledFor(canvasId) });
     opts.plugins.legend.display = false;
 
     this._instances[canvasId] = new Chart(ctx, {

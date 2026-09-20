@@ -466,6 +466,23 @@ const Signals = {
       recommendation = '🛑 Buy blocked — Extreme Greed. Crowded tape; wait for cooler sentiment. ' + recommendation;
     }
 
+    const strongMiss = this._strongMissReason({
+      signal,
+      score,
+      confidence,
+      confGate: CONF_GATE,
+      scoreFloor: L.STRONG_BUY.minScore,
+      bullishTrendAligned,
+      bullishMomentumConfirmed,
+      coolRsiForStrongBuy,
+      rsiVal,
+      maxRsi: STRONG_BUY_MAX_RSI,
+      regimeBlocked,
+      greedBlocked,
+      winnersFiltered,
+      coreOnlyFiltered,
+    });
+
     return {
       signal,
       conviction,
@@ -480,9 +497,71 @@ const Signals = {
       regimeBlocked,
       greedBlocked,
       winnerTier,
+      strongMiss,
       arrays: { rsi: rsiArr, macd: macdData, emaFast, emaSlow, sma50, sma200, bb: bbData, atr: atrArr, closes },
       calculatedAt: new Date().toISOString(),
     };
+  },
+
+  /**
+   * Plain reason a near-buy is not S.BUY (for card/modal chips).
+   * Order matches live gates so the first miss is the real blocker.
+   */
+  _strongMissReason(opts = {}) {
+    const {
+      signal, score, confidence, confGate = 100, scoreFloor = 4,
+      bullishTrendAligned, bullishMomentumConfirmed, coolRsiForStrongBuy,
+      rsiVal, maxRsi = 40,
+      regimeBlocked, greedBlocked, winnersFiltered, coreOnlyFiltered,
+    } = opts;
+    if (signal === 'STRONG_BUY') return null;
+    const near = signal === 'BUY'
+      || score >= scoreFloor - 0.5
+      || confidence >= Math.min(85, confGate)
+      || regimeBlocked || greedBlocked || winnersFiltered || coreOnlyFiltered;
+    if (!near) return null;
+
+    if (regimeBlocked) {
+      return { key: 'regime', short: 'Why not S.BUY · regime', detail: 'BTC bear regime — alt buys blocked.' };
+    }
+    if (greedBlocked) {
+      return { key: 'greed', short: 'Why not S.BUY · greed', detail: 'Extreme Greed — new buys blocked.' };
+    }
+    if (winnersFiltered) {
+      return { key: 'filter', short: 'Why not S.BUY · filter', detail: 'Outside proven winners list — buy suppressed.' };
+    }
+    if (coreOnlyFiltered) {
+      return { key: 'filter', short: 'Why not S.BUY · filter', detail: 'Probation only — core-only mode blocks live S.BUY.' };
+    }
+    if (confidence < confGate) {
+      return {
+        key: 'conf',
+        short: 'Why not S.BUY · conf',
+        detail: `Needs ${confGate}% indicator agreement for S.BUY (now ${confidence}%).`,
+      };
+    }
+    if (!bullishTrendAligned) {
+      return { key: 'trend', short: 'Why not S.BUY · trend', detail: 'Needs dual trend: short + longer MAs both bullish.' };
+    }
+    if (!bullishMomentumConfirmed) {
+      return { key: 'macd', short: 'Why not S.BUY · MACD', detail: 'Needs bullish MACD (cross or MACD above signal).' };
+    }
+    if (!coolRsiForStrongBuy) {
+      const rsiStr = rsiVal != null ? Number(rsiVal).toFixed(0) : '—';
+      return {
+        key: 'rsi',
+        short: 'Why not S.BUY · RSI',
+        detail: `RSI must be ≤ ${maxRsi} for S.BUY (now ${rsiStr}).`,
+      };
+    }
+    if (score < scoreFloor) {
+      return {
+        key: 'score',
+        short: 'Why not S.BUY · score',
+        detail: `Score must be ≥ ${scoreFloor} for S.BUY (now ${Number(score).toFixed(1)}).`,
+      };
+    }
+    return { key: 'other', short: 'Why not S.BUY', detail: 'Close — waiting on full S.BUY checklist.' };
   },
 
   // ─── Recommendation text ───────────────────────────────────────────────────
@@ -1053,7 +1132,7 @@ const Signals = {
     return this.LEVELS[signalKey] || this.LEVELS.NEUTRAL;
   },
 
-  _version: '6.54',
+  _version: '6.57',
 };
 
 if (typeof module !== 'undefined' && module.exports) module.exports = Signals;

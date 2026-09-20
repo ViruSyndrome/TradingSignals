@@ -39,9 +39,11 @@
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
   <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;500;600;700;800&display=swap" rel="stylesheet" />
 
-  <!-- Chart.js -->
+  <!-- Chart.js + zoom (pinch / wheel / drag on enlarged charts) -->
   <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.4/dist/chart.umd.min.js" defer></script>
-  <link rel="stylesheet" href="styles.css?v=6.54" />
+  <script src="https://cdn.jsdelivr.net/npm/hammerjs@2.0.8/hammer.min.js" defer></script>
+  <script src="https://cdn.jsdelivr.net/npm/chartjs-plugin-zoom@2.2.0/dist/chartjs-plugin-zoom.min.js" defer></script>
+  <link rel="stylesheet" href="styles.css?v=6.57" />
   <!-- Critical boot overlay (prevents sidebar flash before styles.css applies) -->
   <style>
     html, body { margin: 0; background: #080a14; }
@@ -68,7 +70,7 @@
     if ('serviceWorker' in navigator) {
       window.addEventListener('load', () => {
         const hadController = Boolean(navigator.serviceWorker.controller);
-        navigator.serviceWorker.register('./service-worker.js?v=6.54', { updateViaCache: 'none' })
+        navigator.serviceWorker.register('./service-worker.js?v=6.57', { updateViaCache: 'none' })
           .then(reg => {
             reg.update().catch(() => {});
             navigator.serviceWorker.addEventListener('controllerchange', () => {
@@ -685,6 +687,23 @@
     </div>
   </div>
 
+  <!-- Chart enlarge lightbox (Price / RSI / MACD) -->
+  <div class="chart-zoom-overlay" id="chartZoomOverlay" role="dialog" aria-modal="true" aria-label="Enlarged chart" hidden>
+    <div class="chart-zoom-box">
+      <div class="chart-zoom-header">
+        <h3 id="chartZoomTitle">Chart</h3>
+        <div class="chart-zoom-actions">
+          <button type="button" class="chart-zoom-reset" id="chartZoomReset" title="Reset zoom">Reset</button>
+          <button type="button" class="chart-zoom-close" id="chartZoomClose" aria-label="Close enlarged chart">✕</button>
+        </div>
+      </div>
+      <p class="chart-zoom-hint">Pinch, scroll-wheel, or drag to zoom the time axis · Reset or Esc to exit</p>
+      <div class="chart-zoom-wrap">
+        <canvas id="chartZoomCanvas"></canvas>
+      </div>
+    </div>
+  </div>
+
   <!-- ═══════════════════════════════════════════════════════════════════════════
        LOADING OVERLAY
   ════════════════════════════════════════════════════════════════════════════ -->
@@ -705,7 +724,7 @@
   <!-- Version guard: if signals.js loaded is older than expected, force a full reload -->
   <script>
     // Version bumper to defeat GitHub Pages aggressive caching
-    window.__APP_VERSION__ = '6.54';
+    window.__APP_VERSION__ = '6.57';
     try {
       // Bulletproof scrub of corrupted data from localStorage before the app boots
       const wlStr = localStorage.getItem('trading_watchlist');
@@ -719,16 +738,16 @@
       // Nuke bloated caches that are causing QuotaExceededError (Removed to allow instant paint)
     } catch(e) {}
   </script>
-  <script src="js/config.js?v=6.54" defer></script>
-  <script src="js/api.js?v=6.54" defer></script>
-  <script src="js/indicators.js?v=6.54" defer></script>
-  <script src="js/signals.js?v=6.54" defer></script>
-  <script src="js/charts.js?v=6.54" defer></script>
+  <script src="js/config.js?v=6.57" defer></script>
+  <script src="js/api.js?v=6.57" defer></script>
+  <script src="js/indicators.js?v=6.57" defer></script>
+  <script src="js/signals.js?v=6.57" defer></script>
+  <script src="js/charts.js?v=6.57" defer></script>
   
-  <script src="js/scanner.js?v=6.54" defer></script>
-  <script src="js/backtest_ui.js?v=6.54" defer></script>
-  <script src="js/auth.js?v=6.54" defer></script>
-    <script src="js/dashboard.js?v=6.54" defer></script>
+  <script src="js/scanner.js?v=6.57" defer></script>
+  <script src="js/backtest_ui.js?v=6.57" defer></script>
+  <script src="js/auth.js?v=6.57" defer></script>
+    <script src="js/dashboard.js?v=6.57" defer></script>
   <script>
     // If signals.js didn't expose the right version, cached old code is running — force reload.
     if (typeof Signals === 'undefined' || Signals._version !== window.__APP_VERSION__) {

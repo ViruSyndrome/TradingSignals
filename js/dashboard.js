@@ -11,6 +11,7 @@ const Dashboard = {
     filtered:      [],       // currently displayed subset
     activeCategory:'all',
     activeSignalFilter: null, // 'STRONG_BUY', 'SELL', etc.
+    summaryMoreOpen: false,
     selectedAsset: null,     // for the detail modal
     loading:       true,
     lastUpdate:    null,
@@ -2134,57 +2135,82 @@ const Dashboard = {
 
     el.innerHTML = `
       ${staleBanner}
-      <div class="summary-item" title="Overall market direction based on how many assets are bullish vs bearish. Green = most assets trending up, Red = most trending down.">
-        <span class="summary-value">${sentiment}</span>
-        <span class="summary-label">Market Sentiment</span>
+      <div class="summary-primary">
+        <div class="summary-item" title="Share of tracked coins with Buy or Strong Buy (not Fear &amp; Greed). Green = most of our list is bullish.">
+          <span class="summary-value">${sentiment}</span>
+          <span class="summary-label">Signal Breadth</span>
+        </div>
+        <div class="summary-item filterable ${isActive('STRONG_BUY')}" data-signal="STRONG_BUY" title="Strong Buys across daily/moonshot and 5m scalps. Click to show them (scalps included when this filter is on).${scalpCounts.STRONG_BUY ? ' ' + scalpCounts.STRONG_BUY + ' are 5m scalps.' : ''}">
+          <span class="summary-count strong-buy">${counts.STRONG_BUY}</span>
+          <span class="summary-label">Strong Buy${scalpCounts.STRONG_BUY ? ` · ${scalpCounts.STRONG_BUY}⚡` : ''}</span>
+        </div>
+        <div class="summary-item filterable ${isActive('BUY')}" data-signal="BUY" title="Buys across daily/moonshot and 5m scalps. Click to show them.${scalpCounts.BUY ? ' ' + scalpCounts.BUY + ' are 5m scalps.' : ''}">
+          <span class="summary-count buy">${counts.BUY}</span>
+          <span class="summary-label">Buy${scalpCounts.BUY ? ` · ${scalpCounts.BUY}⚡` : ''}</span>
+        </div>
+        <div class="summary-item filterable ${isActive('NEUTRAL')}" data-signal="NEUTRAL" title="No clear direction — indicators are mixed. Best to wait on the sidelines until a clearer signal forms. Click to filter.">
+          <span class="summary-count neutral">${counts.NEUTRAL}</span>
+          <span class="summary-label">Hold</span>
+        </div>
+        <div class="summary-item filterable ${isActive('SELL')}" data-signal="SELL" title="Assets leaning bearish — conditions favor sellers. If you own this, consider tightening your stop-loss. Click to filter.">
+          <span class="summary-count sell">${counts.SELL}</span>
+          <span class="summary-label">Sell</span>
+        </div>
+        <div class="summary-item filterable ${isActive('STRONG_SELL')}" data-signal="STRONG_SELL" title="High-conviction bearish setups where trend and momentum align to the downside. Click to filter.">
+          <span class="summary-count strong-sell">${counts.STRONG_SELL}</span>
+          <span class="summary-label">Strong Sell</span>
+        </div>
+        <div class="summary-item filterable" data-signal="ALL">
+          <span class="summary-value">${total}</span>
+          <span class="summary-label">Tracked</span>
+        </div>
       </div>
-      <div class="summary-item filterable ${isActive('STRONG_BUY')}" data-signal="STRONG_BUY" title="Strong Buys across daily/moonshot and 5m scalps. Click to show them (scalps included when this filter is on).${scalpCounts.STRONG_BUY ? ' ' + scalpCounts.STRONG_BUY + ' are 5m scalps.' : ''}">
-        <span class="summary-count strong-buy">${counts.STRONG_BUY}</span>
-        <span class="summary-label">Strong Buy${scalpCounts.STRONG_BUY ? ` · ${scalpCounts.STRONG_BUY}⚡` : ''}</span>
+      <div class="summary-meta">
+        ${this.state.fearGreed ? `
+        <div class="summary-item fear-greed-item meta" title="Crypto Fear &amp; Greed Index (crowd mood). Separate from Signal Breadth above.">
+          <span class="summary-value" style="color:${this._fgColor(this.state.fearGreed.value)}">${this.state.fearGreed.value_classification}</span>
+          <span class="summary-label">Fear &amp; Greed ${this.state.fearGreed.value}</span>
+        </div>` : ''}
+        <div class="summary-item regime-item meta" title="BTC market regime. When bear hard-gate is on, altcoin buys are blocked.">
+          <span class="summary-value">${this.state.marketRegime === 'bull' ? '🟢 Bull' : this.state.marketRegime === 'bear' ? '🔴 Bear' : '🟡 Flat'}</span>
+          <span class="summary-label">BTC · Alts ${this.state.marketRegime === 'bear' && CONFIG.signals?.bearRegimeBlockBuys ? 'Blocked' : this.state.marketRegime === 'bear' ? 'Caution' : 'Open'}</span>
+        </div>
+        <div class="summary-item freshness-item meta" title="Age of the latest successful market-data refresh.">
+          <span class="summary-value">${this._freshnessText()}</span>
+          <span class="summary-label">Freshness</span>
+        </div>
+        <button type="button" class="summary-more-btn" id="summaryMoreBtn" aria-expanded="false" title="Show exits, allowlist, and backtest">More details</button>
       </div>
-      <div class="summary-item filterable ${isActive('BUY')}" data-signal="BUY" title="Buys across daily/moonshot and 5m scalps. Click to show them.${scalpCounts.BUY ? ' ' + scalpCounts.BUY + ' are 5m scalps.' : ''}">
-        <span class="summary-count buy">${counts.BUY}</span>
-        <span class="summary-label">Buy${scalpCounts.BUY ? ` · ${scalpCounts.BUY}⚡` : ''}</span>
-      </div>
-      <div class="summary-item filterable ${isActive('NEUTRAL')}" data-signal="NEUTRAL" title="No clear direction — indicators are mixed. Best to wait on the sidelines until a clearer signal forms. Click to filter.">
-        <span class="summary-count neutral">${counts.NEUTRAL}</span>
-        <span class="summary-label">Hold</span>
-      </div>
-      <div class="summary-item filterable ${isActive('SELL')}" data-signal="SELL" title="Assets leaning bearish — conditions favor sellers. If you own this, consider tightening your stop-loss. Click to filter.">
-        <span class="summary-count sell">${counts.SELL}</span>
-        <span class="summary-label">Sell</span>
-      </div>
-      <div class="summary-item filterable ${isActive('STRONG_SELL')}" data-signal="STRONG_SELL" title="High-conviction bearish setups where trend and momentum align to the downside. Click to filter.">
-        <span class="summary-count strong-sell">${counts.STRONG_SELL}</span>
-        <span class="summary-label">Strong Sell</span>
-      </div>
-      <div class="summary-item filterable" data-signal="ALL">
-        <span class="summary-value">${total}</span>
-        <span class="summary-label">Total Tracked</span>
-      </div>
-      ${this.state.fearGreed ? `
-      <div class="summary-item fear-greed-item" title="Crypto Fear & Greed Index: Measures overall market sentiment from news, social media, and volatility. 0 = Extreme Fear (good time to buy), 100 = Extreme Greed (market may crash). Updated daily.">
-        <span class="summary-value" style="color:${this._fgColor(this.state.fearGreed.value)}">${this.state.fearGreed.value_classification}</span>
-        <span class="summary-label">Fear & Greed: ${this.state.fearGreed.value}/100</span>
-      </div>` : ''}
-      <div class="summary-item regime-item" title="BTC market regime. When bear hard-gate is on, altcoin buys are blocked.">
-        <span class="summary-value">${this.state.marketRegime === 'bull' ? '🟢 Bull' : this.state.marketRegime === 'bear' ? '🔴 Bear' : '🟡 Flat'}</span>
-        <span class="summary-label">BTC Regime · Alts ${this.state.marketRegime === 'bear' && CONFIG.signals?.bearRegimeBlockBuys ? 'Blocked' : this.state.marketRegime === 'bear' ? 'Restricted' : 'Open'}</span>
-      </div>
-      <div class="summary-item" title="Live policy: core winners only for actionable buys. Probation setups stay visible as research.">
-        <span class="summary-value" style="color:#34d399">${CONFIG.signals?.coreOnlyBuys ? '🎯 Core-only live' : '🧪 All winners'}</span>
-        <span class="summary-label">${(CONFIG.assets?.coreWinners || []).length} core · ${(CONFIG.assets?.probationWinners || []).length} probation research</span>
-      </div>
-      <div class="summary-item" title="Live exits: bank ${this._exitPolicy().partialPct}% at +${this._exitPolicy().takeProfitPct}% OCO; trail the rest (${this._exitPolicy().runnerTrailAtrMult}×ATR). Max hold ${this._exitPolicy().holdLimitDays}d.">
-        <span class="summary-value" style="color:#29b6f6">⚙️ ${this._exitPolicy().partialPct}/${100 - this._exitPolicy().partialPct} · bank +${this._exitPolicy().takeProfitPct}% · trail ${this._exitPolicy().runnerTrailAtrMult}×ATR · ${this._exitPolicy().holdLimitDays}d</span>
-        <span class="summary-label">Strategy (EMA ${CONFIG.activeParams.emaFast}/${CONFIG.activeParams.emaSlow})</span>
-      </div>
-      ${this._lastBacktestBadgeHTML()}
-      <div class="summary-item freshness-item" title="Age of the latest successful market-data refresh.">
-        <span class="summary-value">${this._freshnessText()}</span>
-        <span class="summary-label">Signal Freshness</span>
+      <div class="summary-meta-extra" id="summaryMetaExtra" hidden>
+        <div class="summary-item meta" title="Live allowlist mode for actionable buys.">
+          <span class="summary-value" style="color:#34d399">${CONFIG.signals?.coreOnlyBuys ? 'Core-only' : (CONFIG.signals?.winnersOnlyBuys ? 'Winners' : 'Open list')}</span>
+          <span class="summary-label">${(CONFIG.assets?.coreWinners || []).length} core · ${(CONFIG.assets?.probationWinners || []).length} probation</span>
+        </div>
+        <div class="summary-item meta" title="Live exits: bank ${this._exitPolicy().partialPct}% at +${this._exitPolicy().takeProfitPct}% OCO; trail the rest (${this._exitPolicy().runnerTrailAtrMult}×ATR). Max hold ${this._exitPolicy().holdLimitDays}d.">
+          <span class="summary-value" style="color:#29b6f6">${this._exitPolicy().partialPct}/${100 - this._exitPolicy().partialPct} · +${this._exitPolicy().takeProfitPct}% · ${this._exitPolicy().holdLimitDays}d</span>
+          <span class="summary-label">Exits</span>
+        </div>
+        ${this._lastBacktestBadgeHTML()}
       </div>
     `;
+    this._bindSummaryMore();
+  },
+
+  _bindSummaryMore() {
+    const btn = document.getElementById('summaryMoreBtn');
+    const extra = document.getElementById('summaryMetaExtra');
+    if (!btn || !extra) return;
+    const open = this.state.summaryMoreOpen === true;
+    extra.hidden = !open;
+    btn.setAttribute('aria-expanded', open ? 'true' : 'false');
+    btn.textContent = open ? 'Less details' : 'More details';
+    btn.onclick = () => {
+      this.state.summaryMoreOpen = !this.state.summaryMoreOpen;
+      const isOpen = this.state.summaryMoreOpen;
+      extra.hidden = !isOpen;
+      btn.setAttribute('aria-expanded', isOpen ? 'true' : 'false');
+      btn.textContent = isOpen ? 'Less details' : 'More details';
+    };
   },
 
   _lastBacktestBadgeHTML() {
@@ -2192,18 +2218,34 @@ const Dashboard = {
     if (!lb?.runAt) return '';
     const when = new Date(lb.runAt);
     const dateStr = Number.isFinite(when.getTime())
-      ? when.toLocaleDateString(undefined, { month: 'short', day: 'numeric', year: 'numeric' })
+      ? when.toLocaleDateString(undefined, { month: 'short', day: 'numeric' })
       : '—';
-    const wr = Number.isFinite(lb.winnersWinRate) ? `${lb.winnersWinRate}% WR` : '—';
-    const avg = Number.isFinite(lb.winnersAvgReturn)
-      ? `${lb.winnersAvgReturn >= 0 ? '+' : ''}${lb.winnersAvgReturn}% avg`
-      : '';
-    const sample = Number.isFinite(lb.winnersTrades) ? `${lb.winnersTrades} trades` : '';
-    const core = Number.isFinite(lb.coreCount) ? lb.coreCount : '—';
-    const prob = Number.isFinite(lb.probationCount) ? lb.probationCount : '—';
-    return `<div class="summary-item last-backtest-badge" title="Latest scheduled backtest across core + probation winners (accumulated). Past results are research, not a guarantee.">
-      <span class="summary-value" style="color:#a78bfa">📊 ${wr}${avg ? ' · ' + avg : ''}</span>
-      <span class="summary-label">Backtest ${dateStr} · ${core} core / ${prob} probation${sample ? ' · ' + sample : ''}</span>
+    const wr = Number.isFinite(lb.winnersWinRate) ? `${lb.winnersWinRate}%` : '—';
+    return `<div class="summary-item last-backtest-badge meta" title="Latest weekly backtest across core + probation winners. Past results are research, not a guarantee.">
+      <span class="summary-value" style="color:#a78bfa">${wr} WR</span>
+      <span class="summary-label">Backtest ${dateStr}</span>
+    </div>`;
+  },
+
+  _escapeAttr(str) {
+    return String(str || '')
+      .replace(/&/g, '&amp;')
+      .replace(/"/g, '&quot;')
+      .replace(/</g, '&lt;')
+      .replace(/>/g, '&gt;');
+  },
+
+  _strongMissHTML(signalResult, { compact = true } = {}) {
+    const miss = signalResult?.strongMiss;
+    if (!miss?.short) return '';
+    const tip = this._escapeAttr(miss.detail || miss.short);
+    const short = this._escapeAttr(miss.short);
+    if (compact) {
+      return `<div class="strong-miss-hint" title="${tip}"><span>${short}</span></div>`;
+    }
+    return `<div class="strong-miss-panel" title="${tip}">
+      <div class="strong-miss-title">${short}</div>
+      <div class="strong-miss-detail">${this._escapeAttr(miss.detail || '')}</div>
     </div>`;
   },
 
@@ -2779,9 +2821,10 @@ const Dashboard = {
           </div>
         </div>
 
+        ${this._strongMissHTML(signalResult, { compact: true })}
         ${error ? `<div class="card-error">⚠️ ${error}</div>` : ''}
         ${this._stopLevelsHTML(signalResult, asset)}
-        <div class="trade-quality-badge quality-${quality.cls}" title="${quality.tip}">${quality.icon} ${quality.label}</div>
+        ${signalResult?.strongMiss?.short ? '' : `<div class="trade-quality-badge quality-${quality.cls}" title="${quality.tip}">${quality.icon} ${quality.label}</div>`}
         ${(sig === 'BUY' || sig === 'STRONG_BUY') && d.category !== 'scalper' ? `<button type="button" class="follow-suggestion-btn" data-action="follow-suggestion" data-symbol="${asset.symbol}" data-signal="${sig}" data-price="${price ?? ''}">✅ I followed this</button>` : ''}
         <div class="card-footer">Click for full analysis →</div>
       </div>
@@ -3119,37 +3162,52 @@ const Dashboard = {
 
       <div class="modal-recommendation">
         <p>${rec}</p>
-      </div>
-
-      <div class="modal-indicator-grid">
-        ${this._indicatorCards(ind)}
+        ${this._strongMissHTML(signalResult, { compact: false })}
       </div>
 
       <div class="modal-charts">
-        <h3>📊 Price Chart (90 days)</h3>
-        <div class="chart-wrap" style="height:220px">
+        <div class="chart-heading-row">
+          <h3>📊 Price Chart (90 days)</h3>
+          <button type="button" class="chart-expand-btn" data-chart-zoom="price" title="Enlarge price chart">Enlarge</button>
+        </div>
+        <div class="chart-wrap chart-wrap-price" data-chart-zoom="price" role="button" tabindex="0" aria-label="Enlarge price chart">
           <canvas id="modalPriceChart"></canvas>
         </div>
         <div class="chart-row">
           <div>
-            <h3>📉 RSI (14)</h3>
-            <div class="chart-wrap" style="height:120px">
+            <div class="chart-heading-row">
+              <h3>📉 RSI (14)</h3>
+              <button type="button" class="chart-expand-btn" data-chart-zoom="rsi" title="Enlarge RSI chart">Enlarge</button>
+            </div>
+            <div class="chart-wrap chart-wrap-ind" data-chart-zoom="rsi" role="button" tabindex="0" aria-label="Enlarge RSI chart">
               <canvas id="modalRsiChart"></canvas>
             </div>
           </div>
           <div>
-            <h3>〽️ MACD</h3>
-            <div class="chart-wrap" style="height:120px">
+            <div class="chart-heading-row">
+              <h3>〽️ MACD</h3>
+              <button type="button" class="chart-expand-btn" data-chart-zoom="macd" title="Enlarge MACD chart">Enlarge</button>
+            </div>
+            <div class="chart-wrap chart-wrap-ind" data-chart-zoom="macd" role="button" tabindex="0" aria-label="Enlarge MACD chart">
               <canvas id="modalMacdChart"></canvas>
             </div>
           </div>
         </div>
       </div>
 
-      <div class="modal-education">
-        <h3>📚 How to read this</h3>
-        ${this._educationHTML(ind)}
-      </div>
+      <details class="modal-fold glass-panel">
+        <summary>Indicator breakdown</summary>
+        <div class="modal-indicator-grid">
+          ${this._indicatorCards(ind)}
+        </div>
+      </details>
+
+      <details class="modal-fold glass-panel">
+        <summary>How to read this</summary>
+        <div class="modal-education">
+          ${this._educationHTML(ind)}
+        </div>
+      </details>
     `;
 
     modal.classList.add('open');
@@ -3168,7 +3226,61 @@ const Dashboard = {
         Charts.renderRSI('modalRsiChart', arrays.rsi ?? [], timestamps);
         Charts.renderMACD('modalMacdChart', arrays.macd ?? {}, timestamps);
       }
+      this._bindModalChartZoom();
     });
+  },
+
+  _bindModalChartZoom() {
+    const content = document.getElementById('modalContent');
+    if (!content) return;
+    content.querySelectorAll('[data-chart-zoom]').forEach(el => {
+      const open = (e) => {
+        e.preventDefault();
+        e.stopPropagation();
+        this._openChartZoom(el.getAttribute('data-chart-zoom'));
+      };
+      el.addEventListener('click', open);
+      el.addEventListener('keydown', (e) => {
+        if (e.key === 'Enter' || e.key === ' ') open(e);
+      });
+    });
+  },
+
+  _openChartZoom(kind) {
+    const d = this.state.selectedAsset;
+    const overlay = document.getElementById('chartZoomOverlay');
+    const titleEl = document.getElementById('chartZoomTitle');
+    if (!d || !overlay || !titleEl) return;
+    const { closes, timestamps, signalResult, asset } = d;
+    const arrays = signalResult?.arrays ?? {};
+    if (!closes?.length || !timestamps?.length) {
+      this._showToast('No chart data yet for this coin', 'warning');
+      return;
+    }
+    const titles = {
+      price: `Price · ${asset?.symbol || ''} (90d)`,
+      rsi: `RSI (14) · ${asset?.symbol || ''}`,
+      macd: `MACD · ${asset?.symbol || ''}`,
+    };
+    titleEl.textContent = titles[kind] || 'Chart';
+    overlay.hidden = false;
+    overlay.classList.add('open');
+    document.body.classList.add('chart-zoom-open');
+
+    requestAnimationFrame(() => {
+      if (kind === 'price') Charts.renderPrice('chartZoomCanvas', closes, timestamps, arrays);
+      else if (kind === 'rsi') Charts.renderRSI('chartZoomCanvas', arrays.rsi ?? [], timestamps);
+      else if (kind === 'macd') Charts.renderMACD('chartZoomCanvas', arrays.macd ?? {}, timestamps);
+    });
+  },
+
+  _closeChartZoom() {
+    const overlay = document.getElementById('chartZoomOverlay');
+    if (!overlay || !overlay.classList.contains('open')) return;
+    overlay.classList.remove('open');
+    overlay.hidden = true;
+    document.body.classList.remove('chart-zoom-open');
+    if (typeof Charts !== 'undefined') Charts._destroy('chartZoomCanvas');
   },
 
   _indicatorCards(ind) {
@@ -3233,6 +3345,7 @@ const Dashboard = {
 
   // ─── Close modal ─────────────────────────────────────────────────────────────
   _closeModal() {
+    this._closeChartZoom();
     const modal = document.getElementById('assetModal');
     if (modal) modal.classList.remove('open');
     document.body.classList.remove('modal-open');
@@ -3266,6 +3379,13 @@ const Dashboard = {
     }
     const recEl = modal.querySelector('.modal-recommendation p');
     if (recEl) recEl.textContent = fresh.signalResult?.recommendation ?? '';
+    const recWrap = modal.querySelector('.modal-recommendation');
+    if (recWrap) {
+      const oldMiss = recWrap.querySelector('.strong-miss-panel, .strong-miss-hint');
+      if (oldMiss) oldMiss.remove();
+      const missHTML = this._strongMissHTML(fresh.signalResult, { compact: false });
+      if (missHTML) recWrap.insertAdjacentHTML('beforeend', missHTML);
+    }
   },
 
   // ─── Category filter tabs ────────────────────────────────────────────────────
@@ -3486,7 +3606,21 @@ const Dashboard = {
     document.getElementById('assetModal')?.addEventListener('click', e => {
       if (e.target.id === 'assetModal') this._closeModal();
     });
-    document.addEventListener('keydown', e => { if (e.key === 'Escape') this._closeModal(); });
+    document.getElementById('chartZoomClose')?.addEventListener('click', () => this._closeChartZoom());
+    document.getElementById('chartZoomReset')?.addEventListener('click', () => {
+      if (typeof Charts !== 'undefined') Charts.resetZoom('chartZoomCanvas');
+    });
+    document.getElementById('chartZoomOverlay')?.addEventListener('click', e => {
+      if (e.target.id === 'chartZoomOverlay') this._closeChartZoom();
+    });
+    document.addEventListener('keydown', e => {
+      if (e.key !== 'Escape') return;
+      if (document.getElementById('chartZoomOverlay')?.classList.contains('open')) {
+        this._closeChartZoom();
+        return;
+      }
+      this._closeModal();
+    });
 
     // Manual refresh only (pull-to-refresh removed — too easy to trigger and burns Binance weight)
     document.getElementById('refreshBtn')?.addEventListener('click', () => this._forceRefresh());
