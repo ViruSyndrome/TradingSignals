@@ -791,8 +791,24 @@ body.is-booting .ios-banner {
 .news-tape-label + .live-tape-window #newsTapeTrack.moving { animation: tape-scroll 35s linear infinite; }
 .news-tape-label + .live-tape-window #newsTapeTrack:hover { animation-play-state: paused; }
 .news-tape-empty { color: var(--text-muted); }
-.news-link { color: var(--text-main); text-decoration: none; font-weight: 500; }
-.news-link:hover { color: #00e5ff; }
+@keyframes filter-flash {
+  0% { box-shadow: 0 0 0 0 rgba(0, 229, 255, 0); }
+  35% { box-shadow: 0 0 0 3px rgba(0, 229, 255, 0.35); }
+  100% { box-shadow: 0 0 0 0 rgba(0, 229, 255, 0); }
+}
+.asset-list-heading.filter-flash,
+#assetGrid.filter-flash {
+  border-radius: 12px;
+  animation: filter-flash 1s var(--ease-out, ease) both;
+}
+#assetGrid.filter-flash .asset-card {
+  animation: card-rise 0.4s var(--ease-out, ease) both;
+}
+@media (prefers-reduced-motion: reduce) {
+  .asset-list-heading.filter-flash,
+  #assetGrid.filter-flash,
+  #assetGrid.filter-flash .asset-card { animation: none !important; }
+}
 .news-time { margin-left: 6px; color: var(--text-muted); font-size: 10px; font-weight: 400; }
 #newsTapeTrack.moving { animation: tape-scroll 35s linear infinite; }
 #newsTapeTrack:hover { animation-play-state: paused; }

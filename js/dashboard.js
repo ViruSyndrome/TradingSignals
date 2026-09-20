@@ -1998,12 +1998,34 @@ const Dashboard = {
   async _initNewsTape() {
     const el = document.getElementById('newsTapeTrack');
     if (!el) return;
-    const NEWS_CACHE_KEY = 'trendrunner_news_cache_v1';
+    const NEWS_CACHE_KEY = 'trendrunner_news_cache_v2';
+    const FEEDS = [
+      'https://www.coindesk.com/arc/outboundfeeds/rss/',
+      'https://cointelegraph.com/rss',
+    ];
+    const parseRssDate = (raw) => {
+      if (!raw) return 0;
+      const s = String(raw).trim();
+      const asIso = s.includes('T') ? s : s.replace(' ', 'T') + (/[zZ]|[+-]\d{2}:?\d{2}$/.test(s) ? '' : 'Z');
+      const t = Date.parse(asIso) || Date.parse(s) || 0;
+      return Number.isFinite(t) ? t : 0;
+    };
     const renderItems = items => {
-      const itemsStr = items.map(item => `<span class="tape-item"><a href="${item.link}" target="_blank" rel="noopener noreferrer" class="news-link">${item.title}</a> <em class="news-time">[${new Date(item.pubDate).toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'})}]</em></span>`).join('');
+      if (!items?.length) return;
+      const itemsStr = items.map(item => {
+        const t = parseRssDate(item.pubDate);
+        const timeLabel = t
+          ? new Date(t).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
+          : '';
+        return `<span class="tape-item"><a href="${item.link}" target="_blank" rel="noopener noreferrer" class="news-link">${item.title}</a>${timeLabel ? ` <em class="news-time">[${timeLabel}]</em>` : ''}</span>`;
+      }).join('');
+      el.classList.remove('moving');
+      el.style.animationDuration = '';
       el.innerHTML = itemsStr + itemsStr;
+      // Restart CSS animation cleanly
+      void el.offsetWidth;
       el.classList.add('moving');
-      this._setTapeScrollSpeed(el, 82); // ~25% slower than 110 px/s
+      this._setTapeScrollSpeed(el, 72);
     };
     const renderCached = () => {
       try {
@@ -2015,69 +2037,124 @@ const Dashboard = {
       } catch (e) {}
       return false;
     };
-    const fetchFromFallback = async () => {
-      const rssUrl = 'https://www.coindesk.com/arc/outboundfeeds/rss/';
+    const normalizeItems = (items) => {
+      const seen = new Set();
+      const out = [];
+      for (const item of items || []) {
+        const title = String(item.title || '').trim();
+        const link = String(item.link || '').trim();
+        if (!title || !link || seen.has(link)) continue;
+        seen.add(link);
+        out.push({ title, link, pubDate: item.pubDate || item.pubDateStr || '' });
+      }
+      return out;
+    };
+    const filterRecent = (items, maxAgeMs) => {
+      const cutoff = Date.now() - maxAgeMs;
+      const recent = items.filter(item => {
+        const t = parseRssDate(item.pubDate);
+        return !t || t >= cutoff;
+      });
+      return recent.length ? recent : items;
+    };
+    const fetchRss2Json = async (rssUrl) => {
+      const controller = new AbortController();
+      const timeout = setTimeout(() => controller.abort(), 9000);
+      try {
+        const url = `https://api.rss2json.com/v1/api.json?rss_url=${encodeURIComponent(rssUrl)}&_=${Date.now()}`;
+        const res = await fetch(url, { signal: controller.signal, cache: 'no-store' });
+        if (!res.ok) throw new Error(`rss2json HTTP ${res.status}`);
+        const data = await res.json();
+        if (!Array.isArray(data.items)) throw new Error('no items');
+        return normalizeItems(data.items);
+      } finally {
+        clearTimeout(timeout);
+      }
+    };
+    const fetchViaProxy = async (rssUrl) => {
       const proxyUrl = `https://api.allorigins.win/raw?url=${encodeURIComponent(rssUrl)}`;
       const controller = new AbortController();
-      const timeout = setTimeout(() => controller.abort(), 8000);
+      const timeout = setTimeout(() => controller.abort(), 9000);
       try {
         const response = await fetch(proxyUrl, { signal: controller.signal, cache: 'no-store' });
+        if (!response.ok) throw new Error(`proxy HTTP ${response.status}`);
         const xml = await response.text();
         const doc = new DOMParser().parseFromString(xml, 'text/xml');
-        return [...doc.querySelectorAll('item')].map(item => ({
-          title: item.querySelector('title')?.textContent?.trim(),
-          link: item.querySelector('link')?.textContent?.trim(),
-          pubDate: item.querySelector('pubDate')?.textContent?.trim(),
-        })).filter(item => item.title && item.link && item.pubDate);
+        return normalizeItems([...doc.querySelectorAll('item')].map(item => ({
+          title: item.querySelector('title')?.textContent,
+          link: item.querySelector('link')?.textContent || item.querySelector('guid')?.textContent,
+          pubDate: item.querySelector('pubDate')?.textContent,
+        })));
       } finally {
         clearTimeout(timeout);
       }
     };
     const fetchNews = async () => {
-      try {
-        const controller = new AbortController();
-        const timeout = setTimeout(() => controller.abort(), 8000);
-        const url = `https://api.rss2json.com/v1/api.json?rss_url=https%3A%2F%2Fwww.coindesk.com%2Farc%2Foutboundfeeds%2Frss%2F&_=${Date.now()}`;
-        const res = await fetch(url, { signal: controller.signal, cache: 'no-store' });
-        clearTimeout(timeout);
-        if (!res.ok) throw new Error(`News endpoint HTTP ${res.status}`);
-        const data = await res.json();
-        if (!Array.isArray(data.items)) throw new Error('News provider returned no items');
-        const twentyFourHoursAgo = new Date(Date.now() - 24 * 60 * 60 * 1000);
-        const validItems = data.items.filter(item => new Date(item.pubDate) > twentyFourHoursAgo);
-        
-        if (validItems.length === 0) {
-          el.innerHTML = '<span class="tape-item news-tape-empty">No new stories in the last 24 hours · market pulse remains live</span>';
-          el.classList.remove('moving');
-          return;
-        }
-
-        const normalized = validItems.slice(0, 12).map(item => ({ title: item.title, link: item.link, pubDate: item.pubDate }));
-        localStorage.setItem(NEWS_CACHE_KEY, JSON.stringify({ savedAt: Date.now(), items: normalized }));
-        renderItems(normalized);
-      } catch (e) {
-        console.error('News Tape Error:', e);
+      let collected = [];
+      for (const feed of FEEDS) {
         try {
-          const fallbackItems = await fetchFromFallback();
-          const twentyFourHoursAgo = new Date(Date.now() - 24 * 60 * 60 * 1000);
-          const validItems = fallbackItems.filter(item => new Date(item.pubDate) > twentyFourHoursAgo).slice(0, 12);
-          if (validItems.length) {
-            localStorage.setItem(NEWS_CACHE_KEY, JSON.stringify({ savedAt: Date.now(), items: validItems }));
-            renderItems(validItems);
-            return;
+          const items = await fetchRss2Json(feed);
+          collected = collected.concat(items);
+          if (collected.length >= 8) break;
+        } catch (e) {
+          console.warn('News feed failed', feed, e.message || e);
+          try {
+            const items = await fetchViaProxy(feed);
+            collected = collected.concat(items);
+          } catch (e2) {
+            console.warn('News proxy failed', feed, e2.message || e2);
           }
-        } catch (fallbackError) {
-          console.error('News fallback error:', fallbackError);
         }
+      }
+      collected = normalizeItems(collected);
+      if (!collected.length) {
         if (!renderCached()) {
           el.innerHTML = '<span class="tape-item news-tape-empty">News feed unavailable · market pulse remains live</span>';
           el.classList.remove('moving');
         }
+        return;
       }
+      collected.sort((a, b) => parseRssDate(b.pubDate) - parseRssDate(a.pubDate));
+      const recent = filterRecent(collected, 72 * 60 * 60 * 1000).slice(0, 14);
+      try {
+        localStorage.setItem(NEWS_CACHE_KEY, JSON.stringify({ savedAt: Date.now(), items: recent }));
+      } catch (_) {}
+      renderItems(recent);
     };
     renderCached();
     fetchNews();
-    setInterval(fetchNews, 15 * 60 * 1000); // 15 mins
+    setInterval(fetchNews, 15 * 60 * 1000);
+  },
+
+  _scrollToFilteredAssets() {
+    const scroller = document.getElementById('dashboardSection');
+    const heading = document.querySelector('#dashboardSection .asset-list-heading')
+      || document.getElementById('assetGrid');
+    if (!scroller || !heading) return;
+
+    const run = () => {
+      const sRect = scroller.getBoundingClientRect();
+      const hRect = heading.getBoundingClientRect();
+      const nextTop = scroller.scrollTop + (hRect.top - sRect.top) - 10;
+      scroller.scrollTo({ top: Math.max(0, nextTop), behavior: 'smooth' });
+      heading.classList.remove('filter-flash');
+      void heading.offsetWidth;
+      heading.classList.add('filter-flash');
+      const grid = document.getElementById('assetGrid');
+      grid?.classList.remove('filter-flash');
+      if (grid) {
+        void grid.offsetWidth;
+        grid.classList.add('filter-flash');
+        clearTimeout(this._filterFlashTimer);
+        this._filterFlashTimer = setTimeout(() => {
+          heading.classList.remove('filter-flash');
+          grid.classList.remove('filter-flash');
+        }, 1100);
+      }
+    };
+
+    // Render finishes in this tick — wait two frames so layout is stable.
+    requestAnimationFrame(() => requestAnimationFrame(run));
   },
 
   _updateLiveStatus() {
@@ -3578,11 +3655,10 @@ const Dashboard = {
               'info'
             );
           }
-
-          document.getElementById('assetGrid')?.scrollIntoView({ behavior: 'smooth', block: 'start' });
         }
         this._renderSummaryBar();
         this._renderAssetGrid();
+        if (this.state.activeSignalFilter) this._scrollToFilteredAssets();
       });
 
     // Asset Search
@@ -3597,8 +3673,8 @@ const Dashboard = {
       const liveTape = document.querySelector('.live-tape');
       const topOppBlock = document.getElementById('topOpportunities')?.closest('.section-block');
       
-      if (summaryBar) summaryBar.style.display = isSearching ? 'none' : 'flex';
-      if (liveTape) liveTape.style.display = isSearching ? 'none' : 'flex';
+      if (summaryBar) summaryBar.style.display = isSearching ? 'none' : '';
+      if (liveTape) liveTape.style.display = isSearching ? 'none' : '';
       if (topOppBlock) topOppBlock.style.display = isSearching ? 'none' : 'block';
 
       if (isSearching && this.state.activeCategory !== 'all') {

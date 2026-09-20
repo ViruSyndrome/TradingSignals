@@ -19,6 +19,8 @@ const Auth = {
   _portfolioTableOk: null,
   _syncFromInFlight: null,
   _lastSyncFromAt: 0,
+  /** True after first successful syncFromCloud for this session — blocks empty overwrites. */
+  _portfolioHydrated: false,
 
   async init() {
     this._consumeAuthRedirectErrors();
@@ -42,6 +44,7 @@ const Auth = {
         window.Dashboard?._showToast?.('Signed in — holdings syncing', 'success');
       }
       if (event === 'SIGNED_OUT') {
+        this._portfolioHydrated = false;
         window.Dashboard?._showToast?.('Signed out', 'info');
       }
     });
@@ -507,8 +510,14 @@ const Auth = {
     }
   },
 
-  async syncToCloud(invested, watchlist, holdingsMeta, { force = false, followed, skipRevTouch = false } = {}) {
+  async syncToCloud(invested, watchlist, holdingsMeta, { force = false, followed, skipRevTouch = false, internal = false } = {}) {
     if (!this.user) return false;
+    // New / other device: wait until we have pulled account state once.
+    if (!this._portfolioHydrated && !internal) {
+      window.Dashboard && (window.Dashboard._pendingCloudSync = true);
+      console.warn('☁️ Defer push until portfolio hydrated from account');
+      return false;
+    }
 
     try {
       if (force && !skipRevTouch) this.touchPortfolioRev();
@@ -550,9 +559,15 @@ const Auth = {
           : (Array.isArray(meta.trading_followed) ? meta.trading_followed : [])
       );
 
-      // Never wipe cloud holdings with an empty local push unless user explicitly unlocked (force).
+      // Never wipe cloud holdings with an empty local push unless user explicitly unlocked (force)
+      // AND we already hydrated from cloud this session.
       if (!force && localInvested.length === 0 && cloudInvested.length > 0) {
         console.warn('☁️ Skip empty holdings push (would wipe cloud). Waiting for merge/pull.');
+        return false;
+      }
+      if (force && localInvested.length === 0 && cloudInvested.length > 0 && !this._portfolioHydrated) {
+        console.warn('☁️ Skip empty force-push before hydrate');
+        window.Dashboard && (window.Dashboard._pendingCloudSync = true);
         return false;
       }
 
@@ -707,14 +722,21 @@ const Auth = {
       const localEmpty = localInvested.length === 0 && localWatchlist.length === 0;
       const SKEW_MS = 750;
 
-      // Last-write-wins for watch/holdings lists. Union merge resurrected unstars forever.
+      // Last-write-wins, but never let a fresh/empty device clobber a non-empty account.
       let winner = 'cloud';
-      if (cloudEmpty && !localEmpty) winner = 'local';
-      else if (!cloudEmpty && localEmpty && localTs === 0) winner = 'cloud';
-      else if (cloudTs > localTs + SKEW_MS) winner = 'cloud';
-      else if (localTs > cloudTs + SKEW_MS) winner = 'local';
-      else if (useTable) winner = 'cloud';
-      else winner = localEmpty ? 'cloud' : 'local';
+      if (localEmpty && !cloudEmpty) {
+        winner = 'cloud';
+      } else if (cloudEmpty && !localEmpty) {
+        winner = 'local';
+      } else if (cloudTs > localTs + SKEW_MS) {
+        winner = 'cloud';
+      } else if (localTs > cloudTs + SKEW_MS) {
+        winner = 'local';
+      } else if (useTable) {
+        winner = 'cloud';
+      } else {
+        winner = localEmpty ? 'cloud' : 'local';
+      }
 
       let nextInvested;
       let nextWatchlist;
@@ -738,6 +760,7 @@ const Auth = {
             force: true,
             followed: nextFollowed,
             skipRevTouch: true,
+            internal: true,
           });
           pushed = true;
         }
@@ -750,11 +773,18 @@ const Auth = {
         ok = await this.syncToCloud(nextInvested, nextWatchlist, nextMeta, {
           force: true,
           followed: nextFollowed,
+          internal: true,
         });
         pushed = true;
       }
 
       this._lastSyncFromAt = Date.now();
+      this._portfolioHydrated = true;
+      if (window.Dashboard?._pendingCloudSync) {
+        window.Dashboard._pendingCloudSync = false;
+        // Flush edits that happened while we were still pulling.
+        try { window.Dashboard._syncPortfolioCloud?.(); } catch (_) {}
+      }
 
       if (!silent) {
         const via = this._portfolioTableOk ? 'table' : 'metadata';
@@ -777,6 +807,8 @@ const Auth = {
       return ok;
     } catch (err) {
       console.error('Failed to pull from cloud:', err);
+      // Allow local pushes if pull fails so the user isn't stuck offline forever.
+      this._portfolioHydrated = true;
       if (!silent) {
         window.Dashboard?._showToast?.('Holdings sync failed — try Sign Out / Sign In again', 'warning');
       }
