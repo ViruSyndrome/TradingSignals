@@ -43,7 +43,7 @@
   <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.4/dist/chart.umd.min.js" defer></script>
   <script src="https://cdn.jsdelivr.net/npm/hammerjs@2.0.8/hammer.min.js" defer></script>
   <script src="https://cdn.jsdelivr.net/npm/chartjs-plugin-zoom@2.2.0/dist/chartjs-plugin-zoom.min.js" defer></script>
-  <link rel="stylesheet" href="styles.css?v=6.60" />
+  <link rel="stylesheet" href="styles.css?v=6.63" />
   <!-- Critical boot overlay (prevents sidebar flash before styles.css applies) -->
   <style>
     html, body { margin: 0; background: #080a14; }
@@ -70,11 +70,11 @@
     if ('serviceWorker' in navigator) {
       window.addEventListener('load', () => {
         const hadController = Boolean(navigator.serviceWorker.controller);
-        navigator.serviceWorker.register('./service-worker.js?v=6.60', { updateViaCache: 'none' })
+        navigator.serviceWorker.register('./service-worker.js?v=6.63', { updateViaCache: 'none' })
           .then(reg => {
             reg.update().catch(() => {});
             navigator.serviceWorker.addEventListener('controllerchange', () => {
-              const reloadKey = 'trendrunner_sw_update_6.23';
+              const reloadKey = 'trendrunner_sw_update_6.63';
               if (hadController && !sessionStorage.getItem(reloadKey)) {
                 sessionStorage.setItem(reloadKey, '1');
                 location.reload();
@@ -222,7 +222,7 @@
         <div class="live-tape-window"><div id="newsTapeTrack" class="live-tape-track">Loading latest breaking news...</div></div>
       </div>
       <!-- Top Opportunities -->
-      <div class="section-block">
+      <div class="section-block" id="topOpportunitiesBlock">
         <div class="section-heading">
           <h1>🎯 Today's Best Opportunities</h1>
           <p class="section-sub" title="These 4 assets have the highest absolute signal scores right now, whether buy or sell.">Strongest signals across all asset classes right now</p>
@@ -239,16 +239,26 @@
       <!-- All Assets with category filter -->
       <div class="section-block">
         <div class="section-heading asset-list-heading">
-          <h2>📊 All Tracked Assets</h2>
-          <div class="filter-tabs" role="tablist">
-            <button class="filter-tab active" data-cat="all" role="tab">All</button>
-            <button class="filter-tab" data-cat="watchlist" role="tab" title="Ideas to revisit — not positions">⭐ Watch</button>
-            <button class="filter-tab" data-cat="holdings" role="tab" title="Coins you bought — paper PnL tracker">🔒 Holdings</button>
-            <button class="filter-tab" data-cat="history" role="tab">📜 Signal Log</button>
-            <button class="filter-tab" data-cat="oversold" role="tab">📉 Oversold</button>
-            <button class="filter-tab" data-cat="highconf" role="tab">🎯 High Confidence</button>
-            <button class="filter-tab" data-cat="trending" role="tab" title="Assets with a positive 24h trend">🔥 Trending</button>
-            <button class="filter-tab scalper-filter-tab" data-cat="scalper" role="tab" title="5m EMA pullbacks on liquid volatile alts — small size only">⚡ 5m Scalps</button>
+          <h2 id="assetListTitle">📊 All Tracked Assets</h2>
+          <div class="filter-toolbar">
+            <div class="filter-group">
+              <span class="filter-group-label">Your lists</span>
+              <div class="filter-tabs filter-tabs-lists" role="tablist" aria-label="Your lists">
+                <button class="filter-tab active" data-cat="all" role="tab">All</button>
+                <button class="filter-tab" data-cat="watchlist" role="tab" title="Ideas to revisit — not positions">⭐ Watch <span class="tab-count" data-count="watchlist">–</span></button>
+                <button class="filter-tab" data-cat="holdings" role="tab" title="Coins you bought — paper PnL tracker">🔒 Holdings <span class="tab-count" data-count="holdings">–</span></button>
+                <button class="filter-tab" data-cat="history" role="tab">📜 Log <span class="tab-count" data-count="history">–</span></button>
+              </div>
+            </div>
+            <div class="filter-group filter-group-setups">
+              <span class="filter-group-label">Setups</span>
+              <div class="filter-tabs filter-tabs-setups" role="tablist" aria-label="Setups">
+                <button class="filter-tab filter-tab-featured" data-cat="highconf" role="tab" title="Indicators agree and the score is bullish — look here first">🎯 High Conf <span class="tab-count" data-count="highconf">–</span></button>
+                <button class="filter-tab" data-cat="oversold" role="tab" title="RSI at or below 35">📉 Oversold <span class="tab-count" data-count="oversold">–</span></button>
+                <button class="filter-tab" data-cat="trending" role="tab" title="Assets with a positive 24h trend">🔥 Trending <span class="tab-count" data-count="trending">–</span></button>
+                <button class="filter-tab scalper-filter-tab" data-cat="scalper" role="tab" title="5m EMA pullbacks on liquid volatile alts — small size only">⚡ 5m Scalps <span class="tab-count" data-count="scalper">–</span></button>
+              </div>
+            </div>
           </div>
           <p class="list-legend">⭐ <strong>Watch</strong> = you starred it (ideas only — moonshots no longer auto-star) &nbsp;·&nbsp; 🔒 <strong>Holdings</strong> = you bought it (edit Binance entry/lots) &nbsp;·&nbsp; ⚡ <strong>5m Scalps</strong> = short plays.</p>
         </div>
@@ -747,7 +757,7 @@
   <script src="js/scanner.js?v=6.60" defer></script>
   <script src="js/backtest_ui.js?v=6.60" defer></script>
   <script src="js/auth.js?v=6.60" defer></script>
-    <script src="js/dashboard.js?v=6.60" defer></script>
+    <script src="js/dashboard.js?v=6.63" defer></script>
   <script>
     // If signals.js didn't expose the right version, cached old code is running — force reload.
     if (typeof Signals === 'undefined' || Signals._version !== window.__APP_VERSION__) {

@@ -2155,12 +2155,110 @@ const Dashboard = {
     });
   },
 
+  _isScalpAsset(a) {
+    return a.category === 'scalper' || a.asset?.isScalp || String(a.asset?.id || '').includes('_5M');
+  },
+
+  _isHighConf(a) {
+    const gate = CONFIG.signals?.strongConfidenceGate ?? CONFIG.refresh?.strongConfidenceGate ?? 100;
+    const conf = a.signalResult?.confidence ?? 0;
+    const score = a.signalResult?.score ?? 0;
+    return conf >= gate && score > 0;
+  },
+
+  _signalLabel(sig) {
+    return ({
+      STRONG_BUY: 'Strong Buys',
+      BUY: 'Buys',
+      NEUTRAL: 'Hold setups',
+      SELL: 'Sells',
+      STRONG_SELL: 'Strong Sells',
+    })[sig] || String(sig || '').replace(/_/g, ' ');
+  },
+
+  _countForSignal(sig) {
+    return this.state.allAssets.filter(a => a.signalResult?.signal === sig).length;
+  },
+
+  _countForCategory(cat) {
+    const assets = this.state.allAssets || [];
+    const watchlist = this.state.watchlist || [];
+    const invested = this.state.invested || [];
+    if (cat === 'watchlist') {
+      return assets.filter(a => watchlist.includes(a.asset.id)).length;
+    }
+    if (cat === 'holdings') {
+      const ids = new Set();
+      assets.forEach(a => {
+        const coinId = String(a.asset.id || '').replace('_4H', '').replace('_5M', '');
+        if (invested.includes(coinId)) ids.add(coinId);
+      });
+      return ids.size;
+    }
+    if (cat === 'oversold') {
+      return assets.filter(a => {
+        const rsi = a.signalResult?.indicators?.rsi?.value;
+        return rsi && rsi <= 35;
+      }).length;
+    }
+    if (cat === 'highconf') return assets.filter(a => this._isHighConf(a)).length;
+    if (cat === 'trending') return assets.filter(a => a.change4h > 0).length;
+    if (cat === 'scalper') return assets.filter(a => a.category === 'scalper').length;
+    if (cat === 'history') return this._getSignalHistory().length;
+    return assets.filter(a => !this._isScalpAsset(a)).length;
+  },
+
+  _updateFilterTabCounts() {
+    const keys = ['watchlist', 'holdings', 'history', 'highconf', 'oversold', 'trending', 'scalper'];
+    const counts = {};
+    keys.forEach(k => { counts[k] = this._countForCategory(k); });
+    document.querySelectorAll('.tab-count[data-count]').forEach(el => {
+      const n = counts[el.dataset.count];
+      if (n == null) return;
+      el.textContent = String(n);
+      el.classList.toggle('is-zero', n === 0);
+    });
+  },
+
+  _updateListHeading(cat = this.state.activeCategory) {
+    const el = document.getElementById('assetListTitle');
+    if (!el) return;
+    const q = (this.state.searchQuery || '').trim();
+    if (q) {
+      el.textContent = `🔍 ${q}`;
+      return;
+    }
+    const titles = {
+      all: '📊 All Tracked Assets',
+      watchlist: '⭐ Watchlist',
+      holdings: '🔒 Holdings',
+      history: '📜 Signal Log',
+      highconf: '🎯 High Confidence',
+      oversold: '📉 Oversold Setups',
+      trending: '🔥 Trending',
+      scalper: '⚡ 5m Scalps',
+    };
+    const sig = this.state.activeSignalFilter;
+    if (sig && cat === 'all') {
+      el.textContent = `📊 ${this._signalLabel(sig)}`;
+      return;
+    }
+    el.textContent = titles[cat] || titles.all;
+  },
+
+  _setSearching(on) {
+    document.body.classList.toggle('is-searching', on);
+    const scroller = document.getElementById('dashboardSection');
+    if (on && scroller) scroller.scrollTop = 0;
+  },
+
   _scrollToFilteredAssets() {
     const scroller = document.getElementById('dashboardSection');
     const heading = document.querySelector('#dashboardSection .asset-list-heading')
       || document.getElementById('assetGrid');
     const grid = document.getElementById('assetGrid');
     if (!scroller || !heading) return;
+    if (!grid?.querySelector('.asset-card, .signal-history-entry')) return;
 
     const run = async () => {
       const sRect = scroller.getBoundingClientRect();
@@ -2233,13 +2331,14 @@ const Dashboard = {
     });
 
     // Total Tracked = main list only (scalps live on their own tab)
-    const total = this.state.allAssets.filter(a =>
-      a.category !== 'scalper' && !a.asset?.isScalp && !String(a.asset?.id || '').includes('_5M')
-    ).length;
+    const total = this.state.allAssets.filter(a => !this._isScalpAsset(a)).length;
+    const highConfN = this._countForCategory('highconf');
     const bullPct = total > 0 ? Math.round(((counts.STRONG_BUY + counts.BUY) / total) * 100) : 0;
     const sentiment = bullPct >= 60 ? '🟢 Bullish' : bullPct <= 40 ? '🔴 Bearish' : '🟡 Mixed';
 
     const isActive = (sig) => this.state.activeSignalFilter === sig ? 'active' : '';
+    const emptyCls = (n) => n === 0 ? 'is-empty' : '';
+    const highConfActive = this.state.activeCategory === 'highconf' && !this.state.activeSignalFilter ? 'active' : '';
 
     const staleBanner = this.state.dataStale
       ? `<div class="summary-item stale-banner" title="The last live fetch failed. Numbers below are from your last successful load.">
@@ -2256,23 +2355,27 @@ const Dashboard = {
           <span class="summary-value">${sentiment}</span>
           <span class="summary-label">Signal Breadth</span>
         </div>
-        <div class="summary-item filterable ${isActive('STRONG_BUY')}" data-signal="STRONG_BUY" title="Strong Buys across daily/moonshot and 5m scalps. Click to show them (scalps included when this filter is on).${scalpCounts.STRONG_BUY ? ' ' + scalpCounts.STRONG_BUY + ' are 5m scalps.' : ''}">
+        <div class="summary-item filterable ${isActive('STRONG_BUY')} ${emptyCls(counts.STRONG_BUY)}" data-signal="STRONG_BUY" title="Strong Buys across daily/moonshot and 5m scalps. Click to show them (scalps included when this filter is on).${scalpCounts.STRONG_BUY ? ' ' + scalpCounts.STRONG_BUY + ' are 5m scalps.' : ''}">
           <span class="summary-count strong-buy">${counts.STRONG_BUY}</span>
           <span class="summary-label">Strong Buy${scalpCounts.STRONG_BUY ? ` · ${scalpCounts.STRONG_BUY}⚡` : ''}</span>
         </div>
-        <div class="summary-item filterable ${isActive('BUY')}" data-signal="BUY" title="Buys across daily/moonshot and 5m scalps. Click to show them.${scalpCounts.BUY ? ' ' + scalpCounts.BUY + ' are 5m scalps.' : ''}">
+        <div class="summary-item filterable setup-jump ${highConfActive} ${emptyCls(highConfN)}" data-cat="highconf" title="Indicators agree and the score is bullish. Click to open High Confidence setups.">
+          <span class="summary-count" style="color:#a78bfa">${highConfN}</span>
+          <span class="summary-label">High Conf</span>
+        </div>
+        <div class="summary-item filterable ${isActive('BUY')} ${emptyCls(counts.BUY)}" data-signal="BUY" title="Buys across daily/moonshot and 5m scalps. Click to show them.${scalpCounts.BUY ? ' ' + scalpCounts.BUY + ' are 5m scalps.' : ''}">
           <span class="summary-count buy">${counts.BUY}</span>
           <span class="summary-label">Buy${scalpCounts.BUY ? ` · ${scalpCounts.BUY}⚡` : ''}</span>
         </div>
-        <div class="summary-item filterable ${isActive('NEUTRAL')}" data-signal="NEUTRAL" title="No clear direction — indicators are mixed. Best to wait on the sidelines until a clearer signal forms. Click to filter.">
+        <div class="summary-item filterable ${isActive('NEUTRAL')} ${emptyCls(counts.NEUTRAL)}" data-signal="NEUTRAL" title="No clear direction — indicators are mixed. Best to wait on the sidelines until a clearer signal forms. Click to filter.">
           <span class="summary-count neutral">${counts.NEUTRAL}</span>
           <span class="summary-label">Hold</span>
         </div>
-        <div class="summary-item filterable ${isActive('SELL')}" data-signal="SELL" title="Assets leaning bearish — conditions favor sellers. If you own this, consider tightening your stop-loss. Click to filter.">
+        <div class="summary-item filterable ${isActive('SELL')} ${emptyCls(counts.SELL)}" data-signal="SELL" title="Assets leaning bearish — conditions favor sellers. If you own this, consider tightening your stop-loss. Click to filter.">
           <span class="summary-count sell">${counts.SELL}</span>
           <span class="summary-label">Sell</span>
         </div>
-        <div class="summary-item filterable ${isActive('STRONG_SELL')}" data-signal="STRONG_SELL" title="High-conviction bearish setups where trend and momentum align to the downside. Click to filter.">
+        <div class="summary-item filterable ${isActive('STRONG_SELL')} ${emptyCls(counts.STRONG_SELL)}" data-signal="STRONG_SELL" title="High-conviction bearish setups where trend and momentum align to the downside. Click to filter.">
           <span class="summary-count strong-sell">${counts.STRONG_SELL}</span>
           <span class="summary-label">Strong Sell</span>
         </div>
@@ -2310,6 +2413,7 @@ const Dashboard = {
       </div>
     `;
     this._bindSummaryMore();
+    this._updateFilterTabCounts();
   },
 
   _bindSummaryMore() {
@@ -2357,7 +2461,8 @@ const Dashboard = {
     const tip = this._escapeAttr(miss.detail || miss.short);
     const short = this._escapeAttr(miss.short);
     if (compact) {
-      return `<div class="strong-miss-hint" title="${tip}"><span>${short}</span></div>`;
+      const reason = (miss.short.split('·')[1] || miss.key || '').trim() || 'checklist';
+      return `<div class="strong-miss-hint" title="${tip}"><span class="strong-miss-kicker">Not S.BUY</span><span class="strong-miss-reason">${this._escapeAttr(reason)}</span></div>`;
     }
     return `<div class="strong-miss-panel" title="${tip}">
       <div class="strong-miss-title">${short}</div>
@@ -2513,6 +2618,8 @@ const Dashboard = {
   _renderAssetGrid() {
     const el = document.getElementById('assetGrid');
     if (!el) return;
+    this._updateListHeading();
+    this._updateFilterTabCounts();
 
     const liveHost = document.getElementById('liveBinanceHoldings');
     if (liveHost) {
@@ -2566,12 +2673,7 @@ const Dashboard = {
         return rsi && rsi <= 35;
       }).sort((a, b) => a.signalResult.indicators.rsi.value - b.signalResult.indicators.rsi.value);
     } else if (cat === 'highconf') {
-      const gate = CONFIG.signals?.strongConfidenceGate ?? CONFIG.refresh?.strongConfidenceGate ?? 100;
-      assets = assets.filter(a => {
-        const conf = a.signalResult?.confidence ?? 0;
-        const score = a.signalResult?.score ?? 0;
-        return conf >= gate && score > 0;
-      });
+      assets = assets.filter(a => this._isHighConf(a));
     } else if (cat === 'scalper') {
       assets = assets.filter(a => a.category === 'scalper');
     } else if (cat === 'trending') {
@@ -2835,32 +2937,13 @@ const Dashboard = {
     }
 
     let quickTargets = '';
-    if ((sig === 'BUY' || sig === 'STRONG_BUY') && signalResult?.stopSuggest) {
-      const tp = signalResult.stopSuggest.takeProfitPrice;
-      const sl = signalResult.stopSuggest.stopPrice;
-      const slStr = sl < 1 ? sl.toFixed(4) : sl.toFixed(2);
+    const showStopPlan = (sig === 'BUY' || sig === 'STRONG_BUY') && signalResult?.stopSuggest;
+    if (showStopPlan) {
       const riskPct = signalResult.stopSuggest.distancePct;
       const rewardPct = signalResult.stopSuggest.takeProfitPct;
       const rewardRisk = riskPct > 0 && rewardPct ? (rewardPct / riskPct).toFixed(1) : '–';
       const suggestedSize = riskPct > 0 ? (10000 / (riskPct / 100)).toFixed(0) : '–';
-      
-      if (tp) {
-        const tpStr = tp < 1 ? tp.toFixed(4) : tp.toFixed(2);
-        quickTargets = `
-          <div class="quick-targets">
-            <div class="qt-tp" title="Take Profit Target">🎯 $${tpStr}</div>
-            <div class="qt-sl" title="Stop Loss Limit">🛑 $${slStr}</div>
-            <div class="qt-meta">${rewardRisk}R · 1% risk on $10k: $${suggestedSize}</div>
-          </div>
-        `;
-      } else {
-        quickTargets = `
-          <div class="quick-targets">
-            <div class="qt-tp" title="Trailing Stop (No Limit)">🎯 Let it ride</div>
-            <div class="qt-sl" title="Trailing Delta for Binance">🛑 Delta: -${signalResult.stopSuggest.distancePct}%</div>
-          </div>
-        `;
-      }
+      quickTargets = `<div class="qt-meta-line">${rewardRisk}R · 1% risk on $10k: $${suggestedSize}</div>`;
     }
 
     return `
@@ -2902,7 +2985,6 @@ const Dashboard = {
           </div>
         </div>
         ${!isTop && !isMoonshot && this.state.activeCategory === 'holdings' && isLocked ? this._holdingsPnLHTML(normalizedId, price) : ''}
-        ${quickTargets}
 
         <div class="sparklines-container${updateClass}">
           <div class="sparkline-col" title="${d.category === 'scalper' ? '5-Minute Chart' : '1-Day Chart'}">
@@ -2931,17 +3013,19 @@ const Dashboard = {
           ${fundChip}
         </div>
 
-        <div class="confidence-bar-wrap" title="Visual confidence meter. The fuller the bar, the more indicators agree.">
-          <div class="confidence-bar">
-            <div class="confidence-fill signal-bg-${level.cls}" style="width:${conf}%"></div>
+        <div class="card-stack">
+          <div class="confidence-bar-wrap" title="Visual confidence meter. The fuller the bar, the more indicators agree.">
+            <div class="confidence-bar">
+              <div class="confidence-fill signal-bg-${level.cls}" style="width:${conf}%"></div>
+            </div>
           </div>
+          ${this._stopLevelsHTML(signalResult, asset)}
+          ${quickTargets}
+          ${this._strongMissHTML(signalResult, { compact: true })}
+          ${error ? `<div class="card-error">⚠️ ${error}</div>` : ''}
+          ${signalResult?.strongMiss?.short ? '' : `<div class="trade-quality-badge quality-${quality.cls}" title="${quality.tip}">${quality.icon} ${quality.label}</div>`}
+          ${(sig === 'BUY' || sig === 'STRONG_BUY') && d.category !== 'scalper' ? `<button type="button" class="follow-suggestion-btn" data-action="follow-suggestion" data-symbol="${asset.symbol}" data-signal="${sig}" data-price="${price ?? ''}">✅ I followed this</button>` : ''}
         </div>
-
-        ${this._strongMissHTML(signalResult, { compact: true })}
-        ${error ? `<div class="card-error">⚠️ ${error}</div>` : ''}
-        ${this._stopLevelsHTML(signalResult, asset)}
-        ${signalResult?.strongMiss?.short ? '' : `<div class="trade-quality-badge quality-${quality.cls}" title="${quality.tip}">${quality.icon} ${quality.label}</div>`}
-        ${(sig === 'BUY' || sig === 'STRONG_BUY') && d.category !== 'scalper' ? `<button type="button" class="follow-suggestion-btn" data-action="follow-suggestion" data-symbol="${asset.symbol}" data-signal="${sig}" data-price="${price ?? ''}">✅ I followed this</button>` : ''}
         <div class="card-footer">Click for full analysis →</div>
       </div>
     `;
@@ -2962,7 +3046,7 @@ const Dashboard = {
           <span class="stop-chip stop-chip-sl">🛑 Stop (100%): ${cur(s.stopPrice)} (-${s.distancePct}%)</span>
           <span class="stop-chip stop-chip-tp">🏦 Bank ${partial}%: ${cur(s.takeProfitPrice)} (+${bankPct}%)</span>
         </div>
-        <div class="stop-levels-row" style="margin-top:6px">
+        <div class="stop-levels-row">
           <span class="stop-chip stop-chip-tp" style="opacity:0.95">🏃 Runner ${100 - partial}%: trail ~${Number(trailPct).toFixed(2)}% ATR · BE after bank</span>
         </div>
       </div>
@@ -3512,19 +3596,26 @@ const Dashboard = {
   },
 
   // ─── Category filter tabs ────────────────────────────────────────────────────
-  _setCategory(cat) {
+  _setCategory(cat, { keepSignalFilter = false } = {}) {
     this.state.activeCategory = cat;
+    if (!keepSignalFilter) this.state.activeSignalFilter = null;
     document.querySelectorAll('.filter-tab').forEach(tab => {
       tab.classList.toggle('active', tab.dataset.cat === cat);
     });
+    this._updateListHeading(cat);
     this._updateListLegend(cat);
     this._renderAssetGrid();
+    this._renderSummaryBar();
   },
 
   _updateListLegend(cat = this.state.activeCategory) {
     const el = document.querySelector('.list-legend');
     if (!el) return;
-    if (cat === 'scalper') {
+    if (cat === 'highconf') {
+      el.innerHTML = `🎯 <strong>High Confidence</strong> = indicators agree and the score is bullish. Start here when scanning for setups.`;
+    } else if (cat === 'oversold') {
+      el.innerHTML = `📉 <strong>Oversold</strong> = RSI at or below 35. Not a buy by itself — check the rest of the card.`;
+    } else if (cat === 'scalper') {
       el.innerHTML = `⚡ <strong>5m Scalps</strong> = short plays. Use ⭐ / 🔒 on the card to Watch or Hold the <em>base</em> pair (same Holdings tab). Prefer <strong>5m CONFIRM</strong>; tiny size + stop immediately.`;
     } else {
       el.innerHTML = `⭐ <strong>Watch</strong> = you starred it (ideas only — moonshots no longer auto-star) &nbsp;·&nbsp; 🔒 <strong>Holdings</strong> = you bought it (edit Binance entry/lots) &nbsp;·&nbsp; ⚡ <strong>5m Scalps</strong> = short plays.`;
@@ -3663,63 +3754,80 @@ const Dashboard = {
     document.getElementById('summaryBar')?.addEventListener('click', e => {
         const item = e.target.closest('.filterable');
         if (!item) return;
+
+        const catJump = item.dataset.cat;
+        if (catJump) {
+          const n = this._countForCategory(catJump);
+          if (n === 0) {
+            this._showToast(catJump === 'highconf'
+              ? 'No high-confidence setups right now'
+              : 'Nothing in that list right now', 'info');
+            return;
+          }
+          this._setCategory(catJump);
+          this._scrollToFilteredAssets();
+          return;
+        }
+
         const sig = item.dataset.signal;
+        if (!sig) return;
 
         if (sig === 'ALL' || this.state.activeSignalFilter === sig) {
           this.state.activeSignalFilter = null;
-          // Stay on current tab when clearing
-        } else {
-          this.state.activeSignalFilter = sig;
-
-          // Always jump to All so S.BUY/BUY counts that include 5m scalps are visible
-          // (All normally hides scalps; with a signal filter they are included.)
-          const jumpCats = new Set(['history', 'holdings', 'watchlist', 'oversold', 'highconf', 'trending', 'scalper']);
-          if (jumpCats.has(this.state.activeCategory) || this.state.activeCategory !== 'all') {
-            this.state.activeCategory = 'all';
-            document.querySelectorAll('.filter-tab').forEach(tab => {
-              tab.classList.toggle('active', tab.dataset.cat === 'all');
-            });
-          }
-
-          const scalpN = this.state.allAssets.filter(a =>
-            (a.category === 'scalper' || a.asset?.isScalp || String(a.asset?.id || '').includes('_5M'))
-            && a.signalResult?.signal === sig
-          ).length;
-          const totalN = this.state.allAssets.filter(a => a.signalResult?.signal === sig).length;
-          if (scalpN > 0) {
-            this._showToast(
-              totalN === scalpN
-                ? `${scalpN}× ${sig.replace('_', ' ')} are 5m scalps — showing them below (SCALP chip)`
-                : `Filter: ${sig.replace('_', ' ')} (includes ${scalpN}× 5m scalp)`,
-              'info'
-            );
-          }
+          this._renderSummaryBar();
+          this._renderAssetGrid();
+          return;
         }
-        this._renderSummaryBar();
-        this._renderAssetGrid();
-        if (this.state.activeSignalFilter) this._scrollToFilteredAssets();
+
+        const count = this._countForSignal(sig);
+        if (count === 0) {
+          this._showToast(`No ${this._signalLabel(sig)} right now`, 'info');
+          return;
+        }
+        this.state.activeSignalFilter = sig;
+
+        // Always jump to All so S.BUY/BUY counts that include 5m scalps are visible
+        // (All normally hides scalps; with a signal filter they are included.)
+        if (this.state.activeCategory !== 'all') {
+          this._setCategory('all', { keepSignalFilter: true });
+        } else {
+          this._renderSummaryBar();
+          this._renderAssetGrid();
+        }
+
+        const scalpN = this.state.allAssets.filter(a =>
+          this._isScalpAsset(a) && a.signalResult?.signal === sig
+        ).length;
+        if (scalpN > 0) {
+          this._showToast(
+            count === scalpN
+              ? `${scalpN}× ${this._signalLabel(sig)} are 5m scalps — showing them below (SCALP chip)`
+              : `Filter: ${this._signalLabel(sig)} (includes ${scalpN}× 5m scalp)`,
+            'info'
+          );
+        }
+        this._scrollToFilteredAssets();
       });
 
     // Asset Search
     document.getElementById('assetSearchInput')?.addEventListener('input', (e) => {
       const q = e.target.value.toLowerCase();
       this.state.searchQuery = q;
-      
-      const isSearching = !!q;
-      
-      // Hide other sections for a clean search experience
-      const summaryBar = document.getElementById('summaryBar');
-      const liveTape = document.querySelector('.live-tape');
-      const topOppBlock = document.getElementById('topOpportunities')?.closest('.section-block');
-      
-      if (summaryBar) summaryBar.style.display = isSearching ? 'none' : '';
-      if (liveTape) liveTape.style.display = isSearching ? 'none' : '';
-      if (topOppBlock) topOppBlock.style.display = isSearching ? 'none' : 'block';
+      const isSearching = !!q.trim();
+
+      if (isSearching) this.state.activeSignalFilter = null;
+      this._setSearching(isSearching);
 
       if (isSearching && this.state.activeCategory !== 'all') {
         this._setCategory('all');
       } else {
         this._renderAssetGrid();
+      }
+    });
+    document.getElementById('assetSearchInput')?.addEventListener('focus', () => {
+      if (window.matchMedia('(max-width: 768px)').matches) {
+        const scroller = document.getElementById('dashboardSection');
+        if (scroller) scroller.scrollTop = 0;
       }
     });
 
