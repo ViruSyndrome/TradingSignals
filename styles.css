@@ -777,6 +777,9 @@ body.is-booting .ios-banner {
 @media (hover: hover) and (pointer: fine) {
   .asset-card:hover .card-footer { opacity: 1; }
 }
+@media (hover: none) {
+  .card-footer { opacity: 0.75; }
+}
 .asset-card.data-updated { animation: data-refresh 2.8s ease-out; }
 @keyframes data-refresh { 0% { box-shadow: 0 0 0 2px rgba(34, 197, 94, 0.8), var(--shadow-glow); } 100% { box-shadow: var(--shadow-glow); } }
 
@@ -2008,8 +2011,8 @@ body.chart-zoom-open .toast-container { z-index: 13000; }
   .filter-tabs::-webkit-scrollbar,
   .category-tabs::-webkit-scrollbar { display: none; }
   
-  /* Summary bar wraps */
-  .summary-bar { flex-wrap: wrap !important; gap: 8px !important; }
+  /* Summary bar keeps column layout from primary mobile rules */
+  .summary-bar { gap: 8px !important; }
   
   /* Overlay backdrop when sidebar is open */
   .sidebar-overlay {
