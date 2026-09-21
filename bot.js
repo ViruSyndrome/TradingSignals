@@ -158,18 +158,34 @@ function loadTwitterState() {
       lastGlobalTweet: s.lastGlobalTweet || 0,
       lastDailySummary: s.lastDailySummary || 0,
       lastHeartbeat: s.lastHeartbeat || 0,
+      lastPulseLine: s.lastPulseLine || '',
       coins: s.coins && typeof s.coins === 'object' ? s.coins : {},
     };
   } catch {
-    return { lastGlobalTweet: 0, lastDailySummary: 0, lastHeartbeat: 0, coins: {} };
+    return { lastGlobalTweet: 0, lastDailySummary: 0, lastHeartbeat: 0, lastPulseLine: '', coins: {} };
   }
 }
 function saveTwitterState(state) {
-  fs.writeFileSync(TWITTER_STATE_FILE, JSON.stringify(state, null, 2));
+  try {
+    fs.writeFileSync(TWITTER_STATE_FILE, JSON.stringify(state, null, 2));
+  } catch (e) {
+    console.warn('🐦 Could not save twitterState.json:', e.message);
+  }
 }
 const twitterState = loadTwitterState();
 
+function refreshTwitterStateFromDisk() {
+  const fresh = loadTwitterState();
+  twitterState.lastGlobalTweet = Math.max(twitterState.lastGlobalTweet || 0, fresh.lastGlobalTweet || 0);
+  twitterState.lastDailySummary = Math.max(twitterState.lastDailySummary || 0, fresh.lastDailySummary || 0);
+  twitterState.lastHeartbeat = Math.max(twitterState.lastHeartbeat || 0, fresh.lastHeartbeat || 0);
+  if (fresh.lastPulseLine) twitterState.lastPulseLine = fresh.lastPulseLine;
+  twitterState.coins = { ...(fresh.coins || {}), ...(twitterState.coins || {}) };
+  return twitterState;
+}
+
 function twCanPostGlobal(now = Date.now()) {
+  refreshTwitterStateFromDisk();
   return now - (twitterState.lastGlobalTweet || 0) > TW_TWO_HOURS;
 }
 
@@ -210,16 +226,17 @@ trendrunner.app · ${stamp}`,
   return variants[idx];
 }
 
-function buildDailySummaryTweet({ fearGreed, marketRegime, strongBuyCount, buyCount, topBuy }) {
+function buildDailySummaryTweet({ fearGreed, marketRegime, strongBuyCount, watchCount, topWatch }) {
   const fg = fearGreed != null ? String(fearGreed) : 'n/a';
   const stamp = new Date().toISOString().slice(0, 10);
+  const scoreStr = (n) => (Number.isFinite(n) ? (n >= 0 ? `+${n}` : String(n)) : '');
   let setupLine;
-  if (strongBuyCount > 0 && topBuy) {
-    setupLine = `${strongBuyCount} core STRONG BUY setup(s) this scan — lead: $${topBuy.symbol} (+${topBuy.score}).`;
-  } else if (buyCount > 0 && topBuy) {
-    setupLine = `No STRONG BUYs yet. ${buyCount} softer buy signal(s) — watch $${topBuy.symbol} (+${topBuy.score}).`;
+  if (strongBuyCount > 0 && topWatch) {
+    setupLine = `${strongBuyCount} core STRONG BUY setup(s) this scan — lead: $${topWatch.symbol} (${scoreStr(topWatch.score)}, ${topWatch.confidence}%).`;
+  } else if (watchCount > 0 && topWatch) {
+    setupLine = `No STRONG BUYs yet. ${watchCount} high-conf watch(es) (≥100% / score ≥3.5) — $${topWatch.symbol} (${scoreStr(topWatch.score)}, ${topWatch.confidence}%).`;
   } else {
-    setupLine = 'No core STRONG BUY setups this pass — scanner staying selective.';
+    setupLine = 'No 100%-confidence setups near S.BUY this pass — scanner staying selective.';
   }
   return `📊 TrendRunner market pulse · ${stamp}
 
@@ -348,9 +365,9 @@ async function scanMarket() {
     const all = [...(crypto || [])].filter(d => d.closes && d.closes.length >= 30);
     
     // --- Scan stats for X daily pulse ---
-    let buyCount = 0;
+    let watchCount = 0;
     let strongBuyCount = 0;
-    let topBuy = null; // { symbol, score }
+    let topWatch = null; // { symbol, score, confidence }
     let alertPostedThisScan = false;
     
     let marketRegime = 'flat';
@@ -472,11 +489,16 @@ If you sell, reply /sell ${asset.symbol}`;
 
       
       if (result.signal === 'STRONG_BUY') strongBuyCount++;
-      if (result.signal === 'BUY' || result.signal === 'STRONG_BUY') {
-        buyCount++;
+      const confGate = CONFIG.signals?.strongConfidenceGate ?? 100;
+      const watchFloor = CONFIG.signals?.watchScoreFloor ?? 3.5;
+      const conf = Number(result.confidence) || 0;
+      const score = Number(result.score) || 0;
+      // Watch = full indicator agreement and close to the S.BUY score floor — not a generic BUY.
+      if (!asset.isMoonshot && conf >= confGate && score >= watchFloor) {
+        watchCount++;
         const sym = String(asset.symbol || '').replace(/USDT$/i, '');
-        if (!topBuy || result.score > topBuy.score) {
-          topBuy = { symbol: sym, score: result.score };
+        if (!topWatch || score > topWatch.score) {
+          topWatch = { symbol: sym, score, confidence: conf };
         }
       }
       
@@ -532,16 +554,23 @@ If you sell, reply /sell ${asset.symbol}`;
           fearGreed,
           marketRegime,
           strongBuyCount,
-          buyCount,
-          topBuy,
+          watchCount,
+          topWatch,
         });
-        const ok = await postTweet(textDaily, 'daily summary', { withImage: true });
-        if (ok) {
-          twitterState.lastGlobalTweet = now;
+        if (textDaily === twitterState.lastPulseLine) {
+          console.log('🐦 Skipping duplicate market pulse (same watch line as last post).');
           twitterState.lastDailySummary = now;
           saveTwitterState(twitterState);
         } else {
-          console.warn('🐦 Daily summary failed — will retry next scan.');
+          const ok = await postTweet(textDaily, 'daily summary', { withImage: true });
+          if (ok) {
+            twitterState.lastGlobalTweet = now;
+            twitterState.lastDailySummary = now;
+            twitterState.lastPulseLine = textDaily;
+            saveTwitterState(twitterState);
+          } else {
+            console.warn('🐦 Daily summary failed — will retry next scan.');
+          }
         }
       } else if (
         sinceHeartbeat >= TW_TWELVE_HOURS &&
@@ -571,8 +600,8 @@ If you sell, reply /sell ${asset.symbol}`;
             fearGreed: undefined,
             marketRegime: 'unknown',
             strongBuyCount: 0,
-            buyCount: 0,
-            topBuy: null,
+            watchCount: 0,
+            topWatch: null,
           });
           const ok = await postTweet(textDaily, 'daily summary (scan-failed fallback)', { withImage: true });
           if (ok) {

@@ -85,6 +85,8 @@ const CONFIG = {
     strongConfidenceGate: 100,  // all directional indicators must agree
     strongBuyMaxRsi: 40,        // require cool/low RSI for S.BUY (score floor is 4.0 in LEVELS)
     strongSellMinRsi: 60,
+    // X "watch" names: full agreement and close to the S.BUY score floor (4.0)
+    watchScoreFloor: 3.5,
   },
 
   // ─── Experimental score factors (A/B via backtest --no-smc / --smc-ablation) ─
