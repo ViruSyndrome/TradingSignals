@@ -412,22 +412,8 @@ body.is-booting .ios-banner {
   align-items: stretch;
   flex-direction: column;
   gap: 10px;
-  position: sticky;
-  top: 0;
-  z-index: 8;
-  margin: 0 -8px 16px;
-  padding: 10px 8px 12px;
-  background: #080a14;
-  box-shadow: 0 14px 18px #080a14;
 }
 .asset-list-heading h2 { white-space: nowrap; }
-body.is-history-view .asset-list-heading {
-  position: static;
-  background: transparent;
-  box-shadow: none;
-  margin: 0 0 16px;
-  padding: 0;
-}
 #assetGrid .followed-panel,
 #assetGrid .alert-outcomes-panel,
 #assetGrid .signal-history-list,

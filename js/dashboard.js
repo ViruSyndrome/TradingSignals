@@ -2620,7 +2620,6 @@ const Dashboard = {
     if (!el) return;
     this._updateListHeading();
     this._updateFilterTabCounts();
-    document.body.classList.toggle('is-history-view', this.state.activeCategory === 'history');
 
     const liveHost = document.getElementById('liveBinanceHoldings');
     if (liveHost) {
