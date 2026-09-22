@@ -2561,7 +2561,7 @@ const Dashboard = {
     }
   },
 
-  // ─── Top 4 opportunities ──────────────────────────────────────────────────
+  // ─── Today's Best = High Confidence (same gate as the High Conf tab) ────
   _renderTopOpportunities() {
     const el = document.getElementById('topOpportunities');
     if (!el) return;
@@ -2570,13 +2570,11 @@ const Dashboard = {
       return;
     }
 
-    // Rank by Absolute Math Score and Confidence, but ONLY show actual BUY signals
-    const valid = [...this.state.allAssets].filter(a => {
-      if (a.category === 'scalper' || a.asset?.isScalp || String(a.asset?.id || '').includes('_5M')) return false;
-      const s = a.signalResult?.signal;
-      return a.closes?.length > 0 && (s === 'BUY' || s === 'STRONG_BUY');
-    });
-    
+    // Same coins as High Conf: 100% agreement + bullish score. Skip 5m scalps
+    // here — they belong on the Scalps tab, not the first screen.
+    const valid = [...this.state.allAssets].filter(a =>
+      !this._isScalpAsset(a) && this._isHighConf(a)
+    );
     this._sortAssets(valid);
     const ranked = valid.slice(0, 4);
 
@@ -2584,8 +2582,8 @@ const Dashboard = {
       el.innerHTML = `
         <div style="grid-column: 1 / -1; padding: 2rem; text-align: center; color: var(--text-muted); background: var(--surface-2); border-radius: 8px;">
           <div style="font-size: 2rem; margin-bottom: 1rem;">🛡️</div>
-          <h3 style="margin-bottom: 0.5rem;">No Strong Setups Found</h3>
-          <p>The market is currently hostile or choppy. The algorithm is protecting your capital.<br>Cash (USDT) is the safest position right now.</p>
+          <h3 style="margin-bottom: 0.5rem;">No High Confidence setups right now</h3>
+          <p>Nothing has full indicator agreement and a bullish score.<br>Cash (USDT) is the safer seat until High Conf prints again.</p>
         </div>
       `;
       return;
