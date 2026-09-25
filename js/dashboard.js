@@ -126,6 +126,7 @@ const Dashboard = {
     if (secretInput) secretInput.value = this._tradeSecret();
     document.getElementById('settingsModal')?.classList.add('open');
     this._refreshTradeStatus();
+    try { window.Auth?._updateSyncStatusUI?.(); } catch (_) {}
   },
 
   _closeSettingsModal() {
@@ -1280,8 +1281,14 @@ const Dashboard = {
     const map = {
       crypto:      CONFIG.assets.crypto,
     };
+    const scalpsOn = CONFIG.scalper?.enabled !== false;
     document.querySelectorAll('.filter-tab').forEach(tab => {
       const cat = tab.dataset.cat;
+      if (cat === 'scalper' && !scalpsOn) {
+        tab.style.display = 'none';
+        tab.hidden = true;
+        return;
+      }
       if (cat && cat !== 'all' && cat !== 'watchlist' && cat !== 'holdings' && cat !== 'history' && cat !== 'oversold' && cat !== 'highconf' && cat !== 'trending' && cat !== 'scalper' && (!map[cat] || map[cat].length === 0)) {
         tab.style.display = 'none';
       }
@@ -2355,17 +2362,17 @@ const Dashboard = {
           <span class="summary-value">${sentiment}</span>
           <span class="summary-label">Signal Breadth</span>
         </div>
-        <div class="summary-item filterable ${isActive('STRONG_BUY')} ${emptyCls(counts.STRONG_BUY)}" data-signal="STRONG_BUY" title="Strong Buys across daily/moonshot and 5m scalps. Click to show them (scalps included when this filter is on).${scalpCounts.STRONG_BUY ? ' ' + scalpCounts.STRONG_BUY + ' are 5m scalps.' : ''}">
+        <div class="summary-item filterable ${isActive('STRONG_BUY')} ${emptyCls(counts.STRONG_BUY)}" data-signal="STRONG_BUY" title="Trusted Strong Buys (strict gates). Rare by design — start with High Conf for more setups.">
           <span class="summary-count strong-buy">${counts.STRONG_BUY}</span>
-          <span class="summary-label">Strong Buy${scalpCounts.STRONG_BUY ? ` · ${scalpCounts.STRONG_BUY}⚡` : ''}</span>
+          <span class="summary-label">Strong Buy</span>
         </div>
-        <div class="summary-item filterable setup-jump ${highConfActive} ${emptyCls(highConfN)}" data-cat="highconf" title="Indicators agree and the score is bullish. Click to open High Confidence setups.">
+        <div class="summary-item filterable setup-jump ${highConfActive} ${emptyCls(highConfN)}" data-cat="highconf" title="Indicators agree and the score is bullish. Click to open High Confidence setups — look here first.">
           <span class="summary-count" style="color:#a78bfa">${highConfN}</span>
           <span class="summary-label">High Conf</span>
         </div>
-        <div class="summary-item filterable ${isActive('BUY')} ${emptyCls(counts.BUY)}" data-signal="BUY" title="Buys across daily/moonshot and 5m scalps. Click to show them.${scalpCounts.BUY ? ' ' + scalpCounts.BUY + ' are 5m scalps.' : ''}">
+        <div class="summary-item filterable ${isActive('BUY')} ${emptyCls(counts.BUY)}" data-signal="BUY" title="Buy setups (less strict than Strong Buy). Click to filter.">
           <span class="summary-count buy">${counts.BUY}</span>
-          <span class="summary-label">Buy${scalpCounts.BUY ? ` · ${scalpCounts.BUY}⚡` : ''}</span>
+          <span class="summary-label">Buy</span>
         </div>
         <div class="summary-item filterable ${isActive('NEUTRAL')} ${emptyCls(counts.NEUTRAL)}" data-signal="NEUTRAL" title="No clear direction — indicators are mixed. Best to wait on the sidelines until a clearer signal forms. Click to filter.">
           <span class="summary-count neutral">${counts.NEUTRAL}</span>
@@ -2887,7 +2894,7 @@ const Dashboard = {
     const researchChip = signalResult?.coreOnlyFiltered
       ? `<span class="research-chip" title="Probation setup — research/paper only while core-only mode is on">Research</span>`
       : (signalResult?.regimeBlocked || signalResult?.greedBlocked)
-        ? `<span class="research-chip blocked-chip" title="${signalResult.regimeBlocked ? 'Blocked: BTC bear regime' : 'Blocked: Extreme Greed'}">Blocked</span>`
+        ? `<span class="research-chip blocked-chip" title="${signalResult.regimeBlocked ? 'Blocked: BTC bear regime' : (CONFIG.signals?.extremeGreedBlockBuys ? 'Blocked: Extreme Greed' : 'Caution: Extreme Greed — soft dampener')}">${signalResult.regimeBlocked || CONFIG.signals?.extremeGreedBlockBuys ? 'Blocked' : 'Greed'}</span>`
         : '';
     const timingSignal = signalResult?.indicators?.timing4H?.signal
       || signalResult?.indicators?.breakout?.entryTiming
@@ -3614,9 +3621,9 @@ const Dashboard = {
     } else if (cat === 'oversold') {
       el.innerHTML = `📉 <strong>Oversold</strong> = RSI at or below 35. Not a buy by itself — check the rest of the card.`;
     } else if (cat === 'scalper') {
-      el.innerHTML = `⚡ <strong>5m Scalps</strong> = short plays. Use ⭐ / 🔒 on the card to Watch or Hold the <em>base</em> pair (same Holdings tab). Prefer <strong>5m CONFIRM</strong>; tiny size + stop immediately.`;
+      el.innerHTML = `⚡ <strong>5m Scalps</strong> are experimental and currently disabled in the main UI.`;
     } else {
-      el.innerHTML = `⭐ <strong>Watch</strong> = you starred it (ideas only — moonshots no longer auto-star) &nbsp;·&nbsp; 🔒 <strong>Holdings</strong> = you bought it (edit Binance entry/lots) &nbsp;·&nbsp; ⚡ <strong>5m Scalps</strong> = short plays.`;
+      el.innerHTML = `⭐ <strong>Watch</strong> = you starred it (ideas only — moonshots no longer auto-star) &nbsp;·&nbsp; 🔒 <strong>Holdings</strong> = you bought it (edit Binance entry/lots). Signed-in users sync Watch + Holdings across devices. Start with <strong>High Conf</strong>.`;
     }
   },
 

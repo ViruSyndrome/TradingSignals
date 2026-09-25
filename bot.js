@@ -247,6 +247,41 @@ Live signals, SL/TP & hold limits → trendrunner.app
 #CryptoTrading #TradingSignals #AlgoTrading`;
 }
 
+function tweetCardOptsFromScan(asset, result, d, price) {
+  const ss = result?.stopSuggest || {};
+  const winnerTier = result?.winnerTier ?? 'none';
+  const policy = CONFIG.exits || {};
+  const stopAtr = policy.stopAtrMult || 2;
+  const trailPct = ss.runnerTrailPct ?? (
+    ss.distancePct != null
+      ? (policy.runnerTrailAtrMult || 2) * (ss.distancePct / stopAtr)
+      : null
+  );
+  return {
+    symbol: String(asset.symbol || '').replace(/USDT$/i, ''),
+    name: asset.name || asset.symbol,
+    score: result.score,
+    confidence: result.confidence,
+    price,
+    rsi: result.indicators?.rsi?.value,
+    tvl: d.tvl,
+    tpPct: ss.takeProfitPct || ss.bankTakeProfitPct || policy.takeProfitPct || 10,
+    holdDays: ss.holdLimitDays || policy.holdLimitDays || 7,
+    stopPrice: ss.stopPrice,
+    takeProfitPrice: ss.takeProfitPrice,
+    distancePct: ss.distancePct,
+    bankPct: ss.bankTakeProfitPct ?? ss.takeProfitPct ?? policy.takeProfitPct ?? 10,
+    partialPct: ss.partialPct ?? policy.partialPct ?? 50,
+    trailPct,
+    change1d: d.change24h ?? null,
+    change4h: d.change4h ?? null,
+    closes1D: d.closes,
+    closes4H: d.closes4H,
+    signal: result.signal,
+    tierLabel: winnerTier === 'core' ? 'Core Winner' : winnerTier === 'probation' ? 'Probation Winner' : 'Crypto',
+  };
+}
+
 function buildHeartbeatTweet({ fearGreed, marketRegime }) {
   const fg = fearGreed != null ? String(fearGreed) : 'n/a';
   const stamp = new Date().toISOString().slice(11, 16);
@@ -261,9 +296,10 @@ trendrunner.app
 
 async function postTweet(text, label = 'tweet', { withImage = false, mediaBuffer = null } = {}) {
   if (!twitterClient || !text) return false;
+  // X app often 403s on raw https:// links — keep plain domain only.
+  let safeText = String(text).replace(/https?:\/\/\S+/gi, '').replace(/[ \t]+\n/g, '\n').trim();
+  let mediaId = null;
   try {
-    let payload = text;
-    let mediaId = null;
     if (mediaBuffer && Buffer.isBuffer(mediaBuffer)) {
       try {
         mediaId = await twitterClient.v1.uploadMedia(mediaBuffer, { mimeType: 'image/png' });
@@ -281,17 +317,22 @@ async function postTweet(text, label = 'tweet', { withImage = false, mediaBuffer
         }
       }
     }
-    if (mediaId) payload = { text, media: { media_ids: [mediaId] } };
+    const payload = mediaId
+      ? { text: safeText, media: { media_ids: [mediaId] } }
+      : safeText;
     await twitterClient.v2.tweet(payload);
     console.log(`✅ Tweeted ${label}${mediaId ? ' (with image)' : ''}`);
     return true;
   } catch (err) {
     const detail = err?.data?.detail || err?.data?.title || err?.message || String(err);
     const code = err?.code || err?.data?.status || '';
-    if (Number(code) === 403 && /trendrunner\.app/i.test(text)) {
-      const stripped = text.replace(/\n?trendrunner\.app\S*/gi, '').replace(/\nFree algorithmic setups →\s*/gi, '\n').trim();
+    if (Number(code) === 403 && /trendrunner\.app/i.test(safeText)) {
+      const stripped = safeText.replace(/\n?trendrunner\.app\S*/gi, '').replace(/\nFree algorithmic setups →\s*/gi, '\n').trim();
       try {
-        await twitterClient.v2.tweet(stripped);
+        const retryPayload = mediaId
+          ? { text: stripped, media: { media_ids: [mediaId] } }
+          : stripped;
+        await twitterClient.v2.tweet(retryPayload);
         console.log(`✅ Tweeted ${label} (fallback without domain)`);
         return true;
       } catch (err2) {
@@ -459,20 +500,7 @@ If you buy this, reply /buy ${asset.symbol}`;
             tpPct,
             holdDays,
           });
-          tweetCardOpts = {
-            symbol: cleanSymbol,
-            name: asset.name || cleanSymbol,
-            score: result.score,
-            confidence: result.confidence,
-            price,
-            tpPct,
-            holdDays,
-            stopPrice: result.stopSuggest?.stopPrice,
-            takeProfitPrice: result.stopSuggest?.takeProfitPrice,
-            tierLabel: 'Core Winner',
-            change1d: d.change24h ?? null,
-            change4h: d.change4h ?? null,
-          };
+          tweetCardOpts = tweetCardOptsFromScan(asset, result, d, price);
         }
       } else if (result.signal === 'STRONG_SELL' && owned) {
         const binanceLink = `https://www.binance.com/en/trade/${asset.symbol}_USDT?type=spot&ref=TRENDRUNNER`;
@@ -498,7 +526,12 @@ If you sell, reply /sell ${asset.symbol}`;
         watchCount++;
         const sym = String(asset.symbol || '').replace(/USDT$/i, '');
         if (!topWatch || score > topWatch.score) {
-          topWatch = { symbol: sym, score, confidence: conf };
+          topWatch = {
+            symbol: sym,
+            score,
+            confidence: conf,
+            cardOpts: tweetCardOptsFromScan(asset, result, d, price),
+          };
         }
       }
       
@@ -562,7 +595,11 @@ If you sell, reply /sell ${asset.symbol}`;
           twitterState.lastDailySummary = now;
           saveTwitterState(twitterState);
         } else {
-          const ok = await postTweet(textDaily, 'daily summary', { withImage: true });
+          const pulsePng = topWatch?.cardOpts ? renderTweetCardPng(topWatch.cardOpts) : null;
+          const ok = await postTweet(textDaily, 'daily summary', {
+            withImage: true,
+            mediaBuffer: pulsePng,
+          });
           if (ok) {
             twitterState.lastGlobalTweet = now;
             twitterState.lastDailySummary = now;

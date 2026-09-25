@@ -399,14 +399,19 @@ const Signals = {
         };
       }
       const greedAt = CONFIG.signals?.extremeGreedBlockAt ?? 75;
-      if (CONFIG.signals?.extremeGreedBlockBuys && typeof fearGreed === 'number' && fearGreed >= greedAt) {
-        signal = 'NEUTRAL';
+      if (typeof fearGreed === 'number' && fearGreed >= greedAt) {
+        // Soft flag for UI (Research / Extreme Greed chip). Optional hard kill via config.
         greedBlocked = true;
         indDetails.greedHardGate = {
           signal: 'SELL',
-          description: `Hard gate: Extreme Greed (${fearGreed}) — new buys blocked.`,
+          description: CONFIG.signals?.extremeGreedBlockBuys
+            ? `Hard gate: Extreme Greed (${fearGreed}) — new buys blocked.`
+            : `Extreme Greed (${fearGreed}) — crowded trade; size down or wait for cooler sentiment.`,
           score: 0,
         };
+        if (CONFIG.signals?.extremeGreedBlockBuys) {
+          signal = 'NEUTRAL';
+        }
       }
     }
 
@@ -463,7 +468,9 @@ const Signals = {
     } else if (regimeBlocked) {
       recommendation = '🛑 Buy blocked — BTC is in a bear regime. Wait for regime recovery before new alt entries. ' + recommendation;
     } else if (greedBlocked) {
-      recommendation = '🛑 Buy blocked — Extreme Greed. Crowded tape; wait for cooler sentiment. ' + recommendation;
+      recommendation = CONFIG.signals?.extremeGreedBlockBuys
+        ? '🛑 Buy blocked — Extreme Greed. Crowded tape; wait for cooler sentiment. ' + recommendation
+        : '⚠️ Extreme Greed — crowded trade. Prefer High Conf with smaller size, or wait for cooler sentiment. ' + recommendation;
     }
 
     const strongMiss = this._strongMissReason({
@@ -525,7 +532,14 @@ const Signals = {
       return { key: 'regime', short: 'Why not S.BUY · regime', detail: 'BTC bear regime — alt buys blocked.' };
     }
     if (greedBlocked) {
-      return { key: 'greed', short: 'Why not S.BUY · greed', detail: 'Extreme Greed — new buys blocked.' };
+      const hard = typeof CONFIG !== 'undefined' && CONFIG.signals?.extremeGreedBlockBuys;
+      return {
+        key: 'greed',
+        short: hard ? 'Why not S.BUY · greed' : 'Caution · Extreme Greed',
+        detail: hard
+          ? 'Extreme Greed — new buys blocked.'
+          : 'Extreme Greed — soft dampener on; size carefully, prefer High Conf.',
+      };
     }
     if (winnersFiltered) {
       return { key: 'filter', short: 'Why not S.BUY · filter', detail: 'Outside proven winners list — buy suppressed.' };

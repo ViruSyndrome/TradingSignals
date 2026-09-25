@@ -79,7 +79,7 @@ const CONFIG = {
     coreOnlyBuys: false,   // Week experiment: allow probation S.BUY too
     // Hard gates (kill buys after scoring — stronger than soft dampeners)
     bearRegimeBlockBuys: true,     // No alt BUY/STRONG_BUY when BTC regime is bear
-    extremeGreedBlockBuys: true,   // No BUY/STRONG_BUY when Fear & Greed >= threshold
+    extremeGreedBlockBuys: false,  // Soft only: F&G dampener + Research chip (no hard NEUTRAL kill)
     extremeGreedBlockAt: 75,
     // Strong Buy badge (alerts/Telegram/X) — match the rule that worked for you
     strongConfidenceGate: 100,  // all directional indicators must agree
@@ -167,7 +167,7 @@ const CONFIG = {
   // ─── 5m Scalper (volatile alts — pullback entries, not chase) ───────────────
   // Separate from daily core and 4H moonshots. Paper/small size only.
   scalper: {
-    enabled: true,
+    enabled: false, // Hidden from main UX — experimental 5m scanner kept in code
     scanIntervalMs: 2 * 60 * 1000,  // rescan every 2 minutes
     initialDelayMs: 12 * 1000,
     minQuoteVolume: 2_000_000,      // $2M+ 24h quote vol (liquidity floor)

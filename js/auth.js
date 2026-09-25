@@ -19,6 +19,8 @@ const Auth = {
   _portfolioTableOk: null,
   _syncFromInFlight: null,
   _lastSyncFromAt: 0,
+  /** ISO string of last successful cloud pull/push — shown in Settings. */
+  lastSyncedAt: null,
   /** True after first successful syncFromCloud for this session — blocks empty overwrites. */
   _portfolioHydrated: false,
 
@@ -249,6 +251,29 @@ const Auth = {
     }
   },
 
+  _markSynced() {
+    this.lastSyncedAt = new Date().toISOString();
+    this._lastSyncFromAt = Date.now();
+    this._updateSyncStatusUI();
+  },
+
+  _updateSyncStatusUI() {
+    const el = document.getElementById('accountSyncStatus');
+    if (!el) return;
+    if (!this.user) {
+      el.textContent = 'Not signed in — Watch & Holdings stay on this device only.';
+      return;
+    }
+    const email = this.user.email || this.user.user_metadata?.full_name || 'Signed in';
+    const when = this.lastSyncedAt
+      ? new Date(this.lastSyncedAt).toLocaleString([], { dateStyle: 'short', timeStyle: 'short' })
+      : 'syncing…';
+    const table = this._portfolioTableOk === false
+      ? ' (metadata fallback)'
+      : (this._portfolioTableOk ? ' (cloud portfolio)' : '');
+    el.innerHTML = `<strong>Signed in:</strong> ${email}<br><strong>Last synced:</strong> ${when}${table}<br><span style="opacity:0.85">Syncs Watch, Holdings, and followed suggestions. Signal Log stays on this device.</span>`;
+  },
+
   _updateUI() {
     try {
       const authBtn = document.getElementById('authBtn');
@@ -286,7 +311,9 @@ const Auth = {
         authBtn.style.background = 'rgba(0, 242, 254, 0.1)';
         authBtn.style.borderColor = 'var(--accent)';
         authBtn.style.color = 'var(--text-main)';
+        this.lastSyncedAt = null;
       }
+      this._updateSyncStatusUI();
     } catch (e) {
       const authBtn = document.getElementById('authBtn');
       if (authBtn) {
@@ -611,7 +638,7 @@ const Auth = {
       }
       // Align local rev with server clock after successful write.
       if (force && !skipRevTouch) this.touchPortfolioRev(Date.now());
-      this._lastSyncFromAt = Date.now();
+      this._markSynced();
       console.log('☁️ Synced portfolio', { tableOk, holdings: localInvested.length, watch: localWatchlist.length, followed: mergedFollowed.length });
       return true;
     } catch (err) {
@@ -780,6 +807,7 @@ const Auth = {
 
       this._lastSyncFromAt = Date.now();
       this._portfolioHydrated = true;
+      this._markSynced();
       if (window.Dashboard?._pendingCloudSync) {
         window.Dashboard._pendingCloudSync = false;
         // Flush edits that happened while we were still pulling.
