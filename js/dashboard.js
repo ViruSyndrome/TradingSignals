@@ -186,7 +186,7 @@ const Dashboard = {
     const trail = this._tradeStatus.defaultTrailPct || 2;
     const tp = this._tradeStatus.takeProfitPct || 10;
     const partial = this._tradeStatus.partialPct || 50;
-    document.getElementById('tradeConfirmTitle').textContent = `Buy ${sym} + 50/50 exits`;
+    document.getElementById('tradeConfirmTitle').textContent = `Buy ${sym} / Exit Plan`;
     document.getElementById('tradeConfirmSummary').textContent =
       `Market buy ${sym}USDT → sell ${partial}% at +${tp}% → trail remaining ${100 - partial}%`;
     const q = document.getElementById('tradeQuoteUsdt');

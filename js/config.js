@@ -121,8 +121,8 @@ const CONFIG = {
     takeProfitPct: 15,      // Scale A (bank) fixed TP on partial size
     holdLimitDays: 7,       // Time stop if neither bank TP nor trail exits
     stopAtrMult: 1.5,         // Initial protective stop distance
-    // 50/50 plan: bank half at +takeProfitPct; leave half as a trailing runner
-    partialPct: 50,
+    // Single target plan: exit 100% at TP
+    partialPct: 100,
     runnerTrailAtrMult: 2,
     moveStopToBreakevenAfterPartial: true,
     feePerSide: 0.001,      // 0.10% exchange fee per side

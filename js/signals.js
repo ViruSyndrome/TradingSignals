@@ -617,14 +617,14 @@ const Signals = {
         if (rsi && rsi < 35) text.push(`RSI at ${rsi} signals deeply oversold levels.`);
         if (cross === 'bullish') text.push('A MACD bullish crossover just fired — a classic entry trigger.');
         if (ma?.macroBullish && ma?.microBullish) text.push(`Dual Bullish Alignment: ${params.emaFast} EMA > ${params.emaSlow} EMA (Day Trend) and Price > 50 SMA (Macro Trend).`);
-        text.push('Use the 50/50 exit plan: bank half at +10% OCO, trail the other half (stop → breakeven after bank fills). Risk only 1-2% of capital on the full position.');
+        text.push('Use the Single Target exit plan: sell 100% at +15% OCO, or exit on day 7. Risk only 1-2% of capital on the full position.');
         break;
       case 'BUY':
         text.push('📈 Favorable conditions to accumulate.');
         if (bb?.percentB < 0.2) text.push('Price is hugging the lower Bollinger Band, suggesting a potential bounce.');
         if (ma?.macroBullish && ma?.microBullish) text.push(`Both short-term (${params.emaFast}/${params.emaSlow} EMA) and long-term (50 SMA) trends are bullish.`);
         if (ma?.microBullish && !ma?.macroBullish) text.push(`Note: Day trend is bullish (${params.emaFast} EMA > ${params.emaSlow} EMA), but Macro Trend is bearish. Proceed with caution.`);
-        text.push('If you enter, still use 50/50 exits (half bank at +10%, half trail). Prefer waiting for a cool 4H dip when the timing chip says WAIT.');
+        text.push('If you enter, still use the Single Target (+15%) exit. Prefer waiting for a cool 4H dip when the timing chip says WAIT.');
         break;
       case 'NEUTRAL':
         text.push('⏸️ Mixed signals — no clear directional edge.');
