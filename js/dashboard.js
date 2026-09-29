@@ -2416,8 +2416,8 @@ const Dashboard = {
           <span class="summary-value" style="color:#34d399">${CONFIG.signals?.coreOnlyBuys ? 'Core-only' : (CONFIG.signals?.winnersOnlyBuys ? 'Winners' : 'Open list')}</span>
           <span class="summary-label">${(CONFIG.assets?.coreWinners || []).length} core · ${(CONFIG.assets?.probationWinners || []).length} probation</span>
         </div>
-        <div class="summary-item meta" title="Live exits: bank ${this._exitPolicy().partialPct}% at +${this._exitPolicy().takeProfitPct}% OCO; trail the rest (${this._exitPolicy().runnerTrailAtrMult}×ATR). Max hold ${this._exitPolicy().holdLimitDays}d.">
-          <span class="summary-value" style="color:#29b6f6">${this._exitPolicy().partialPct}/${100 - this._exitPolicy().partialPct} · +${this._exitPolicy().takeProfitPct}% · ${this._exitPolicy().holdLimitDays}d</span>
+        <div class="summary-item meta" title="Live exits: 100% limit sell at +${this._exitPolicy().takeProfitPct}%. Stop at 1.5x ATR. Max hold ${this._exitPolicy().holdLimitDays}d.">
+          <span class="summary-value" style="color:#29b6f6">Single Target · +${this._exitPolicy().takeProfitPct}% · ${this._exitPolicy().holdLimitDays}d</span>
           <span class="summary-label">Exits</span>
         </div>
         ${this._lastBacktestBadgeHTML()}

@@ -447,7 +447,7 @@
             <ul>
               <li><strong>The Delay:</strong> Daily signals often need a few sessions to develop. Do not panic-sell on day 2 because of normal noise.</li>
               <li><strong>Single Target (100%):</strong> Sell Limit at <strong>+15%</strong> with the suggested 1.5x ATR stop.</li>
-              <li><strong>Scale B (50%):</strong> Trailing / ATR trail on the runner; move stop to <strong>breakeven</strong> after Scale A fills — this is how larger runners stay possible.</li>
+              
               <li><strong>The 7-Day Cap:</strong> If leftovers have not exited within <strong>7 days</strong>, close them and free capital.</li>
             </ul>
             <div class="edu-tip">💡 <strong>Strategy:</strong> Place both legs at entry, lock the coin in Holdings, and walk away.</div>
@@ -855,11 +855,8 @@
           <label for="tradeQuoteUsdt">USDT to spend</label>
           <input type="number" id="tradeQuoteUsdt" class="auth-input" min="5" step="1" value="50">
         </div>
-        <div class="input-group">
-          <label for="tradeTrailPct">Runner trail callback %</label>
-          <input type="number" id="tradeTrailPct" class="auth-input" min="0.1" max="10" step="0.1" value="2">
-        </div>
-        <p class="trade-confirm-note">Places: market buy → limit sell 50% at +10% → trailing stop on remaining 50%. Caps enforced on the bot.</p>
+        
+        <p class="trade-confirm-note">Places: market buy -> limit sell 100% at +15% target. Caps enforced on the bot.</p>
         <p id="tradeConfirmError" class="auth-error"></p>
         <button type="button" id="tradeConfirmSubmit" class="btn btn-primary auth-submit-btn">Confirm buy on Binance</button>
       </div>
