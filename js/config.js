@@ -118,7 +118,7 @@ const CONFIG = {
   // ─── Live exit policy (single source of truth for OCO, bots, UI, backtests) ─
   // Keep take-profit / hold-limit messaging identical everywhere.
   exits: {
-    takeProfitPct: 15,      // Scale A (bank) fixed TP on partial size
+    takeProfitPct: 15,      // Single Target: exit 100% at this %
     holdLimitDays: 7,       // Time stop if neither bank TP nor trail exits
     stopAtrMult: 1.5,         // Initial protective stop distance
     // Single target plan: exit 100% at TP

@@ -212,13 +212,13 @@ function buildCardSvg(opts = {}) {
   <rect x="132" y="468" width="1036" height="4" rx="2" fill="rgba(255,255,255,0.05)"/>
   <rect x="132" y="468" width="${confW}" height="4" rx="2" fill="${ui.bar}"/>
 
-  <!-- Stop / bank / runner — same copy as the dashboard card -->
+  <!-- Stop / target — single exit plan -->
   <rect x="132" y="488" width="510" height="40" rx="8" fill="rgba(239,68,68,0.15)" stroke="rgba(239,68,68,0.35)"/>
   <text x="387" y="514" text-anchor="middle" font-family="${FONT}" font-size="14" font-weight="700" fill="#ef4444">Stop (100%): ${esc(stop)} ${esc(dist)}</text>
   <rect x="654" y="488" width="510" height="40" rx="8" fill="rgba(34,197,94,0.15)" stroke="rgba(34,197,94,0.35)"/>
   <text x="909" y="514" text-anchor="middle" font-family="${FONT}" font-size="14" font-weight="700" fill="#22c55e">Target (100%): ${esc(bank)} (+${esc(String(bankPct))}%)</text>
-  <rect x="132" y="538" width="1036" height="40" rx="8" fill="rgba(34,197,94,0.15)" stroke="rgba(34,197,94,0.35)"/>
-  <text x="650" y="564" text-anchor="middle" font-family="${FONT}" font-size="14" font-weight="700" fill="#22c55e">Runner ${esc(String(100 - partial))}%: trail ~${esc(String(trail))}% ATR · BE after bank</text>
+  <rect x="132" y="538" width="1036" height="40" rx="8" fill="rgba(100,116,139,0.15)" stroke="rgba(100,116,139,0.35)"/>
+  <text x="650" y="564" text-anchor="middle" font-family="${FONT}" font-size="14" font-weight="700" fill="#94a3b8">Time Stop: Exit at market on Day 7</text>
 
   <text x="650" y="616" text-anchor="middle" font-family="${FONT}" font-size="14" font-weight="600" fill="#7c6af5">Click for full analysis →</text>
 </svg>`;

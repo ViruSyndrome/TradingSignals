@@ -455,16 +455,13 @@ async function scanMarket() {
       const winnerTier = result.winnerTier ?? 'none';
       if (result.stopSuggest) {
         const ss = result.stopSuggest;
-        const partial = ss.partialPct ?? CONFIG.exits?.partialPct ?? 50;
-        const trail = ss.runnerTrailPct != null ? ss.runnerTrailPct : (CONFIG.exits?.runnerTrailAtrMult ?? 2);
         stopText = `
 
-🛡️ 50/50 exit plan
-🛑 Stop (full size): $${ss.stopPrice} (-${ss.distancePct}%)
-🏦 Bank ${partial}% @ $${ss.takeProfitPrice} (+${ss.takeProfitPct || ss.bankTakeProfitPct}%)
-🏃 Runner ${100 - partial}%: trail ~${trail}% ATR; move stop to breakeven after bank fills
-⏳ Time stop: Max ${ss.holdLimitDays || CONFIG.exits?.holdLimitDays || 7} days on leftovers
-⚠️ Place Scale A OCO + Scale B trail on Binance at entry.`;
+🎯 Single Target exit plan
+🛑 Stop Loss (100%): $${ss.stopPrice} (-${ss.distancePct}%)
+✅ Take Profit (100%): $${ss.takeProfitPrice} (+${ss.takeProfitPct || ss.bankTakeProfitPct}%)
+⏳ Time stop: Exit at market on Day ${ss.holdLimitDays || CONFIG.exits?.holdLimitDays || 7} if neither order fills
+⚠️ Place OCO on Binance at entry (Price = TP, Stop = SL, Limit = SL × 0.998).`;
       }
 
       if (result.signal === 'STRONG_BUY') {
