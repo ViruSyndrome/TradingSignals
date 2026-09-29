@@ -69,14 +69,14 @@ const CONFIG = {
     // and update this list — it reflects a 250-day window and WILL go stale.
     // Core: consistently profitable with >1% avg return AND >40% win rate.
     // Probation: profitable but marginal (<1% avg return OR low win rate).
-    coreWinners: ['ARB', 'ASTR', 'DASH', 'INJ', 'LDO', 'NEAR', 'THETA'],
+    coreWinners: ['POL', 'ATOM', 'NEAR', 'INJ', 'RENDER', 'FET', 'TRX', 'ARB', 'OP', 'LDO', 'THETA', 'RUNE', 'TIA', 'DASH'],
     probationWinners: ['ATOM', 'BNB', 'BTC', 'EGLD', 'ETH', 'LINK', 'OP', 'PEPE', 'POL', 'RENDER', 'RUNE', 'TAO', 'TRX', 'UNI'],
     provenWinners: ['ARB', 'ASTR', 'ATOM', 'BNB', 'BTC', 'DASH', 'EGLD', 'ETH', 'INJ', 'LDO', 'LINK', 'NEAR', 'OP', 'PEPE', 'POL', 'RENDER', 'RUNE', 'TAO', 'THETA', 'TRX', 'UNI'],
   },
 
   signals: {
-    winnersOnlyBuys: false, // Week experiment: allow S.BUY on any tracked coin (you still only take S.BUY)
-    coreOnlyBuys: false,   // Week experiment: allow probation S.BUY too
+    winnersOnlyBuys: true, // Week experiment: allow S.BUY on any tracked coin (you still only take S.BUY)
+    coreOnlyBuys: true,   // Week experiment: allow probation S.BUY too
     // Hard gates (kill buys after scoring — stronger than soft dampeners)
     bearRegimeBlockBuys: true,     // No alt BUY/STRONG_BUY when BTC regime is bear
     extremeGreedBlockBuys: false,  // Soft only: F&G dampener + Research chip (no hard NEUTRAL kill)
@@ -90,7 +90,7 @@ const CONFIG = {
     // Score ≥ 4 and 100% confidence. Both halves must average above 0 or the buy is withheld.
     // Older half (25 closed trades): -2.12%. Newer half (39 closed trades): +2.70%.
     expectancy: {
-      allowBuys: false,
+      allowBuys: true,
       minScore: 4,
       minConfidence: 100,
       olderAvgPct: -2.12,
@@ -120,7 +120,7 @@ const CONFIG = {
   exits: {
     takeProfitPct: 15,      // Scale A (bank) fixed TP on partial size
     holdLimitDays: 7,       // Time stop if neither bank TP nor trail exits
-    stopAtrMult: 2,         // Initial protective stop distance
+    stopAtrMult: 1.5,         // Initial protective stop distance
     // 50/50 plan: bank half at +takeProfitPct; leave half as a trailing runner
     partialPct: 50,
     runnerTrailAtrMult: 2,
