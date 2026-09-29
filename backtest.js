@@ -69,7 +69,8 @@ function parseArgs() {
   const entryRealism = args.includes('--entry-realism');
   const noSmc = args.includes('--no-smc');
   const smcAblation = args.includes('--smc-ablation');
-  return { walkForward, walkForwardRolling, costSweep, interval, moonshots, scalps, useTrailingExit, entryRealism, noSmc, smcAblation };
+  const account = args.includes('--account');
+  return { walkForward, walkForwardRolling, costSweep, interval, moonshots, scalps, useTrailingExit, entryRealism, noSmc, smcAblation, account };
 }
 
 function setFactorFlags(enabled) {
@@ -876,6 +877,473 @@ async function runParameterSweep(histories, fgMap) {
 }
 
 // ─── Main ──────────────────────────────────────────────────────────────────────
+const ACCOUNT_START_INR = 50000;
+const ACCOUNT_MIN_SCORE = 4;
+const ACCOUNT_MIN_CONF = 100;
+
+function precomputeDailySignals(histories, fgMap, btcCloses) {
+  const tape = {};
+  for (const asset of CONFIG.assets.crypto) {
+    const ohlcv = histories[asset.symbol];
+    if (!ohlcv) continue;
+    const row = new Array(ohlcv.closes.length).fill(null);
+    for (let day = MIN_HISTORY; day < ohlcv.closes.length; day++) {
+      const slicedCloses = ohlcv.closes.slice(0, day + 1);
+      const slicedHighs = ohlcv.highs.slice(0, day + 1);
+      const slicedLows = ohlcv.lows.slice(0, day + 1);
+      const slicedVolumes = ohlcv.volumes.slice(0, day + 1);
+      const dayFG = ohlcv.timestamps ? getFGForTimestamp(fgMap, ohlcv.timestamps[day]) : null;
+      let marketRegime = 'flat';
+      if (Array.isArray(btcCloses) && btcCloses.length > day) {
+        const btcSliced = btcCloses.slice(0, day + 1);
+        const btcSma50 = Indicators.last(Indicators.sma(btcSliced, 50));
+        const btcPrice = btcSliced[btcSliced.length - 1];
+        if (btcSma50) marketRegime = btcPrice > btcSma50 ? 'bull' : 'bear';
+      }
+      const result = Signals.generate(slicedCloses, {
+        highs: slicedHighs,
+        lows: slicedLows,
+        volumes: slicedVolumes,
+        symbol: asset.symbol,
+        ignoreWinnersFilter: true,
+        skipExpectancy: true,
+        fearGreed: dayFG,
+        marketRegime,
+      });
+      const atrArr = Indicators.atr(slicedHighs, slicedLows, slicedCloses, 14);
+      const atr = atrArr ? Indicators.last(atrArr) : null;
+      row[day] = {
+        signal: result.signal,
+        score: result.score ?? 0,
+        confidence: result.confidence ?? 0,
+        atr,
+      };
+    }
+    tape[asset.symbol] = row;
+  }
+  return tape;
+}
+
+function qualifiesAccountEntry(sig) {
+  if (!sig) return false;
+  if (sig.signal !== 'BUY' && sig.signal !== 'STRONG_BUY') return false;
+  return sig.score >= ACCOUNT_MIN_SCORE && sig.confidence >= ACCOUNT_MIN_CONF;
+}
+
+function runOneAccount(histories, tape, opts) {
+  const btc = histories.BTC;
+  if (!btc) return null;
+  const { feeRate, slippage, startIdx, endIdx } = opts;
+  const cost = feeRate + slippage;
+  const tsIndex = {};
+  for (const asset of CONFIG.assets.crypto) {
+    const ohlcv = histories[asset.symbol];
+    if (!ohlcv) continue;
+    const map = new Map();
+    ohlcv.timestamps.forEach((ts, i) => map.set(ts, i));
+    tsIndex[asset.symbol] = map;
+  }
+
+  const last = Math.min(endIdx ?? (btc.timestamps.length - 2), btc.timestamps.length - 2);
+  const first = Math.max(startIdx ?? MIN_HISTORY, MIN_HISTORY);
+  let cash = 1;
+  let lastFlatCash = 1;
+  let position = null;
+  let pending = null;
+  const trades = [];
+  let signalsSeen = 0;
+
+  function bookExit(qty, cashBefore, entryPrice, exitPrice, reason, entryIdx, exitIdx, symbol, score, confidence) {
+    const nextCash = qty * exitPrice * (1 - cost);
+    const returnPct = ((nextCash - cashBefore) / cashBefore) * 100;
+    trades.push({
+      symbol,
+      score,
+      confidence,
+      entryPrice,
+      exitPrice,
+      exitReason: reason,
+      holdDays: exitIdx - entryIdx,
+      returnPct,
+      win: returnPct > 0,
+    });
+    return nextCash;
+  }
+
+  for (let i = first; i <= last; i++) {
+    const ts = btc.timestamps[i];
+
+    if (pending && pending.fillIdx === i) {
+      if (pending.type === 'exit' && position) {
+        cash = bookExit(
+          position.qty, position.cashBefore, position.entryPrice, pending.price,
+          pending.reason, position.entryIdx, i, position.symbol, position.score, position.confidence
+        );
+        position = null;
+        lastFlatCash = cash;
+      } else if (pending.type === 'entry' && !position) {
+        const qty = (cash * (1 - cost)) / pending.price;
+        position = {
+          symbol: pending.symbol,
+          qty,
+          cashBefore: cash,
+          entryPrice: pending.price,
+          entryIdx: i,
+          stop: pending.stop,
+          takeProfit: pending.takeProfit,
+          score: pending.score,
+          confidence: pending.confidence,
+        };
+        cash = 0;
+      }
+      pending = null;
+    }
+
+    if (position) {
+      const ohlcv = histories[position.symbol];
+      const j = tsIndex[position.symbol].get(ts);
+      if (j != null) {
+        const holdDays = i - position.entryIdx;
+        const stopHit = position.stop && ohlcv.lows[j] <= position.stop;
+        const tpHit = position.takeProfit && ohlcv.highs[j] >= position.takeProfit;
+        if (stopHit) {
+          const fill = ohlcv.opens[j] < position.stop ? ohlcv.opens[j] : position.stop;
+          cash = bookExit(
+            position.qty, position.cashBefore, position.entryPrice, fill,
+            'STOP_LOSS', position.entryIdx, i, position.symbol, position.score, position.confidence
+          );
+          position = null;
+          lastFlatCash = cash;
+        } else if (tpHit) {
+          cash = bookExit(
+            position.qty, position.cashBefore, position.entryPrice, position.takeProfit,
+            'TAKE_PROFIT', position.entryIdx, i, position.symbol, position.score, position.confidence
+          );
+          position = null;
+          lastFlatCash = cash;
+        } else {
+          const sig = tape[position.symbol][j];
+          const sell = sig && (sig.signal === 'SELL' || sig.signal === 'STRONG_SELL');
+          const timed = holdDays >= HOLD_LIMIT;
+          if ((sell || timed) && i < btc.timestamps.length - 1) {
+            const nextTs = btc.timestamps[i + 1];
+            const j2 = tsIndex[position.symbol].get(nextTs);
+            if (j2 != null) {
+              pending = {
+                type: 'exit',
+                fillIdx: i + 1,
+                price: ohlcv.opens[j2],
+                reason: timed ? 'HOLD_LIMIT' : sig.signal,
+              };
+            }
+          }
+        }
+      }
+    }
+
+    if (!position && !pending) {
+      let best = null;
+      for (const asset of CONFIG.assets.crypto) {
+        const map = tsIndex[asset.symbol];
+        const ohlcv = histories[asset.symbol];
+        if (!map || !ohlcv) continue;
+        const j = map.get(ts);
+        if (j == null) continue;
+        const sig = tape[asset.symbol][j];
+        if (!qualifiesAccountEntry(sig)) continue;
+        signalsSeen += 1;
+        if (i >= btc.timestamps.length - 1) continue;
+        const nextTs = btc.timestamps[i + 1];
+        const j2 = map.get(nextTs);
+        if (j2 == null) continue;
+        const entryPrice = ohlcv.opens[j2];
+        if (!isFinite(entryPrice) || entryPrice <= 0) continue;
+        if (
+          !best ||
+          sig.score > best.score ||
+          (sig.score === best.score && sig.confidence > best.confidence) ||
+          (sig.score === best.score && sig.confidence === best.confidence && asset.symbol < best.symbol)
+        ) {
+          const risk = sig.atr ? sig.atr * STOP_MULT : null;
+          best = {
+            symbol: asset.symbol,
+            score: sig.score,
+            confidence: sig.confidence,
+            fillIdx: i + 1,
+            price: entryPrice,
+            stop: risk ? entryPrice - risk : null,
+            takeProfit: entryPrice * (1 + TP_PCT),
+          };
+        }
+      }
+      if (best) pending = { type: 'entry', ...best };
+    }
+  }
+
+  let markedCash = cash;
+  let open = null;
+  if (position) {
+    const ohlcv = histories[position.symbol];
+    const j = tsIndex[position.symbol].get(btc.timestamps[last]);
+    const px = j != null ? ohlcv.closes[j] : position.entryPrice;
+    markedCash = position.qty * px * (1 - cost);
+    open = { symbol: position.symbol, entryPrice: position.entryPrice, mark: px, holdDays: last - position.entryIdx };
+  }
+
+  return { trades, cash, lastFlatCash, markedCash, open, signalsSeen, startIdx: first, endIdx: last };
+}
+
+function runSplitAccount(histories, tape, opts) {
+  const btc = histories.BTC;
+  if (!btc) return null;
+  const {
+    feeRate,
+    slippage,
+    startIdx,
+    endIdx,
+    maxPositions = 5,
+    useTimeStop = true,
+  } = opts;
+  const stake = 1 / maxPositions;
+  const cost = feeRate + slippage;
+  const tsIndex = {};
+  for (const asset of CONFIG.assets.crypto) {
+    const ohlcv = histories[asset.symbol];
+    if (!ohlcv) continue;
+    const map = new Map();
+    ohlcv.timestamps.forEach((ts, i) => map.set(ts, i));
+    tsIndex[asset.symbol] = map;
+  }
+
+  const last = Math.min(endIdx ?? (btc.timestamps.length - 2), btc.timestamps.length - 2);
+  const first = Math.max(startIdx ?? MIN_HISTORY, MIN_HISTORY);
+  let cash = 1;
+  const positions = [];
+  const pendingExits = [];
+  const pendingEntries = [];
+  const trades = [];
+  let signalsSeen = 0;
+  let maxOpen = 0;
+
+  function bookExit(position, exitPrice, reason, exitIdx) {
+    const nextCash = position.qty * exitPrice * (1 - cost);
+    const returnPct = ((nextCash - position.cashBefore) / position.cashBefore) * 100;
+    trades.push({
+      symbol: position.symbol,
+      score: position.score,
+      confidence: position.confidence,
+      entryPrice: position.entryPrice,
+      exitPrice,
+      exitReason: reason,
+      holdDays: exitIdx - position.entryIdx,
+      returnPct,
+      win: returnPct > 0,
+    });
+    cash += nextCash;
+  }
+
+  for (let i = first; i <= last; i++) {
+    const ts = btc.timestamps[i];
+
+    for (let n = pendingExits.length - 1; n >= 0; n--) {
+      const order = pendingExits[n];
+      if (order.fillIdx !== i) continue;
+      const pos = positions.find(p => p.symbol === order.symbol);
+      if (pos) {
+        bookExit(pos, order.price, order.reason, i);
+        positions.splice(positions.indexOf(pos), 1);
+      }
+      pendingExits.splice(n, 1);
+    }
+
+    for (let n = pendingEntries.length - 1; n >= 0; n--) {
+      const order = pendingEntries[n];
+      if (order.fillIdx !== i) continue;
+      if (!positions.some(p => p.symbol === order.symbol)) {
+        const qty = (order.stake * (1 - cost)) / order.price;
+        positions.push({
+          symbol: order.symbol,
+          qty,
+          cashBefore: order.stake,
+          entryPrice: order.price,
+          entryIdx: i,
+          stop: order.stop,
+          takeProfit: order.takeProfit,
+          score: order.score,
+          confidence: order.confidence,
+        });
+      } else {
+        cash += order.stake;
+      }
+      pendingEntries.splice(n, 1);
+    }
+
+    for (let n = positions.length - 1; n >= 0; n--) {
+      const position = positions[n];
+      if (pendingExits.some(o => o.symbol === position.symbol)) continue;
+      const ohlcv = histories[position.symbol];
+      const j = tsIndex[position.symbol].get(ts);
+      if (j == null) continue;
+      const holdDays = i - position.entryIdx;
+      const stopHit = position.stop && ohlcv.lows[j] <= position.stop;
+      const tpHit = position.takeProfit && ohlcv.highs[j] >= position.takeProfit;
+      if (stopHit) {
+        const fill = ohlcv.opens[j] < position.stop ? ohlcv.opens[j] : position.stop;
+        bookExit(position, fill, 'STOP_LOSS', i);
+        positions.splice(n, 1);
+      } else if (tpHit) {
+        bookExit(position, position.takeProfit, 'TAKE_PROFIT', i);
+        positions.splice(n, 1);
+      } else {
+        const sig = tape[position.symbol][j];
+        const sell = sig && (sig.signal === 'SELL' || sig.signal === 'STRONG_SELL');
+        const timed = useTimeStop && holdDays >= HOLD_LIMIT;
+        if ((sell || timed) && i < btc.timestamps.length - 1) {
+          const nextTs = btc.timestamps[i + 1];
+          const j2 = tsIndex[position.symbol].get(nextTs);
+          if (j2 != null) {
+            pendingExits.push({
+              symbol: position.symbol,
+              fillIdx: i + 1,
+              price: ohlcv.opens[j2],
+              reason: timed ? 'HOLD_LIMIT' : sig.signal,
+            });
+          }
+        }
+      }
+    }
+
+    const held = new Set([
+      ...positions.map(p => p.symbol),
+      ...pendingEntries.map(p => p.symbol),
+      ...pendingExits.map(p => p.symbol),
+    ]);
+    const room = maxPositions - positions.length - pendingEntries.length;
+    if (room > 0 && i < btc.timestamps.length - 1) {
+      const candidates = [];
+      for (const asset of CONFIG.assets.crypto) {
+        if (held.has(asset.symbol)) continue;
+        const map = tsIndex[asset.symbol];
+        const ohlcv = histories[asset.symbol];
+        if (!map || !ohlcv) continue;
+        const j = map.get(ts);
+        if (j == null) continue;
+        const sig = tape[asset.symbol][j];
+        if (!qualifiesAccountEntry(sig)) continue;
+        signalsSeen += 1;
+        const nextTs = btc.timestamps[i + 1];
+        const j2 = map.get(nextTs);
+        if (j2 == null) continue;
+        const entryPrice = ohlcv.opens[j2];
+        if (!isFinite(entryPrice) || entryPrice <= 0) continue;
+        const risk = sig.atr ? sig.atr * STOP_MULT : null;
+        candidates.push({
+          symbol: asset.symbol,
+          score: sig.score,
+          confidence: sig.confidence,
+          fillIdx: i + 1,
+          price: entryPrice,
+          stop: risk ? entryPrice - risk : null,
+          takeProfit: entryPrice * (1 + TP_PCT),
+        });
+      }
+      candidates.sort((a, b) => b.score - a.score || b.confidence - a.confidence || a.symbol.localeCompare(b.symbol));
+      for (const pick of candidates) {
+        if (positions.length + pendingEntries.length >= maxPositions) break;
+        if (cash < stake - 1e-9) break;
+        cash -= stake;
+        pendingEntries.push({ ...pick, stake });
+      }
+    }
+
+    maxOpen = Math.max(maxOpen, positions.length);
+  }
+
+  let markedCash = cash;
+  const open = [];
+  for (const position of positions) {
+    const ohlcv = histories[position.symbol];
+    const j = tsIndex[position.symbol].get(btc.timestamps[last]);
+    const px = j != null ? ohlcv.closes[j] : position.entryPrice;
+    const value = position.qty * px * (1 - cost);
+    markedCash += value;
+    open.push({ symbol: position.symbol, entryPrice: position.entryPrice, mark: px, holdDays: last - position.entryIdx });
+  }
+  for (const order of pendingEntries) markedCash += order.stake;
+
+  return { trades, cash, markedCash, open, signalsSeen, maxOpen, maxPositions };
+}
+
+function printAccountResult(label, result) {
+  const inr = (x) => `₹${Math.round(x).toLocaleString('en-IN')}`;
+  const markedInr = ACCOUNT_START_INR * result.markedCash;
+  const stats = computeStats(result.trades, 'returnPct');
+  console.log(`\n─── ${label} ───`);
+  console.log(`  Closed trades:     ${result.trades.length}`);
+  console.log(`  Days a qualifying coin appeared: ${result.signalsSeen}`);
+  if (stats) {
+    console.log(`  Wins / losses:     ${stats.wins} / ${stats.losses}`);
+    console.log(`  Win rate:          ${stats.winRate}`);
+    console.log(`  Avg closed trade:  ${stats.avgReturn}`);
+    console.log(`  Best / worst:      ${stats.maxReturn} / ${stats.minReturn}`);
+    console.log(`  Avg hold (days):   ${stats.avgHoldDays}`);
+    console.log('  Exits:');
+    for (const [reason, count] of Object.entries(stats.byExit)) {
+      console.log(`    ${reason.padEnd(12)} ${count}`);
+    }
+  } else {
+    console.log('  No closed trades.');
+  }
+  console.log(`  Started ${inr(ACCOUNT_START_INR)}. Account marked to the last price: ${inr(markedInr)} (${markedInr >= ACCOUNT_START_INR ? '+' : ''}${inr(markedInr - ACCOUNT_START_INR)})`);
+  if (result.maxOpen != null) console.log(`  Most coins held at once: ${result.maxOpen} of ${result.maxPositions}`);
+  const opens = Array.isArray(result.open) ? result.open : (result.open ? [result.open] : []);
+  for (const pos of opens) {
+    console.log(`  Still open: ${pos.symbol} entry $${pos.entryPrice} mark $${pos.mark} held ${pos.holdDays}d`);
+  }
+  const show = result.trades.slice(-25);
+  for (const t of show) {
+    console.log(`    ${t.symbol.padEnd(8)} ${t.exitReason.padEnd(12)} ${String(t.holdDays).padStart(2)}d  score ${t.score}  ${t.returnPct >= 0 ? '+' : ''}${t.returnPct.toFixed(2)}%`);
+  }
+  if (result.trades.length > show.length) {
+    console.log(`    … ${result.trades.length - show.length} earlier trades not listed`);
+  }
+}
+
+async function runAccountReport(histories, fgMap, btcCloses) {
+  console.log('\n═══════════════════════════════════════════════════════════════');
+  console.log('  SPLIT ACCOUNT — score ≥ 4 and confidence 100%');
+  console.log(`  Start ₹${ACCOUNT_START_INR.toLocaleString('en-IN')}. Each buy is one fifth (₹10,000), up to 5 coins at once.`);
+  console.log('  Exit: stop, +10% limit, sell signal, or day 7. Fees 0.10% + slippage 0.10% per side.');
+  console.log('  Does not rewrite config.js or the winner lists.');
+  console.log('═══════════════════════════════════════════════════════════════');
+  console.log('\n  Building daily signals...');
+  const tape = precomputeDailySignals(histories, fgMap, btcCloses);
+  const endIdx = histories.BTC.timestamps.length - 2;
+  const common = { feeRate: FEE_RATE, slippage: SLIPPAGE, endIdx, maxPositions: 5, useTimeStop: true };
+  printAccountResult('Older half only, fresh ₹50,000, 5 buys at a time', runSplitAccount(histories, tape, {
+    ...common,
+    startIdx: MIN_HISTORY,
+    endIdx: WALK_FORWARD_TRAIN_END_DAY,
+  }));
+  printAccountResult('Full ~250 days, 5 buys at a time', runSplitAccount(histories, tape, {
+    ...common,
+    startIdx: MIN_HISTORY,
+  }));
+  printAccountResult('Later half only, fresh ₹50,000, 5 buys at a time', runSplitAccount(histories, tape, {
+    ...common,
+    startIdx: WALK_FORWARD_TEST_START_DAY,
+  }));
+  printAccountResult('Full ~250 days, 5 buys, no day-7 sell (hold until stop, +10%, or sell)', runSplitAccount(histories, tape, {
+    ...common,
+    startIdx: MIN_HISTORY,
+    useTimeStop: false,
+  }));
+
+  console.log('\n═══════════════════════════════════════════════════════════════');
+  console.log('  Account backtest complete.');
+  console.log('═══════════════════════════════════════════════════════════════\n');
+}
+
 async function main() {
   const args = parseArgs();
   const scenarios = getCostScenarios(args.costSweep);
@@ -938,6 +1406,15 @@ async function main() {
   
   const fgMap = await fetchFearGreedHistory(250);
   const btcCloses = histories.BTC?.closes || null;
+
+  if (args.account) {
+    if (!histories.BTC) {
+      console.error('\n  [FATAL] BTC history missing. Cannot run the one-account test.');
+      process.exit(2);
+    }
+    await runAccountReport(histories, fgMap, btcCloses);
+    return;
+  }
 
   if (args.smcAblation) {
     console.log('\n═══════════════════════════════════════════════════════════════');

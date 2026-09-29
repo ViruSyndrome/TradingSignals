@@ -351,7 +351,7 @@ const Signals = {
       }
     }
 
-    const conviction = signal === 'STRONG_BUY' || signal === 'STRONG_SELL'
+    let conviction = signal === 'STRONG_BUY' || signal === 'STRONG_SELL'
       ? 'strong'
       : signal === 'BUY' || signal === 'SELL'
         ? 'standard'
@@ -415,6 +415,28 @@ const Signals = {
       }
     }
 
+    // Past trades of this exact setup (score ≥ 4, confidence 100%) must have
+    // made money on the older half and the newer half. Otherwise withhold the buy.
+    let expectancyBlocked = false;
+    const expectancy = (typeof CONFIG !== 'undefined' && CONFIG.signals?.expectancy) || null;
+    if (
+      expectancy &&
+      expectancy.allowBuys === false &&
+      !opts.skipExpectancy &&
+      score >= (expectancy.minScore ?? 4) &&
+      confidence >= (expectancy.minConfidence ?? 100) &&
+      ['BUY', 'STRONG_BUY'].includes(signal)
+    ) {
+      signal = 'NEUTRAL';
+      conviction = 'none';
+      expectancyBlocked = true;
+      indDetails.expectancyGate = {
+        signal: 'NEUTRAL',
+        description: `Buy withheld. This setup averaged ${expectancy.olderAvgPct}% on the older half and ${expectancy.newerAvgPct}% on the newer half.`,
+        score: 0,
+      };
+    }
+
     // ── ATR-based stop-loss + take-profit suggestion ────────────────────────
     // Live policy: ATR stop + fixed % take-profit from CONFIG.exits (single source of truth).
     const curAtr = atrArr ? Indicators.last(atrArr) : null;
@@ -471,6 +493,8 @@ const Signals = {
       recommendation = CONFIG.signals?.extremeGreedBlockBuys
         ? '🛑 Buy blocked — Extreme Greed. Crowded tape; wait for cooler sentiment. ' + recommendation
         : '⚠️ Extreme Greed — crowded trade. Prefer High Conf with smaller size, or wait for cooler sentiment. ' + recommendation;
+    } else if (expectancyBlocked) {
+      recommendation = `🛑 Buy withheld — score ${score.toFixed(1)} at ${confidence}% confidence lost money on the older half of the test (${expectancy.olderAvgPct}% then, ${expectancy.newerAvgPct}% later). ` + recommendation;
     }
 
     const strongMiss = this._strongMissReason({
@@ -503,6 +527,7 @@ const Signals = {
       coreOnlyFiltered,
       regimeBlocked,
       greedBlocked,
+      expectancyBlocked,
       winnerTier,
       strongMiss,
       arrays: { rsi: rsiArr, macd: macdData, emaFast, emaSlow, sma50, sma200, bb: bbData, atr: atrArr, closes },

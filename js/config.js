@@ -87,6 +87,15 @@ const CONFIG = {
     strongSellMinRsi: 60,
     // X "watch" names: full agreement and close to the S.BUY score floor (4.0)
     watchScoreFloor: 3.5,
+    // Score ≥ 4 and 100% confidence. Both halves must average above 0 or the buy is withheld.
+    // Older half (25 closed trades): -2.12%. Newer half (39 closed trades): +2.70%.
+    expectancy: {
+      allowBuys: false,
+      minScore: 4,
+      minConfidence: 100,
+      olderAvgPct: -2.12,
+      newerAvgPct: 2.70,
+    },
   },
 
   // ─── Experimental score factors (A/B via backtest --no-smc / --smc-ablation) ─
@@ -109,7 +118,7 @@ const CONFIG = {
   // ─── Live exit policy (single source of truth for OCO, bots, UI, backtests) ─
   // Keep take-profit / hold-limit messaging identical everywhere.
   exits: {
-    takeProfitPct: 10,      // Scale A (bank) fixed TP on partial size
+    takeProfitPct: 15,      // Scale A (bank) fixed TP on partial size
     holdLimitDays: 7,       // Time stop if neither bank TP nor trail exits
     stopAtrMult: 2,         // Initial protective stop distance
     // 50/50 plan: bank half at +takeProfitPct; leave half as a trailing runner
