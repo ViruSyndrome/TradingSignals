@@ -188,7 +188,7 @@ const Dashboard = {
     const partial = this._tradeStatus.partialPct || 50;
     document.getElementById('tradeConfirmTitle').textContent = `Buy ${sym} / Exit Plan`;
     document.getElementById('tradeConfirmSummary').textContent =
-      `Market buy ${sym}USDT → sell ${partial}% at +${tp}% → trail remaining ${100 - partial}%`;
+      `Market buy ${sym}USDT -> sell 100% at +${tp}% limit`;
     const q = document.getElementById('tradeQuoteUsdt');
     const t = document.getElementById('tradeTrailPct');
     if (q) { q.value = Math.min(max, CONFIG.trade?.defaultQuoteUsdt || 50); q.max = max; }
@@ -254,7 +254,7 @@ const Dashboard = {
     const ready = !!this._tradeStatus?.tradeEnabled;
     btn.disabled = !ready;
     btn.title = ready
-      ? 'Market buy + bank 50% at +10% + trail remaining 50%'
+      ? 'Market buy + Single target at +15%'
       : 'Configure owner click-trade in Settings first';
   },
 
@@ -3357,7 +3357,7 @@ const Dashboard = {
           <div class="modal-trade-wrap">
             <a href="${binanceTradeUrl}" target="_blank" rel="noopener noreferrer" class="modal-trade-btn" title="${this.BINANCE_REF_TITLE}">Trade ${tradeSymbol}USDT on Binance ↗</a>
             <button type="button" id="modalClickTradeBtn" class="modal-click-trade-btn">Buy / Exit Plan</button>
-            <p class="modal-affiliate-note">Referral link for everyone · Owner click-trade uses your Render bot (market buy → bank 50% at +10% → trail 50%).</p>
+            <p class="modal-affiliate-note">Referral link for everyone · Owner click-trade uses your Render bot (market buy -> single target limit sell).</p>
           </div>
         </div>
         ${ocoHTML}
