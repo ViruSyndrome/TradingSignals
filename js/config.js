@@ -71,7 +71,7 @@ const CONFIG = {
     // Probation: profitable but marginal (<1% avg return OR low win rate).
     coreWinners: ['POL', 'ATOM', 'NEAR', 'INJ', 'RENDER', 'FET', 'TRX', 'ARB', 'OP', 'LDO', 'THETA', 'RUNE', 'TIA', 'DASH'],
     probationWinners: ['ATOM', 'BNB', 'BTC', 'EGLD', 'ETH', 'LINK', 'OP', 'PEPE', 'POL', 'RENDER', 'RUNE', 'TAO', 'TRX', 'UNI'],
-    provenWinners: ['ARB', 'ASTR', 'ATOM', 'BNB', 'BTC', 'DASH', 'EGLD', 'ETH', 'INJ', 'LDO', 'LINK', 'NEAR', 'OP', 'PEPE', 'POL', 'RENDER', 'RUNE', 'TAO', 'THETA', 'TRX', 'UNI'],
+    provenWinners: ['ARB', 'FET', 'TIA', 'ASTR', 'ATOM', 'BNB', 'BTC', 'DASH', 'EGLD', 'ETH', 'INJ', 'LDO', 'LINK', 'NEAR', 'OP', 'PEPE', 'POL', 'RENDER', 'RUNE', 'TAO', 'THETA', 'TRX', 'UNI'],
   },
 
   signals: {
