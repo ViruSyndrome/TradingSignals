@@ -446,7 +446,7 @@
             <p>Patience pays — but capital should not sit idle. Live TrendRunner exits use a <strong>Single Target plan</strong>: sell 100% at a fixed +15% take-profit limit order, or sell at market price if the 7-day time limit expires.</p>
             <ul>
               <li><strong>The Delay:</strong> Daily signals often need a few sessions to develop. Do not panic-sell on day 2 because of normal noise.</li>
-              <li><strong>Scale A (50%):</strong> Sell OCO — bank at <strong>+10%</strong> with the suggested ATR stop on that half.</li>
+              <li><strong>Single Target (100%):</strong> Sell Limit at <strong>+15%</strong> with the suggested 1.5x ATR stop.</li>
               <li><strong>Scale B (50%):</strong> Trailing / ATR trail on the runner; move stop to <strong>breakeven</strong> after Scale A fills — this is how larger runners stay possible.</li>
               <li><strong>The 7-Day Cap:</strong> If leftovers have not exited within <strong>7 days</strong>, close them and free capital.</li>
             </ul>
@@ -550,12 +550,12 @@
             <div class="edu-header"><span>⚡</span><h3>Live Exit Policy: 10% TP & 7-Day Hold</h3></div>
             <p>Dashboard cards, OCO helpers, Telegram/X alerts, and the visual backtester all read the same exit policy from config.</p>
             <ul>
-              <li><strong>Bank +10% on half:</strong> Keeps a reliable cash-flow leg so you are not forced to hope every trade moons.</li>
-              <li><strong>Trail the other half:</strong> Lets occasional 40%+ runners happen without raising the fixed TP on your full size.</li>
+              <li><strong>Bank +15%:</strong> Consistent, mathematically verified profit target.</li>
+              <li><strong>Time Stop:</strong> Exiting on Day 7 protects capital from dead chop.</li>
               <li><strong>The 7-Day Time Limit:</strong> If a trade does not hit +10% within 7 days, treat capital as better deployed elsewhere.</li>
               <li><strong>Dynamic Stop-Losses (ATR):</strong> Stops use ~2× ATR so volatile coins get more room than quiet ones.</li>
             </ul>
-            <div class="edu-tip">💡 <strong>Strategy:</strong> At entry place Scale A OCO (half @ +10%) and Scale B trail (half). Max hold leftovers = 7 days.</div>
+            <div class="edu-tip">💡 <strong>Strategy:</strong> At entry place an OCO for +15% and Stop Loss. Max hold = 7 days.</div>
           </div>
           <div class="edu-full-card">
             <div class="edu-header"><span>🔄</span><h3>Swing Trading vs Day Trading — Which Suits You?</h3></div>
