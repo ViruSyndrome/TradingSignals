@@ -1580,13 +1580,12 @@ const Dashboard = {
   },
 
   /** Clear hung fetch mutex left behind by tab/PWA suspension. */
-  _clearStuckFetch(reason = 'resume', { force = false } = {}) {
+  _clearStuckFetch(reason = 'resume', { force = false, stuckMs = 12000 } = {}) {
     const now = Date.now();
     const started = this._fetchStartedAt || 0;
     const age = started ? now - started : (this._fetchInFlight ? Infinity : 0);
-    const STUCK_MS = 12000;
     if (!this._fetchInFlight && !this.state.loading) return false;
-    if (!force && age < STUCK_MS && this._fetchInFlight) return false;
+    if (!force && age < stuckMs && this._fetchInFlight) return false;
     console.warn(`[Dashboard] Clearing stuck fetch/loading after ${reason} (age=${Math.round(age / 1000)}s, force=${force})`);
     this._fetchEpoch = (this._fetchEpoch || 0) + 1;
     this._fetchInFlight = null;
@@ -1948,6 +1947,14 @@ const Dashboard = {
     }
   },
 
+  /** Regular poll. A fetch frozen by the OS must not block the next one. */
+  _pollRefresh() {
+    if (typeof document !== 'undefined' && document.visibilityState === 'hidden') return;
+    this._clearStuckFetch('poll', { stuckMs: 45000 });
+    if (this._fetchInFlight) return;
+    this.loadAll(true, { bypassCache: true });
+  },
+
   // ─── Refresh timer ───────────────────────────────────────────────────────────
   _scheduleRefresh() {
     clearInterval(this.state.refreshTimer);
@@ -1956,7 +1963,7 @@ const Dashboard = {
     // Always bypass localStorage market cache on the poll — otherwise a
     // backgrounded tab can keep "refreshing" lastUpdate from stale cache.
     this.state.refreshTimer = setInterval(
-      () => this.loadAll(true, { bypassCache: true }),
+      () => this._pollRefresh(),
       CONFIG.refresh.intervalMs
     );
     this.state.countdownTimer = setInterval(() => this._updateLiveStatus(), 1000);
@@ -2308,21 +2315,41 @@ const Dashboard = {
   _updateLiveStatus() {
     const text = document.getElementById('liveStatusText');
     const dot = document.querySelector('#liveStatus .live-dot');
-    if (!text) return;
-    if (this.state.loading) {
-      text.textContent = 'Updating';
-      dot?.classList.add('live-loading');
-      return;
+    if (text) {
+      if (this.state.loading) {
+        text.textContent = 'Updating';
+        dot?.classList.add('live-loading');
+      } else {
+        dot?.classList.remove('live-loading');
+        if (this.state.dataStale) {
+          text.textContent = 'Stale data';
+        } else {
+          const seconds = Math.max(0, Math.ceil((this.state.refreshDueAt - Date.now()) / 1000));
+          text.textContent = `Live · ${seconds}s`;
+          const freshness = document.querySelector('.freshness-item .summary-value');
+          if (freshness) freshness.textContent = this._freshnessText();
+        }
+      }
     }
-    dot?.classList.remove('live-loading');
-    if (this.state.dataStale) {
-      text.textContent = 'Stale data';
-      return;
-    }
-    const seconds = Math.max(0, Math.ceil((this.state.refreshDueAt - Date.now()) / 1000));
-    text.textContent = `Live · ${seconds}s`;
-    const freshness = document.querySelector('.freshness-item .summary-value');
-    if (freshness) freshness.textContent = this._freshnessText();
+    this._catchUpIfStale();
+  },
+
+  /**
+   * Phones freeze setInterval while the PWA is backgrounded. When JS wakes,
+   * this tick is the first thing that runs. If prices are older than one
+   * refresh interval, drop a dead in-flight request and fetch again.
+   */
+  _catchUpIfStale() {
+    if (typeof document !== 'undefined' && document.visibilityState === 'hidden') return;
+    const interval = (CONFIG?.refresh?.intervalMs) || 30000;
+    const overdue = this.state.refreshDueAt != null && (Date.now() - this.state.refreshDueAt) > 5000;
+    const old = this._dataAgeMs() > interval + 5000;
+    if (!overdue && !old && !this.state.dataStale) return;
+    if (this._catchUpAt && Date.now() - this._catchUpAt < 8000) return;
+    this._catchUpAt = Date.now();
+    this._clearStuckFetch('catch-up', { stuckMs: 15000 });
+    if (this._fetchInFlight) return;
+    this.loadAll(true, { bypassCache: true });
   },
 
   // ─── Summary bar at top ──────────────────────────────────────────────────────
