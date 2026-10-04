@@ -69,9 +69,9 @@ const CONFIG = {
     // and update this list — it reflects a 250-day window and WILL go stale.
     // Core: consistently profitable with >1% avg return AND >40% win rate.
     // Probation: profitable but marginal (<1% avg return OR low win rate).
-    coreWinners: ['POL', 'ATOM', 'NEAR', 'INJ', 'RENDER', 'FET', 'TRX', 'ARB', 'OP', 'LDO', 'THETA', 'RUNE', 'TIA', 'DASH'],
+    coreWinners: ['ARB', 'ASTR', 'DASH', 'INJ', 'LDO', 'NEAR', 'THETA'],
     probationWinners: ['ATOM', 'BNB', 'BTC', 'EGLD', 'ETH', 'LINK', 'OP', 'PEPE', 'POL', 'RENDER', 'RUNE', 'TAO', 'TRX', 'UNI'],
-    provenWinners: ['ARB', 'FET', 'TIA', 'ASTR', 'ATOM', 'BNB', 'BTC', 'DASH', 'EGLD', 'ETH', 'INJ', 'LDO', 'LINK', 'NEAR', 'OP', 'PEPE', 'POL', 'RENDER', 'RUNE', 'TAO', 'THETA', 'TRX', 'UNI'],
+    provenWinners: ['ARB', 'ASTR', 'ATOM', 'BNB', 'BTC', 'DASH', 'EGLD', 'ETH', 'INJ', 'LDO', 'LINK', 'NEAR', 'OP', 'PEPE', 'POL', 'RENDER', 'RUNE', 'TAO', 'THETA', 'TRX', 'UNI'],
   },
 
   signals: {
@@ -141,13 +141,13 @@ const CONFIG = {
 
   // Public trust badge — refreshed by weekly `node backtest.js` / GitHub Action.
   lastBacktest: {
-    runAt: '2026-09-27T06:30:34.029Z',
-    totalRuns: 12,
+    runAt: '2026-10-04T08:10:20.582Z',
+    totalRuns: 13,
     coreCount: 7,
     probationCount: 14,
-    winnersTrades: 3848,
+    winnersTrades: 4222,
     winnersWinRate: 49.2,
-    winnersAvgReturn: 0.97,
+    winnersAvgReturn: 1.07,
   },
   // Signal thresholds are defined in signals.js LEVELS object.
 
