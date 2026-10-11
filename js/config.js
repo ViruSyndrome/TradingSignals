@@ -141,13 +141,13 @@ const CONFIG = {
 
   // Public trust badge — refreshed by weekly `node backtest.js` / GitHub Action.
   lastBacktest: {
-    runAt: '2026-10-04T08:10:20.582Z',
-    totalRuns: 13,
+    runAt: '2026-10-11T06:31:02.654Z',
+    totalRuns: 14,
     coreCount: 7,
     probationCount: 14,
-    winnersTrades: 4222,
+    winnersTrades: 4621,
     winnersWinRate: 49.2,
-    winnersAvgReturn: 1.07,
+    winnersAvgReturn: 1.14,
   },
   // Signal thresholds are defined in signals.js LEVELS object.
 
