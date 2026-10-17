@@ -1,13 +1,14 @@
 'use strict';
 
 /**
- * Range / Red Bar Desk — trader sheet.
- * Primary: RedBarTrend (prior-day bands + opening range + red bar refs).
- * Secondary: EMA 10/30 overlay only (separate theory — confirmation chip, not the engine).
+ * Red Bar Desk — visual trader sheet.
+ * Chart + LONG / SHORT / WAIT action strip + levels.
+ * EMA is overlay only.
  */
 const RangeEmaUI = {
   _timer: null,
   _busy: false,
+  _chart: null,
   state: { rows: [], updatedAt: null, error: null },
 
   cfg() {
@@ -59,13 +60,17 @@ const RangeEmaUI = {
     }));
   },
 
-  _emaOverlay(bars, fast, slow) {
-    if (typeof RangeEmaEngine === 'undefined' || !bars.length) {
-      return { cross: 'n/a', emaFast: null, emaSlow: null };
+  _emaSeries(closes, period) {
+    if (typeof RangeEmaEngine !== 'undefined') {
+      return RangeEmaEngine.ema(closes, period);
     }
+    return new Array(closes.length).fill(null);
+  },
+
+  _emaOverlay(bars, fast, slow) {
     const closes = bars.map((b) => b.c);
-    const emaF = RangeEmaEngine.ema(closes, fast);
-    const emaS = RangeEmaEngine.ema(closes, slow);
+    const emaF = this._emaSeries(closes, fast);
+    const emaS = this._emaSeries(closes, slow);
     const i = bars.length - 1;
     let cross = 'none';
     if (emaF[i] != null && emaS[i] != null && emaF[i - 1] != null && emaS[i - 1] != null) {
@@ -75,7 +80,7 @@ const RangeEmaUI = {
       else if (prevUp && !nowUp) cross = 'bear_cross';
       else cross = nowUp ? 'stacked_bull' : 'stacked_bear';
     }
-    return { cross, emaFast: emaF[i], emaSlow: emaS[i] };
+    return { cross, emaFast: emaF[i], emaSlow: emaS[i], emaF, emaS };
   },
 
   async _buildRow(symbol, c) {
@@ -94,9 +99,8 @@ const RangeEmaUI = {
 
     const ema = this._emaOverlay(bars30, c.emaFast || 10, c.emaSlow || 30);
 
-    // Optional: does EMA agree with Red Bar trend? (info only)
     let emaAgree = 'n/a';
-    if (readout && ema.cross !== 'none' && ema.cross !== 'n/a') {
+    if (readout && ema.cross !== 'none') {
       const emaBull = ema.cross === 'bull_cross' || ema.cross === 'stacked_bull';
       const emaBear = ema.cross === 'bear_cross' || ema.cross === 'stacked_bear';
       if (readout.trend === 'bullish') emaAgree = emaBull ? 'agrees' : emaBear ? 'disagrees' : 'n/a';
@@ -104,7 +108,73 @@ const RangeEmaUI = {
       else emaAgree = 'neutral_trend';
     }
 
-    return { symbol, readout, ema, emaAgree };
+    const action = this._actionPlan(readout, emaAgree);
+
+    return { symbol, bars: bars30, readout, ema, emaAgree, action };
+  },
+
+  /** What the trader should do — plain language + levels */
+  _actionPlan(o, emaAgree) {
+    if (!o) {
+      return { side: 'WAIT', title: 'No data', steps: [], cls: 'wait' };
+    }
+    if (o.phase === 'first_candle' || o.phase === 'inside_or') {
+      return {
+        side: 'WAIT',
+        cls: 'wait',
+        title: 'Do not trade yet',
+        subtitle: 'Inside today’s opening range (or first candle still forming).',
+        steps: [
+          `Mark OR high ${this._fmt(o.refs.orHigh)} and OR low ${this._fmt(o.refs.orLow)} on your chart.`,
+          'Only act after a clear break and hold outside that box.',
+        ],
+        entry: null,
+        stop: null,
+        exit: null,
+      };
+    }
+    if (o.trend === 'bullish') {
+      return {
+        side: 'LONG',
+        cls: 'long',
+        title: 'Bias: BUY / go long',
+        subtitle: `Red Bar trend bullish${emaAgree === 'agrees' ? ' · EMA agrees' : emaAgree === 'disagrees' ? ' · EMA disagrees — be smaller or skip' : ''}.`,
+        steps: [
+          'Futures: open LONG (or spot buy) near current price / band support hold.',
+          `Stop / invalidation near ${this._fmt(o.invalidation)} (opening-range low or band).`,
+          `Take profit / book near ${this._fmt(o.bookZone)} (red-bar high or next resistance).`,
+        ],
+        entry: o.price,
+        stop: o.invalidation,
+        exit: o.bookZone,
+      };
+    }
+    if (o.trend === 'bearish') {
+      return {
+        side: 'SHORT',
+        cls: 'short',
+        title: 'Bias: SELL / go short',
+        subtitle: `Red Bar trend bearish${emaAgree === 'agrees' ? ' · EMA agrees' : emaAgree === 'disagrees' ? ' · EMA disagrees — be smaller or skip' : ''}.`,
+        steps: [
+          'Futures: open SHORT near current price / band resistance rejection.',
+          `Stop / invalidation near ${this._fmt(o.invalidation)} (opening-range high or band).`,
+          `Take profit / book near ${this._fmt(o.bookZone)} (red-bar low or next support).`,
+        ],
+        entry: o.price,
+        stop: o.invalidation,
+        exit: o.bookZone,
+      };
+    }
+    return {
+      side: 'WAIT',
+      cls: 'wait',
+      title: 'No clear bias',
+      subtitle: 'No opening-range break yet.',
+      steps: ['Watch prior-day bands as magnets; wait for OR break.'],
+      entry: null,
+      stop: null,
+      exit: null,
+    };
   },
 
   _fmt(n, d = 2) {
@@ -121,6 +191,19 @@ const RangeEmaUI = {
     return `${p >= 0 ? '+' : ''}${p.toFixed(2)}%`;
   },
 
+  _flat(n, len) {
+    return new Array(len).fill(n);
+  },
+
+  destroyChart() {
+    if (this._chart) {
+      try {
+        this._chart.destroy();
+      } catch (_) {}
+      this._chart = null;
+    }
+  },
+
   render() {
     const host = document.getElementById('rangeEmaDesk');
     if (!host) return;
@@ -130,112 +213,216 @@ const RangeEmaUI = {
       return;
     }
     host.hidden = false;
+    this.destroyChart();
 
     if (this.state.error && !this.state.rows.length) {
       host.innerHTML = `<div class="range-desk-error">Red Bar Desk: ${this.state.error}</div>`;
       return;
     }
 
-    const cards = (this.state.rows || []).map((r) => this._cardHtml(r)).join('');
+    const row = (this.state.rows || [])[0];
     const when = this.state.updatedAt
       ? new Date(this.state.updatedAt).toLocaleTimeString()
       : '—';
+
+    if (!row) {
+      host.innerHTML = `<div class="range-desk-error">Loading BTC chart…</div>`;
+      return;
+    }
 
     host.innerHTML = `
       <div class="section-heading">
         <h1>🟥 Red Bar Desk</h1>
         <p class="section-sub">
-          <strong>Trend prediction</strong> from prior-day range bars + today’s opening range + last red bar.
-          EMA ${c.emaFast || 10}/${c.emaSlow || 30} is a <em>separate</em> overlay (agree/disagree only).
-          You decide the trade on the chart.
+          Visual BTC map: price, EMA 10/30, opening range, prior-day magnets, red-bar exit refs.
           <span class="range-desk-meta">Updated ${when}</span>
         </p>
       </div>
-      <div class="range-desk-grid">${cards || '<div class="range-desk-error">Loading…</div>'}</div>
-      <p class="range-desk-footnote">Same Red Bar map works on Nifty, gold, oil, gas once that OHLC is wired. Crypto = Binance ${c.workingTf || '30m'}, day clock = ${c.dayMode || 'utc'}.</p>
+      ${this._deskHtml(row, c)}
+    `;
+
+    requestAnimationFrame(() => this._paintChart(row, c));
+  },
+
+  _deskHtml(r, c) {
+    if (r.error) {
+      return `<div class="range-desk-error">${r.error}</div>`;
+    }
+    const o = r.readout;
+    const a = r.action || this._actionPlan(o, r.emaAgree);
+    const trendCls =
+      o.trend === 'bullish' ? 'pos' : o.trend === 'bearish' ? 'neg' : '';
+
+    const steps = (a.steps || []).map((s) => `<li>${s}</li>`).join('');
+
+    return `
+      <div class="rb-action ${a.cls}">
+        <div class="rb-action-side">${a.side}</div>
+        <div class="rb-action-body">
+          <div class="rb-action-title">${a.title}</div>
+          <div class="rb-action-sub">${a.subtitle || ''}</div>
+          <ul class="rb-action-steps">${steps}</ul>
+          <div class="rb-action-levels">
+            <div><span>Entry lean</span><strong>${this._fmt(a.entry)}</strong></div>
+            <div><span>Stop</span><strong class="neg-text">${this._fmt(a.stop)}</strong></div>
+            <div><span>Exit / book</span><strong class="pos-text">${this._fmt(a.exit)}</strong></div>
+          </div>
+        </div>
+      </div>
+
+      <div class="rb-chart-wrap glass">
+        <div class="rb-chart-legend">
+          <span class="lg price">Price</span>
+          <span class="lg ema10">EMA ${c.emaFast || 10}</span>
+          <span class="lg ema30">EMA ${c.emaSlow || 30}</span>
+          <span class="lg or">Opening range</span>
+          <span class="lg band">Prior-day S/R</span>
+          <span class="lg red">Red-bar refs</span>
+          <span class="lg stop">Stop</span>
+          <span class="lg tp">Exit</span>
+        </div>
+        <div class="rb-chart-box">
+          <canvas id="redBarChart" aria-label="BTC Red Bar chart"></canvas>
+        </div>
+      </div>
+
+      <div class="rb-meta-row">
+        <div class="range-trend-banner ${trendCls}">
+          <span class="range-trend-label">Predicted trend</span>
+          <strong>${o.trend === 'bullish' ? 'BULLISH' : o.trend === 'bearish' ? 'BEARISH' : 'NEUTRAL'}</strong>
+        </div>
+        <p class="range-narrative">${o.narrative}</p>
+      </div>
+
+      <div class="range-chips">
+        <span class="range-chip">OR bias: ${o.orBias}</span>
+        <span class="range-chip">Phase: ${String(o.phase).replace(/_/g, ' ')}</span>
+        <span class="range-chip">EMA: ${String((r.ema && r.ema.cross) || '').replace(/_/g, ' ')}</span>
+        <span class="range-chip ${r.emaAgree === 'agrees' ? 'pos' : r.emaAgree === 'disagrees' ? 'neg' : ''}">EMA ${r.emaAgree}</span>
+        <span class="range-chip">${o.bandCountPrior} prior-day bands</span>
+      </div>
+
+      <p class="range-desk-footnote">
+        Green box = look long · Red box = look short · Grey = wait.
+        You still place the order on the exchange after checking the chart.
+      </p>
     `;
   },
 
-  _cardHtml(r) {
-    if (r.error) {
-      return `<div class="range-card glass"><h3>${r.symbol}</h3><p class="range-desk-error">${r.error}</p></div>`;
-    }
-    const o = r.readout;
-    if (!o) {
-      return `<div class="range-card glass"><h3>${r.symbol}</h3><p class="range-desk-error">No readout</p></div>`;
-    }
+  _paintChart(row, c) {
+    const canvas = document.getElementById('redBarChart');
+    if (!canvas || typeof Chart === 'undefined' || !row.bars) return;
 
-    const trendCls =
-      o.trend === 'bullish' ? 'pos' : o.trend === 'bearish' ? 'neg' : '';
-    const trendWord =
-      o.trend === 'bullish' ? 'BULLISH' : o.trend === 'bearish' ? 'BEARISH' : 'NEUTRAL';
+    const showN = Math.min(120, row.bars.length);
+    const bars = row.bars.slice(-showN);
+    const offset = row.bars.length - showN;
+    const o = row.readout;
+    const emaF = (row.ema.emaF || []).slice(offset);
+    const emaS = (row.ema.emaS || []).slice(offset);
+    const n = bars.length;
 
-    const bands =
-      (o.activeBands || [])
-        .map(
-          (b) =>
-            `<li><span class="band-day">${b.day}</span> ${this._fmt(b.low)} – ${this._fmt(b.high)} <em>mid ${this._fmt(b.mid)}</em></li>`
-        )
-        .join('') || '<li class="muted">Not inside a prior-day band right now</li>';
+    const labels = bars.map((b) => {
+      const d = new Date(b.t);
+      return `${d.getUTCMonth() + 1}/${d.getUTCDate()} ${String(d.getUTCHours()).padStart(2, '0')}:${String(d.getUTCMinutes()).padStart(2, '0')}`;
+    });
+    const closes = bars.map((b) => b.c);
 
-    const ema = r.ema || {};
-    const agreeCls =
-      r.emaAgree === 'agrees' ? 'pos' : r.emaAgree === 'disagrees' ? 'neg' : '';
+    const mkLine = (val, label, color, dash) => ({
+      label,
+      data: this._flat(val, n),
+      borderColor: color,
+      borderWidth: 1.5,
+      borderDash: dash || [],
+      pointRadius: 0,
+      fill: false,
+      tension: 0,
+    });
 
-    const base = r.symbol.replace('USDT', '');
-    return `
-      <article class="range-card glass">
-        <header class="range-card-head">
-          <h3>${base}</h3>
-          <div class="range-price">${this._fmt(o.price)}</div>
-        </header>
+    const datasets = [
+      {
+        label: 'BTC',
+        data: closes,
+        borderColor: '#e2e8f0',
+        backgroundColor: 'rgba(226,232,240,0.06)',
+        borderWidth: 2,
+        pointRadius: 0,
+        fill: true,
+        tension: 0.15,
+      },
+      {
+        label: `EMA ${c.emaFast || 10}`,
+        data: emaF,
+        borderColor: '#38bdf8',
+        borderWidth: 1.5,
+        pointRadius: 0,
+        fill: false,
+        tension: 0.1,
+      },
+      {
+        label: `EMA ${c.emaSlow || 30}`,
+        data: emaS,
+        borderColor: '#a78bfa',
+        borderWidth: 1.5,
+        pointRadius: 0,
+        fill: false,
+        tension: 0.1,
+      },
+    ];
 
-        <div class="range-trend-banner ${trendCls}">
-          <span class="range-trend-label">Predicted trend</span>
-          <strong>${trendWord}</strong>
-        </div>
-        <p class="range-narrative">${o.narrative}</p>
+    if (o.refs?.orHigh != null) datasets.push(mkLine(o.refs.orHigh, 'OR high', 'rgba(250,204,21,0.85)', [6, 4]));
+    if (o.refs?.orLow != null) datasets.push(mkLine(o.refs.orLow, 'OR low', 'rgba(250,204,21,0.55)', [6, 4]));
+    if (o.refs?.bandResist != null) datasets.push(mkLine(o.refs.bandResist, 'Band resist', 'rgba(248,113,113,0.7)', [2, 3]));
+    if (o.refs?.bandSupport != null) datasets.push(mkLine(o.refs.bandSupport, 'Band support', 'rgba(74,222,128,0.7)', [2, 3]));
+    if (o.refs?.redHigh != null) datasets.push(mkLine(o.refs.redHigh, 'Red high', 'rgba(239,68,68,0.9)', [8, 4]));
+    if (o.refs?.redLow != null) datasets.push(mkLine(o.refs.redLow, 'Red low', 'rgba(239,68,68,0.5)', [8, 4]));
+    if (o.invalidation != null) datasets.push(mkLine(o.invalidation, 'Stop', '#f43f5e', []));
+    if (o.bookZone != null) datasets.push(mkLine(o.bookZone, 'Exit', '#22c55e', []));
 
-        <div class="range-chips">
-          <span class="range-chip">OR bias: ${o.orBias}</span>
-          <span class="range-chip">Phase: ${String(o.phase).replace(/_/g, ' ')}</span>
-          <span class="range-chip">Bands: ${o.bandCountPrior} days</span>
-        </div>
-
-        <div class="range-magnets">
-          <div><span class="lbl">Opening range high / low</span>
-            <strong>${this._fmt(o.refs.orHigh)}</strong> / <strong>${this._fmt(o.refs.orLow)}</strong>
-          </div>
-          <div><span class="lbl">Next prior-day resistance</span>
-            <strong>${this._fmt(o.refs.bandResist)}</strong> <em>${this._pct(o.price, o.refs.bandResist)}</em>
-          </div>
-          <div><span class="lbl">Next prior-day support</span>
-            <strong>${this._fmt(o.refs.bandSupport)}</strong> <em>${this._pct(o.price, o.refs.bandSupport)}</em>
-          </div>
-          <div><span class="lbl">Last red bar high / low</span>
-            <strong>${this._fmt(o.refs.redHigh)}</strong> / <strong>${this._fmt(o.refs.redLow)}</strong>
-          </div>
-          <div><span class="lbl">Invalidation lean</span><strong>${this._fmt(o.invalidation)}</strong></div>
-          <div><span class="lbl">Book-profit reference</span><strong>${this._fmt(o.bookZone)}</strong></div>
-        </div>
-
-        <details class="range-band-details">
-          <summary>Prior-day bands touching price (${(o.activeBands || []).length})</summary>
-          <ul class="range-band-list">${bands}</ul>
-        </details>
-
-        <div class="range-ema-overlay">
-          <div class="range-ema-title">EMA overlay <em>(separate theory)</em></div>
-          <div class="range-ema-row">
-            <span>EMA${this.cfg().emaFast || 10}: <strong>${this._fmt(ema.emaFast)}</strong></span>
-            <span>EMA${this.cfg().emaSlow || 30}: <strong>${this._fmt(ema.emaSlow)}</strong></span>
-          </div>
-          <div class="range-chips">
-            <span class="range-chip">${String(ema.cross || '').replace(/_/g, ' ')}</span>
-            <span class="range-chip ${agreeCls}">vs Red Bar trend: ${r.emaAgree}</span>
-          </div>
-        </div>
-      </article>`;
+    this.destroyChart();
+    this._chart = new Chart(canvas.getContext('2d'), {
+      type: 'line',
+      data: { labels, datasets },
+      options: {
+        responsive: true,
+        maintainAspectRatio: false,
+        animation: { duration: 280 },
+        interaction: { mode: 'index', intersect: false },
+        plugins: {
+          legend: { display: false },
+          tooltip: {
+            backgroundColor: 'rgba(12,16,36,0.95)',
+            titleFont: { family: 'Outfit' },
+            bodyFont: { family: 'Outfit', size: 12 },
+            callbacks: {
+              label(ctx) {
+                const v = ctx.parsed.y;
+                if (v == null) return ctx.dataset.label;
+                return `${ctx.dataset.label}: ${Number(v).toFixed(2)}`;
+              },
+            },
+          },
+        },
+        scales: {
+          x: {
+            grid: { color: 'rgba(255,255,255,0.05)' },
+            ticks: {
+              color: 'rgba(255,255,255,0.45)',
+              font: { size: 10, family: 'Outfit' },
+              maxTicksLimit: 8,
+            },
+          },
+          y: {
+            position: 'right',
+            grid: { color: 'rgba(255,255,255,0.06)' },
+            ticks: {
+              color: 'rgba(255,255,255,0.45)',
+              font: { size: 10, family: 'Outfit' },
+              callback: (v) => Number(v).toFixed(0),
+            },
+          },
+        },
+      },
+    });
   },
 };
 
