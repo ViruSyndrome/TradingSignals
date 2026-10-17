@@ -84,13 +84,14 @@ const CONFIG = {
     enabled: true,
     symbols: ['BTCUSDT'],
     workingTf: '30m',
+    timeframes: ['5m', '30m', '1h'],
     dayMode: 'utc', // crypto default; use 'ny' to align with US session day
     lookbackDays: 90,
     touchPct: 0.15,
     emaFast: 10,
     emaSlow: 30,
-    ohlcLimit30m: 1000,
-    ohlcLimit4h: 500,
+    ohlcLimit: { '5m': 1000, '30m': 1000, '1h': 720 },
+    chartBars: { '5m': 180, '30m': 120, '1h': 96 },
   },
 
   // ─── Dynamic Optimization Parameters ───────────────────────────────────────

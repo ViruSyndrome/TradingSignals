@@ -2853,6 +2853,44 @@ body.redbar-only #rangeEmaDeskBlock {
   border: 1px solid var(--glass-border);
   margin-bottom: 14px;
 }
+.rb-chart-toolbar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  margin-bottom: 10px;
+}
+.rb-tf-group, .rb-zoom-group {
+  display: flex;
+  gap: 6px;
+  flex-wrap: wrap;
+}
+.rb-tf-btn, .rb-zoom-btn {
+  font-family: inherit;
+  font-size: 12px;
+  font-weight: 600;
+  padding: 6px 12px;
+  border-radius: 8px;
+  border: 1px solid rgba(255,255,255,0.12);
+  background: rgba(255,255,255,0.05);
+  color: var(--text-muted);
+  cursor: pointer;
+}
+.rb-tf-btn:hover, .rb-zoom-btn:hover {
+  color: var(--text-main);
+  border-color: rgba(255,255,255,0.25);
+}
+.rb-tf-btn.active {
+  background: rgba(124, 106, 245, 0.25);
+  border-color: rgba(124, 106, 245, 0.55);
+  color: #e2e8f0;
+}
+.rb-zoom-hint {
+  margin: 0 0 8px;
+  font-size: 11px;
+  color: var(--text-muted);
+}
 .rb-chart-legend {
   display: flex;
   flex-wrap: wrap;

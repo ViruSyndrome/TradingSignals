@@ -9,15 +9,35 @@ const RangeEmaUI = {
   _timer: null,
   _busy: false,
   _chart: null,
-  state: { rows: [], updatedAt: null, error: null },
+  state: { rows: [], updatedAt: null, error: null, tf: null },
 
   cfg() {
     return (typeof CONFIG !== 'undefined' && CONFIG.rangeEma) ? CONFIG.rangeEma : {};
   },
 
+  activeTf() {
+    const c = this.cfg();
+    const allowed = c.timeframes || ['5m', '30m', '1h'];
+    const tf = this.state.tf || c.workingTf || '30m';
+    return allowed.includes(tf) ? tf : '30m';
+  },
+
+  setTf(tf) {
+    const c = this.cfg();
+    const allowed = c.timeframes || ['5m', '30m', '1h'];
+    if (!allowed.includes(tf) || tf === this.activeTf()) return;
+    this.state.tf = tf;
+    try { localStorage.setItem('trendrunner_rb_tf', tf); } catch (_) {}
+    this.refresh();
+  },
+
   init() {
     const c = this.cfg();
     if (!c.enabled) return;
+    try {
+      const saved = localStorage.getItem('trendrunner_rb_tf');
+      if (saved && (c.timeframes || []).includes(saved)) this.state.tf = saved;
+    } catch (_) {}
     this.refresh();
     clearInterval(this._timer);
     this._timer = setInterval(() => this.refresh(), 60 * 1000);
@@ -83,12 +103,18 @@ const RangeEmaUI = {
     return { cross, emaFast: emaF[i], emaSlow: emaS[i], emaF, emaS };
   },
 
+  _ohlcLimit(tf, c) {
+    const map = c.ohlcLimit || {};
+    return map[tf] || 1000;
+  },
+
   async _buildRow(symbol, c) {
-    const lim30 = c.ohlcLimit30m || 1000;
-    const raw30 = await API.getCryptoOHLC(symbol, c.workingTf || '30m', lim30);
-    const bars30 = this._klinesToBars(raw30);
+    const tf = this.activeTf();
+    const lim = this._ohlcLimit(tf, c);
+    const raw = await API.getCryptoOHLC(symbol, tf, lim);
+    const bars30 = this._klinesToBars(raw);
     if (bars30.length < 40) {
-      return { symbol, error: 'Not enough 30m data' };
+      return { symbol, error: `Not enough ${tf} data`, tf };
     }
 
     const readout = RedBarTrend.read(bars30, {
@@ -110,7 +136,7 @@ const RangeEmaUI = {
 
     const action = this._actionPlan(readout, emaAgree);
 
-    return { symbol, bars: bars30, readout, ema, emaAgree, action };
+    return { symbol, tf, bars: bars30, readout, ema, emaAgree, action };
   },
 
   /** What the trader should do — plain language + levels */
@@ -230,18 +256,37 @@ const RangeEmaUI = {
       return;
     }
 
+    const tf = this.activeTf();
     host.innerHTML = `
       <div class="section-heading">
         <h1>🟥 Red Bar Desk</h1>
         <p class="section-sub">
-          Visual BTC map: price, EMA 10/30, opening range, prior-day magnets, red-bar exit refs.
+          Visual BTC map on <strong>${tf}</strong>: price, EMA 10/30, opening range, prior-day magnets, red-bar exit refs.
           <span class="range-desk-meta">Updated ${when}</span>
         </p>
       </div>
       ${this._deskHtml(row, c)}
     `;
 
+    this._bindChartControls();
+    const focus = document.querySelector('.topbar-focus-label');
+    if (focus) focus.textContent = `BTC · ${tf} Red Bar`;
     requestAnimationFrame(() => this._paintChart(row, c));
+  },
+
+  _bindChartControls() {
+    document.querySelectorAll('[data-rb-tf]').forEach((btn) => {
+      btn.addEventListener('click', () => this.setTf(btn.getAttribute('data-rb-tf')));
+    });
+    document.getElementById('rbZoomIn')?.addEventListener('click', () => {
+      try { this._chart?.zoom?.(1.35); } catch (_) {}
+    });
+    document.getElementById('rbZoomOut')?.addEventListener('click', () => {
+      try { this._chart?.zoom?.(0.75); } catch (_) {}
+    });
+    document.getElementById('rbZoomReset')?.addEventListener('click', () => {
+      try { this._chart?.resetZoom?.(); } catch (_) {}
+    });
   },
 
   _deskHtml(r, c) {
@@ -271,6 +316,18 @@ const RangeEmaUI = {
       </div>
 
       <div class="rb-chart-wrap glass">
+        <div class="rb-chart-toolbar">
+          <div class="rb-tf-group" role="group" aria-label="Chart timeframe">
+            ${(c.timeframes || ['5m', '30m', '1h']).map((t) =>
+              `<button type="button" class="rb-tf-btn${t === this.activeTf() ? ' active' : ''}" data-rb-tf="${t}">${t}</button>`
+            ).join('')}
+          </div>
+          <div class="rb-zoom-group" role="group" aria-label="Chart zoom">
+            <button type="button" class="rb-zoom-btn" id="rbZoomOut" title="Zoom out">−</button>
+            <button type="button" class="rb-zoom-btn" id="rbZoomIn" title="Zoom in">+</button>
+            <button type="button" class="rb-zoom-btn" id="rbZoomReset" title="Reset zoom">Reset</button>
+          </div>
+        </div>
         <div class="rb-chart-legend">
           <span class="lg price">Price</span>
           <span class="lg ema10">EMA ${c.emaFast || 10}</span>
@@ -281,6 +338,7 @@ const RangeEmaUI = {
           <span class="lg stop">Stop</span>
           <span class="lg tp">Exit</span>
         </div>
+        <p class="rb-zoom-hint">Scroll / pinch to zoom · drag to pan · buttons above</p>
         <div class="rb-chart-box">
           <canvas id="redBarChart" aria-label="BTC Red Bar chart"></canvas>
         </div>
@@ -313,7 +371,9 @@ const RangeEmaUI = {
     const canvas = document.getElementById('redBarChart');
     if (!canvas || typeof Chart === 'undefined' || !row.bars) return;
 
-    const showN = Math.min(120, row.bars.length);
+    const tf = row.tf || this.activeTf();
+    const want = (c.chartBars && c.chartBars[tf]) || 120;
+    const showN = Math.min(want, row.bars.length);
     const bars = row.bars.slice(-showN);
     const offset = row.bars.length - showN;
     const o = row.readout;
@@ -378,6 +438,10 @@ const RangeEmaUI = {
     if (o.invalidation != null) datasets.push(mkLine(o.invalidation, 'Stop', '#f43f5e', []));
     if (o.bookZone != null) datasets.push(mkLine(o.bookZone, 'Exit', '#22c55e', []));
 
+    const coarse = typeof window !== 'undefined'
+      && window.matchMedia
+      && window.matchMedia('(pointer: coarse)').matches;
+
     this.destroyChart();
     this._chart = new Chart(canvas.getContext('2d'), {
       type: 'line',
@@ -399,6 +463,24 @@ const RangeEmaUI = {
                 if (v == null) return ctx.dataset.label;
                 return `${ctx.dataset.label}: ${Number(v).toFixed(2)}`;
               },
+            },
+          },
+          zoom: {
+            limits: {
+              x: { min: 'original', max: 'original' },
+              y: { min: 'original', max: 'original' },
+            },
+            pan: { enabled: true, mode: 'x', threshold: coarse ? 10 : 6 },
+            zoom: {
+              wheel: { enabled: !coarse, speed: 0.12 },
+              pinch: { enabled: true },
+              drag: {
+                enabled: !coarse,
+                backgroundColor: 'rgba(124, 106, 245, 0.18)',
+                borderColor: 'rgba(124, 106, 245, 0.45)',
+                borderWidth: 1,
+              },
+              mode: 'x',
             },
           },
         },
