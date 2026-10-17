@@ -2947,6 +2947,9 @@ body.redbar-only .section-sub {
 .rb-chart-legend .red::before { background: #ef4444; }
 .rb-chart-legend .stop::before { background: #f43f5e; height: 4px; }
 .rb-chart-legend .tp::before { background: #22c55e; height: 4px; }
+.rb-chart-legend .sess-asia::before { background: #38bdf8; height: 10px; width: 2px; }
+.rb-chart-legend .sess-london::before { background: #f472b6; height: 10px; width: 2px; }
+.rb-chart-legend .sess-ny::before { background: #fbbf24; height: 10px; width: 2px; }
 .rb-chart-box {
   position: relative;
   height: min(52vh, 420px);

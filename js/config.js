@@ -92,6 +92,13 @@ const CONFIG = {
     emaSlow: 30,
     ohlcLimit: { '5m': 1000, '30m': 1000, '1h': 720 },
     chartBars: { '5m': 180, '30m': 120, '1h': 96 },
+    // Vertical markers on the chart X timeline (cash-session style, TZ-aware)
+    showSessionMarkers: true,
+    sessions: [
+      { id: 'asia', label: 'Asia', timeZone: 'Asia/Tokyo', open: [9, 0], close: [15, 0], color: '#38bdf8' },
+      { id: 'london', label: 'London', timeZone: 'Europe/London', open: [8, 0], close: [16, 30], color: '#f472b6' },
+      { id: 'ny', label: 'US', timeZone: 'America/New_York', open: [9, 30], close: [16, 0], color: '#fbbf24' },
+    ],
   },
 
   // ─── Dynamic Optimization Parameters ───────────────────────────────────────

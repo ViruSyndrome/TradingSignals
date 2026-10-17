@@ -337,6 +337,9 @@ const RangeEmaUI = {
           <span class="lg red">Red-bar refs</span>
           <span class="lg stop">Stop</span>
           <span class="lg tp">Exit</span>
+          <span class="lg sess-asia">Asia</span>
+          <span class="lg sess-london">London</span>
+          <span class="lg sess-ny">US</span>
         </div>
         <p class="rb-zoom-hint">Scroll / pinch to zoom · drag to pan · buttons above</p>
         <div class="rb-chart-box">
@@ -403,6 +406,136 @@ const RangeEmaUI = {
       return [day, time];
     }
     return time;
+  },
+
+  /** UTC ms when `hour:minute` occurs in `timeZone` on calendar `dayStr` (YYYY-MM-DD in that zone). */
+  _zonedClockToUtc(dayStr, timeZone, hour, minute) {
+    const targetHm = `${String(hour).padStart(2, '0')}:${String(minute).padStart(2, '0')}`;
+    const base = Date.parse(`${dayStr}T12:00:00Z`);
+    let lo = base - 36 * 3600 * 1000;
+    let hi = base + 36 * 3600 * 1000;
+    const fmtDay = new Intl.DateTimeFormat('en-CA', {
+      timeZone,
+      year: 'numeric',
+      month: '2-digit',
+      day: '2-digit',
+    });
+    const fmtHm = new Intl.DateTimeFormat('en-GB', {
+      timeZone,
+      hour: '2-digit',
+      minute: '2-digit',
+      hour12: false,
+    });
+    while (hi - lo > 30 * 1000) {
+      const mid = Math.floor((lo + hi) / 2);
+      const d = new Date(mid);
+      const day = fmtDay.format(d);
+      const hm = fmtHm.format(d);
+      if (day < dayStr || (day === dayStr && hm < targetHm)) lo = mid;
+      else hi = mid;
+    }
+    return hi;
+  },
+
+  _zonedDayStr(ts, timeZone) {
+    return new Intl.DateTimeFormat('en-CA', {
+      timeZone,
+      year: 'numeric',
+      month: '2-digit',
+      day: '2-digit',
+    }).format(new Date(ts));
+  },
+
+  /** Collect open/close markers that fall inside [t0, t1]. */
+  _sessionMarkersInRange(t0, t1, sessions) {
+    const out = [];
+    if (!sessions || !sessions.length || t1 <= t0) return out;
+    const pad = 48 * 3600 * 1000;
+    for (const s of sessions) {
+      const tz = s.timeZone || 'UTC';
+      const [oH, oM] = s.open || [0, 0];
+      const [cH, cM] = s.close || [0, 0];
+      // Walk calendar days covering the visible window (in that zone)
+      const days = new Set();
+      for (let t = t0 - pad; t <= t1 + pad; t += 12 * 3600 * 1000) {
+        days.add(this._zonedDayStr(t, tz));
+      }
+      days.add(this._zonedDayStr(t0, tz));
+      days.add(this._zonedDayStr(t1, tz));
+      for (const day of days) {
+        const openTs = this._zonedClockToUtc(day, tz, oH, oM);
+        const closeTs = this._zonedClockToUtc(day, tz, cH, cM);
+        if (openTs >= t0 && openTs <= t1) {
+          out.push({ ts: openTs, kind: 'open', label: s.label, color: s.color || '#94a3b8' });
+        }
+        if (closeTs >= t0 && closeTs <= t1) {
+          out.push({ ts: closeTs, kind: 'close', label: s.label, color: s.color || '#94a3b8' });
+        }
+      }
+    }
+    return out.sort((a, b) => a.ts - b.ts);
+  },
+
+  _nearestBarIndex(times, ts) {
+    if (!times.length) return -1;
+    let best = 0;
+    let bestDist = Math.abs(times[0] - ts);
+    for (let i = 1; i < times.length; i++) {
+      const d = Math.abs(times[i] - ts);
+      if (d < bestDist) {
+        best = i;
+        bestDist = d;
+      }
+    }
+    // Ignore if farther than ~1.25 bars from a sample (avoids edge ghosts)
+    const barMs = times.length > 1 ? Math.abs(times[1] - times[0]) : 30 * 60 * 1000;
+    if (bestDist > barMs * 1.25) return -1;
+    return best;
+  },
+
+  _sessionPlugin() {
+    return {
+      id: 'rbSessions',
+      afterDraw(chart) {
+        const markers = chart.$rbSessionMarks;
+        const times = chart.$rbTimes;
+        if (!markers || !markers.length || !times || !times.length) return;
+        const xScale = chart.scales.x;
+        const area = chart.chartArea;
+        if (!xScale || !area) return;
+        const ctx = chart.ctx;
+        const self = chart.$rbUI;
+        if (!self) return;
+
+        ctx.save();
+        for (const m of markers) {
+          const idx = self._nearestBarIndex(times, m.ts);
+          if (idx < 0) continue;
+          const x = xScale.getPixelForValue(idx);
+          if (!Number.isFinite(x) || x < area.left - 2 || x > area.right + 2) continue;
+
+          ctx.strokeStyle = m.color;
+          ctx.globalAlpha = m.kind === 'open' ? 0.85 : 0.45;
+          ctx.lineWidth = m.kind === 'open' ? 1.5 : 1;
+          ctx.setLineDash(m.kind === 'open' ? [] : [4, 4]);
+          ctx.beginPath();
+          ctx.moveTo(x, area.top);
+          ctx.lineTo(x, area.bottom);
+          ctx.stroke();
+          ctx.setLineDash([]);
+
+          ctx.globalAlpha = 0.95;
+          ctx.fillStyle = m.color;
+          ctx.font = '600 9px Outfit, system-ui, sans-serif';
+          ctx.textAlign = 'center';
+          ctx.textBaseline = 'bottom';
+          const tag = m.kind === 'open' ? `${m.label}▲` : `${m.label}▼`;
+          ctx.textBaseline = 'top';
+          ctx.fillText(tag, x, area.top + 2);
+        }
+        ctx.restore();
+      },
+    };
   },
 
   /** Draw OHLC candles on top of the line chart (EMA + levels stay as lines). */
@@ -484,6 +617,9 @@ const RangeEmaUI = {
       && window.matchMedia('(pointer: coarse)').matches;
     const xStep = this._xTickStep(tf, n, coarse);
     const self = this;
+    const sessionMarks = (c.showSessionMarkers !== false)
+      ? this._sessionMarkersInRange(times[0], times[n - 1], c.sessions || [])
+      : [];
 
     const mkLine = (val, label, color, dash) => ({
       label,
@@ -546,13 +682,13 @@ const RangeEmaUI = {
     this._chart = new Chart(canvas.getContext('2d'), {
       type: 'line',
       data: { labels, datasets },
-      plugins: [this._candlePlugin()],
+      plugins: [this._candlePlugin(), this._sessionPlugin()],
       options: {
         responsive: true,
         maintainAspectRatio: false,
         animation: { duration: 280 },
         interaction: { mode: 'index', intersect: false },
-        layout: { padding: { bottom: 4 } },
+        layout: { padding: { top: 14, bottom: 4 } },
         plugins: {
           legend: { display: false },
           tooltip: {
@@ -649,6 +785,9 @@ const RangeEmaUI = {
       },
     });
     this._chart.$rbBars = bars;
+    this._chart.$rbTimes = times;
+    this._chart.$rbSessionMarks = sessionMarks;
+    this._chart.$rbUI = this;
   },
 };
 

@@ -43,7 +43,7 @@
   <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.4/dist/chart.umd.min.js" defer></script>
   <script src="https://cdn.jsdelivr.net/npm/hammerjs@2.0.8/hammer.min.js" defer></script>
   <script src="https://cdn.jsdelivr.net/npm/chartjs-plugin-zoom@2.2.0/dist/chartjs-plugin-zoom.min.js" defer></script>
-  <link rel="stylesheet" href="styles.css?v=6.80" />
+  <link rel="stylesheet" href="styles.css?v=6.81" />
   <!-- Critical boot overlay (prevents sidebar flash before styles.css applies) -->
   <style>
     html, body { margin: 0; background: #080a14; }
@@ -70,11 +70,11 @@
     if ('serviceWorker' in navigator) {
       window.addEventListener('load', () => {
         const hadController = Boolean(navigator.serviceWorker.controller);
-        navigator.serviceWorker.register('./service-worker.js?v=6.80', { updateViaCache: 'none' })
+        navigator.serviceWorker.register('./service-worker.js?v=6.81', { updateViaCache: 'none' })
           .then(reg => {
             reg.update().catch(() => {});
             navigator.serviceWorker.addEventListener('controllerchange', () => {
-              const reloadKey = 'trendrunner_sw_update_6.80';
+              const reloadKey = 'trendrunner_sw_update_6.81';
               if (hadController && !sessionStorage.getItem(reloadKey)) {
                 sessionStorage.setItem(reloadKey, '1');
                 location.reload();
@@ -332,7 +332,7 @@
             <ul>
               <li><strong>Primary:</strong> Prior-day range bands + today’s opening range + last red-bar refs → <strong>BULLISH / BEARISH / NEUTRAL</strong>.</li>
               <li><strong>Action strip:</strong> <strong>LONG</strong>, <strong>SHORT</strong>, or <strong>WAIT</strong> with entry lean, stop, and exit/book levels.</li>
-              <li><strong>Chart:</strong> Switch <strong>5m / 30m / 1h</strong>, zoom in/out (scroll, pinch, or +/−), price + EMA overlay, opening range, band magnets, stop &amp; exit lines.</li>
+              <li><strong>Chart:</strong> Switch <strong>5m / 30m / 1h</strong>, zoom in/out, candles + EMA, opening range / bands / stop / exit, plus <strong>Asia / London / US</strong> session open (solid) and close (dashed) markers.</li>
               <li><strong>You:</strong> Confirm on the chart → trade on the exchange (futures for shorts; spot only for longs).</li>
             </ul>
           </div>
@@ -593,12 +593,12 @@
       // Nuke bloated caches that are causing QuotaExceededError (Removed to allow instant paint)
     } catch(e) {}
   </script>
-  <script src="js/config.js?v=6.77" defer></script>
+  <script src="js/config.js?v=6.81" defer></script>
   <script src="js/api.js?v=6.74" defer></script>
   <script src="js/indicators.js?v=6.60" defer></script>
   <script src="js/redbar_trend.js?v=1.0" defer></script>
   <script src="js/range_ema_engine.js?v=1.1" defer></script>
-  <script src="js/range_ema_ui.js?v=1.7" defer></script>
+  <script src="js/range_ema_ui.js?v=1.8" defer></script>
   <script src="js/signals.js?v=6.70" defer></script>
   <script src="js/charts.js?v=6.60" defer></script>
   
