@@ -450,18 +450,30 @@ const RangeEmaUI = {
         responsive: true,
         maintainAspectRatio: false,
         animation: { duration: 280 },
-        interaction: { mode: 'index', intersect: false },
+        interaction: { mode: 'nearest', intersect: false, axis: 'x' },
         plugins: {
           legend: { display: false },
           tooltip: {
-            backgroundColor: 'rgba(12,16,36,0.95)',
-            titleFont: { family: 'Outfit' },
-            bodyFont: { family: 'Outfit', size: 12 },
+            enabled: true,
+            backgroundColor: 'rgba(12,16,36,0.92)',
+            titleFont: { family: 'Outfit', size: 11 },
+            bodyFont: { family: 'Outfit', size: 11 },
+            padding: 8,
+            displayColors: false,
+            caretPadding: 8,
+            // Only price + EMAs + stop/exit — hide flat band lines that flood the tooltip
+            filter(item) {
+              const l = item.dataset.label || '';
+              return l === 'BTC' || l.startsWith('EMA') || l === 'Stop' || l === 'Exit';
+            },
             callbacks: {
+              title(items) {
+                return items[0]?.label || '';
+              },
               label(ctx) {
                 const v = ctx.parsed.y;
                 if (v == null) return ctx.dataset.label;
-                return `${ctx.dataset.label}: ${Number(v).toFixed(2)}`;
+                return `${ctx.dataset.label}  ${Number(v).toFixed(2)}`;
               },
             },
           },

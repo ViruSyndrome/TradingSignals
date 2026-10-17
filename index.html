@@ -43,7 +43,7 @@
   <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.4/dist/chart.umd.min.js" defer></script>
   <script src="https://cdn.jsdelivr.net/npm/hammerjs@2.0.8/hammer.min.js" defer></script>
   <script src="https://cdn.jsdelivr.net/npm/chartjs-plugin-zoom@2.2.0/dist/chartjs-plugin-zoom.min.js" defer></script>
-  <link rel="stylesheet" href="styles.css?v=6.77" />
+  <link rel="stylesheet" href="styles.css?v=6.78" />
   <!-- Critical boot overlay (prevents sidebar flash before styles.css applies) -->
   <style>
     html, body { margin: 0; background: #080a14; }
@@ -70,11 +70,11 @@
     if ('serviceWorker' in navigator) {
       window.addEventListener('load', () => {
         const hadController = Boolean(navigator.serviceWorker.controller);
-        navigator.serviceWorker.register('./service-worker.js?v=6.77', { updateViaCache: 'none' })
+        navigator.serviceWorker.register('./service-worker.js?v=6.78', { updateViaCache: 'none' })
           .then(reg => {
             reg.update().catch(() => {});
             navigator.serviceWorker.addEventListener('controllerchange', () => {
-              const reloadKey = 'trendrunner_sw_update_6.77';
+              const reloadKey = 'trendrunner_sw_update_6.78';
               if (hadController && !sessionStorage.getItem(reloadKey)) {
                 sessionStorage.setItem(reloadKey, '1');
                 location.reload();
@@ -259,23 +259,6 @@
         <div class="assets-grid" id="assetGrid"></div>
       </div>
 
-      <!-- Footer for Dashboard -->
-      <footer class="site-footer">
-        <div class="site-footer-links">
-          <a href="about.html">About</a>
-          <a href="#" class="nav-link" data-section="educationSection">Learn Red Bar</a>
-          <a href="guides/binance-p2p.html">Fund wallet (P2P)</a>
-          <a href="guides/cash-out.html">Cash out</a>
-          <a href="terms.html">Terms</a>
-          <a href="privacy.html">Privacy</a>
-        </div>
-        <div class="site-footer-disclaimer">
-          <strong>Disclaimer:</strong> TrendRunner’s Red Bar Desk is a chart + level research tool, not a registered advisor and not an auto-trader. Futures and crypto involve substantial risk of loss, including liquidation. Levels do not guarantee outcomes.
-        </div>
-        <div class="site-footer-copyright">
-          &copy; 2026 TrendRunner. All rights reserved.
-        </div>
-      </footer>
     </section>
 
 
@@ -527,6 +510,24 @@
       </div>
     </section>
 
+    <!-- Global footer — pinned under the active section (not inside a tab) -->
+    <footer class="site-footer">
+      <div class="site-footer-links">
+        <a href="about.html">About</a>
+        <a href="#" class="nav-link" data-section="educationSection">Learn</a>
+        <a href="guides/binance-p2p.html">Fund wallet</a>
+        <a href="guides/cash-out.html">Cash out</a>
+        <a href="terms.html">Terms</a>
+        <a href="privacy.html">Privacy</a>
+      </div>
+      <div class="site-footer-disclaimer">
+        <strong>Disclaimer:</strong> Educational chart research only — not financial advice, not auto-trading. Futures can liquidate.
+      </div>
+      <div class="site-footer-copyright">
+        &copy; 2026 TrendRunner
+      </div>
+    </footer>
+
     </main>
 
   <!-- ═══════════════════════════════════════════════════════════════════════════
@@ -597,14 +598,14 @@
   <script src="js/indicators.js?v=6.60" defer></script>
   <script src="js/redbar_trend.js?v=1.0" defer></script>
   <script src="js/range_ema_engine.js?v=1.1" defer></script>
-  <script src="js/range_ema_ui.js?v=1.4" defer></script>
+  <script src="js/range_ema_ui.js?v=1.5" defer></script>
   <script src="js/signals.js?v=6.70" defer></script>
   <script src="js/charts.js?v=6.60" defer></script>
   
   <script src="js/scanner.js?v=6.60" defer></script>
   <script src="js/backtest_ui.js?v=6.60" defer></script>
   <script src="js/auth.js?v=6.70" defer></script>
-    <script src="js/dashboard.js?v=6.77" defer></script>
+    <script src="js/dashboard.js?v=6.78" defer></script>
   <script>
     // If signals.js didn't expose the right version, cached old code is running — force reload.
     if (typeof Signals === 'undefined' || Signals._version !== window.__APP_VERSION__) {
