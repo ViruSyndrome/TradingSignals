@@ -3001,11 +3001,19 @@ body.redbar-only .site-footer-copyright {
 }
 .rb-chart-legend .ema10::before { background: #22d3ee; height: 2px; }
 .rb-chart-legend .ema30::before { background: #f97316; height: 4px; }
-.rb-chart-legend .or::before { background: #eab308; }
+.rb-chart-legend .or::before {
+  width: 14px;
+  height: 10px;
+  background: rgba(234, 179, 8, 0.35);
+  border: 1px solid #eab308;
+  border-radius: 2px;
+  box-sizing: border-box;
+}
 .rb-chart-legend .band::before {
   background: linear-gradient(90deg, #a855f7 50%, #2dd4bf 50%);
+  height: 2px;
+  border-style: dotted;
 }
-.rb-chart-legend .red::before { background: #e879f9; }
 .rb-chart-legend .stop::before { background: #ef4444; height: 4px; }
 .rb-chart-legend .tp::before { background: #4ade80; height: 4px; }
 .rb-chart-legend .sess-asia::before { background: #818cf8; height: 10px; width: 2px; }

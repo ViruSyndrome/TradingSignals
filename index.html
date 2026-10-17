@@ -43,7 +43,7 @@
   <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.4/dist/chart.umd.min.js" defer></script>
   <script src="https://cdn.jsdelivr.net/npm/hammerjs@2.0.8/hammer.min.js" defer></script>
   <script src="https://cdn.jsdelivr.net/npm/chartjs-plugin-zoom@2.2.0/dist/chartjs-plugin-zoom.min.js" defer></script>
-  <link rel="stylesheet" href="styles.css?v=6.83" />
+  <link rel="stylesheet" href="styles.css?v=6.84" />
   <!-- Critical boot overlay (prevents sidebar flash before styles.css applies) -->
   <style>
     html, body { margin: 0; background: #080a14; }
@@ -70,7 +70,7 @@
     if ('serviceWorker' in navigator) {
       window.addEventListener('load', () => {
         const hadController = Boolean(navigator.serviceWorker.controller);
-        navigator.serviceWorker.register('./service-worker.js?v=6.83', { updateViaCache: 'none' })
+        navigator.serviceWorker.register('./service-worker.js?v=6.84', { updateViaCache: 'none' })
           .then(reg => {
             reg.update().catch(() => {});
             navigator.serviceWorker.addEventListener('controllerchange', () => {
@@ -598,7 +598,7 @@
   <script src="js/indicators.js?v=6.60" defer></script>
   <script src="js/redbar_trend.js?v=1.0" defer></script>
   <script src="js/range_ema_engine.js?v=1.1" defer></script>
-  <script src="js/range_ema_ui.js?v=1.10" defer></script>
+  <script src="js/range_ema_ui.js?v=1.11" defer></script>
   <script src="js/signals.js?v=6.70" defer></script>
   <script src="js/charts.js?v=6.60" defer></script>
   

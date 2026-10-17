@@ -261,7 +261,7 @@ const RangeEmaUI = {
       <div class="section-heading">
         <h1>🟥 Red Bar Desk</h1>
         <p class="section-sub">
-          Visual BTC map on <strong>${tf}</strong>: price, EMA 10/30, opening range, prior-day magnets, red-bar exit refs.
+          Visual BTC map on <strong>${tf}</strong>: candles, EMA 10/30, OR box, prior-day magnets; Stop/Exit when in a trade.
           <span class="range-desk-meta">Updated ${when}</span>
         </p>
       </div>
@@ -332,9 +332,8 @@ const RangeEmaUI = {
           <span class="lg price">Candles</span>
           <span class="lg ema10">EMA ${c.emaFast || 10}</span>
           <span class="lg ema30">EMA ${c.emaSlow || 30}</span>
-          <span class="lg or">Opening range</span>
-          <span class="lg band">Prior-day S/R</span>
-          <span class="lg red">Red-bar refs</span>
+          <span class="lg or">OR box</span>
+          <span class="lg band">Magnets</span>
           <span class="lg stop">Stop</span>
           <span class="lg tp">Exit</span>
           <span class="lg sess-asia">Asia</span>
@@ -584,6 +583,112 @@ const RangeEmaUI = {
     };
   },
 
+  /** Shaded opening-range box between OR high and OR low. */
+  _orZonePlugin() {
+    return {
+      id: 'rbOrZone',
+      beforeDatasetsDraw(chart) {
+        const zone = chart.$rbOrZone;
+        if (!zone || zone.high == null || zone.low == null) return;
+        const yScale = chart.scales.y;
+        const area = chart.chartArea;
+        if (!yScale || !area) return;
+        const yHi = yScale.getPixelForValue(zone.high);
+        const yLo = yScale.getPixelForValue(zone.low);
+        if (!Number.isFinite(yHi) || !Number.isFinite(yLo)) return;
+        const top = Math.min(yHi, yLo);
+        const h = Math.max(1, Math.abs(yLo - yHi));
+        const ctx = chart.ctx;
+        ctx.save();
+        ctx.fillStyle = zone.fill || 'rgba(234, 179, 8, 0.14)';
+        ctx.fillRect(area.left, top, area.right - area.left, h);
+        ctx.strokeStyle = zone.stroke || 'rgba(234, 179, 8, 0.55)';
+        ctx.lineWidth = 1.25;
+        ctx.setLineDash([5, 4]);
+        ctx.beginPath();
+        ctx.moveTo(area.left, yHi);
+        ctx.lineTo(area.right, yHi);
+        ctx.moveTo(area.left, yLo);
+        ctx.lineTo(area.right, yLo);
+        ctx.stroke();
+        ctx.setLineDash([]);
+        ctx.restore();
+      },
+    };
+  },
+
+  /** Right-edge name + price tags for visible levels. */
+  _levelTagsPlugin() {
+    return {
+      id: 'rbLevelTags',
+      afterDraw(chart) {
+        const tags = chart.$rbLevelTags;
+        if (!tags || !tags.length) return;
+        const yScale = chart.scales.y;
+        const area = chart.chartArea;
+        if (!yScale || !area) return;
+        const ctx = chart.ctx;
+        const placed = [];
+        const minGap = 13;
+
+        ctx.save();
+        ctx.font = '600 10px Outfit, system-ui, sans-serif';
+        for (const t of tags) {
+          if (t.value == null || !Number.isFinite(t.value)) continue;
+          let y = yScale.getPixelForValue(t.value);
+          if (!Number.isFinite(y)) continue;
+          y = Math.max(area.top + 8, Math.min(area.bottom - 8, y));
+          // Nudge overlapping tags apart
+          for (let guard = 0; guard < 8; guard++) {
+            let hit = false;
+            for (const py of placed) {
+              if (Math.abs(y - py) < minGap) {
+                y += (y >= py ? minGap : -minGap);
+                hit = true;
+                break;
+              }
+            }
+            if (!hit) break;
+            y = Math.max(area.top + 8, Math.min(area.bottom - 8, y));
+          }
+          placed.push(y);
+
+          const price = Number(t.value).toFixed(0);
+          const label = `${t.name} ${price}`;
+          const padX = 5;
+          const padY = 3;
+          const tw = ctx.measureText(label).width;
+          const boxW = tw + padX * 2;
+          const boxH = 14;
+          const x = area.right - boxW - 2;
+
+          ctx.fillStyle = t.bg || 'rgba(15, 23, 42, 0.88)';
+          ctx.strokeStyle = t.color || '#e2e8f0';
+          ctx.lineWidth = 1;
+          ctx.beginPath();
+          if (typeof ctx.roundRect === 'function') {
+            ctx.roundRect(x, y - boxH / 2, boxW, boxH, 3);
+          } else {
+            ctx.rect(x, y - boxH / 2, boxW, boxH);
+          }
+          ctx.fill();
+          ctx.stroke();
+
+          ctx.fillStyle = t.color || '#e2e8f0';
+          ctx.textAlign = 'left';
+          ctx.textBaseline = 'middle';
+          ctx.fillText(label, x + padX, y);
+        }
+        ctx.restore();
+      },
+    };
+  },
+
+  _nearPrice(a, b, eps = 0.5) {
+    if (a == null || b == null) return false;
+    return Math.abs(Number(a) - Number(b)) <= eps;
+  },
+
   _paintChart(row, c) {
     const canvas = document.getElementById('redBarChart');
     if (!canvas || typeof Chart === 'undefined' || !row.bars) return;
@@ -609,9 +714,14 @@ const RangeEmaUI = {
       return time;
     });
     const closes = bars.map((b) => b.c);
-    const yHi = Math.max(...bars.map((b) => b.h));
-    const yLo = Math.min(...bars.map((b) => b.l));
-    const pad = (yHi - yLo) * 0.04 || 1;
+    const levelPrices = [
+      o.refs?.orHigh, o.refs?.orLow,
+      o.refs?.bandResist, o.refs?.bandSupport,
+      o.invalidation, o.bookZone,
+    ].filter((v) => v != null && Number.isFinite(Number(v))).map(Number);
+    const yHi = Math.max(...bars.map((b) => b.h), ...levelPrices);
+    const yLo = Math.min(...bars.map((b) => b.l), ...levelPrices);
+    const pad = (yHi - yLo) * 0.05 || 1;
     const coarse = typeof window !== 'undefined'
       && window.matchMedia
       && window.matchMedia('(pointer: coarse)').matches;
@@ -623,15 +733,19 @@ const RangeEmaUI = {
 
     // Distinct palette (avoid overlapping blues/reds/greens across layers)
     const COL = {
-      ema10: '#22d3ee',       // cyan — thin
-      ema30: '#f97316',       // orange — thick
-      or: '#eab308',          // gold
-      bandResist: '#a855f7',  // purple
-      bandSupport: '#2dd4bf', // teal
-      redRef: '#e879f9',      // fuchsia (not stop-red)
-      stop: '#ef4444',        // hard red
-      exit: '#4ade80',        // hard green
+      ema10: '#22d3ee',
+      ema30: '#f97316',
+      or: '#eab308',
+      bandResist: '#a855f7',
+      bandSupport: '#2dd4bf',
+      stop: '#ef4444',
+      exit: '#4ade80',
     };
+
+    const action = row.action || this._actionPlan(o, row.emaAgree);
+    const trading = action.side === 'LONG' || action.side === 'SHORT';
+    const stopPx = trading ? (action.stop ?? o.invalidation) : null;
+    const exitPx = trading ? (action.exit ?? o.bookZone) : null;
 
     const mkLine = (val, label, color, dash, width = 1.5) => ({
       label,
@@ -681,26 +795,67 @@ const RangeEmaUI = {
       },
     ];
 
-    if (o.refs?.orHigh != null) datasets.push(mkLine(o.refs.orHigh, 'OR high', COL.or, [6, 4], 1.5));
-    if (o.refs?.orLow != null) datasets.push(mkLine(o.refs.orLow, 'OR low', COL.or, [6, 4], 1.25));
-    if (o.refs?.bandResist != null) datasets.push(mkLine(o.refs.bandResist, 'Band resist', COL.bandResist, [3, 3], 1.5));
-    if (o.refs?.bandSupport != null) datasets.push(mkLine(o.refs.bandSupport, 'Band support', COL.bandSupport, [3, 3], 1.5));
-    if (o.refs?.redHigh != null) datasets.push(mkLine(o.refs.redHigh, 'Red high', COL.redRef, [8, 4], 1.5));
-    if (o.refs?.redLow != null) datasets.push(mkLine(o.refs.redLow, 'Red low', COL.redRef, [8, 4], 1.25));
-    if (o.invalidation != null) datasets.push(mkLine(o.invalidation, 'Stop', COL.stop, [], 2.25));
-    if (o.bookZone != null) datasets.push(mkLine(o.bookZone, 'Exit', COL.exit, [], 2.25));
+    // Magnets (prior-day S/R) — quiet dotted lines; always useful context
+    if (o.refs?.bandResist != null) {
+      datasets.push(mkLine(o.refs.bandResist, 'Magnet R', COL.bandResist, [2, 4], 1.25));
+    }
+    if (o.refs?.bandSupport != null) {
+      datasets.push(mkLine(o.refs.bandSupport, 'Magnet S', COL.bandSupport, [2, 4], 1.25));
+    }
+
+    // Stop / Exit only when LONG or SHORT (red-bar refs become these — no duplicate lines)
+    if (stopPx != null) datasets.push(mkLine(stopPx, 'Stop', COL.stop, [], 2.5));
+    if (exitPx != null) datasets.push(mkLine(exitPx, 'Exit', COL.exit, [], 2.5));
+
+    // OR zone metadata (drawn by plugin — not twin line datasets)
+    const orHigh = o.refs?.orHigh;
+    const orLow = o.refs?.orLow;
+    const orZone = (orHigh != null && orLow != null)
+      ? {
+          high: orHigh,
+          low: orLow,
+          fill: trading ? 'rgba(234, 179, 8, 0.07)' : 'rgba(234, 179, 8, 0.16)',
+          stroke: trading ? 'rgba(234, 179, 8, 0.35)' : 'rgba(234, 179, 8, 0.6)',
+        }
+      : null;
+
+    // Right-edge tags (identity without decoding dash styles)
+    const levelTags = [];
+    if (orHigh != null) {
+      levelTags.push({ name: 'OR HI', value: orHigh, color: COL.or, bg: 'rgba(66, 32, 6, 0.9)' });
+    }
+    if (orLow != null) {
+      levelTags.push({ name: 'OR LO', value: orLow, color: COL.or, bg: 'rgba(66, 32, 6, 0.9)' });
+    }
+    if (o.refs?.bandResist != null && !this._nearPrice(o.refs.bandResist, stopPx) && !this._nearPrice(o.refs.bandResist, exitPx)) {
+      levelTags.push({ name: 'R', value: o.refs.bandResist, color: COL.bandResist, bg: 'rgba(46, 16, 80, 0.9)' });
+    }
+    if (o.refs?.bandSupport != null && !this._nearPrice(o.refs.bandSupport, stopPx) && !this._nearPrice(o.refs.bandSupport, exitPx)) {
+      levelTags.push({ name: 'S', value: o.refs.bandSupport, color: COL.bandSupport, bg: 'rgba(8, 50, 48, 0.9)' });
+    }
+    if (stopPx != null) {
+      levelTags.push({ name: 'STOP', value: stopPx, color: COL.stop, bg: 'rgba(60, 10, 10, 0.92)' });
+    }
+    if (exitPx != null) {
+      levelTags.push({ name: 'EXIT', value: exitPx, color: COL.exit, bg: 'rgba(10, 40, 20, 0.92)' });
+    }
 
     this.destroyChart();
     this._chart = new Chart(canvas.getContext('2d'), {
       type: 'line',
       data: { labels, datasets },
-      plugins: [this._candlePlugin(), this._sessionPlugin()],
+      plugins: [
+        this._orZonePlugin(),
+        this._candlePlugin(),
+        this._sessionPlugin(),
+        this._levelTagsPlugin(),
+      ],
       options: {
         responsive: true,
         maintainAspectRatio: false,
         animation: { duration: 280 },
         interaction: { mode: 'index', intersect: false },
-        layout: { padding: { top: 14, bottom: 4 } },
+        layout: { padding: { top: 14, bottom: 4, right: 4 } },
         plugins: {
           legend: { display: false },
           tooltip: {
@@ -799,6 +954,8 @@ const RangeEmaUI = {
     this._chart.$rbBars = bars;
     this._chart.$rbTimes = times;
     this._chart.$rbSessionMarks = sessionMarks;
+    this._chart.$rbOrZone = orZone;
+    this._chart.$rbLevelTags = levelTags;
     this._chart.$rbUI = this;
     // Flex layout settles after paint — force Chart.js to fill the box
     requestAnimationFrame(() => {
