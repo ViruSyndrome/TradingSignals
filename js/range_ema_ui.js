@@ -367,6 +367,44 @@ const RangeEmaUI = {
     `;
   },
 
+  /** Bars per clock-hour on this timeframe */
+  _barsPerHour(tf) {
+    if (tf === '5m') return 12;
+    if (tf === '30m') return 2;
+    if (tf === '1h') return 1;
+    return 2;
+  },
+
+  /**
+   * X-axis step in bars: 5m → every 30m; 30m/1h → every 1h.
+   * If that would draw too many labels, step up in whole hours.
+   */
+  _xTickStep(tf, n, coarse) {
+    const bph = this._barsPerHour(tf);
+    const hoursPerTick = tf === '5m' ? 0.5 : 1;
+    let step = Math.max(1, Math.round(bph * hoursPerTick));
+    const maxLabels = coarse ? 8 : 14;
+    while (n / step > maxLabels + 1) {
+      step += bph; // add one hour of bars
+    }
+    return step;
+  },
+
+  _fmtAxisTick(ts, prevTs) {
+    const d = new Date(ts);
+    const time = d.toLocaleTimeString(undefined, {
+      hour: '2-digit',
+      minute: '2-digit',
+      hour12: false,
+    });
+    const dayChanged = !prevTs || new Date(prevTs).toDateString() !== d.toDateString();
+    if (dayChanged) {
+      const day = d.toLocaleDateString(undefined, { month: 'short', day: 'numeric' });
+      return [day, time];
+    }
+    return time;
+  },
+
   _paintChart(row, c) {
     const canvas = document.getElementById('redBarChart');
     if (!canvas || typeof Chart === 'undefined' || !row.bars) return;
@@ -380,12 +418,24 @@ const RangeEmaUI = {
     const emaF = (row.ema.emaF || []).slice(offset);
     const emaS = (row.ema.emaS || []).slice(offset);
     const n = bars.length;
+    const times = bars.map((b) => b.t);
 
-    const labels = bars.map((b) => {
-      const d = new Date(b.t);
-      return `${d.getUTCMonth() + 1}/${d.getUTCDate()} ${String(d.getUTCHours()).padStart(2, '0')}:${String(d.getUTCMinutes()).padStart(2, '0')}`;
+    // Category labels kept short for tooltips; axis uses callback for denser time ticks
+    const labels = times.map((t, i) => {
+      const d = new Date(t);
+      const time = d.toLocaleTimeString(undefined, { hour: '2-digit', minute: '2-digit', hour12: false });
+      if (i === 0 || new Date(times[i - 1]).toDateString() !== d.toDateString()) {
+        const day = d.toLocaleDateString(undefined, { month: 'short', day: 'numeric' });
+        return `${day} ${time}`;
+      }
+      return time;
     });
     const closes = bars.map((b) => b.c);
+    const coarse = typeof window !== 'undefined'
+      && window.matchMedia
+      && window.matchMedia('(pointer: coarse)').matches;
+    const xStep = this._xTickStep(tf, n, coarse);
+    const self = this;
 
     const mkLine = (val, label, color, dash) => ({
       label,
@@ -438,10 +488,6 @@ const RangeEmaUI = {
     if (o.invalidation != null) datasets.push(mkLine(o.invalidation, 'Stop', '#f43f5e', []));
     if (o.bookZone != null) datasets.push(mkLine(o.bookZone, 'Exit', '#22c55e', []));
 
-    const coarse = typeof window !== 'undefined'
-      && window.matchMedia
-      && window.matchMedia('(pointer: coarse)').matches;
-
     this.destroyChart();
     this._chart = new Chart(canvas.getContext('2d'), {
       type: 'line',
@@ -451,6 +497,7 @@ const RangeEmaUI = {
         maintainAspectRatio: false,
         animation: { duration: 280 },
         interaction: { mode: 'nearest', intersect: false, axis: 'x' },
+        layout: { padding: { bottom: 4 } },
         plugins: {
           legend: { display: false },
           tooltip: {
@@ -461,14 +508,22 @@ const RangeEmaUI = {
             padding: 8,
             displayColors: false,
             caretPadding: 8,
-            // Only price + EMAs + stop/exit — hide flat band lines that flood the tooltip
             filter(item) {
               const l = item.dataset.label || '';
               return l === 'BTC' || l.startsWith('EMA') || l === 'Stop' || l === 'Exit';
             },
             callbacks: {
               title(items) {
-                return items[0]?.label || '';
+                const i = items[0]?.dataIndex;
+                if (i == null || !times[i]) return items[0]?.label || '';
+                const d = new Date(times[i]);
+                return d.toLocaleString(undefined, {
+                  month: 'short',
+                  day: 'numeric',
+                  hour: '2-digit',
+                  minute: '2-digit',
+                  hour12: false,
+                });
               },
               label(ctx) {
                 const v = ctx.parsed.y;
@@ -498,11 +553,21 @@ const RangeEmaUI = {
         },
         scales: {
           x: {
+            type: 'category',
+            offset: false,
             grid: { color: 'rgba(255,255,255,0.05)' },
             ticks: {
-              color: 'rgba(255,255,255,0.45)',
+              color: 'rgba(255,255,255,0.55)',
               font: { size: 10, family: 'Outfit' },
-              maxTicksLimit: 8,
+              autoSkip: false,
+              maxRotation: 0,
+              minRotation: 0,
+              callback(value, index) {
+                // Show clock time every 30m (5m chart) or 1h (30m/1h charts)
+                if (index % xStep !== 0 && index !== n - 1) return '';
+                const prev = index >= xStep ? times[index - xStep] : null;
+                return self._fmtAxisTick(times[index], prev);
+              },
             },
           },
           y: {
