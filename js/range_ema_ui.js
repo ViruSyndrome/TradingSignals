@@ -839,26 +839,8 @@ const RangeEmaUI = {
         }
       : null;
 
-    // Right-edge tags (identity without decoding dash styles)
+    // No canvas price tags — Entry/Stop/Exit live in the action card above (tags were covering candles)
     const levelTags = [];
-    if (orHigh != null) {
-      levelTags.push({ name: 'OR HI', value: orHigh, color: COL.or, bg: 'rgba(66, 32, 6, 0.9)' });
-    }
-    if (orLow != null) {
-      levelTags.push({ name: 'OR LO', value: orLow, color: COL.or, bg: 'rgba(66, 32, 6, 0.9)' });
-    }
-    if (o.refs?.bandResist != null && !this._nearPrice(o.refs.bandResist, stopPx) && !this._nearPrice(o.refs.bandResist, exitPx)) {
-      levelTags.push({ name: 'R', value: o.refs.bandResist, color: COL.bandResist, bg: 'rgba(46, 16, 80, 0.9)' });
-    }
-    if (o.refs?.bandSupport != null && !this._nearPrice(o.refs.bandSupport, stopPx) && !this._nearPrice(o.refs.bandSupport, exitPx)) {
-      levelTags.push({ name: 'S', value: o.refs.bandSupport, color: COL.bandSupport, bg: 'rgba(8, 50, 48, 0.9)' });
-    }
-    if (stopPx != null) {
-      levelTags.push({ name: 'STOP', value: stopPx, color: COL.stop, bg: 'rgba(60, 10, 10, 0.92)' });
-    }
-    if (exitPx != null) {
-      levelTags.push({ name: 'EXIT', value: exitPx, color: COL.exit, bg: 'rgba(10, 40, 20, 0.92)' });
-    }
 
     this.destroyChart();
     this._chart = new Chart(canvas.getContext('2d'), {

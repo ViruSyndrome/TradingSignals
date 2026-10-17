@@ -977,27 +977,19 @@ body.is-searching .section-block { margin-bottom: 12px; }
 .site-footer-links { margin-bottom: 6px; display: flex; flex-wrap: wrap; justify-content: center; align-items: center; gap: 4px 10px; }
 .site-footer-links a { margin: 0; color: var(--text-muted); text-decoration: none; transition: color 0.2s; line-height: 1.2; }
 .site-footer-links a:hover { color: var(--accent); }
-/* Learn uses .nav-link for section routing — strip sidebar chrome so it aligns with siblings */
-.site-footer-links a.nav-link {
+.site-footer-links .footer-section-link {
   display: inline;
-  align-items: unset;
-  gap: 0;
   padding: 0;
-  border-radius: 0;
-  border-left: none;
+  margin: 0;
+  border: 0;
   background: none;
-  font-weight: inherit;
+  font: inherit;
+  line-height: inherit;
+  vertical-align: baseline;
   color: var(--text-muted);
+  cursor: pointer;
 }
-.site-footer-links a.nav-link:hover {
-  background: none;
-  color: var(--accent);
-}
-.site-footer-links a.nav-link.active {
-  background: none;
-  border-left: none;
-  color: var(--accent);
-}
+.site-footer-links .footer-section-link:hover { color: var(--accent); }
 .site-footer-disclaimer { max-width: 720px; margin: 0 auto; line-height: 1.4; }
 .site-footer-copyright { margin-top: 4px; opacity: 0.8; }
 .moonshot-controls { margin-bottom: 24px; }
@@ -2825,8 +2817,15 @@ body.redbar-only .topbar-focus-label {
   letter-spacing: 0.02em;
 }
 .topbar-focus-label { display: none; }
-/* Desk fills the pane so the pinned footer sits flush — no empty void */
-body.redbar-only #dashboardSection.main-section {
+/*
+ * Desk fill layout ONLY when Red Bar is the active tab.
+ * Previously this forced display:flex without .active, so Learn/Risk stacked
+ * under the desk and crushed the chart into a flat line.
+ */
+body.redbar-only #dashboardSection.main-section:not(.active) {
+  display: none !important;
+}
+body.redbar-only #dashboardSection.main-section.active {
   display: flex;
   flex-direction: column;
   padding: 20px 28px 8px;
@@ -3047,7 +3046,7 @@ body.redbar-only .site-footer-copyright {
 }
 .rb-meta-row { margin-bottom: 10px; }
 @media (max-width: 768px) {
-  body.redbar-only #dashboardSection.main-section {
+  body.redbar-only #dashboardSection.main-section.active {
     padding: 10px 10px 4px;
     overflow-y: auto; /* phones: allow scroll if action card + chart need it */
   }

@@ -3929,13 +3929,30 @@ const Dashboard = {
     // Manual refresh only (pull-to-refresh removed — too easy to trigger and burns Binance weight)
     document.getElementById('refreshBtn')?.addEventListener('click', () => this._forceRefresh());
 
-    // Sidebar nav
+    // Sidebar + footer section links
+    const goSection = (section, activeEl) => {
+      if (!section) return;
+      document.querySelectorAll('.main-section').forEach(s => s.classList.toggle('active', s.id === section));
+      document.querySelectorAll('.nav-link').forEach(l => {
+        l.classList.toggle('active', l.dataset.section === section);
+      });
+      // Returning to Red Bar: chart flex height may have changed while hidden
+      if (section === 'dashboardSection') {
+        requestAnimationFrame(() => {
+          try { window.RangeEmaUI?._chart?.resize?.(); } catch (_) {}
+        });
+      }
+    };
     document.querySelectorAll('.nav-link').forEach(link => {
       link.onclick = e => {
         e.preventDefault();
-        const section = link.dataset.section;
-        document.querySelectorAll('.main-section').forEach(s => s.classList.toggle('active', s.id === section));
-        document.querySelectorAll('.nav-link').forEach(l => l.classList.toggle('active', l === link));
+        goSection(link.dataset.section, link);
+      };
+    });
+    document.querySelectorAll('.footer-section-link').forEach(link => {
+      link.onclick = e => {
+        e.preventDefault();
+        goSection(link.dataset.section, link);
       };
     });
 

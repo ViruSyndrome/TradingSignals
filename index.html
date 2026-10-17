@@ -43,7 +43,7 @@
   <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.4/dist/chart.umd.min.js" defer></script>
   <script src="https://cdn.jsdelivr.net/npm/hammerjs@2.0.8/hammer.min.js" defer></script>
   <script src="https://cdn.jsdelivr.net/npm/chartjs-plugin-zoom@2.2.0/dist/chartjs-plugin-zoom.min.js" defer></script>
-  <link rel="stylesheet" href="styles.css?v=6.85" />
+  <link rel="stylesheet" href="styles.css?v=6.86" />
   <!-- Critical boot overlay (prevents sidebar flash before styles.css applies) -->
   <style>
     html, body { margin: 0; background: #080a14; }
@@ -70,7 +70,7 @@
     if ('serviceWorker' in navigator) {
       window.addEventListener('load', () => {
         const hadController = Boolean(navigator.serviceWorker.controller);
-        navigator.serviceWorker.register('./service-worker.js?v=6.85', { updateViaCache: 'none' })
+        navigator.serviceWorker.register('./service-worker.js?v=6.86', { updateViaCache: 'none' })
           .then(reg => {
             reg.update().catch(() => {});
             navigator.serviceWorker.addEventListener('controllerchange', () => {
@@ -514,7 +514,7 @@
     <footer class="site-footer">
       <div class="site-footer-links">
         <a href="about.html">About</a>
-        <a href="#" class="nav-link" data-section="educationSection">Learn</a>
+        <a href="#" class="footer-section-link" data-section="educationSection">Learn</a>
         <a href="guides/binance-p2p.html">Fund wallet</a>
         <a href="guides/cash-out.html">Cash out</a>
         <a href="terms.html">Terms</a>
@@ -598,14 +598,14 @@
   <script src="js/indicators.js?v=6.60" defer></script>
   <script src="js/redbar_trend.js?v=1.0" defer></script>
   <script src="js/range_ema_engine.js?v=1.1" defer></script>
-  <script src="js/range_ema_ui.js?v=1.12" defer></script>
+  <script src="js/range_ema_ui.js?v=1.13" defer></script>
   <script src="js/signals.js?v=6.70" defer></script>
   <script src="js/charts.js?v=6.60" defer></script>
   
   <script src="js/scanner.js?v=6.60" defer></script>
   <script src="js/backtest_ui.js?v=6.60" defer></script>
   <script src="js/auth.js?v=6.70" defer></script>
-    <script src="js/dashboard.js?v=6.78" defer></script>
+    <script src="js/dashboard.js?v=6.79" defer></script>
   <script>
     // If signals.js didn't expose the right version, cached old code is running — force reload.
     if (typeof Signals === 'undefined' || Signals._version !== window.__APP_VERSION__) {
