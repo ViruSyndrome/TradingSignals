@@ -329,7 +329,7 @@ const RangeEmaUI = {
           </div>
         </div>
         <div class="rb-chart-legend">
-          <span class="lg price">Price</span>
+          <span class="lg price">Candles</span>
           <span class="lg ema10">EMA ${c.emaFast || 10}</span>
           <span class="lg ema30">EMA ${c.emaSlow || 30}</span>
           <span class="lg or">Opening range</span>
@@ -405,6 +405,52 @@ const RangeEmaUI = {
     return time;
   },
 
+  /** Draw OHLC candles on top of the line chart (EMA + levels stay as lines). */
+  _candlePlugin() {
+    return {
+      id: 'rbCandles',
+      afterDatasetsDraw(chart) {
+        const bars = chart.$rbBars;
+        if (!bars || !bars.length) return;
+        const xScale = chart.scales.x;
+        const yScale = chart.scales.y;
+        if (!xScale || !yScale) return;
+        const ctx = chart.ctx;
+        const n = bars.length;
+        const slot = n > 1
+          ? Math.abs(xScale.getPixelForValue(1) - xScale.getPixelForValue(0))
+          : 8;
+        const bodyW = Math.max(2, Math.min(slot * 0.62, 14));
+
+        ctx.save();
+        for (let i = 0; i < n; i++) {
+          const b = bars[i];
+          const x = xScale.getPixelForValue(i);
+          if (!Number.isFinite(x)) continue;
+          const yO = yScale.getPixelForValue(b.o);
+          const yC = yScale.getPixelForValue(b.c);
+          const yH = yScale.getPixelForValue(b.h);
+          const yL = yScale.getPixelForValue(b.l);
+          const up = b.c >= b.o;
+          const color = up ? '#22c55e' : '#ef4444';
+
+          ctx.strokeStyle = color;
+          ctx.lineWidth = 1.25;
+          ctx.beginPath();
+          ctx.moveTo(x, yH);
+          ctx.lineTo(x, yL);
+          ctx.stroke();
+
+          const top = Math.min(yO, yC);
+          const h = Math.max(1, Math.abs(yC - yO));
+          ctx.fillStyle = color;
+          ctx.fillRect(x - bodyW / 2, top, bodyW, h);
+        }
+        ctx.restore();
+      },
+    };
+  },
+
   _paintChart(row, c) {
     const canvas = document.getElementById('redBarChart');
     if (!canvas || typeof Chart === 'undefined' || !row.bars) return;
@@ -420,7 +466,6 @@ const RangeEmaUI = {
     const n = bars.length;
     const times = bars.map((b) => b.t);
 
-    // Category labels kept short for tooltips; axis uses callback for denser time ticks
     const labels = times.map((t, i) => {
       const d = new Date(t);
       const time = d.toLocaleTimeString(undefined, { hour: '2-digit', minute: '2-digit', hour12: false });
@@ -431,6 +476,9 @@ const RangeEmaUI = {
       return time;
     });
     const closes = bars.map((b) => b.c);
+    const yHi = Math.max(...bars.map((b) => b.h));
+    const yLo = Math.min(...bars.map((b) => b.l));
+    const pad = (yHi - yLo) * 0.04 || 1;
     const coarse = typeof window !== 'undefined'
       && window.matchMedia
       && window.matchMedia('(pointer: coarse)').matches;
@@ -446,18 +494,22 @@ const RangeEmaUI = {
       pointRadius: 0,
       fill: false,
       tension: 0,
+      order: 2,
     });
 
+    // Invisible close series: hit-testing + tooltip OHLC (candles drawn by plugin)
     const datasets = [
       {
         label: 'BTC',
         data: closes,
-        borderColor: '#e2e8f0',
-        backgroundColor: 'rgba(226,232,240,0.06)',
-        borderWidth: 2,
+        borderColor: 'rgba(0,0,0,0)',
+        backgroundColor: 'rgba(0,0,0,0)',
+        borderWidth: 0,
         pointRadius: 0,
-        fill: true,
-        tension: 0.15,
+        pointHoverRadius: 0,
+        fill: false,
+        tension: 0,
+        order: 1,
       },
       {
         label: `EMA ${c.emaFast || 10}`,
@@ -467,6 +519,7 @@ const RangeEmaUI = {
         pointRadius: 0,
         fill: false,
         tension: 0.1,
+        order: 3,
       },
       {
         label: `EMA ${c.emaSlow || 30}`,
@@ -476,6 +529,7 @@ const RangeEmaUI = {
         pointRadius: 0,
         fill: false,
         tension: 0.1,
+        order: 3,
       },
     ];
 
@@ -492,11 +546,12 @@ const RangeEmaUI = {
     this._chart = new Chart(canvas.getContext('2d'), {
       type: 'line',
       data: { labels, datasets },
+      plugins: [this._candlePlugin()],
       options: {
         responsive: true,
         maintainAspectRatio: false,
         animation: { duration: 280 },
-        interaction: { mode: 'nearest', intersect: false, axis: 'x' },
+        interaction: { mode: 'index', intersect: false },
         layout: { padding: { bottom: 4 } },
         plugins: {
           legend: { display: false },
@@ -526,6 +581,16 @@ const RangeEmaUI = {
                 });
               },
               label(ctx) {
+                if (ctx.dataset.label === 'BTC') {
+                  const b = bars[ctx.dataIndex];
+                  if (!b) return 'BTC';
+                  return [
+                    `O  ${Number(b.o).toFixed(2)}`,
+                    `H  ${Number(b.h).toFixed(2)}`,
+                    `L  ${Number(b.l).toFixed(2)}`,
+                    `C  ${Number(b.c).toFixed(2)}`,
+                  ];
+                }
                 const v = ctx.parsed.y;
                 if (v == null) return ctx.dataset.label;
                 return `${ctx.dataset.label}  ${Number(v).toFixed(2)}`;
@@ -554,7 +619,7 @@ const RangeEmaUI = {
         scales: {
           x: {
             type: 'category',
-            offset: false,
+            offset: true,
             grid: { color: 'rgba(255,255,255,0.05)' },
             ticks: {
               color: 'rgba(255,255,255,0.55)',
@@ -563,7 +628,6 @@ const RangeEmaUI = {
               maxRotation: 0,
               minRotation: 0,
               callback(value, index) {
-                // Show clock time every 30m (5m chart) or 1h (30m/1h charts)
                 if (index % xStep !== 0 && index !== n - 1) return '';
                 const prev = index >= xStep ? times[index - xStep] : null;
                 return self._fmtAxisTick(times[index], prev);
@@ -572,6 +636,8 @@ const RangeEmaUI = {
           },
           y: {
             position: 'right',
+            min: yLo - pad,
+            max: yHi + pad,
             grid: { color: 'rgba(255,255,255,0.06)' },
             ticks: {
               color: 'rgba(255,255,255,0.45)',
@@ -582,6 +648,7 @@ const RangeEmaUI = {
         },
       },
     });
+    this._chart.$rbBars = bars;
   },
 };
 

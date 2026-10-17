@@ -2937,7 +2937,9 @@ body.redbar-only .section-sub {
   vertical-align: middle;
   border-radius: 2px;
 }
-.rb-chart-legend .price::before { background: #e2e8f0; }
+.rb-chart-legend .price::before {
+  background: linear-gradient(90deg, #22c55e 50%, #ef4444 50%);
+}
 .rb-chart-legend .ema10::before { background: #38bdf8; }
 .rb-chart-legend .ema30::before { background: #a78bfa; }
 .rb-chart-legend .or::before { background: #facc15; }
