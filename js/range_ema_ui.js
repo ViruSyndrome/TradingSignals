@@ -800,6 +800,10 @@ const RangeEmaUI = {
     this._chart.$rbTimes = times;
     this._chart.$rbSessionMarks = sessionMarks;
     this._chart.$rbUI = this;
+    // Flex layout settles after paint — force Chart.js to fill the box
+    requestAnimationFrame(() => {
+      try { this._chart?.resize?.(); } catch (_) {}
+    });
   },
 };
 

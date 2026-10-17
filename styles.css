@@ -2804,19 +2804,33 @@ body.redbar-only .topbar-focus-label {
   letter-spacing: 0.02em;
 }
 .topbar-focus-label { display: none; }
+/* Desk fills the pane so the pinned footer sits flush — no empty void */
+body.redbar-only #dashboardSection.main-section {
+  display: flex;
+  flex-direction: column;
+  padding: 20px 28px 8px;
+  overflow: hidden; /* chart owns the scroll, not a dead gap above footer */
+}
 body.redbar-only #rangeEmaDeskBlock {
-  margin-top: 4px;
-  margin-bottom: 12px;
+  flex: 1 1 auto;
+  display: flex;
+  flex-direction: column;
+  margin: 0;
   min-height: 0;
 }
-body.redbar-only .main-section {
-  padding-bottom: 16px;
+body.redbar-only #rangeEmaDesk {
+  flex: 1 1 auto;
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  gap: 10px;
 }
 body.redbar-only .section-heading {
+  flex: 0 0 auto;
   flex-wrap: wrap;
   align-items: flex-start;
-  gap: 6px;
-  margin-bottom: 12px;
+  gap: 4px;
+  margin-bottom: 0;
 }
 body.redbar-only .section-heading h1 {
   font-size: clamp(1.15rem, 2.5vw, 1.45rem);
@@ -2826,6 +2840,51 @@ body.redbar-only .section-sub {
   width: 100%;
   font-size: 12px;
   line-height: 1.4;
+}
+body.redbar-only .rb-action {
+  flex: 0 0 auto;
+  margin-bottom: 0;
+}
+body.redbar-only .rb-chart-wrap {
+  flex: 1 1 auto;
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  margin-bottom: 0;
+}
+body.redbar-only .rb-chart-box {
+  flex: 1 1 auto;
+  height: auto;
+  min-height: 280px;
+}
+body.redbar-only .rb-meta-row,
+body.redbar-only .range-chips,
+body.redbar-only .range-desk-footnote {
+  flex: 0 0 auto;
+  margin-bottom: 0;
+}
+body.redbar-only .range-desk-footnote {
+  margin-top: 2px;
+  margin-bottom: 0;
+  font-size: 11px;
+}
+/* Compact global footer under the desk */
+body.redbar-only .site-footer {
+  padding: 6px 12px calc(8px + env(safe-area-inset-bottom, 0px));
+  font-size: 10px;
+  line-height: 1.35;
+}
+body.redbar-only .site-footer-links {
+  margin-bottom: 2px;
+  gap: 2px 8px;
+}
+body.redbar-only .site-footer-disclaimer {
+  max-width: 640px;
+  opacity: 0.85;
+}
+body.redbar-only .site-footer-copyright {
+  margin-top: 2px;
+  opacity: 0.65;
 }
 
 /* Red Bar action + chart */
@@ -2959,8 +3018,17 @@ body.redbar-only .section-sub {
 }
 .rb-meta-row { margin-bottom: 10px; }
 @media (max-width: 768px) {
-  body.redbar-only .main-section {
-    padding: 12px 10px 8px;
+  body.redbar-only #dashboardSection.main-section {
+    padding: 10px 10px 4px;
+    overflow-y: auto; /* phones: allow scroll if action card + chart need it */
+  }
+  body.redbar-only .rb-chart-box {
+    min-height: 240px;
+    height: min(48vh, 340px);
+    flex: 0 0 auto;
+  }
+  body.redbar-only .site-footer {
+    padding: 8px 10px calc(10px + env(safe-area-inset-bottom, 0px));
   }
   body.redbar-only .topbar-focus-label {
     font-size: 11px;
@@ -2984,7 +3052,7 @@ body.redbar-only .section-sub {
     grid-template-columns: 1fr;
     gap: 6px;
   }
-  .rb-chart-wrap { padding: 10px 8px 6px; margin-bottom: 10px; }
+  .rb-chart-wrap { padding: 10px 8px 6px; margin-bottom: 0; }
   .rb-chart-toolbar {
     flex-direction: column;
     align-items: stretch;
