@@ -4,25 +4,25 @@
   <meta charset="UTF-8" />
     <meta name="google-site-verification" content="0EE4LD8CMDBYJ02h7i7oQvgXkUZbCPcrDGMSJZFux9s" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
-  <title>TrendRunner — Algorithmic Crypto Intelligence</title>
+  <title>TrendRunner — BTC Red Bar Desk</title>
     <!-- Supabase -->
     <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2" defer></script>
-  <meta name="description" content="Free algorithmic crypto buy/sell signals with stop-loss, take-profit, and 7-day hold limits. High Confidence setups, daily core winners, and moonshots on TrendRunner." />
+  <meta name="description" content="TrendRunner Red Bar Desk: BTC 30m chart with prior-day range bands, opening-range bias, LONG/SHORT/WAIT levels. Educational research — you place trades yourself." />
   <meta name="msvalidate.01" content="FA7405A0B7623E8A404F74AE4952777C" />
-  <meta name="keywords" content="crypto trading signals, binance signals, algorithmic crypto, strong buy alert, RSI MACD crypto, trendrunner" />
+  <meta name="keywords" content="bitcoin red bar, BTC opening range, crypto futures bias, prior day range, trendrunner" />
 
   <!-- Open Graph / Facebook -->
   <meta property="og:type" content="website">
   <meta property="og:url" content="https://trendrunner.app/">
-  <meta property="og:title" content="TrendRunner | Free Algorithmic Crypto Signals">
-  <meta property="og:description" content="Live buy/sell signals with SL/TP and 7-day exits. High Confidence setups, core winners, and moonshots — educational research tool.">
+  <meta property="og:title" content="TrendRunner | BTC Red Bar Desk">
+  <meta property="og:description" content="Visual BTC map: prior-day bands, opening range, red-bar exits, LONG/SHORT/WAIT. Educational — not auto-trading.">
   <meta property="og:image" content="https://trendrunner.app/og-preview.png?v=20260912">
 
   <!-- Twitter -->
   <meta name="twitter:card" content="summary_large_image">
   <meta name="twitter:url" content="https://trendrunner.app/">
-  <meta name="twitter:title" content="TrendRunner | Free Algorithmic Crypto Signals">
-  <meta name="twitter:description" content="Live buy/sell signals with SL/TP and 7-day exits. High Confidence setups, core winners, and moonshots — educational research tool.">
+  <meta name="twitter:title" content="TrendRunner | BTC Red Bar Desk">
+  <meta name="twitter:description" content="Visual BTC map: prior-day bands, opening range, red-bar exits, LONG/SHORT/WAIT. Educational — not auto-trading.">
   <meta name="twitter:image" content="https://trendrunner.app/og-preview.png?v=20260912">
   <meta name="twitter:site" content="@TrendRunnerApp">
   
@@ -43,7 +43,7 @@
   <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.4/dist/chart.umd.min.js" defer></script>
   <script src="https://cdn.jsdelivr.net/npm/hammerjs@2.0.8/hammer.min.js" defer></script>
   <script src="https://cdn.jsdelivr.net/npm/chartjs-plugin-zoom@2.2.0/dist/chartjs-plugin-zoom.min.js" defer></script>
-  <link rel="stylesheet" href="styles.css?v=6.75" />
+  <link rel="stylesheet" href="styles.css?v=6.76" />
   <!-- Critical boot overlay (prevents sidebar flash before styles.css applies) -->
   <style>
     html, body { margin: 0; background: #080a14; }
@@ -70,11 +70,11 @@
     if ('serviceWorker' in navigator) {
       window.addEventListener('load', () => {
         const hadController = Boolean(navigator.serviceWorker.controller);
-        navigator.serviceWorker.register('./service-worker.js?v=6.75', { updateViaCache: 'none' })
+        navigator.serviceWorker.register('./service-worker.js?v=6.76', { updateViaCache: 'none' })
           .then(reg => {
             reg.update().catch(() => {});
             navigator.serviceWorker.addEventListener('controllerchange', () => {
-              const reloadKey = 'trendrunner_sw_update_6.75';
+              const reloadKey = 'trendrunner_sw_update_6.76';
               if (hadController && !sessionStorage.getItem(reloadKey)) {
                 sessionStorage.setItem(reloadKey, '1');
                 location.reload();
@@ -167,10 +167,10 @@
 
     <div class="sidebar-footer">
       <div class="sidebar-disclaimer">
-        ⚠️ Signals are for educational purposes only. Not financial advice.
+        ⚠️ Red Bar Desk is educational research only. Not financial advice. You place your own trades.
       </div>
       <div class="sidebar-affiliate">
-        <a href="https://www.binance.com/register?ref=TRENDRUNNER" target="_blank" rel="noopener noreferrer" title="Opens Binance (TrendRunner referral — new accounts can get 10% fee kickback)">Binance referral · 10% fee kickback</a>
+        <a href="https://www.binance.com/register?ref=TRENDRUNNER" target="_blank" rel="noopener noreferrer" title="Binance signup (optional referral)">Binance · fund wallet / futures</a>
       </div>
     </div>
   </aside>
@@ -263,15 +263,14 @@
       <footer class="site-footer">
         <div class="site-footer-links">
           <a href="about.html">About</a>
-          <a href="guides/binance-p2p.html">P2P guide</a>
+          <a href="#" class="nav-link" data-section="educationSection">Learn Red Bar</a>
+          <a href="guides/binance-p2p.html">Fund wallet (P2P)</a>
           <a href="guides/cash-out.html">Cash out</a>
-          <a href="terms.html">Terms of Service</a>
-          <a href="privacy.html">Privacy Policy</a>
-          <a href="https://www.binance.com/register?ref=TRENDRUNNER" target="_blank" rel="noopener noreferrer" title="Binance signup via TrendRunner referral — new accounts can get 10% fee kickback">Binance referral / 10% fee kickback</a>
-          <a href="#" class="nav-link" data-section="educationSection">Learn Trading</a>
+          <a href="terms.html">Terms</a>
+          <a href="privacy.html">Privacy</a>
         </div>
         <div class="site-footer-disclaimer">
-          <strong>Disclaimer:</strong> TrendRunner is a data visualization and research tool, not a registered investment advisor. Cryptocurrency trading involves substantial risk of loss and is not suitable for every investor. The signals generated by this tool are based on mathematical formulas and historical data, which do not guarantee future performance. We are not responsible for any financial losses incurred while using this platform.
+          <strong>Disclaimer:</strong> TrendRunner’s Red Bar Desk is a chart + level research tool, not a registered advisor and not an auto-trader. Futures and crypto involve substantial risk of loss, including liquidation. Levels do not guarantee outcomes.
         </div>
         <div class="site-footer-copyright">
           &copy; 2026 TrendRunner. All rights reserved.
@@ -338,242 +337,89 @@
     <section class="main-section" id="educationSection">
       <div class="section-block">
         <div class="section-heading">
-          <h2>📚 Learn Trading — From Zero to Signals</h2>
-          <p class="section-sub">Understanding what each indicator means before you act on it</p>
+          <h2>📚 Learn — Red Bar Desk</h2>
+          <p class="section-sub">How to read the BTC chart, LONG / SHORT / WAIT, and place your own trade</p>
         </div>
 
         <div class="edu-full-grid">
 
           <div class="edu-full-card highlight-card edu-card-accent">
-            <div class="edu-header"><span>🎁</span><h3>Unlock 10% Lifetime Fee Discount</h3></div>
-            <p>Every time you make a trade, the exchange takes a small cut. Over thousands of trades, these fees destroy your profits.</p>
+            <div class="edu-header"><span>🟥</span><h3>What TrendRunner is now</h3></div>
+            <p>The old multi-coin High Conf / moonshot scoreboard is retired from the main UI. The live product is the <strong>Red Bar Desk</strong>: one BTC 30m map with trend bias and levels. It does <em>not</em> place orders for you.</p>
             <ul>
-              <li><strong>The Solution:</strong> By creating your Binance account through a TrendRunner affiliate link, you unlock a permanent <strong>10% Kickback</strong> on every single trade fee you ever pay.</li>
-              <li><strong>How it works:</strong> We split the referral bonus with you. Binance pays us a small percentage for referring you, and they instantly refund <strong>10% back into your spot wallet</strong> on every trade.</li>
-              <li><strong>Action:</strong> Click any coin's ticker on the dashboard or <a href="https://www.binance.com/register?ref=TRENDRUNNER" target="_blank" rel="noopener noreferrer" class="edu-link-accent">click here to sign up</a>. If you already have an account, you can create a new one to claim the lifetime discount.</li>
-            </ul>
-          </div>
-
-            
-            <div class="edu-full-card highlight-card edu-card-warning">
-              <div class="edu-header"><span>🚀</span><h3>How to Trade Moonshots</h3></div>
-              <p>Moonshots are highly volatile momentum plays on <strong>4H</strong> charts. Trade them differently than daily core signals.</p>
-              <ul>
-                <li><strong>Timing chips:</strong> Prefer <strong>4H CONFIRM</strong> (EMA / breakout retest). <strong>WAIT</strong> means don’t chase an extended rip — Strong Buy may be downgraded until the retest.</li>
-                <li><strong>Watch vs scanner:</strong> Auto-scan fills the Moonshots tab only. It does <em>not</em> star coins for you. Star ⭐ only ideas you want to revisit; Lock 🔒 after you buy.</li>
-                <li><strong>Review window:</strong> Faded setups are cleaned after ~4 hours unless you Watched or Locked them.</li>
-                <li><strong>Tight Stops:</strong> ~5% max stop. If the signal flips to SELL, close immediately.</li>
-              </ul>
-            </div>
-
-            <div class="edu-full-card highlight-card">
-              <div class="edu-header"><span>⚡</span><h3>5m Scalps (experimental — hidden)</h3></div>
-              <p>Short EMA-pullback plays on liquid alts. The scanner remains in the codebase but is <strong>disabled in the main UI</strong> so the dashboard stays focused on High Conf / daily / moonshots. Prefer paper size only if you re-enable it later.</p>
-            </div>
-
-            <div class="edu-full-card highlight-card edu-card-warning">
-              <div class="edu-header"><span>💎</span><h3>SMC, Wyckoff &amp; Volume Profile (POC)</h3></div>
-              <p>These are <strong>heuristic score boosters</strong> — useful pattern detectors, <em>not</em> full institutional “smart money” systems. They can inflate a BUY score but still cannot mint a trusted Strong Buy alone (S.BUY still needs score ≥ 4, 100% confidence, cool RSI).</p>
-              <ul>
-                <li><strong>💎 SMC Liquidity Sweep (~+2 / +3):</strong> Price briefly takes liquidity below a local low, then rejects hard (optional volume confirm). Idea: stop-hunt then reclaim.</li>
-                <li><strong>🐋 Wyckoff Spring (~+1.5):</strong> Tight range → fake breakdown below the floor → reclaim on stronger volume. Idea: shakeout before markup.</li>
-                <li><strong>🛡️ VPOC / Point of Control (~+1 / +1.5 on scalps):</strong> Price sits just above the highest-volume price bin in the recent window — treated as a volume “wall” / support bounce.</li>
-                <li><strong>Validation:</strong> Weekly Action runs <code>node backtest.js --smc-ablation</code> (ON vs OFF). Until that consistently helps, treat these factors as experimental.</li>
-              </ul>
-              <div class="edu-tip">💡 <strong>Honest wording:</strong> “Inspired by” SMC / Wyckoff / volume profile — not a claim that whales are detected in real time.</div>
-            </div>
-
-            <div class="edu-full-card">
-              <div class="edu-header"><span>📢</span><h3>New Listings (How Pumps Happen)</h3></div>
-              <p>Binance listing announcements often spark violent moves — but <strong>not every new coin moons</strong>, and many give back the entire pump.</p>
-              <ul>
-                <li><strong>How to watch:</strong> Use the <strong>New Listings</strong> tab + official Binance listing pages. The cloud bot can Telegram-alert on new CMS articles when enabled.</li>
-                <li><strong>How not to trade them:</strong> No auto-sniper yet. Do not chase a candle that already ran +50–80% without a stop.</li>
-                <li><strong>Rule you already learned:</strong> If you buy early heat, place a <strong>trailing stop or OCO immediately</strong> — paper gains evaporate fast on listing days.</li>
-              </ul>
-            </div>
-
-            <div class="edu-full-card">
-            <div class="edu-header"><span>📱</span><h3>How to Use TrendRunner</h3></div>
-            <p>TrendRunner is not a crystal ball — it is a mathematical scanner. Start with <strong>High Conf</strong> (full agreement + bullish score). Strong Buy is rarer by design.</p>
-            <ul>
-              <li><strong>The Score:</strong> Composite of trend/momentum factors. Positive = bullish bias.</li>
-              <li><strong>Confidence:</strong> How many directional indicators agree.</li>
-              <li><strong>Timing chips:</strong> <strong>CONFIRM</strong> = cleaner entry window; <strong>WAIT</strong> = don’t chase.</li>
-              <li><strong>🔒 Lock:</strong> After you buy — opens Holdings paper PnL. Correct the exact Binance fill (price + date/time) and add lots for multiple entries. Signed-in users sync Watch + Holdings across devices.</li>
-              <li><strong>✅ I followed this:</strong> On Buy / Strong Buy cards — logs the suggestion you took so Signal Log can show wins vs losses.</li>
-            </ul>
-          </div>
-
-          <div class="edu-full-card">
-            <div class="edu-header"><span>🧭</span><h3>Filters, Watch, Holdings &amp; Followed</h3></div>
-            <p>Keep ideas, positions, and suggestion tracking separate.</p>
-            <ul>
-              <li><strong>All:</strong> Tracked daily market list.</li>
-              <li><strong>⭐ Watch:</strong> Ideas <em>you</em> starred only — not a buy, not auto-filled by scanners. Syncs when signed in.</li>
-              <li><strong>🔒 Holdings:</strong> Coins you bought. Edit Binance entry price/time; use <strong>+ Lot</strong> for DCA / second fills. Syncs when signed in.</li>
-              <li><strong>🎯 High Conf:</strong> Look here first — 100% agreement and bullish score.</li>
-              <li><strong>Signal Log:</strong> Live timeline of signal changes on this device (not cloud-synced yet), plus suggestions you followed.</li>
-              <li><strong>Oversold / Trending:</strong> Research filters — not automatic orders.</li>
-            </ul>
-            <div class="edu-tip">💡 <strong>Accurate paper PnL:</strong> Lock → edit entry to your Binance fill → optionally tap <strong>I followed this</strong> so your personal ledger matches the trade.</div>
-          </div>
-
-          <div class="edu-full-card">
-            <div class="edu-header"><span>🧪</span><h3>Backtests (Visual + Weekly)</h3></div>
-            <p>Historical checks use the same engines as live — but only the weekly <strong>daily</strong> run updates validated winner lists.</p>
-            <ul>
-              <li><strong>Visual Backtester:</strong> Pick asset + timeframe. <code>1d</code> = daily core, <code>4h</code> = moonshot breakout, <code>5m</code> = scalp.</li>
-              <li><strong>Weekly Action:</strong> Runs <code>node backtest.js</code> and may update <code>provenWinners</code> / the trust badge when results change.</li>
-              <li><strong>Research CLI:</strong> <code>node backtest.js --moonshots</code>, <code>--scalps</code>, and <code>--smc-ablation</code> (also logged weekly) — research only, does <em>not</em> rewrite live allowlists.</li>
-              <li><strong>SMC A/B:</strong> A Sunday badge alone is not a controlled test. Ablation runs the same backtest with factors ON vs OFF so you can see if SMC/Wyckoff/VPOC actually help.</li>
-              <li><strong>Read net return, win rate, and trade count together</strong>; check the equity curve for drawdowns.</li>
-            </ul>
-            <div class="edu-tip">💡 <strong>Important:</strong> Historical results are research, not a guarantee. Use fees, a stop, and a take-profit on every live trade.</div>
-          </div>
-
-          <div class="edu-full-card">
-            <div class="edu-header"><span>⏱️</span><h3>The 7-Day Hold Limit</h3></div>
-            <p>Patience pays — but capital should not sit idle. Live TrendRunner exits use a <strong>Single Target plan</strong>: sell 100% at a fixed +15% take-profit limit order, or sell at market price if the 7-day time limit expires.</p>
-            <ul>
-              <li><strong>The Delay:</strong> Daily signals often need a few sessions to develop. Do not panic-sell on day 2 because of normal noise.</li>
-              <li><strong>Single Target (100%):</strong> Sell Limit at <strong>+15%</strong> with the suggested 1.5x ATR stop.</li>
-              
-              <li><strong>The 7-Day Cap:</strong> If leftovers have not exited within <strong>7 days</strong>, close them and free capital.</li>
-            </ul>
-            <div class="edu-tip">💡 <strong>Strategy:</strong> Place both legs at entry, lock the coin in Holdings, and walk away.</div>
-          </div>
-
-          <div class="edu-full-card">
-            <div class="edu-header"><span>🛡️</span><h3>Automating Exits with OCO Orders</h3></div>
-            <p>OCO stands for <strong>One-Cancels-the-Other</strong>. It is the single most important tool on Binance to protect your capital and lock in profits while you sleep.</p>
-            <ul>
-              <li><strong>What it is:</strong> An OCO order places a Take-Profit limit order and a Stop-Loss order at the exact same time. If one hits, Binance automatically cancels the other.</li>
-              <li><strong>How to use it on Binance:</strong> Go to the Trade screen, change the order type from 'Limit' to 'OCO'.</li>
-              <li><strong>Price (Take Profit):</strong> Enter the target price where you want to secure your gains.</li>
-              <li><strong>Stop Limit:</strong> Enter your emergency exit price. If the market crashes, this automatically sells your coins to prevent a massive loss.</li>
-            </ul>
-            <div class="edu-tip">💡 <strong>Pro Tip:</strong> Moonshots require much tighter Stop-Losses because they are highly volatile. Never buy a Moonshot without an OCO.</div>
-          </div>
-
-          <div class="edu-full-card">
-            <div class="edu-header"><span>💱</span><h3>Funding via Binance P2P (e-Rupee &amp; UPI)</h3></div>
-            <p>For users in India, direct bank deposits to crypto exchanges can be blocked. The safest and fastest way to fund your account is <strong>Binance P2P (Peer-to-Peer)</strong>.</p>
-            <ul>
-              <li><strong>How it works:</strong> You buy USDT directly from another verified user. Binance holds the USDT in escrow until the seller confirms they received your payment.</li>
-              <li><strong>Payment Methods:</strong> IMPS, UPI, and increasingly, <strong>e-Rupee (CBDC)</strong> are widely accepted by P2P merchants.</li>
-              <li><strong>Safety First:</strong> Only trade with merchants who have a "Yellow Tick" (Verified) and a completion rate of 98% or higher.</li>
-              <li><strong>Zero Fees:</strong> Binance does not charge fees for P2P transactions.</li>
-            </ul>
-            <div class="edu-tip">💡 <strong>Full guides (SEO pages):</strong>
-              <a href="guides/binance-p2p.html">P2P funding</a> ·
-              <a href="guides/avoid-convert.html">Avoid Convert</a> ·
-              <a href="guides/inr-to-usdt.html">INR → USDT</a> ·
-              <a href="guides/cash-out.html">Cash out to bank</a>
-            </div>
-          </div>
-
-          <div class="edu-full-card edu-card-warning">
-            <div class="edu-header"><span>🚫</span><h3>Do not default to Convert</h3></div>
-            <p><strong>Convert</strong> is convenient but often embeds a worse INR↔USDT rate than P2P. Use Convert only for dust or when you compared quotes and accept the spread. Prefer P2P for deposits and cash-outs — details in <a href="guides/avoid-convert.html">Avoid Convert</a>.</p>
-          </div>
-
-          <div class="edu-full-card">
-            <div class="edu-header"><span>📊</span><h3>RSI — Relative Strength Index</h3></div>
-            <p>The RSI measures how <strong>fast and how much</strong> a price has moved recently. It runs on a scale of 0 to 100.</p>
-            <ul>
-              <li><strong class="green">Below 30</strong> — The asset is <em>oversold</em>. Sellers have pushed it too far. A bounce often follows. This is a <strong>buying signal</strong>.</li>
-              <li><strong class="yellow">30 to 70</strong> — Normal range. No extreme signal either way. Watch for direction.</li>
-              <li><strong class="red">Above 70</strong> — The asset is <em>overbought</em>. Buyers are overextended. A pullback often follows. This is a <strong>selling signal</strong>.</li>
-            </ul>
-            <div class="edu-tip">💡 <strong>Beginner tip:</strong> RSI is most reliable in sideways/ranging markets. In strong trends, RSI can stay overbought or oversold for a long time!</div>
-          </div>
-
-          <div class="edu-full-card">
-            <div class="edu-header"><span>📈</span><h3>EMA vs SMA (The Day Trader's Secret)</h3></div>
-            <p>Moving averages smooth out price noise. We use a powerful <strong>Dual Strategy</strong>:</p>
-            <ul>
-              <li><strong>SMA (Macro Trend):</strong> Simple Moving Average (50 & 200). It is slow and smooth. We use it to see if the overall market is in a long-term bull or bear trend. If price is above the 50 SMA, it's safe to buy.</li>
-              <li><strong>EMA (Day Trading):</strong> Exponential Moving Average (9 & 21). It places more weight on recent prices, reacting instantly to market shifts.</li>
-              <li><strong class="green">Bullish Trigger:</strong> When the fast 9 EMA crosses <em>above</em> the 21 EMA. This is your exact signal to enter a day trade (if the Macro Trend is also bullish).</li>
-              <li><strong class="red">Bearish Trigger:</strong> When the 9 EMA crosses <em>below</em> the 21 EMA. This is your signal to exit or short.</li>
-            </ul>
-            <div class="edu-tip">💡 <strong>Strategy:</strong> Use the <strong>SMA</strong> for the <em>Direction</em> (Should I buy?), and the <strong>EMA</strong> for the <em>Timing</em> (When exactly should I buy?).</div>
-          </div>
-
-          <div class="edu-full-card">
-            <div class="edu-header"><span>〽️</span><h3>MACD — Moving Average Convergence Divergence</h3></div>
-            <p>MACD shows the <strong>direction and strength of a trend</strong>. It has two lines: the MACD line and a Signal line, plus a histogram.</p>
-            <ul>
-              <li><strong class="green">Bullish Crossover</strong> — MACD line crosses ABOVE the signal line. This is a buy trigger used by millions of traders.</li>
-              <li><strong class="red">Bearish Crossover</strong> — MACD line crosses BELOW the signal line. This is a sell trigger.</li>
-              <li><strong>Histogram</strong> — Shows the gap between the two lines. Green bars = growing bullish momentum. Red bars = growing bearish momentum.</li>
-            </ul>
-            <div class="edu-tip">💡 <strong>Beginner tip:</strong> MACD crossovers work best as a <em>confirmation</em> signal — use them together with RSI for higher accuracy.</div>
-          </div>
-
-          <div class="edu-full-card">
-            <div class="edu-header"><span>🎯</span><h3>Bollinger Bands</h3></div>
-            <p>Bollinger Bands show <strong>volatility and relative price levels</strong>. They are 2 standard deviations above and below a 20-day moving average.</p>
-            <ul>
-              <li><strong class="green">Price near Lower Band</strong> — The price is statistically low relative to recent history. Potential bounce (buy zone).</li>
-              <li><strong class="red">Price near Upper Band</strong> — The price is statistically high. Potential reversal (sell zone).</li>
-              <li><strong>Band Squeeze</strong> — Bands narrow → a big move is coming. Direction unknown until breakout.</li>
-              <li><strong>%B indicator</strong> — 0% = at lower band, 100% = at upper band, 50% = at middle.</li>
+              <li><strong>Primary:</strong> Prior-day range bands + today’s opening range + last red-bar refs → <strong>BULLISH / BEARISH / NEUTRAL</strong>.</li>
+              <li><strong>Action strip:</strong> <strong>LONG</strong>, <strong>SHORT</strong>, or <strong>WAIT</strong> with entry lean, stop, and exit/book levels.</li>
+              <li><strong>Chart:</strong> Price, EMA 10/30 (separate overlay), opening range, band magnets, stop &amp; exit lines.</li>
+              <li><strong>You:</strong> Confirm on the chart → trade on the exchange (futures for shorts; spot only for longs).</li>
             </ul>
           </div>
 
           <div class="edu-full-card highlight-card">
-            <div class="edu-header"><span>🛡️</span><h3>The Most Important Rule: Risk Management</h3></div>
-            <p>No strategy works 100% of the time. What separates successful traders from losing ones is <strong>how they manage losses</strong>.</p>
+            <div class="edu-header"><span>📐</span><h3>Red Bar theory (the gold)</h3></div>
+            <p>This is the <strong>trend prediction</strong> layer — not the same thing as EMA crosses.</p>
             <ul>
-              <li><strong>1-2% Rule</strong> — Never risk more than 1–2% of your total trading capital on a single trade.</li>
-              <li><strong>Always set a Stop-Loss</strong> — Before entering any trade, decide your maximum loss. Stick to it.</li>
-              <li><strong>Risk-to-Reward</strong> — Aim for a minimum 1:2 ratio. Risk ₹1000 to potentially gain ₹2000.</li>
-              <li><strong>Start Small</strong> — Begin with small amounts while learning. There's no prize for losing big fast.</li>
-              <li><strong>Never Average Down on Losses</strong> — If a trade goes against you, don't buy more just to lower your average.</li>
+              <li><strong>Every prior day</strong> gets a high / mid / low band, extended forward. No cherry-picking days.</li>
+              <li><strong>First candle of the day</strong> on 30m = opening range. Do not trade it. After it locks: break above high → bullish bias; break below low → bearish; stuck inside → <strong>WAIT</strong>.</li>
+              <li><strong>Price back inside an old band</strong> often means pullback / balance — watch for hold or rejection.</li>
+              <li><strong>Last red bar</strong> high/low = book-profit and structure references (as in the course-style demos).</li>
             </ul>
-            <div class="edu-tip">💡 <strong>The #1 beginner mistake:</strong> Letting small losses become big losses because you didn't set a stop-loss.</div>
+            <div class="edu-tip">💡 Same geometry can later apply to Nifty, gold, oil, gas — once that market’s OHLC is wired. Live desk = <strong>BTC</strong> first.</div>
           </div>
 
+          <div class="edu-full-card">
+            <div class="edu-header"><span>📈</span><h3>EMA overlay (separate theory)</h3></div>
+            <p>EMA 10 / 30 on the chart is a <strong>second opinion</strong>, not the Red Bar engine.</p>
+            <ul>
+              <li>Desk shows whether EMA <strong>agrees</strong> or <strong>disagrees</strong> with the Red Bar trend.</li>
+              <li>If they disagree, size smaller or skip — do not force the trade.</li>
+            </ul>
+          </div>
+
+          <div class="edu-full-card highlight-card edu-card-warning">
+            <div class="edu-header"><span>↕️</span><h3>LONG, SHORT, WAIT — what to do</h3></div>
+            <ul>
+              <li><strong class="green">LONG</strong> — Bias up. Futures: open long. Spot: buy only if you accept long-only. Stop at invalidation; book near exit line.</li>
+              <li><strong class="red">SHORT</strong> — Bias down. Needs <strong>futures / margin</strong> (spot cannot short-first). Stop above invalidation; book near exit line.</li>
+              <li><strong>WAIT</strong> — Inside opening range or no clear break. Mark the yellow OR lines and do nothing until a hold outside the box.</li>
+            </ul>
+            <div class="edu-tip">💡 Always place stop + take-profit on the exchange when you enter. The desk shows references; the exchange enforces them.</div>
+          </div>
+
+          <div class="edu-full-card highlight-card edu-card-warning">
+            <div class="edu-header"><span>⚡</span><h3>Futures basics (for SHORT and leverage)</h3></div>
+            <ul>
+              <li><strong>Long</strong> = profit if price rises. <strong>Short</strong> = profit if price falls.</li>
+              <li>You post <strong>margin</strong>; leverage multiplies gains <em>and</em> losses. Wrong side → liquidation risk.</li>
+              <li>Start with <strong>low leverage (2×–3×)</strong>, <strong>isolated</strong> margin, tiny size, and a hard stop every time.</li>
+              <li>Transfer USDT to the futures wallet only after you understand funding fees and liquidation.</li>
+            </ul>
+          </div>
+
+          <div class="edu-full-card">
+            <div class="edu-header"><span>💱</span><h3>Funding the wallet (India — still useful)</h3></div>
+            <p>P2P / cash-out guides are <strong>how to move INR ↔ USDT</strong>, not the trading strategy. Use them to fund spot or futures margin, then trade from the Red Bar Desk.</p>
+            <ul>
+              <li><a href="guides/binance-p2p.html">Binance P2P funding</a></li>
+              <li><a href="guides/avoid-convert.html">Avoid Convert when possible</a></li>
+              <li><a href="guides/inr-to-usdt.html">INR → USDT</a></li>
+              <li><a href="guides/cash-out.html">Cash out to bank</a></li>
+            </ul>
+          </div>
 
           <div class="edu-full-card highlight-card">
-            <div class="edu-header"><span>⚡</span><h3>Live Exit Policy: 10% TP & 7-Day Hold</h3></div>
-            <p>Dashboard cards, OCO helpers, Telegram/X alerts, and the visual backtester all read the same exit policy from config.</p>
+            <div class="edu-header"><span>🛡️</span><h3>Risk rules</h3></div>
             <ul>
-              <li><strong>Bank +15%:</strong> Consistent, mathematically verified profit target.</li>
-              <li><strong>Time Stop:</strong> Exiting on Day 7 protects capital from dead chop.</li>
-              <li><strong>The 7-Day Time Limit:</strong> If a trade does not hit +10% within 7 days, treat capital as better deployed elsewhere.</li>
-              <li><strong>Dynamic Stop-Losses (ATR):</strong> Stops use ~2× ATR so volatile coins get more room than quiet ones.</li>
+              <li>Risk only <strong>1–2%</strong> of trading capital per idea (smaller with leverage).</li>
+              <li>No stop = no trade.</li>
+              <li>Never average a losing futures position.</li>
+              <li>If the desk flips to WAIT or the opposite bias, exit and reassess.</li>
             </ul>
-            <div class="edu-tip">💡 <strong>Strategy:</strong> At entry place an OCO for +15% and Stop Loss. Max hold = 7 days.</div>
-          </div>
-          <div class="edu-full-card">
-            <div class="edu-header"><span>🔄</span><h3>Swing Trading vs Day Trading — Which Suits You?</h3></div>
-            <table class="edu-table">
-              <thead><tr><th></th><th>Swing Trading</th><th>Day Trading</th></tr></thead>
-              <tbody>
-                <tr><td>Timeframe</td><td>Days to weeks</td><td>Minutes to hours</td></tr>
-                <tr><td>Time needed</td><td>1–2 hours/day</td><td>Full-time (6+ hrs)</td></tr>
-                <tr><td>Stress level</td><td>Moderate</td><td>Very high</td></tr>
-                <tr><td>Suits passive income?</td><td class="green">✅ Yes</td><td class="red">❌ No</td></tr>
-                <tr><td>Signals used here</td><td class="green">✅ Yes (daily charts)</td><td class="red">❌ Need 15m/1hr charts</td></tr>
-              </tbody>
-            </table>
-            <div class="edu-tip">💡 <strong>Recommendation:</strong> Start with swing trading. Use this dashboard's daily signals. Check once or twice a day. This is the realistic path to passive-style income.</div>
+            <div class="edu-tip">💡 Use the <strong>Risk</strong> sidebar calculator for position size before you click buy/sell on the exchange.</div>
           </div>
 
           <div class="edu-full-card">
-            <div class="edu-header"><span>🧠</span><h3>Psychology & Pro Tips for Success</h3></div>
-            <p>The hardest part of trading isn't the math; it's managing your own emotions. Here is how the pros survive and thrive:</p>
-            <ul>
-              <li><strong>Trade the Chart, Not the News:</strong> News is often priced in before you even read it. Technical indicators show what people are actually doing with their money.</li>
-              <li><strong>Avoid FOMO (Fear Of Missing Out):</strong> If a stock just shot up 50% in a day, you missed the entry. Wait for a pullback or find the next setup. Chasing green candles usually leads to buying the top.</li>
-              <li><strong>Keep a Trading Journal:</strong> Use Holdings (exact Binance fills + lots) and <strong>I followed this</strong> in Signal Log for hit/miss tracking. A Binance trade-history dump still helps for full fee-accurate review.</li>
-              <li><strong>Accept that Losses are Just Business Expenses:</strong> Even the best algorithms only win 55-60% of the time. The goal isn't to win every trade, but to make sure your winners are bigger than your losers (Risk-to-Reward).</li>
-              <li><strong>Trust the Process, But Verify:</strong> Backtest in your head. Look at historical charts when the MACD crossed over or RSI was below 30. See what happened next to build confidence in the indicators.</li>
-            </ul>
-            <div class="edu-tip">💡 <strong>Pro Tip:</strong> Boredom is your friend. Good trading should feel systematic and almost boring. If your heart is racing, your position size is too big.</div>
+            <div class="edu-header"><span>🧪</span><h3>Research / backtester</h3></div>
+            <p>The visual Backtester and old daily-score CLI are <strong>legacy research</strong>. For Red Bar rules use <code>node redbar_ema_backtest.js</code> on a machine with Node. Historical results are not a promise of live profit.</p>
           </div>
 
         </div>
@@ -630,7 +476,7 @@
       <div class="section-block">
         <div class="section-heading">
           <h2>🧪 Visual Backtester</h2>
-          <p class="section-sub">Test engines on historical Binance data. Timeframe picks the engine (1d core · 4h moonshot · 5m scalp). Weekly automation updates daily winners only.</p>
+          <p class="section-sub">Legacy score-engine research on Binance history. For Red Bar rules prefer <code>node redbar_ema_backtest.js</code>. Live trading desk = BTC Red Bar, not this panel.</p>
         </div>
 
         <div class="backtest-workspace">
@@ -746,7 +592,7 @@
       // Nuke bloated caches that are causing QuotaExceededError (Removed to allow instant paint)
     } catch(e) {}
   </script>
-  <script src="js/config.js?v=6.74" defer></script>
+  <script src="js/config.js?v=6.76" defer></script>
   <script src="js/api.js?v=6.74" defer></script>
   <script src="js/indicators.js?v=6.60" defer></script>
   <script src="js/redbar_trend.js?v=1.0" defer></script>
@@ -758,7 +604,7 @@
   <script src="js/scanner.js?v=6.60" defer></script>
   <script src="js/backtest_ui.js?v=6.60" defer></script>
   <script src="js/auth.js?v=6.70" defer></script>
-    <script src="js/dashboard.js?v=6.75" defer></script>
+    <script src="js/dashboard.js?v=6.76" defer></script>
   <script>
     // If signals.js didn't expose the right version, cached old code is running — force reload.
     if (typeof Signals === 'undefined' || Signals._version !== window.__APP_VERSION__) {

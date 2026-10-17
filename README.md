@@ -1,107 +1,51 @@
-# TrendRunner (Trading Signals)
+# TrendRunner — BTC Red Bar Desk
 
-A multi-purpose cryptocurrency trading-signal platform: static web dashboard (PWA), Telegram alert bot, optional X/Twitter posts, and a cost-sensitive backtester.
+Visual **Bitcoin** research desk: prior-day range bands, opening-range bias, red-bar exit refs, and a **LONG / SHORT / WAIT** action strip on a 30m chart.
 
-The dashboard and bot share one technical analysis engine (`js/signals.js`) so scores and confidence match across surfaces.
+Educational only — the app does **not** place trades. Futures shorts need an exchange futures account; spot is long-only.
 
-## Product surfaces
+## What the live UI is
 
-| Surface | Engine | Notes |
-|--------|--------|--------|
-| **Daily core** | `Signals.generate` on 1d | Core/probation winners + hard gates; Strong Buy = score ≥ 4, 100% confidence, cool RSI |
-| **Moonshots** | `Signals.generateBreakout` on 4H | Breakout + **CONFIRM/WAIT** timing (no chase). Shown in Moonshots tab — **not** auto-added to Watch |
-| **5m Scalps** | `Signals.generateScalp` on 5m | EMA pullback after impulse; small size; **5m CONFIRM/WAIT** |
-| **Holdings 🔒** | Paper tracker | Edit exact Binance entry price/time; **multiple lots**; cloud sync when signed in |
-| **Watch ⭐** | User ideas only | Never means you bought it; moonshot scans do not auto-star |
-| **Suggestions followed** | Signal Log | Tap **I followed this** → personal win/loss ledger + Holdings mirror |
+| Piece | Role |
+|--------|------|
+| **Red Bar Desk** | Primary screen (`CONFIG.ui.redBarOnly`) |
+| **`js/redbar_trend.js`** | Trend prediction (all prior-day bands + OR break + red bar) |
+| **`js/range_ema_ui.js`** | Chart + action strip + EMA overlay chips |
+| **EMA 10/30** | Separate overlay (agree/disagree) — not the core engine |
+| **Learn** | How to read LONG/SHORT/WAIT and fund a wallet |
 
-### Live exit policy (`CONFIG.exits`)
+Legacy multi-coin High Conf / moonshots / listings are **hidden** from the main UI.
 
-- **50/50 plan:** bank **50%** at **+10%** TP; trail the other **50%** (~2× ATR); move stop to breakeven after bank leg
-- Max hold leftovers: **7 days**
-- Initial stop: **2× ATR**
-- Research costs: **0.40% round-trip** (0.10% fee + 0.10% slippage per side)
+## Quick start
 
-Dashboard OCO copy, bots, visual backtester, and CLI all read this policy for daily trades. Moonshots use tighter stops (~5% cap); scalps use `CONFIG.scalper` (tight ATR stop, ~2R, short time-stop).
+Serve the folder (or open via GitHub Pages / your host) and hard-refresh so the service worker picks up the new cache.
 
-## Architecture
-
-- **`js/indicators.js`** — RSI, MACD, Bollinger, EMA, SMA, ATR + heuristic SMC / Wyckoff / VPOC
-- **`js/signals.js`** — Daily / breakout / scalp scoring + stop suggestions (`CONFIG.factors` gates)
-- **`js/config.js`** — Universe, winners, exits, scalper knobs, `lastBacktest` badge
-- **`js/dashboard.js`** — UI, Holdings lots, Watch, followed ledger, scanners
-- **`js/auth.js`** — Optional Supabase sync (Watch / Holdings / followed ledger). Prefer `user_portfolios` table; falls back to auth metadata
-- **`js/scanner.js`** — Moonshot market scan + 5m scalp scan
-- **`bot.js`** — Telegram (+ optional X) alerts; optional new-listing Telegram alerts; **owner click-to-trade API** (`/api/trade/*`) when Binance keys + `TRADE_ENABLED` are set
-- **`backtest.js`** — CLI validation; weekly Action refreshes daily winners
-- **`scripts/fetch-coin-logos.js`** — Download missing logos into `assets/coin-logos/`
-- **`supabase/portfolio.sql`** — Durable portfolio table (run once in Supabase SQL Editor)
-
-## Setup
-
-### Dashboard
-Serve the directory with any static host (or `npx serve .`) and open `index.html`. Hard-refresh after deploys so the service worker picks up the new cache version.
-
-**Supabase Auth → Redirect URLs** must include both (PWA `start_url` is `./index.html`):
-- `https://YOUR_DOMAIN/index.html`
-- `https://YOUR_DOMAIN/`
-
-**Durable cloud sync (recommended):** in the Supabase SQL Editor, run `supabase/portfolio.sql` (the DROP POLICY/TRIGGER IF EXISTS lines are idempotent setup — they do not wipe user accounts). Until that table exists, sync still uses auth `user_metadata` as a fallback.
-
-**After each production deploy:**
-1. Confirm the Render bot redeployed on the latest `main` (X posts: core S.BUY @ ≥100% confidence only).
-2. Hard-refresh the PWA (or bump is automatic via service-worker cache version).
-3. Google Search Console → Sitemaps → resubmit `https://trendrunner.app/sitemap.xml`.
-4. Spot-check a coin ticker hover + asset modal Trade button for referral / 10% kickback copy.
-
-### Telegram / X bot
-1. `npm install`
-2. Copy `.env.example` → `.env` (Telegram + optional Twitter keys)
-3. Set `TELEGRAM_POLLING=true` only on the single process that should receive commands
-4. `node bot.js` (or `npm start` via `server.js`)
-
-### Owner click-to-trade (optional)
-Places a **market buy** then the TrendRunner **50/50 exits** (limit sell half at +10%, trailing stop on the rest) via your Render bot. Binance API keys never go in the browser.
-
-1. On Binance: create an API key with **Spot trading** only — **disable withdrawals**. Prefer IP-restrict to your Render egress if available.
-2. On Render (bot service) set:
-   - `TRADE_ENABLED=true`
-   - `BINANCE_API_KEY` / `BINANCE_API_SECRET`
-   - `TRADE_API_SECRET` (long random string)
-   - optional: `TRADE_MAX_USDT=50`, `TRADE_DEFAULT_TRAIL_PCT=2`
-3. Redeploy the bot. Confirm `GET https://YOUR-BOT.onrender.com/api/trade/status` shows `tradeEnabled: true` when secret/env are correct.
-4. In the PWA **Settings** (sidebar, above Sign In): paste bot URL + the same `TRADE_API_SECRET` (stored only in this browser’s localStorage).
-5. Open a coin modal → **Buy + 50/50 exits** → confirm USDT size and trail %.
-
-Holdings tab can load **live Binance balances / open orders** using the same secret. Public visitors still only see the affiliate Trade link.
-
-## Validation & backtests
-
-| Command | Purpose | Updates live `provenWinners`? |
-|---------|---------|-------------------------------|
-| `node backtest.js` | Daily core engine (weekly GitHub Action) | **Yes** |
-| `node backtest.js --walk-forward` / `--walk-forward-rolling` | Out-of-sample robustness | No (log only in Action) |
-| `node backtest.js --cost-sweep` | Fee/slip sensitivity | No |
-| `node backtest.js --entry-realism` | next_open vs signal_close fills | No |
-| `node backtest.js --moonshots` | 4H breakout research (defaults to 4h) | **No** |
-| `node backtest.js --scalps` | 5m scalp research | **No** |
-| `node backtest.js --no-smc` | Daily engine with SMC/Wyckoff/VPOC off | **No** |
-| `node backtest.js --smc-ablation` | Compare factors ON vs OFF (controlled A/B) | **No** |
-
-Visual Backtester timeframe → engine: **1d** daily core, **4h** moonshot breakout, **5m** scalp.
-
-Weekly Action also appends moonshot/scalp research logs and **SMC ablation** (`continue-on-error`); only the plain daily run may commit winner-list changes.
-
-**New Listings:** research tab + optional Telegram CMS alerts (`LISTINGS_ALERTS`). Not an auto-buy sniper.
-
-Unit tests: `npm test`
-
-### Logos
 ```bash
-node scripts/fetch-coin-logos.js
+# Optional research CLI (Node)
+node redbar_ema_backtest.js
+node redbar_ema_backtest.js --live
 ```
-UI fallback order: local SVG → local PNG → cryptocurrency-icons → CoinCap → letter chip. See `assets/coin-logos/README.md`.
+
+## Config knobs (`js/config.js`)
+
+- `ui.redBarOnly` — hide legacy chrome  
+- `rangeEma.symbols` — default `['BTCUSDT']`  
+- `rangeEma.workingTf` — default `30m`  
+- `rangeEma.dayMode` — `utc` or `ny`
+
+## Funding guides (not strategy)
+
+India INR ↔ USDT helpers still live under `guides/` (P2P, Convert caution, cash-out). Use them to fund margin/spot, then trade from the desk.
+
+## Architecture (current)
+
+- `js/redbar_trend.js` — Red Bar trend readout  
+- `js/range_ema_engine.js` — EMA helpers / older experiment backtest hooks  
+- `js/range_ema_ui.js` — desk UI + Chart.js  
+- `js/dashboard.js` — boot in red-bar-only mode (skips 50-coin load)  
+- `js/config.js` — `ui` + `rangeEma`  
+- Legacy: `js/signals.js`, `backtest.js`, moonshot scanner — research / unused in main UI  
 
 ## Disclaimer
 
-**Educational / research tool only.** Past backtests and paper PnL do not guarantee future results. Always place stop-loss and take-profit orders. TrendRunner does not execute trades or hold exchange API keys.
+Crypto and futures trading can result in total loss of margin (liquidation). Levels on the desk are research references, not guarantees.
