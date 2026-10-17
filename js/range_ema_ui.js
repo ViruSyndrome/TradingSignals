@@ -621,11 +621,23 @@ const RangeEmaUI = {
       ? this._sessionMarkersInRange(times[0], times[n - 1], c.sessions || [])
       : [];
 
-    const mkLine = (val, label, color, dash) => ({
+    // Distinct palette (avoid overlapping blues/reds/greens across layers)
+    const COL = {
+      ema10: '#22d3ee',       // cyan — thin
+      ema30: '#f97316',       // orange — thick
+      or: '#eab308',          // gold
+      bandResist: '#a855f7',  // purple
+      bandSupport: '#2dd4bf', // teal
+      redRef: '#e879f9',      // fuchsia (not stop-red)
+      stop: '#ef4444',        // hard red
+      exit: '#4ade80',        // hard green
+    };
+
+    const mkLine = (val, label, color, dash, width = 1.5) => ({
       label,
       data: this._flat(val, n),
       borderColor: color,
-      borderWidth: 1.5,
+      borderWidth: width,
       borderDash: dash || [],
       pointRadius: 0,
       fill: false,
@@ -650,8 +662,8 @@ const RangeEmaUI = {
       {
         label: `EMA ${c.emaFast || 10}`,
         data: emaF,
-        borderColor: '#38bdf8',
-        borderWidth: 1.5,
+        borderColor: COL.ema10,
+        borderWidth: 1.25,
         pointRadius: 0,
         fill: false,
         tension: 0.1,
@@ -660,8 +672,8 @@ const RangeEmaUI = {
       {
         label: `EMA ${c.emaSlow || 30}`,
         data: emaS,
-        borderColor: '#a78bfa',
-        borderWidth: 1.5,
+        borderColor: COL.ema30,
+        borderWidth: 2.75,
         pointRadius: 0,
         fill: false,
         tension: 0.1,
@@ -669,14 +681,14 @@ const RangeEmaUI = {
       },
     ];
 
-    if (o.refs?.orHigh != null) datasets.push(mkLine(o.refs.orHigh, 'OR high', 'rgba(250,204,21,0.85)', [6, 4]));
-    if (o.refs?.orLow != null) datasets.push(mkLine(o.refs.orLow, 'OR low', 'rgba(250,204,21,0.55)', [6, 4]));
-    if (o.refs?.bandResist != null) datasets.push(mkLine(o.refs.bandResist, 'Band resist', 'rgba(248,113,113,0.7)', [2, 3]));
-    if (o.refs?.bandSupport != null) datasets.push(mkLine(o.refs.bandSupport, 'Band support', 'rgba(74,222,128,0.7)', [2, 3]));
-    if (o.refs?.redHigh != null) datasets.push(mkLine(o.refs.redHigh, 'Red high', 'rgba(239,68,68,0.9)', [8, 4]));
-    if (o.refs?.redLow != null) datasets.push(mkLine(o.refs.redLow, 'Red low', 'rgba(239,68,68,0.5)', [8, 4]));
-    if (o.invalidation != null) datasets.push(mkLine(o.invalidation, 'Stop', '#f43f5e', []));
-    if (o.bookZone != null) datasets.push(mkLine(o.bookZone, 'Exit', '#22c55e', []));
+    if (o.refs?.orHigh != null) datasets.push(mkLine(o.refs.orHigh, 'OR high', COL.or, [6, 4], 1.5));
+    if (o.refs?.orLow != null) datasets.push(mkLine(o.refs.orLow, 'OR low', COL.or, [6, 4], 1.25));
+    if (o.refs?.bandResist != null) datasets.push(mkLine(o.refs.bandResist, 'Band resist', COL.bandResist, [3, 3], 1.5));
+    if (o.refs?.bandSupport != null) datasets.push(mkLine(o.refs.bandSupport, 'Band support', COL.bandSupport, [3, 3], 1.5));
+    if (o.refs?.redHigh != null) datasets.push(mkLine(o.refs.redHigh, 'Red high', COL.redRef, [8, 4], 1.5));
+    if (o.refs?.redLow != null) datasets.push(mkLine(o.refs.redLow, 'Red low', COL.redRef, [8, 4], 1.25));
+    if (o.invalidation != null) datasets.push(mkLine(o.invalidation, 'Stop', COL.stop, [], 2.25));
+    if (o.bookZone != null) datasets.push(mkLine(o.bookZone, 'Exit', COL.exit, [], 2.25));
 
     this.destroyChart();
     this._chart = new Chart(canvas.getContext('2d'), {
