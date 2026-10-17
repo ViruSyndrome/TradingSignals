@@ -974,9 +974,30 @@ body.is-searching .section-block { margin-bottom: 12px; }
   background: rgba(8, 10, 20, 0.96);
   z-index: 5;
 }
-.site-footer-links { margin-bottom: 6px; display: flex; flex-wrap: wrap; justify-content: center; gap: 4px 10px; }
-.site-footer-links a { margin: 0; color: var(--text-muted); text-decoration: none; transition: color 0.2s; }
+.site-footer-links { margin-bottom: 6px; display: flex; flex-wrap: wrap; justify-content: center; align-items: center; gap: 4px 10px; }
+.site-footer-links a { margin: 0; color: var(--text-muted); text-decoration: none; transition: color 0.2s; line-height: 1.2; }
 .site-footer-links a:hover { color: var(--accent); }
+/* Learn uses .nav-link for section routing — strip sidebar chrome so it aligns with siblings */
+.site-footer-links a.nav-link {
+  display: inline;
+  align-items: unset;
+  gap: 0;
+  padding: 0;
+  border-radius: 0;
+  border-left: none;
+  background: none;
+  font-weight: inherit;
+  color: var(--text-muted);
+}
+.site-footer-links a.nav-link:hover {
+  background: none;
+  color: var(--accent);
+}
+.site-footer-links a.nav-link.active {
+  background: none;
+  border-left: none;
+  color: var(--accent);
+}
 .site-footer-disclaimer { max-width: 720px; margin: 0 auto; line-height: 1.4; }
 .site-footer-copyright { margin-top: 4px; opacity: 0.8; }
 .moonshot-controls { margin-bottom: 24px; }

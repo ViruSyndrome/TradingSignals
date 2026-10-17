@@ -340,7 +340,7 @@ const RangeEmaUI = {
           <span class="lg sess-london">London</span>
           <span class="lg sess-ny">US</span>
         </div>
-        <p class="rb-zoom-hint">Scroll / pinch to zoom · drag to pan · buttons above</p>
+        <p class="rb-zoom-hint">Scroll / pinch zoom (time + price) · drag to pan · buttons above</p>
         <div class="rb-chart-box">
           <canvas id="redBarChart" aria-label="BTC Red Bar chart"></canvas>
         </div>
@@ -593,23 +593,31 @@ const RangeEmaUI = {
         const yScale = chart.scales.y;
         const area = chart.chartArea;
         if (!yScale || !area) return;
-        const yHi = yScale.getPixelForValue(zone.high);
-        const yLo = yScale.getPixelForValue(zone.low);
+        let yHi = yScale.getPixelForValue(zone.high);
+        let yLo = yScale.getPixelForValue(zone.low);
         if (!Number.isFinite(yHi) || !Number.isFinite(yLo)) return;
-        const top = Math.min(yHi, yLo);
-        const h = Math.max(1, Math.abs(yLo - yHi));
+        // Keep a visible band even when OR is tiny vs the day range (common on 5m)
+        let top = Math.min(yHi, yLo);
+        let h = Math.abs(yLo - yHi);
+        if (h < 8) {
+          const mid = (yHi + yLo) / 2;
+          h = 8;
+          top = mid - h / 2;
+          yHi = mid - h / 2;
+          yLo = mid + h / 2;
+        }
         const ctx = chart.ctx;
         ctx.save();
-        ctx.fillStyle = zone.fill || 'rgba(234, 179, 8, 0.14)';
+        ctx.fillStyle = zone.fill || 'rgba(234, 179, 8, 0.2)';
         ctx.fillRect(area.left, top, area.right - area.left, h);
-        ctx.strokeStyle = zone.stroke || 'rgba(234, 179, 8, 0.55)';
-        ctx.lineWidth = 1.25;
+        ctx.strokeStyle = zone.stroke || 'rgba(234, 179, 8, 0.75)';
+        ctx.lineWidth = 1.75;
         ctx.setLineDash([5, 4]);
         ctx.beginPath();
-        ctx.moveTo(area.left, yHi);
-        ctx.lineTo(area.right, yHi);
-        ctx.moveTo(area.left, yLo);
-        ctx.lineTo(area.right, yLo);
+        ctx.moveTo(area.left, Math.min(yHi, yLo));
+        ctx.lineTo(area.right, Math.min(yHi, yLo));
+        ctx.moveTo(area.left, Math.max(yHi, yLo));
+        ctx.lineTo(area.right, Math.max(yHi, yLo));
         ctx.stroke();
         ctx.setLineDash([]);
         ctx.restore();
@@ -617,7 +625,9 @@ const RangeEmaUI = {
     };
   },
 
-  /** Right-edge name + price tags for visible levels. */
+  /**
+   * Level tags live in the RIGHT PADDING (outside the plot), so latest candles stay clear.
+   */
   _levelTagsPlugin() {
     return {
       id: 'rbLevelTags',
@@ -637,8 +647,9 @@ const RangeEmaUI = {
           if (t.value == null || !Number.isFinite(t.value)) continue;
           let y = yScale.getPixelForValue(t.value);
           if (!Number.isFinite(y)) continue;
+          // Skip tags that are far off the current Y view (after zoom)
+          if (y < area.top - 4 || y > area.bottom + 4) continue;
           y = Math.max(area.top + 8, Math.min(area.bottom - 8, y));
-          // Nudge overlapping tags apart
           for (let guard = 0; guard < 8; guard++) {
             let hit = false;
             for (const py of placed) {
@@ -655,12 +666,12 @@ const RangeEmaUI = {
 
           const price = Number(t.value).toFixed(0);
           const label = `${t.name} ${price}`;
-          const padX = 5;
-          const padY = 3;
+          const padX = 4;
           const tw = ctx.measureText(label).width;
           const boxW = tw + padX * 2;
           const boxH = 14;
-          const x = area.right - boxW - 2;
+          // Left edge of plot — latest candles (right side) stay fully visible
+          const x = area.left + 4;
 
           ctx.fillStyle = t.bg || 'rgba(15, 23, 42, 0.88)';
           ctx.strokeStyle = t.color || '#e2e8f0';
@@ -714,14 +725,22 @@ const RangeEmaUI = {
       return time;
     });
     const closes = bars.map((b) => b.c);
-    const levelPrices = [
+    // Fit Y to candles first — distant magnets used to squash the OR box flat
+    const barHi = Math.max(...bars.map((b) => b.h));
+    const barLo = Math.min(...bars.map((b) => b.l));
+    const barSpan = (barHi - barLo) || 1;
+    const midPx = (barHi + barLo) / 2;
+    const nearBand = Math.max(barSpan * 2.2, midPx * 0.006);
+    const nearLevels = [
       o.refs?.orHigh, o.refs?.orLow,
-      o.refs?.bandResist, o.refs?.bandSupport,
       o.invalidation, o.bookZone,
-    ].filter((v) => v != null && Number.isFinite(Number(v))).map(Number);
-    const yHi = Math.max(...bars.map((b) => b.h), ...levelPrices);
-    const yLo = Math.min(...bars.map((b) => b.l), ...levelPrices);
-    const pad = (yHi - yLo) * 0.05 || 1;
+    ].filter((v) => {
+      if (v == null || !Number.isFinite(Number(v))) return false;
+      return Math.abs(Number(v) - midPx) <= nearBand;
+    }).map(Number);
+    const yHi = Math.max(barHi, ...nearLevels);
+    const yLo = Math.min(barLo, ...nearLevels);
+    const pad = (yHi - yLo) * 0.06 || 1;
     const coarse = typeof window !== 'undefined'
       && window.matchMedia
       && window.matchMedia('(pointer: coarse)').matches;
@@ -814,8 +833,9 @@ const RangeEmaUI = {
       ? {
           high: orHigh,
           low: orLow,
-          fill: trading ? 'rgba(234, 179, 8, 0.07)' : 'rgba(234, 179, 8, 0.16)',
-          stroke: trading ? 'rgba(234, 179, 8, 0.35)' : 'rgba(234, 179, 8, 0.6)',
+          // Keep OR readable on every TF (was too faint once price had broken out)
+          fill: trading ? 'rgba(234, 179, 8, 0.12)' : 'rgba(234, 179, 8, 0.22)',
+          stroke: trading ? 'rgba(234, 179, 8, 0.55)' : 'rgba(234, 179, 8, 0.8)',
         }
       : null;
 
@@ -855,7 +875,7 @@ const RangeEmaUI = {
         maintainAspectRatio: false,
         animation: { duration: 280 },
         interaction: { mode: 'index', intersect: false },
-        layout: { padding: { top: 14, bottom: 4, right: 4 } },
+        layout: { padding: { top: 14, bottom: 4, right: 6 } },
         plugins: {
           legend: { display: false },
           tooltip: {
@@ -902,10 +922,10 @@ const RangeEmaUI = {
           },
           zoom: {
             limits: {
-              x: { min: 'original', max: 'original' },
-              y: { min: 'original', max: 'original' },
+              x: { min: 'original', max: 'original', minRange: 8 },
+              y: { min: 'original', max: 'original', minRange: Math.max(barSpan * 0.08, 20) },
             },
-            pan: { enabled: true, mode: 'x', threshold: coarse ? 10 : 6 },
+            pan: { enabled: true, mode: 'xy', threshold: coarse ? 10 : 6 },
             zoom: {
               wheel: { enabled: !coarse, speed: 0.12 },
               pinch: { enabled: true },
@@ -915,7 +935,7 @@ const RangeEmaUI = {
                 borderColor: 'rgba(124, 106, 245, 0.45)',
                 borderWidth: 1,
               },
-              mode: 'x',
+              mode: 'xy',
             },
           },
         },
