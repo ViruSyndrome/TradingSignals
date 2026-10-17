@@ -1126,6 +1126,11 @@ const Dashboard = {
   },
 
   async init() {
+    // Solo Red Bar mode: hide legacy multi-coin UI immediately
+    if (CONFIG.ui?.redBarOnly) {
+      document.body.classList.add('redbar-only');
+    }
+
     this.state.loading = false;
     this.state.latestSignalHistory = this._getSignalHistory();
     // Holdings always use one base entry per coin (ZENUSDT, never ZENUSDT_4H)
@@ -1224,6 +1229,20 @@ const Dashboard = {
       this._hideBootLoader();
     }
 
+    // Red Bar–only: skip 50-coin boot; desk loads its own BTC 30m bars
+    if (CONFIG.ui?.redBarOnly) {
+      this.state.loading = false;
+      this._hideBootLoader(true);
+      this._scheduleRefresh();
+      try {
+        if (typeof RangeEmaUI !== 'undefined') RangeEmaUI.init();
+      } catch (e) {
+        console.warn('[Dashboard] Red Bar Desk init failed:', e);
+      }
+      this._bootComplete = true;
+      return;
+    }
+
     // Live boot: Fear & Greed in parallel with a fast 1d-only market pass.
     // If the snapshot is older than ~15s (typical when reopening the PWA), skip
     // localStorage market cache so the first paint isn't hours-old prices.
@@ -1245,6 +1264,12 @@ const Dashboard = {
       if (!hadSnap) this._render();
     }
     this._scheduleRefresh();
+
+    try {
+      if (typeof RangeEmaUI !== 'undefined') RangeEmaUI.init();
+    } catch (e) {
+      console.warn('[Dashboard] Red Bar Desk init failed:', e);
+    }
 
     // Backfill 4H + full pass shortly after first paint (non-blocking)
     setTimeout(() => {
@@ -1950,6 +1975,14 @@ const Dashboard = {
   /** Regular poll. A fetch frozen by the OS must not block the next one. */
   _pollRefresh() {
     if (typeof document !== 'undefined' && document.visibilityState === 'hidden') return;
+    if (CONFIG.ui?.redBarOnly) {
+      try {
+        if (typeof RangeEmaUI !== 'undefined') RangeEmaUI.refresh();
+      } catch (_) {}
+      this.state.lastUpdate = new Date();
+      this._updateLiveStatus();
+      return;
+    }
     this._clearStuckFetch('poll', { stuckMs: 45000 });
     if (this._fetchInFlight) return;
     this.loadAll(true, { bypassCache: true });
@@ -4047,6 +4080,14 @@ const Dashboard = {
       Object.keys(localStorage).forEach(key => {
         if (key.startsWith('trading_cache_')) localStorage.removeItem(key);
       });
+    }
+    try {
+      if (typeof RangeEmaUI !== 'undefined') RangeEmaUI.refresh();
+    } catch (_) {}
+    if (CONFIG.ui?.redBarOnly) {
+      this.state.lastUpdate = new Date();
+      this._updateLiveStatus();
+      return Promise.resolve();
     }
     return this.loadAll(false, { force: true, bypassCache: true });
   },

@@ -43,7 +43,7 @@
   <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.4/dist/chart.umd.min.js" defer></script>
   <script src="https://cdn.jsdelivr.net/npm/hammerjs@2.0.8/hammer.min.js" defer></script>
   <script src="https://cdn.jsdelivr.net/npm/chartjs-plugin-zoom@2.2.0/dist/chartjs-plugin-zoom.min.js" defer></script>
-  <link rel="stylesheet" href="styles.css?v=6.70" />
+  <link rel="stylesheet" href="styles.css?v=6.74" />
   <!-- Critical boot overlay (prevents sidebar flash before styles.css applies) -->
   <style>
     html, body { margin: 0; background: #080a14; }
@@ -70,11 +70,11 @@
     if ('serviceWorker' in navigator) {
       window.addEventListener('load', () => {
         const hadController = Boolean(navigator.serviceWorker.controller);
-        navigator.serviceWorker.register('./service-worker.js?v=6.70', { updateViaCache: 'none' })
+        navigator.serviceWorker.register('./service-worker.js?v=6.73', { updateViaCache: 'none' })
           .then(reg => {
             reg.update().catch(() => {});
             navigator.serviceWorker.addEventListener('controllerchange', () => {
-              const reloadKey = 'trendrunner_sw_update_6.70';
+              const reloadKey = 'trendrunner_sw_update_6.73';
               if (hadController && !sessionStorage.getItem(reloadKey)) {
                 sessionStorage.setItem(reloadKey, '1');
                 location.reload();
@@ -88,7 +88,7 @@
     }
   </script>
 </head>
-<body class="is-booting">
+<body class="is-booting redbar-only">
 <div id="trendrunner-loader" class="trendrunner-loader" aria-live="polite" aria-busy="true">
   <div class="climbing-loader">
     <div class="loader-step step-1"><div class="loader-wick"></div></div>
@@ -129,31 +129,30 @@
         <img src="icon-transparent.png" alt="Logo" class="sidebar-brand-icon">
         <div class="sidebar-brand-copy">
           <div class="sidebar-brand-name">trendrunner<span>.app</span></div>
-          <div class="sidebar-brand-subtitle">Crypto Dashboard</div>
+          <div class="sidebar-brand-subtitle">Red Bar Desk</div>
         </div>
       </a>
       <button class="mobile-close-btn" id="mobileCloseBtn" aria-label="Close sidebar">&times;</button>
     </div>
 
     <nav class="sidebar-nav">
-      <a href="#" class="nav-link active" data-section="dashboardSection" title="View live market signals, top opportunities, and all tracked assets.">
-        <span class="nav-icon">🎯</span> <span class="nav-text">Dashboard</span>
+      <a href="#" class="nav-link active" data-section="dashboardSection" title="BTC Red Bar trend desk">
+        <span class="nav-icon">🟥</span> <span class="nav-text">Red Bar</span>
       </a>
-      <a href="#" class="nav-link" data-section="moonshotsSection" title="Scan the entire market for highly volatile opportunities.">
+      <a href="#" class="nav-link legacy-nav" data-section="moonshotsSection" title="Legacy" hidden>
         <span class="nav-icon">🚀</span> <span class="nav-text">Moonshots</span>
       </a>
-      <a href="#" class="nav-link" data-section="listingsSection" title="Binance new-listing announcements — research only, never auto-buy.">
+      <a href="#" class="nav-link legacy-nav" data-section="listingsSection" title="Legacy" hidden>
         <span class="nav-icon">📢</span> <span class="nav-text">New Listings</span>
       </a>
-
-      <a href="#" class="nav-link" data-section="backtestSection" title="Test your strategies on historical data.">
+      <a href="#" class="nav-link" data-section="backtestSection" title="Historical tests">
         <span class="nav-icon">🧪</span> <span class="nav-text">Backtester</span>
       </a>
-      <a href="#" class="nav-link" data-section="educationSection" title="Learn how RSI, MACD, Bollinger Bands, and Moving Averages work.">
-        <span class="nav-icon">📚</span> <span class="nav-text">Learn Trading</span>
+      <a href="#" class="nav-link" data-section="educationSection" title="Learn">
+        <span class="nav-icon">📚</span> <span class="nav-text">Learn</span>
       </a>
-      <a href="#" class="nav-link" data-section="riskSection" title="Calculate position sizing, stop-loss, and how much capital to risk per trade.">
-        <span class="nav-icon">🛡️</span> <span class="nav-text">Risk Calculator</span>
+      <a href="#" class="nav-link" data-section="riskSection" title="Position sizing">
+        <span class="nav-icon">🛡️</span> <span class="nav-text">Risk</span>
       </a>
     
       <div class="sidebar-bottom-actions">
@@ -185,11 +184,12 @@
     <header class="topbar">
       <div class="topbar-left">
         <button class="sidebar-toggle" id="sidebarToggle" aria-label="Toggle sidebar">☰</button>
-        <div class="search-box">
+        <div class="search-box legacy-ui">
           <input type="text" id="assetSearchInput" list="coinSuggestions" placeholder="🔍 Search coins..." />
           <datalist id="coinSuggestions"></datalist>
         </div>
-        <span id="moonshotScanStatus" class="last-updated moonshot-scan-status" title="Status of the background Moonshot scanner">🚀 Auto-Scan: Idle</span>
+        <span id="moonshotScanStatus" class="last-updated moonshot-scan-status legacy-ui" title="Status of the background Moonshot scanner" hidden>🚀 Auto-Scan: Idle</span>
+        <span class="topbar-focus-label">BTC · 30m Red Bar</span>
       </div>
       <div class="topbar-right">
         <span id="liveStatus" class="live-status" title="Live status reflects the last successful market-data refresh."><span class="live-dot" id="liveDot"></span><span id="liveStatusText">Connecting</span></span>
@@ -206,38 +206,33 @@
     <!-- ─── DASHBOARD SECTION ────────────────────────────────────────────────── -->
     <section class="main-section active" id="dashboardSection">
 
-      <!-- Summary Bar -->
-      <div class="summary-bar glass" id="summaryBar">
-        <!-- populated by JS -->
-      </div>
-
-      <div class="live-tape" aria-label="Live market tape">
+      <!-- Legacy multi-coin UI (hidden when CONFIG.ui.redBarOnly) -->
+      <div class="summary-bar glass legacy-ui" id="summaryBar"></div>
+      <div class="live-tape legacy-ui" aria-label="Live market tape" hidden>
         <div class="live-tape-label"><span class="live-dot"></span> MARKET PULSE</div>
         <div class="live-tape-window"><div id="liveTapeTrack" class="live-tape-track"></div></div>
       </div>
-
-      <!-- Live News Ticker (RSS) -->
-      <div class="live-tape" aria-label="Live breaking news tape">
+      <div class="live-tape legacy-ui" aria-label="Live breaking news tape" hidden>
         <div class="live-tape-label news-tape-label"><span class="live-dot"></span> NEWS</div>
-        <div class="live-tape-window"><div id="newsTapeTrack" class="live-tape-track">Loading latest breaking news...</div></div>
+        <div class="live-tape-window"><div id="newsTapeTrack" class="live-tape-track"></div></div>
       </div>
-      <!-- Top Opportunities -->
-      <div class="section-block" id="topOpportunitiesBlock">
+
+      <!-- Primary: Red Bar Desk (BTC) -->
+      <div class="section-block" id="rangeEmaDeskBlock">
+        <div id="rangeEmaDesk">
+          <div class="range-desk-error">Loading Red Bar Desk…</div>
+        </div>
+      </div>
+
+      <div class="section-block legacy-ui" id="topOpportunitiesBlock" hidden>
         <div class="section-heading">
           <h1>🎯 Today's Best Opportunities</h1>
-          <p class="section-sub" title="Same coins as the High Conf tab: 100% indicator agreement and a bullish score.">High Confidence setups — full agreement, bullish score</p>
+          <p class="section-sub">Legacy High Conf</p>
         </div>
-        <div class="assets-grid top-grid" id="topOpportunities">
-          <!-- skeleton placeholders -->
-          <div class="asset-card skeleton"></div>
-          <div class="asset-card skeleton"></div>
-          <div class="asset-card skeleton"></div>
-          <div class="asset-card skeleton"></div>
-        </div>
+        <div class="assets-grid top-grid" id="topOpportunities"></div>
       </div>
 
-      <!-- All Assets with category filter -->
-      <div class="section-block">
+      <div class="section-block legacy-ui" id="allAssetsBlock" hidden>
         <div class="section-heading asset-list-heading">
           <h2 id="assetListTitle">📊 All Tracked Assets</h2>
           <div class="filter-toolbar">
@@ -245,27 +240,23 @@
               <span class="filter-group-label">Your lists</span>
               <div class="filter-tabs filter-tabs-lists" role="tablist" aria-label="Your lists">
                 <button class="filter-tab active" data-cat="all" role="tab">All</button>
-                <button class="filter-tab" data-cat="watchlist" role="tab" title="Ideas to revisit — not positions">⭐ Watch <span class="tab-count" data-count="watchlist">–</span></button>
-                <button class="filter-tab" data-cat="holdings" role="tab" title="Coins you bought — paper PnL tracker">🔒 Holdings <span class="tab-count" data-count="holdings">–</span></button>
+                <button class="filter-tab" data-cat="watchlist" role="tab">⭐ Watch <span class="tab-count" data-count="watchlist">–</span></button>
+                <button class="filter-tab" data-cat="holdings" role="tab">🔒 Holdings <span class="tab-count" data-count="holdings">–</span></button>
                 <button class="filter-tab" data-cat="history" role="tab">📜 Log <span class="tab-count" data-count="history">–</span></button>
               </div>
             </div>
             <div class="filter-group filter-group-setups">
               <span class="filter-group-label">Setups</span>
               <div class="filter-tabs filter-tabs-setups" role="tablist" aria-label="Setups">
-                <button class="filter-tab filter-tab-featured" data-cat="highconf" role="tab" title="Indicators agree and the score is bullish — look here first">🎯 High Conf <span class="tab-count" data-count="highconf">–</span></button>
-                <button class="filter-tab" data-cat="oversold" role="tab" title="RSI at or below 35">📉 Oversold <span class="tab-count" data-count="oversold">–</span></button>
-                <button class="filter-tab" data-cat="trending" role="tab" title="Assets with a positive 24h trend">🔥 Trending <span class="tab-count" data-count="trending">–</span></button>
-                <button class="filter-tab scalper-filter-tab hidden-filter-tab" data-cat="scalper" role="tab" hidden aria-hidden="true" title="5m EMA pullbacks — experimental, disabled">⚡ 5m Scalps <span class="tab-count" data-count="scalper">–</span></button>
+                <button class="filter-tab filter-tab-featured" data-cat="highconf" role="tab">🎯 High Conf <span class="tab-count" data-count="highconf">–</span></button>
+                <button class="filter-tab" data-cat="oversold" role="tab">📉 Oversold <span class="tab-count" data-count="oversold">–</span></button>
+                <button class="filter-tab" data-cat="trending" role="tab">🔥 Trending <span class="tab-count" data-count="trending">–</span></button>
               </div>
             </div>
           </div>
-          <p class="list-legend">⭐ <strong>Watch</strong> = you starred it (ideas only — moonshots no longer auto-star) &nbsp;·&nbsp; 🔒 <strong>Holdings</strong> = you bought it (edit Binance entry/lots). Signed-in users sync Watch + Holdings across devices.</p>
         </div>
         <div id="liveBinanceHoldings" class="live-bn-host" hidden></div>
-        <div class="assets-grid" id="assetGrid">
-          <!-- populated by JS -->
-        </div>
+        <div class="assets-grid" id="assetGrid"></div>
       </div>
 
       <!-- Footer for Dashboard -->
@@ -755,16 +746,19 @@
       // Nuke bloated caches that are causing QuotaExceededError (Removed to allow instant paint)
     } catch(e) {}
   </script>
-  <script src="js/config.js?v=6.70" defer></script>
-  <script src="js/api.js?v=6.60" defer></script>
+  <script src="js/config.js?v=6.74" defer></script>
+  <script src="js/api.js?v=6.74" defer></script>
   <script src="js/indicators.js?v=6.60" defer></script>
+  <script src="js/redbar_trend.js?v=1.0" defer></script>
+  <script src="js/range_ema_engine.js?v=1.1" defer></script>
+  <script src="js/range_ema_ui.js?v=1.2" defer></script>
   <script src="js/signals.js?v=6.70" defer></script>
   <script src="js/charts.js?v=6.60" defer></script>
   
   <script src="js/scanner.js?v=6.60" defer></script>
   <script src="js/backtest_ui.js?v=6.60" defer></script>
   <script src="js/auth.js?v=6.70" defer></script>
-    <script src="js/dashboard.js?v=6.71" defer></script>
+    <script src="js/dashboard.js?v=6.74" defer></script>
   <script>
     // If signals.js didn't expose the right version, cached old code is running — force reload.
     if (typeof Signals === 'undefined' || Signals._version !== window.__APP_VERSION__) {

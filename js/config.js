@@ -2,76 +2,23 @@
 
 const CONFIG = {
 
+  // ─── UI mode ────────────────────────────────────────────────────────────────
+  // redBarOnly: hide legacy multi-coin High Conf / tapes / moonshots (solo trader).
+  ui: {
+    redBarOnly: true,
+  },
+
   // ─── Assets to track ────────────────────────────────────────────────────────
   assets: {
 
-    // Binance trading pairs (no API key needed, high rate limits)
+    // Red Bar focus: BTC only (Nifty / gold later when feeds exist)
     crypto: [
       { id: 'BTCUSDT', symbol: 'BTC', name: 'Bitcoin', currency: 'USD', icon: '₿' },
-      { id: 'ETHUSDT', symbol: 'ETH', name: 'Ethereum', currency: 'USD', icon: 'Ξ' },
-      { id: 'BNBUSDT', symbol: 'BNB', name: 'Binance Coin', currency: 'USD', icon: '⬡' },
-      { id: 'SOLUSDT', symbol: 'SOL', name: 'Solana', currency: 'USD', icon: '◎' },
-      { id: 'XRPUSDT', symbol: 'XRP', name: 'XRP', currency: 'USD', icon: '✕' },
-      { id: 'ADAUSDT', symbol: 'ADA', name: 'Cardano', currency: 'USD', icon: '₳' },
-      { id: 'DOGEUSDT', symbol: 'DOGE', name: 'Dogecoin', currency: 'USD', icon: '🐕' },
-      { id: 'AVAXUSDT', symbol: 'AVAX', name: 'Avalanche', currency: 'USD', icon: '🔺' },
-      { id: 'LINKUSDT', symbol: 'LINK', name: 'Chainlink', currency: 'USD', icon: '🔗' },
-      { id: 'DOTUSDT', symbol: 'DOT', name: 'Polkadot', currency: 'USD', icon: '🟣' },
-      { id: 'POLUSDT', symbol: 'POL', name: 'Polygon', currency: 'USD', icon: '♾️' },
-      { id: 'SHIBUSDT', symbol: 'SHIB', name: 'Shiba Inu', currency: 'USD', icon: '🐕' },
-      { id: 'LTCUSDT', symbol: 'LTC', name: 'Litecoin', currency: 'USD', icon: 'Ł' },
-      { id: 'BCHUSDT', symbol: 'BCH', name: 'Bitcoin Cash', currency: 'USD', icon: '₿' },
-      { id: 'ATOMUSDT', symbol: 'ATOM', name: 'Cosmos', currency: 'USD', icon: '⚛️' },
-      { id: 'UNIUSDT', symbol: 'UNI', name: 'Uniswap', currency: 'USD', icon: '🦄' },
-      { id: 'XLMUSDT', symbol: 'XLM', name: 'Stellar', currency: 'USD', icon: '🚀' },
-      { id: 'NEARUSDT', symbol: 'NEAR', name: 'NEAR Protocol', currency: 'USD', icon: '🌌' },
-      { id: 'APTUSDT', symbol: 'APT', name: 'Aptos', currency: 'USD', icon: '🌐' },
-      { id: 'INJUSDT', symbol: 'INJ', name: 'Injective', currency: 'USD', icon: '🥷' },
-      { id: 'RENDERUSDT', symbol: 'RENDER', name: 'Render', currency: 'USD', icon: '🎨' }, 
-      { id: 'ASTRUSDT', symbol: 'ASTR', name: 'Astar', currency: 'USD', icon: '🌟' },
-      { id: 'FETUSDT', symbol: 'FET', name: 'Fetch.ai', currency: 'USD', icon: '🤖' },
-      
-      // Expanded List (Top 50 additions)
-      { id: 'TRXUSDT', symbol: 'TRX', name: 'TRON', currency: 'USD', icon: '🇹' },
-      { id: 'SUIUSDT', symbol: 'SUI', name: 'Sui', currency: 'USD', icon: '💧' },
-      { id: 'ARBUSDT', symbol: 'ARB', name: 'Arbitrum', currency: 'USD', icon: '🛡️' },
-      { id: 'OPUSDT', symbol: 'OP', name: 'Optimism', currency: 'USD', icon: '🔴' },
-      { id: 'PEPEUSDT', symbol: 'PEPE', name: 'Pepe', currency: 'USD', icon: '🐸' },
-      { id: 'WIFUSDT', symbol: 'WIF', name: 'dogwifhat', currency: 'USD', icon: '🐶' },
-      { id: 'FLOKIUSDT', symbol: 'FLOKI', name: 'FLOKI', currency: 'USD', icon: '🛡️' },
-      { id: 'AAVEUSDT', symbol: 'AAVE', name: 'Aave', currency: 'USD', icon: '👻' },
-      { id: 'SKYUSDT', symbol: 'SKY', name: 'Sky (Maker)', currency: 'USD', icon: '🏦' },
-      { id: 'LDOUSDT', symbol: 'LDO', name: 'Lido DAO', currency: 'USD', icon: '💧' },
-      { id: 'GRTUSDT', symbol: 'GRT', name: 'The Graph', currency: 'USD', icon: '📊' },
-      { id: 'THETAUSDT', symbol: 'THETA', name: 'Theta Network', currency: 'USD', icon: '📺' },
-      { id: 'FILUSDT', symbol: 'FIL', name: 'Filecoin', currency: 'USD', icon: '🗄️' },
-      { id: 'ICPUSDT', symbol: 'ICP', name: 'Internet Computer', currency: 'USD', icon: '♾️' },
-      { id: 'VETUSDT', symbol: 'VET', name: 'VeChain', currency: 'USD', icon: 'Ⓥ' },
-      { id: 'EGLDUSDT', symbol: 'EGLD', name: 'MultiversX', currency: 'USD', icon: '⚡' },
-      { id: 'SANDUSDT', symbol: 'SAND', name: 'The Sandbox', currency: 'USD', icon: '🏜️' },
-      { id: 'MANAUSDT', symbol: 'MANA', name: 'Decentraland', currency: 'USD', icon: '🌐' },
-      { id: 'GALAUSDT', symbol: 'GALA', name: 'Gala', currency: 'USD', icon: '🎮' },
-      { id: 'RUNEUSDT', symbol: 'RUNE', name: 'THORChain', currency: 'USD', icon: 'ᚱ' },
-      { id: 'TIAUSDT', symbol: 'TIA', name: 'Celestia', currency: 'USD', icon: '🌌' },
-      { id: 'SEIUSDT', symbol: 'SEI', name: 'Sei', currency: 'USD', icon: '🌊' },
-      { id: 'STXUSDT', symbol: 'STX', name: 'Stacks', currency: 'USD', icon: '🥞' },
-      { id: 'TAOUSDT', symbol: 'TAO', name: 'Bittensor', currency: 'USD', icon: '🧠' },
-      
-      // Dash is retained because it is a backtest core winner.
-      { id: 'DASHUSDT', symbol: 'DASH', name: 'Dash', currency: 'USD', icon: '💨' },
     ],
 
-
-    // ─── Proven winners (updated by the weekly backtest workflow) ─────────────
-    // Assets that were profitable in the last full backtest (node backtest.js).
-    // When signals.winnersOnlyBuys is true, BUY/STRONG_BUY signals on assets
-    // NOT in this list are downgraded to NEUTRAL. Re-run the backtest monthly
-    // and update this list — it reflects a 250-day window and WILL go stale.
-    // Core: consistently profitable with >1% avg return AND >40% win rate.
-    // Probation: profitable but marginal (<1% avg return OR low win rate).
-    coreWinners: ['ARB', 'ASTR', 'DASH', 'INJ', 'LDO', 'NEAR', 'THETA'],
-    probationWinners: ['ATOM', 'BNB', 'BTC', 'EGLD', 'ETH', 'LINK', 'OP', 'PEPE', 'POL', 'RENDER', 'RUNE', 'TAO', 'TRX', 'UNI'],
-    provenWinners: ['ARB', 'ASTR', 'ATOM', 'BNB', 'BTC', 'DASH', 'EGLD', 'ETH', 'INJ', 'LDO', 'LINK', 'NEAR', 'OP', 'PEPE', 'POL', 'RENDER', 'RUNE', 'TAO', 'THETA', 'TRX', 'UNI'],
+    coreWinners: ['BTC'],
+    probationWinners: [],
+    provenWinners: ['BTC'],
   },
 
   signals: {
@@ -108,7 +55,7 @@ const CONFIG = {
 
   // ─── New listings research (watch/alert only — never auto-buy) ─────────────
   listings: {
-    enabled: true,
+    enabled: false, // off in Red Bar–only mode
     catalogId: 48,         // Binance CMS "New Cryptocurrency Listing"
     pollMs: 5 * 60 * 1000,
     snapshotKey: 'trading_listings_symbols_v1',
@@ -129,6 +76,23 @@ const CONFIG = {
     slippagePerSide: 0.001, // 0.10% slippage per side → 0.40% round-trip
   },
 
+  // ─── Red Bar Desk (trend prediction) + optional EMA overlay ────────────────
+  // CORE = prior-day bands + opening-range break + red-bar refs (js/redbar_trend.js).
+  // EMA 10/30 is a SEPARATE overlay on the desk — not the trend engine.
+  // Same map later: Nifty / gold / oil / NG once OHLC is wired.
+  rangeEma: {
+    enabled: true,
+    symbols: ['BTCUSDT'],
+    workingTf: '30m',
+    dayMode: 'utc', // crypto default; use 'ny' to align with US session day
+    lookbackDays: 90,
+    touchPct: 0.15,
+    emaFast: 10,
+    emaSlow: 30,
+    ohlcLimit30m: 1000,
+    ohlcLimit4h: 500,
+  },
+
   // ─── Dynamic Optimization Parameters ───────────────────────────────────────
   // EMA/RSI are auto-updated by the backtester parameter sweep.
   // holdLimit mirrors exits.holdLimitDays for older call sites.
@@ -143,8 +107,8 @@ const CONFIG = {
   lastBacktest: {
     runAt: '2026-10-11T06:31:02.654Z',
     totalRuns: 14,
-    coreCount: 7,
-    probationCount: 14,
+    coreCount: 1,
+    probationCount: 0,
     winnersTrades: 4621,
     winnersWinRate: 49.2,
     winnersAvgReturn: 1.14,

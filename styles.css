@@ -2587,3 +2587,214 @@ body.chart-zoom-open .toast-container { z-index: 13000; }
   border-radius: 6px;
   cursor: pointer;
 }
+
+/* ─── Range Desk (prior-day bands + EMA) ─────────────────────────────────── */
+#rangeEmaDeskBlock { margin-bottom: 36px; }
+.range-desk-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+  gap: 16px;
+}
+.range-card {
+  padding: 16px 18px;
+  border-radius: var(--radius-lg);
+  border: 1px solid var(--glass-border);
+  background: var(--bg-card);
+}
+.range-card-head {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  gap: 12px;
+  margin-bottom: 10px;
+}
+.range-card-head h3 {
+  margin: 0;
+  font-size: 1.15rem;
+  letter-spacing: 0.02em;
+}
+.range-price {
+  font-size: 1.25rem;
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+}
+.range-chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-bottom: 10px;
+}
+.range-chip {
+  font-size: 11px;
+  padding: 3px 8px;
+  border-radius: 999px;
+  background: rgba(255,255,255,0.06);
+  color: var(--text-muted);
+}
+.range-chip.pos { background: var(--c-green-bg); color: var(--c-green); }
+.range-chip.neg { background: var(--c-red-bg); color: var(--c-red); }
+.range-trend-banner {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 10px;
+  padding: 10px 12px;
+  margin-bottom: 8px;
+  border-radius: var(--radius-sm);
+  background: rgba(255,255,255,0.05);
+  border: 1px solid rgba(255,255,255,0.08);
+}
+.range-trend-banner.pos {
+  background: var(--c-green-bg);
+  border-color: rgba(34, 197, 94, 0.35);
+  color: var(--c-green);
+}
+.range-trend-banner.neg {
+  background: var(--c-red-bg);
+  border-color: rgba(239, 68, 68, 0.35);
+  color: var(--c-red);
+}
+.range-trend-label {
+  font-size: 10px;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: var(--text-muted);
+}
+.range-trend-banner strong { font-size: 1.1rem; }
+.range-narrative {
+  font-size: 12px;
+  line-height: 1.45;
+  color: var(--text-muted);
+  margin: 0 0 12px;
+}
+.range-ema-overlay {
+  margin-top: 12px;
+  padding-top: 10px;
+  border-top: 1px dashed rgba(255,255,255,0.1);
+}
+.range-ema-title {
+  font-size: 11px;
+  color: var(--text-muted);
+  margin-bottom: 6px;
+}
+.range-ema-title em { font-style: normal; opacity: 0.8; }
+.range-ema-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 14px;
+  font-size: 12px;
+  color: var(--text-muted);
+  margin-bottom: 10px;
+}
+.range-magnets {
+  display: grid;
+  gap: 6px;
+  font-size: 12px;
+  margin-bottom: 12px;
+  padding: 8px 10px;
+  border-radius: var(--radius-sm);
+  background: rgba(0,0,0,0.2);
+}
+.range-magnets .lbl {
+  display: block;
+  color: var(--text-muted);
+  font-size: 10px;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+.range-magnets em {
+  color: var(--text-muted);
+  font-style: normal;
+  margin-left: 4px;
+}
+.range-setup {
+  font-size: 12px;
+  margin-bottom: 10px;
+  padding: 10px;
+  border-radius: var(--radius-sm);
+  border: 1px dashed rgba(255,255,255,0.12);
+}
+.range-setup.muted { color: var(--text-muted); }
+.range-setup.active-setup {
+  border-style: solid;
+  border-color: rgba(124, 106, 245, 0.35);
+  background: rgba(124, 106, 245, 0.08);
+}
+.range-setup-side {
+  font-weight: 700;
+  font-size: 13px;
+  margin-bottom: 6px;
+}
+.range-setup-side.pos { color: var(--c-green); }
+.range-setup-side.neg { color: var(--c-red); }
+.range-levels {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  font-variant-numeric: tabular-nums;
+}
+.range-levels em {
+  color: var(--text-muted);
+  font-style: normal;
+  font-size: 11px;
+}
+.range-hint {
+  margin: 8px 0 0;
+  font-size: 11px;
+  color: var(--text-muted);
+}
+.range-band-details {
+  font-size: 12px;
+  color: var(--text-muted);
+}
+.range-band-details summary { cursor: pointer; }
+.range-band-list {
+  margin: 8px 0 0;
+  padding-left: 18px;
+  max-height: 140px;
+  overflow: auto;
+}
+.range-band-list .band-day {
+  color: var(--text-main);
+  font-variant-numeric: tabular-nums;
+  margin-right: 6px;
+}
+.range-desk-meta {
+  display: inline-block;
+  margin-left: 8px;
+  font-size: 11px;
+  color: var(--text-muted);
+}
+.range-desk-footnote {
+  margin: 12px 0 0;
+  font-size: 11px;
+  color: var(--text-muted);
+}
+.range-desk-error {
+  padding: 16px;
+  color: var(--text-muted);
+  font-size: 13px;
+}
+@media (max-width: 640px) {
+  .range-desk-grid { grid-template-columns: 1fr; }
+}
+
+/* Red Bar–only mode: kill legacy multi-coin chrome */
+body.redbar-only .legacy-ui,
+body.redbar-only .legacy-nav,
+body.redbar-only #moonshotsSection,
+body.redbar-only #listingsSection {
+  display: none !important;
+}
+body.redbar-only .topbar-focus-label {
+  display: inline-block;
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--text-muted);
+  letter-spacing: 0.02em;
+}
+.topbar-focus-label { display: none; }
+body.redbar-only #rangeEmaDeskBlock {
+  margin-top: 8px;
+  min-height: 50vh;
+}

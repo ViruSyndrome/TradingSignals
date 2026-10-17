@@ -373,14 +373,14 @@ const API = {
    * Fetch historical OHLC for a single crypto asset (Binance → OKX fallback).
    * Returns array of [timestamp_ms, open, high, low, close, volume]
    */
-  async getCryptoOHLC(coinId, interval = '1d') {
-    const key = `crypto_hist_${coinId}_${interval}`;
+  async getCryptoOHLC(coinId, interval = '1d', limitOverride) {
+    const limit = limitOverride || CONFIG.refresh.historyDays;
+    const key = `crypto_hist_${coinId}_${interval}_${limit}`;
     const cached = this._get(key);
     if (cached) return cached;
 
     const binanceSymbol = coinId.replace('_4H', '').replace('_5M', '');
-    const days = CONFIG.refresh.historyDays;
-    const path = `/api/v3/klines?symbol=${binanceSymbol}&interval=${interval}&limit=${days}`;
+    const path = `/api/v3/klines?symbol=${binanceSymbol}&interval=${interval}&limit=${limit}`;
     try {
       if (!this._binanceIsHardBanned()) {
         const data = await this._fetchBinance(path, 5000);
