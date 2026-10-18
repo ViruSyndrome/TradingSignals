@@ -2878,7 +2878,8 @@ body.redbar-only .rb-chart-wrap {
   flex: 1 1 auto;
   display: flex;
   flex-direction: column;
-  min-height: 0;
+  /* Never allow the flex crush that collapsed this to ~16px on phones */
+  min-height: min(52vh, 420px);
   margin-bottom: 0;
 }
 body.redbar-only .rb-chart-box {
