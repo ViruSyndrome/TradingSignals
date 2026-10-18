@@ -346,9 +346,9 @@ const RangeEmaUI = {
           <span class="lg ema10">EMA ${c.emaFast || 10}</span>
           <span class="lg ema30">EMA ${c.emaSlow || 30}</span>
           <span class="lg or">OR box</span>
-          <span class="lg band">Day ranges (purple / orange)</span>
-          <span class="lg stop">Stop</span>
-          <span class="lg tp">Exit</span>
+          <span class="lg band">Day ranges</span>
+          <span class="lg stop">Stop (Y marker)</span>
+          <span class="lg tp">Exit (Y marker)</span>
           <span class="lg sess-asia">Asia</span>
           <span class="lg sess-london">London</span>
           <span class="lg sess-ny">US</span>
@@ -651,6 +651,7 @@ const RangeEmaUI = {
           ctx.setLineDash([]);
           ctx.strokeRect(x0, top, x1 - x0, h);
 
+          // Mid only inside the day box — no chart-wide dotted extensions
           if (b.mid != null) {
             const yM = yScale.getPixelForValue(b.mid);
             if (Number.isFinite(yM)) {
@@ -663,32 +664,6 @@ const RangeEmaUI = {
               ctx.stroke();
             }
           }
-
-          // Extend H / L / mid forward to the right edge as quiet magnets
-          const xExt = area.right;
-          if (x1 < xExt - 4) {
-            ctx.globalAlpha = 0.25 + age * 0.25;
-            ctx.strokeStyle = col.stroke;
-            ctx.setLineDash([4, 5]);
-            ctx.lineWidth = 1;
-            ctx.beginPath();
-            ctx.moveTo(x1, yHi);
-            ctx.lineTo(xExt, yHi);
-            ctx.moveTo(x1, yLo);
-            ctx.lineTo(xExt, yLo);
-            ctx.stroke();
-            if (b.mid != null) {
-              const yM = yScale.getPixelForValue(b.mid);
-              if (Number.isFinite(yM)) {
-                ctx.strokeStyle = col.mid;
-                ctx.setLineDash([2, 6]);
-                ctx.beginPath();
-                ctx.moveTo(x1, yM);
-                ctx.lineTo(xExt, yM);
-                ctx.stroke();
-              }
-            }
-          }
           ctx.globalAlpha = 1;
           ctx.setLineDash([]);
         }
@@ -697,50 +672,63 @@ const RangeEmaUI = {
     };
   },
 
-  /** Shaded opening-range box between OR high and OR low. */
+  /**
+   * Opening range: small gold box on today's first bar(s) only — not chart-wide dotted rails.
+   * OR HI / OR LO also appear as Y-axis markers.
+   */
   _orZonePlugin() {
     return {
       id: 'rbOrZone',
       beforeDatasetsDraw(chart) {
         const zone = chart.$rbOrZone;
         if (!zone || zone.high == null || zone.low == null) return;
+        const xScale = chart.scales.x;
         const yScale = chart.scales.y;
         const area = chart.chartArea;
-        if (!yScale || !area) return;
+        if (!xScale || !yScale || !area) return;
         let yHi = yScale.getPixelForValue(zone.high);
         let yLo = yScale.getPixelForValue(zone.low);
         if (!Number.isFinite(yHi) || !Number.isFinite(yLo)) return;
-        // Keep a visible band even when OR is tiny vs the day range (common on 5m)
         let top = Math.min(yHi, yLo);
         let h = Math.abs(yLo - yHi);
         if (h < 8) {
           const mid = (yHi + yLo) / 2;
           h = 8;
           top = mid - h / 2;
-          yHi = mid - h / 2;
-          yLo = mid + h / 2;
         }
+        let x0 = area.left;
+        let x1 = area.left + 28;
+        if (zone.i0 != null && zone.i1 != null) {
+          x0 = xScale.getPixelForValue(zone.i0);
+          x1 = xScale.getPixelForValue(zone.i1);
+          if (Number.isFinite(x0) && Number.isFinite(x1)) {
+            if (x1 < x0) { const t = x0; x0 = x1; x1 = t; }
+            // Widen a single-bar OR so it’s visible
+            if (x1 - x0 < 12) {
+              const midX = (x0 + x1) / 2;
+              x0 = midX - 8;
+              x1 = midX + 8;
+            }
+          }
+        }
+        x0 = Math.max(area.left, x0);
+        x1 = Math.min(area.right, x1);
+        if (x1 <= x0) return;
         const ctx = chart.ctx;
         ctx.save();
-        ctx.fillStyle = zone.fill || 'rgba(234, 179, 8, 0.2)';
-        ctx.fillRect(area.left, top, area.right - area.left, h);
-        ctx.strokeStyle = zone.stroke || 'rgba(234, 179, 8, 0.75)';
-        ctx.lineWidth = 1.75;
-        ctx.setLineDash([5, 4]);
-        ctx.beginPath();
-        ctx.moveTo(area.left, Math.min(yHi, yLo));
-        ctx.lineTo(area.right, Math.min(yHi, yLo));
-        ctx.moveTo(area.left, Math.max(yHi, yLo));
-        ctx.lineTo(area.right, Math.max(yHi, yLo));
-        ctx.stroke();
+        ctx.fillStyle = zone.fill || 'rgba(234, 179, 8, 0.22)';
+        ctx.fillRect(x0, top, x1 - x0, h);
+        ctx.strokeStyle = zone.stroke || 'rgba(234, 179, 8, 0.85)';
+        ctx.lineWidth = 1.5;
         ctx.setLineDash([]);
+        ctx.strokeRect(x0, top, x1 - x0, h);
         ctx.restore();
       },
     };
   },
 
   /**
-   * Level tags live in the RIGHT PADDING (outside the plot), so latest candles stay clear.
+   * Price markers on the RIGHT Y-axis (TradingView-style) — replaces chart-wide dotted levels.
    */
   _levelTagsPlugin() {
     return {
@@ -753,7 +741,8 @@ const RangeEmaUI = {
         if (!yScale || !area) return;
         const ctx = chart.ctx;
         const placed = [];
-        const minGap = 13;
+        const minGap = 14;
+        const axisX = area.right;
 
         ctx.save();
         ctx.font = '600 10px Outfit, system-ui, sans-serif';
@@ -761,8 +750,7 @@ const RangeEmaUI = {
           if (t.value == null || !Number.isFinite(t.value)) continue;
           let y = yScale.getPixelForValue(t.value);
           if (!Number.isFinite(y)) continue;
-          // Skip tags that are far off the current Y view (after zoom)
-          if (y < area.top - 4 || y > area.bottom + 4) continue;
+          if (y < area.top - 2 || y > area.bottom + 2) continue;
           y = Math.max(area.top + 8, Math.min(area.bottom - 8, y));
           for (let guard = 0; guard < 8; guard++) {
             let hit = false;
@@ -780,14 +768,24 @@ const RangeEmaUI = {
 
           const price = Number(t.value).toFixed(0);
           const label = `${t.name} ${price}`;
-          const padX = 4;
+          const padX = 5;
           const tw = ctx.measureText(label).width;
           const boxW = tw + padX * 2;
-          const boxH = 14;
-          // Left edge of plot — latest candles (right side) stay fully visible
-          const x = area.left + 4;
+          const boxH = 15;
+          const x = axisX + 2;
 
-          ctx.fillStyle = t.bg || 'rgba(15, 23, 42, 0.88)';
+          // Short tick into the plot so the eye can find the level without a full line
+          ctx.strokeStyle = t.color || '#e2e8f0';
+          ctx.globalAlpha = 0.7;
+          ctx.lineWidth = 1.5;
+          ctx.setLineDash([]);
+          ctx.beginPath();
+          ctx.moveTo(axisX - 10, y);
+          ctx.lineTo(axisX, y);
+          ctx.stroke();
+          ctx.globalAlpha = 1;
+
+          ctx.fillStyle = t.bg || 'rgba(15, 23, 42, 0.92)';
           ctx.strokeStyle = t.color || '#e2e8f0';
           ctx.lineWidth = 1;
           ctx.beginPath();
@@ -896,18 +894,6 @@ const RangeEmaUI = {
     const stopPx = trading ? (action.stop ?? o.invalidation) : null;
     const exitPx = trading ? (action.exit ?? o.bookZone) : null;
 
-    const mkLine = (val, label, color, dash, width = 1.5) => ({
-      label,
-      data: this._flat(val, n),
-      borderColor: color,
-      borderWidth: width,
-      borderDash: dash || [],
-      pointRadius: 0,
-      fill: false,
-      tension: 0,
-      order: 2,
-    });
-
     // Invisible close series: hit-testing + tooltip OHLC (candles drawn by plugin)
     const datasets = [
       {
@@ -944,33 +930,37 @@ const RangeEmaUI = {
       },
     ];
 
-    // Day-range ladders drawn by plugin (recentBands). Nearest S/R kept as stronger accents.
-    if (o.refs?.bandResist != null) {
-      datasets.push(mkLine(o.refs.bandResist, 'Nearest R', COL.bandResist, [2, 4], 1.75));
-    }
-    if (o.refs?.bandSupport != null) {
-      datasets.push(mkLine(o.refs.bandSupport, 'Nearest S', COL.bandSupport, [2, 4], 1.75));
-    }
-
-    // Stop / Exit only when LONG or SHORT (red-bar refs become these — no duplicate lines)
-    if (stopPx != null) datasets.push(mkLine(stopPx, 'Stop', COL.stop, [], 2.5));
-    if (exitPx != null) datasets.push(mkLine(exitPx, 'Exit', COL.exit, [], 2.5));
-
-    // OR zone metadata (drawn by plugin — not twin line datasets)
+    // Levels = Y-axis markers only (no chart-wide dotted / solid rails)
     const orHigh = o.refs?.orHigh;
     const orLow = o.refs?.orLow;
+    const asOfDay = o.asOfDay;
+    const todaySpan = asOfDay ? daySpans.get(asOfDay) : null;
     const orZone = (orHigh != null && orLow != null)
       ? {
           high: orHigh,
           low: orLow,
-          // Keep OR readable on every TF (was too faint once price had broken out)
-          fill: trading ? 'rgba(234, 179, 8, 0.12)' : 'rgba(234, 179, 8, 0.22)',
-          stroke: trading ? 'rgba(234, 179, 8, 0.55)' : 'rgba(234, 179, 8, 0.8)',
+          i0: todaySpan ? todaySpan.i0 : null,
+          i1: todaySpan ? Math.min(todaySpan.i0 + Math.max(1, Math.floor(this._barsPerHour(tf) / 2)), todaySpan.i1) : null,
+          fill: trading ? 'rgba(234, 179, 8, 0.14)' : 'rgba(234, 179, 8, 0.24)',
+          stroke: trading ? 'rgba(234, 179, 8, 0.65)' : 'rgba(234, 179, 8, 0.9)',
         }
       : null;
 
-    // No canvas price tags — Entry/Stop/Exit live in the action card above (tags were covering candles)
     const levelTags = [];
+    const pushTag = (name, value, color, bg) => {
+      if (value == null || !Number.isFinite(Number(value))) return;
+      // Dedupe near-identical prices
+      if (levelTags.some((t) => this._nearPrice(t.value, value, 1))) return;
+      levelTags.push({ name, value: Number(value), color, bg });
+    };
+    pushTag('OR HI', orHigh, '#eab308', 'rgba(66, 32, 6, 0.92)');
+    pushTag('OR LO', orLow, '#eab308', 'rgba(66, 32, 6, 0.92)');
+    pushTag('R', o.refs?.bandResist, COL.bandResist, 'rgba(46, 16, 80, 0.92)');
+    pushTag('S', o.refs?.bandSupport, COL.bandSupport, 'rgba(8, 50, 48, 0.92)');
+    if (trading) {
+      pushTag('STOP', stopPx, COL.stop, 'rgba(60, 10, 10, 0.94)');
+      pushTag('EXIT', exitPx, COL.exit, 'rgba(10, 40, 20, 0.94)');
+    }
 
     this.destroyChart();
     this._chart = new Chart(canvas.getContext('2d'), {
@@ -988,7 +978,7 @@ const RangeEmaUI = {
         maintainAspectRatio: false,
         animation: { duration: 280 },
         interaction: { mode: 'index', intersect: false },
-        layout: { padding: { top: 14, bottom: 4, right: 6 } },
+        layout: { padding: { top: 14, bottom: 4, right: 72 } },
         plugins: {
           legend: { display: false },
           tooltip: {
@@ -1001,7 +991,7 @@ const RangeEmaUI = {
             caretPadding: 8,
             filter(item) {
               const l = item.dataset.label || '';
-              return l === 'BTC' || l.startsWith('EMA') || l === 'Stop' || l === 'Exit';
+              return l === 'BTC' || l.startsWith('EMA');
             },
             callbacks: {
               title(items) {
