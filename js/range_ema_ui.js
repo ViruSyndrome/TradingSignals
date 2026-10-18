@@ -346,7 +346,7 @@ const RangeEmaUI = {
           <span class="lg ema10">EMA ${c.emaFast || 10}</span>
           <span class="lg ema30">EMA ${c.emaSlow || 30}</span>
           <span class="lg or">OR box</span>
-          <span class="lg band">Day ranges</span>
+          <span class="lg band">Day ranges (purple / orange)</span>
           <span class="lg stop">Stop</span>
           <span class="lg tp">Exit</span>
           <span class="lg sess-asia">Asia</span>
@@ -597,8 +597,9 @@ const RangeEmaUI = {
   },
 
   /**
-   * Prior-day range bars (H→L bands + mid). These are the ladder that shows
-   * how high/low a trend can run — not just nearest S/R.
+   * Prior-day range bars: a box ONLY over that calendar day (gaps between days),
+   * then thin H/L/mid lines extend forward as magnets — not a full-chart purple wash.
+   * Alternating purple / orange so days read as separate ranges.
    */
   _bandZonesPlugin() {
     return {
@@ -606,48 +607,91 @@ const RangeEmaUI = {
       beforeDatasetsDraw(chart) {
         const bands = chart.$rbDayBands;
         if (!bands || !bands.length) return;
+        const xScale = chart.scales.x;
         const yScale = chart.scales.y;
         const area = chart.chartArea;
-        if (!yScale || !area) return;
+        if (!xScale || !yScale || !area) return;
         const ctx = chart.ctx;
         const n = bands.length;
+        const palette = [
+          { fill: 'rgba(168, 85, 247, 0.22)', stroke: 'rgba(168, 85, 247, 0.85)', mid: 'rgba(196, 181, 253, 0.7)' },
+          { fill: 'rgba(249, 115, 22, 0.20)', stroke: 'rgba(249, 115, 22, 0.85)', mid: 'rgba(253, 186, 116, 0.7)' },
+        ];
+
         ctx.save();
         for (let i = 0; i < n; i++) {
           const b = bands[i];
-          if (b.high == null || b.low == null) continue;
+          if (b.high == null || b.low == null || b.i0 == null || b.i1 == null) continue;
           const yHi = yScale.getPixelForValue(b.high);
           const yLo = yScale.getPixelForValue(b.low);
-          if (!Number.isFinite(yHi) || !Number.isFinite(yLo)) continue;
-          // Older days = fainter; newest prior day = strongest
+          let x0 = xScale.getPixelForValue(b.i0);
+          let x1 = xScale.getPixelForValue(b.i1);
+          if (![yHi, yLo, x0, x1].every(Number.isFinite)) continue;
+          if (x1 < x0) { const t = x0; x0 = x1; x1 = t; }
+
+          // Inset so neighbouring day-boxes don't touch (visible empty gap)
+          const gap = 3;
+          x0 += gap;
+          x1 -= gap;
+          if (x1 <= x0) continue;
+          if (x1 < area.left || x0 > area.right) continue;
+          x0 = Math.max(x0, area.left);
+          x1 = Math.min(x1, area.right);
+
+          const col = palette[i % 2];
           const age = (i + 1) / n;
-          const alpha = 0.04 + age * 0.1;
           const top = Math.min(yHi, yLo);
-          const h = Math.max(1, Math.abs(yLo - yHi));
-          ctx.fillStyle = `rgba(168, 85, 247, ${alpha})`;
-          ctx.fillRect(area.left, top, area.right - area.left, h);
-          ctx.strokeStyle = `rgba(168, 85, 247, ${0.25 + age * 0.45})`;
-          ctx.lineWidth = i === n - 1 ? 1.5 : 1;
-          ctx.setLineDash(i === n - 1 ? [] : [3, 4]);
-          ctx.beginPath();
-          ctx.moveTo(area.left, yHi);
-          ctx.lineTo(area.right, yHi);
-          ctx.moveTo(area.left, yLo);
-          ctx.lineTo(area.right, yLo);
-          ctx.stroke();
+          const h = Math.max(2, Math.abs(yLo - yHi));
+
+          ctx.globalAlpha = 0.55 + age * 0.45;
+          ctx.fillStyle = col.fill;
+          ctx.fillRect(x0, top, x1 - x0, h);
+          ctx.strokeStyle = col.stroke;
+          ctx.lineWidth = i === n - 1 ? 2 : 1.35;
+          ctx.setLineDash([]);
+          ctx.strokeRect(x0, top, x1 - x0, h);
+
           if (b.mid != null) {
             const yM = yScale.getPixelForValue(b.mid);
             if (Number.isFinite(yM)) {
-              ctx.strokeStyle = `rgba(45, 212, 191, ${0.2 + age * 0.4})`;
-              ctx.setLineDash([2, 5]);
+              ctx.strokeStyle = col.mid;
+              ctx.setLineDash([3, 3]);
               ctx.lineWidth = 1;
               ctx.beginPath();
-              ctx.moveTo(area.left, yM);
-              ctx.lineTo(area.right, yM);
+              ctx.moveTo(x0, yM);
+              ctx.lineTo(x1, yM);
               ctx.stroke();
             }
           }
+
+          // Extend H / L / mid forward to the right edge as quiet magnets
+          const xExt = area.right;
+          if (x1 < xExt - 4) {
+            ctx.globalAlpha = 0.25 + age * 0.25;
+            ctx.strokeStyle = col.stroke;
+            ctx.setLineDash([4, 5]);
+            ctx.lineWidth = 1;
+            ctx.beginPath();
+            ctx.moveTo(x1, yHi);
+            ctx.lineTo(xExt, yHi);
+            ctx.moveTo(x1, yLo);
+            ctx.lineTo(xExt, yLo);
+            ctx.stroke();
+            if (b.mid != null) {
+              const yM = yScale.getPixelForValue(b.mid);
+              if (Number.isFinite(yM)) {
+                ctx.strokeStyle = col.mid;
+                ctx.setLineDash([2, 6]);
+                ctx.beginPath();
+                ctx.moveTo(x1, yM);
+                ctx.lineTo(xExt, yM);
+                ctx.stroke();
+              }
+            }
+          }
+          ctx.globalAlpha = 1;
+          ctx.setLineDash([]);
         }
-        ctx.setLineDash([]);
         ctx.restore();
       },
     };
@@ -795,7 +839,23 @@ const RangeEmaUI = {
       return time;
     });
     const closes = bars.map((b) => b.c);
-    const dayBands = Array.isArray(o.recentBands) ? o.recentBands : [];
+    // Map each prior-day band onto bar indices in the visible window (for day-scoped boxes)
+    const dayMode = c.dayMode || 'utc';
+    const daySpans = new Map();
+    for (let i = 0; i < times.length; i++) {
+      const day = (typeof RedBarTrend !== 'undefined')
+        ? RedBarTrend.dayKey(times[i], dayMode)
+        : new Date(times[i]).toISOString().slice(0, 10);
+      if (!daySpans.has(day)) daySpans.set(day, { i0: i, i1: i });
+      else daySpans.get(day).i1 = i;
+    }
+    const dayBands = (Array.isArray(o.recentBands) ? o.recentBands : [])
+      .map((b) => {
+        const span = daySpans.get(b.day);
+        if (!span) return null; // day not in visible window
+        return { ...b, i0: span.i0, i1: span.i1 };
+      })
+      .filter(Boolean);
     // Fit Y to candles + prior-day range ladders (zoomed-out ladder view)
     const barHi = Math.max(...bars.map((b) => b.h));
     const barLo = Math.min(...bars.map((b) => b.l));

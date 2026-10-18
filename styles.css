@@ -3040,9 +3040,9 @@ body.redbar-only .site-footer-copyright {
   box-sizing: border-box;
 }
 .rb-chart-legend .band::before {
-  width: 14px;
+  width: 16px;
   height: 10px;
-  background: rgba(168, 85, 247, 0.28);
+  background: linear-gradient(90deg, rgba(168, 85, 247, 0.55) 50%, rgba(249, 115, 22, 0.55) 50%);
   border: 1px solid #a855f7;
   border-radius: 2px;
   box-sizing: border-box;
