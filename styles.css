@@ -2667,8 +2667,10 @@ body.chart-zoom-open .toast-container { z-index: 13000; }
 .range-chip.neg { background: var(--c-red-bg); color: var(--c-red); }
 .range-trend-banner {
   display: flex;
-  align-items: baseline;
-  justify-content: space-between;
+  flex-direction: row;
+  flex-wrap: nowrap;
+  align-items: center;
+  justify-content: flex-start;
   gap: 10px;
   padding: 10px 12px;
   margin-bottom: 8px;
@@ -2691,8 +2693,14 @@ body.chart-zoom-open .toast-container { z-index: 13000; }
   text-transform: uppercase;
   letter-spacing: 0.05em;
   color: var(--text-muted);
+  flex: 0 0 auto;
 }
-.range-trend-banner strong { font-size: 1.1rem; }
+.range-trend-banner strong {
+  font-size: 1.1rem;
+  line-height: 1;
+  flex: 0 0 auto;
+  margin: 0;
+}
 .range-narrative {
   font-size: 12px;
   line-height: 1.45;
@@ -2946,6 +2954,46 @@ body.redbar-only .site-footer-copyright {
   border-color: rgba(124, 106, 245, 0.65);
   color: #f8fafc;
 }
+.rb-inst-btn.is-loading {
+  opacity: 0.85;
+}
+.rb-inst-btn.is-loading::after {
+  content: '';
+  display: inline-block;
+  width: 8px;
+  height: 8px;
+  margin-left: 6px;
+  border-radius: 50%;
+  border: 2px solid rgba(255,255,255,0.25);
+  border-top-color: #e2e8f0;
+  animation: rb-spin 0.7s linear infinite;
+  vertical-align: middle;
+}
+.rb-loading {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 12px;
+  min-height: 220px;
+  padding: 24px 16px;
+  color: var(--text-muted);
+  font-size: 13px;
+  border: 1px dashed rgba(255,255,255,0.12);
+  border-radius: var(--radius-lg);
+  background: rgba(255,255,255,0.02);
+}
+.rb-loading-spin {
+  width: 28px;
+  height: 28px;
+  border-radius: 50%;
+  border: 3px solid rgba(124, 106, 245, 0.25);
+  border-top-color: rgba(124, 106, 245, 0.95);
+  animation: rb-spin 0.75s linear infinite;
+}
+@keyframes rb-spin {
+  to { transform: rotate(360deg); }
+}
 
 /* Red Bar action + chart */
 .rb-action {
@@ -3086,9 +3134,10 @@ body.redbar-only .site-footer-copyright {
   position: relative;
   height: min(52vh, 420px);
   width: 100%;
-  touch-action: none;
+  /* Allow vertical page scroll; pinch-zoom still works for the chart */
+  touch-action: pan-y pinch-zoom;
 }
-#redBarChart { touch-action: none; }
+#redBarChart { touch-action: pan-y pinch-zoom; }
 .rb-meta-row { margin-bottom: 10px; }
 /* Phone chart/layout — also via max-device-width (Chrome desktop-site) */
 @media (max-width: 768px), (max-device-width: 900px) {
@@ -3180,9 +3229,9 @@ body.redbar-only .site-footer-copyright {
   .rb-chart-box {
     height: min(42vh, 300px);
     min-height: 220px;
-    touch-action: none;
+    touch-action: pan-y pinch-zoom;
   }
-  #redBarChart { touch-action: none; }
+  #redBarChart { touch-action: pan-y pinch-zoom; }
   .range-chips { gap: 4px; }
   .range-chip { font-size: 10px; padding: 2px 6px; }
   .range-narrative { font-size: 11px; margin-bottom: 8px; }
@@ -3225,4 +3274,32 @@ html.is-phone .rb-chart-box,
 html.is-phone body.redbar-only .rb-chart-box {
   height: min(42vh, 300px) !important;
   min-height: 220px !important;
+  touch-action: pan-y pinch-zoom !important;
+}
+html.is-phone #redBarChart { touch-action: pan-y pinch-zoom !important; }
+
+/*
+ * Landscape phones often report width > 768px, so the desktop redbar flex
+ * (overflow:hidden) used to lock scroll. Keep the page scrollable on phones.
+ */
+html.is-phone body.redbar-only #dashboardSection.main-section.active {
+  display: block !important;
+  overflow-x: hidden !important;
+  overflow-y: auto !important;
+  -webkit-overflow-scrolling: touch;
+  height: auto !important;
+  max-height: none !important;
+}
+html.is-phone body.redbar-only #rangeEmaDeskBlock,
+html.is-phone body.redbar-only #rangeEmaDesk {
+  display: block !important;
+  flex: none !important;
+  height: auto !important;
+  min-height: 0 !important;
+  overflow: visible !important;
+}
+html.is-phone .main-content {
+  overflow-x: hidden !important;
+  overflow-y: auto !important;
+  -webkit-overflow-scrolling: touch;
 }

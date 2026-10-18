@@ -7,9 +7,17 @@
  */
 const RangeEmaUI = {
   _timer: null,
-  _busy: false,
+  _refreshGen: 0,
   _chart: null,
-  state: { rows: [], updatedAt: null, error: null, tf: null, instrumentId: null },
+  _chartRo: null,
+  state: {
+    rows: [],
+    updatedAt: null,
+    error: null,
+    tf: null,
+    instrumentId: null,
+    loading: false,
+  },
 
   cfg() {
     return (typeof CONFIG !== 'undefined' && CONFIG.rangeEma) ? CONFIG.rangeEma : {};
@@ -64,6 +72,10 @@ const RangeEmaUI = {
     if (!list.some((x) => x.id === id) || id === this.activeInstrument()?.id) return;
     this.state.instrumentId = id;
     try { localStorage.setItem('trendrunner_rb_instrument', id); } catch (_) {}
+    // Immediate feedback — never wait on a stuck prior fetch
+    this.state.loading = true;
+    this.state.error = null;
+    this.render();
     this.refresh();
   },
 
@@ -82,6 +94,9 @@ const RangeEmaUI = {
     if (!allowed.includes(tf) || tf === this.activeTf()) return;
     this.state.tf = tf;
     try { localStorage.setItem('trendrunner_rb_tf', tf); } catch (_) {}
+    this.state.loading = true;
+    this.state.error = null;
+    this.render();
     this.refresh();
   },
 
@@ -95,6 +110,7 @@ const RangeEmaUI = {
         this.syncPhoneClass();
       };
       window.addEventListener('resize', sync, { passive: true });
+      window.addEventListener('orientationchange', sync, { passive: true });
       window.visualViewport?.addEventListener('resize', sync, { passive: true });
     }
     try {
@@ -113,27 +129,51 @@ const RangeEmaUI = {
     this._timer = setInterval(() => this.refresh(), 60 * 1000);
   },
 
+  _friendlyErr(e) {
+    const name = e?.name || '';
+    const msg = e?.message || String(e || 'Unknown error');
+    if (name === 'AbortError' || /abort/i.test(msg) || /timed?\s*out/i.test(msg)) {
+      return 'Feed timed out — retrying… tap the tab again if it stays blank';
+    }
+    return msg;
+  },
+
   async refresh() {
     const c = this.cfg();
-    if (!c.enabled || this._busy) return;
+    if (!c.enabled) return;
     if (typeof API === 'undefined' || typeof RedBarTrend === 'undefined') {
       this.state.error = 'Red Bar engine not loaded';
+      this.state.loading = false;
       this.render();
       return;
     }
-    this._busy = true;
+    // New generation invalidates in-flight work so tab clicks are never ignored
+    const gen = ++this._refreshGen;
+    const inst = this.activeInstrument();
+    this.state.loading = true;
+    this.state.error = null;
+
     try {
-      const inst = this.activeInstrument();
-      const row = await this._buildRow(inst, c);
+      let row = await this._buildRow(inst, c);
+      // One silent retry on abort/timeout (Yahoo / futures are flaky on mobile)
+      if (gen === this._refreshGen && row?.error && /abort|timed?\s*out/i.test(row.error)) {
+        await new Promise((r) => setTimeout(r, 400));
+        if (gen !== this._refreshGen) return;
+        row = await this._buildRow(inst, c);
+      }
+      if (gen !== this._refreshGen) return;
       this.state.rows = [row];
       this.state.updatedAt = Date.now();
       this.state.error = null;
     } catch (e) {
-      this.state.error = e.message || String(e);
+      if (gen !== this._refreshGen) return;
+      this.state.error = this._friendlyErr(e);
       this.state.rows = [];
     } finally {
-      this._busy = false;
-      this.render();
+      if (gen === this._refreshGen) {
+        this.state.loading = false;
+        this.render();
+      }
     }
   },
 
@@ -191,7 +231,7 @@ const RangeEmaUI = {
       return {
         symbol: instrument.symbol,
         instrument,
-        error: e.message || `Failed to load ${instrument.label || instrument.symbol}`,
+        error: this._friendlyErr(e) || `Failed to load ${instrument.label || instrument.symbol}`,
         tf,
       };
     }
@@ -323,12 +363,25 @@ const RangeEmaUI = {
   },
 
   destroyChart() {
+    if (this._chartRo) {
+      try { this._chartRo.disconnect(); } catch (_) {}
+      this._chartRo = null;
+    }
     if (this._chart) {
       try {
         this._chart.destroy();
       } catch (_) {}
       this._chart = null;
     }
+  },
+
+  _tabsHtml(inst) {
+    const loading = !!this.state.loading;
+    return this.instruments().map((x) => {
+      const active = x.id === inst.id;
+      const cls = `rb-inst-btn${active ? ' active' : ''}${active && loading ? ' is-loading' : ''}`;
+      return `<button type="button" class="${cls}" data-rb-inst="${x.id}"${loading && active ? ' aria-busy="true"' : ''}>${x.label}${active && loading ? ' …' : ''}</button>`;
+    }).join('');
   },
 
   render() {
@@ -342,33 +395,66 @@ const RangeEmaUI = {
     host.hidden = false;
     this.destroyChart();
 
-    if (this.state.error && !this.state.rows.length) {
-      host.innerHTML = `<div class="range-desk-error">Red Bar Desk: ${this.state.error}</div>`;
-      return;
-    }
-
-    const row = (this.state.rows || [])[0];
+    const inst = this.activeInstrument() || { label: 'BTC', id: 'BTC' };
+    const tf = this.activeTf();
+    const tabs = this._tabsHtml(inst);
     const when = this.state.updatedAt
       ? new Date(this.state.updatedAt).toLocaleTimeString()
       : '—';
+    const row = (this.state.rows || [])[0];
+    const rowMatches = row && (row.instrument?.id === inst.id || row.symbol === inst.symbol);
+    const focus = document.querySelector('.topbar-focus-label');
+    if (focus) {
+      focus.textContent = this.state.loading
+        ? `Loading ${inst.label}…`
+        : `${inst.label} · ${tf} Red Bar`;
+    }
 
-    const inst = this.activeInstrument() || { label: 'BTC', id: 'BTC' };
-    if (!row) {
-      host.innerHTML = `<div class="range-desk-error">Loading ${inst.label} chart…</div>`;
+    // Hard error with nothing to show
+    if (this.state.error && !rowMatches && !this.state.loading) {
+      host.innerHTML = `
+        <div class="section-heading">
+          <h1>🟥 Red Bar Desk</h1>
+        </div>
+        <div class="rb-inst-tabs" role="tablist" aria-label="Instrument">${tabs}</div>
+        <div class="range-desk-error">${this.state.error}</div>
+      `;
+      this._bindChartControls();
       return;
     }
 
-    const tf = this.activeTf();
-    const tabs = this.instruments().map((x) =>
-      `<button type="button" class="rb-inst-btn${x.id === inst.id ? ' active' : ''}" data-rb-inst="${x.id}">${x.label}</button>`
-    ).join('');
+    // Switching instruments / first load — keep tabs, show spinner (never paint wrong symbol)
+    if (this.state.loading && !rowMatches) {
+      host.innerHTML = `
+        <div class="section-heading">
+          <h1>🟥 Red Bar Desk</h1>
+          <p class="section-sub">Loading <strong>${inst.label}</strong> on ${tf}…</p>
+        </div>
+        <div class="rb-inst-tabs" role="tablist" aria-label="Instrument">${tabs}</div>
+        <div class="rb-loading" role="status">
+          <div class="rb-loading-spin" aria-hidden="true"></div>
+          <p>Fetching ${inst.label} candles…</p>
+        </div>
+      `;
+      this._bindChartControls();
+      return;
+    }
+
+    if (!row) {
+      host.innerHTML = `
+        <div class="rb-inst-tabs" role="tablist" aria-label="Instrument">${tabs}</div>
+        <div class="range-desk-error">Loading ${inst.label} chart…</div>
+      `;
+      this._bindChartControls();
+      return;
+    }
 
     host.innerHTML = `
       <div class="section-heading">
         <h1>🟥 Red Bar Desk</h1>
         <p class="section-sub">
           ${inst.label} on <strong>${tf}</strong>: candles, EMA 10/30, OR box, day-ranges; Stop/Exit when in a trade.
-          <span class="range-desk-meta">${inst.tradeHint || ''} · Updated ${when}</span>
+          <span class="range-desk-meta">${inst.tradeHint || ''} · Updated ${when}${this.state.loading ? ' · refreshing…' : ''}</span>
         </p>
       </div>
       <div class="rb-inst-tabs" role="tablist" aria-label="Instrument">${tabs}</div>
@@ -376,9 +462,7 @@ const RangeEmaUI = {
     `;
 
     this._bindChartControls();
-    const focus = document.querySelector('.topbar-focus-label');
-    if (focus) focus.textContent = `${inst.label} · ${tf} Red Bar`;
-    requestAnimationFrame(() => this._paintChart(row, c));
+    if (!row.error) requestAnimationFrame(() => this._paintChart(row, c));
   },
 
   _bindChartControls() {
@@ -416,6 +500,7 @@ const RangeEmaUI = {
     const a = r.action || this._actionPlan(o, r.emaAgree, r.instrument);
     const trendCls =
       o.trend === 'bullish' ? 'pos' : o.trend === 'bearish' ? 'neg' : '';
+    const trendWord = o.trend === 'bullish' ? 'BULLISH' : o.trend === 'bearish' ? 'BEARISH' : 'NEUTRAL';
 
     const steps = (a.steps || []).map((s) => `<li>${s}</li>`).join('');
 
@@ -470,7 +555,7 @@ const RangeEmaUI = {
       <div class="rb-meta-row">
         <div class="range-trend-banner ${trendCls}">
           <span class="range-trend-label">Predicted trend</span>
-          <strong>${o.trend === 'bullish' ? 'BULLISH' : o.trend === 'bearish' ? 'BEARISH' : 'NEUTRAL'}</strong>
+          <strong>${trendWord}</strong>
         </div>
         <p class="range-narrative">${o.narrative}</p>
       </div>
@@ -1196,9 +1281,10 @@ const RangeEmaUI = {
             },
             // Sideways pan is the primary scrub when zoomed in (also works on touch)
             pan: {
-              enabled: true,
+              // On phones, prefer page scroll; use ◀ ▶ buttons to scrub
+              enabled: !compact,
               mode: 'x',
-              threshold: compact ? 4 : 6,
+              threshold: 6,
               modifierKey: null,
             },
             zoom: {
@@ -1263,10 +1349,24 @@ const RangeEmaUI = {
     this._chart.$rbLevelTags = levelTags;
     this._chart.$rbCompact = compact;
     this._chart.$rbUI = this;
-    // Flex layout settles after paint — force Chart.js to fill the box
+    // Flex / phone layout often settles after first paint — boxes/plugins need a
+    // second resize+update or they stay invisible until the user taps the chart.
+    const settle = () => {
+      try {
+        this._chart?.resize?.();
+        this._chart?.update?.('none');
+      } catch (_) {}
+    };
     requestAnimationFrame(() => {
-      try { this._chart?.resize?.(); } catch (_) {}
+      settle();
+      requestAnimationFrame(settle);
     });
+    const box = canvas.parentElement;
+    if (box && typeof ResizeObserver !== 'undefined') {
+      try { this._chartRo?.disconnect(); } catch (_) {}
+      this._chartRo = new ResizeObserver(() => settle());
+      this._chartRo.observe(box);
+    }
   },
 };
 

@@ -112,7 +112,14 @@ const API = {
         return result;
       } catch (e) {
         clearTimeout(timer);
-        lastErr = e;
+        // Chrome: "signal is aborted without reason" on timeout — make it actionable
+        if (e?.name === 'AbortError' || /abort/i.test(e?.message || '')) {
+          const te = new Error('Timed out');
+          te.name = 'TimeoutError';
+          lastErr = te;
+        } else {
+          lastErr = e;
+        }
         // If it's a 418 or 403, don't retry, it's a hard block
         if (e.status === 418 || e.status === 403) break;
         if (attempt < retries) await this._delay(300 * (attempt + 1));
@@ -415,7 +422,7 @@ const API = {
     let lastErr;
     for (const host of hosts) {
       try {
-        const data = await this._fetch(`${host}${path}`, 8000, 0);
+        const data = await this._fetch(`${host}${path}`, 15000, 1);
         if (!Array.isArray(data) || !data.length) throw new Error('Empty futures klines');
         return this._set(key, data, CONFIG.refresh.cacheMs);
       } catch (e) {
@@ -459,7 +466,7 @@ const API = {
     let lastErr;
     for (const url of urls) {
       try {
-        const data = await this._fetch(url, 12000, 0);
+        const data = await this._fetch(url, 20000, 1);
         const result = data?.chart?.result?.[0];
         if (!result) throw new Error('Empty Yahoo chart');
         const ts = result.timestamp || [];
