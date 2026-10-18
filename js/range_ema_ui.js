@@ -584,18 +584,14 @@ const RangeEmaUI = {
   },
 
   /**
-   * X-axis step in bars: 5m → every 30m; 30m/1h → every 1h.
-   * If that would draw too many labels, step up in whole hours.
+   * X-axis step for the *visible* bar window (updates on zoom/pan).
+   * Fixed full-series steps made labels vanish when the zoom window
+   * didn't land on those indices.
    */
-  _xTickStep(tf, n, compact) {
-    const bph = this._barsPerHour(tf);
-    const hoursPerTick = tf === '5m' ? (compact ? 2 : 0.5) : (compact ? 4 : 1);
-    let step = Math.max(1, Math.round(bph * hoursPerTick));
-    const maxLabels = compact ? 5 : 12;
-    while (n / step > maxLabels + 1) {
-      step += Math.max(1, bph * (compact ? 2 : 1));
-    }
-    return step;
+  _xTickStepForRange(visibleCount, compact) {
+    const maxLabels = compact ? 5 : 8;
+    const v = Math.max(1, visibleCount | 0);
+    return Math.max(1, Math.ceil(v / maxLabels));
   },
 
   _fmtAxisTick(ts, prevTs, compact) {
@@ -1103,7 +1099,6 @@ const RangeEmaUI = {
     const yLo = Math.min(barLo, ...nearLevels);
     const barSpan = (yHi - yLo) || 1;
     const pad = barSpan * 0.06 || 1;
-    const xStep = this._xTickStep(tf, n, compact);
     const self = this;
     const showSessions = inst.showSessionMarkers !== false && (inst.sessions || c.sessions);
     let sessionMarks = showSessions
@@ -1298,6 +1293,12 @@ const RangeEmaUI = {
               },
               // Pinch/wheel zoom both axes so day-range gaps open up
               mode: 'xy',
+              onZoomComplete({ chart }) {
+                try { chart.update('none'); } catch (_) {}
+              },
+              onPanComplete({ chart }) {
+                try { chart.update('none'); } catch (_) {}
+              },
             },
           },
         },
@@ -1312,15 +1313,36 @@ const RangeEmaUI = {
             ticks: {
               color: 'rgba(255,255,255,0.55)',
               font: { size: compact ? 9 : 10, family: 'Outfit' },
-              autoSkip: true,
-              autoSkipPadding: compact ? 16 : 10,
-              maxTicksLimit: compact ? 5 : 10,
+              // We pick density from the zoomed window ourselves — autoSkip + a
+              // fixed full-series step made labels disappear mid-zoom.
+              autoSkip: false,
               maxRotation: 0,
               minRotation: 0,
-              callback(value, index) {
-                if (index % xStep !== 0 && index !== n - 1) return '';
-                const prev = index >= xStep ? times[index - xStep] : null;
-                return self._fmtAxisTick(times[index], prev, compact);
+              callback(value) {
+                // Category scale: `value` is the data index (not the tick ordinal)
+                const idx = typeof value === 'number'
+                  ? Math.round(value)
+                  : times.indexOf?.(value);
+                if (!Number.isFinite(idx) || idx < 0 || !times[idx]) return undefined;
+
+                const i0 = Number.isFinite(this.min)
+                  ? Math.max(0, Math.ceil(this.min))
+                  : 0;
+                const i1 = Number.isFinite(this.max)
+                  ? Math.min(n - 1, Math.floor(this.max))
+                  : n - 1;
+                if (idx < i0 || idx > i1) return undefined;
+
+                const step = self._xTickStepForRange(i1 - i0 + 1, compact);
+                const atEdge = idx === i0 || idx === i1;
+                const aligned = ((idx - i0) % step) === 0;
+                if (!atEdge && !aligned) return undefined;
+
+                const prevIdx = idx - step;
+                const prevTs = prevIdx >= i0 && prevIdx < idx
+                  ? times[prevIdx]
+                  : null;
+                return self._fmtAxisTick(times[idx], prevTs, compact);
               },
             },
           },
