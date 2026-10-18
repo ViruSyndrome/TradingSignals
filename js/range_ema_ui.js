@@ -154,17 +154,20 @@ const RangeEmaUI = {
     this.state.error = null;
 
     try {
+      const flaky = (err) => /abort|timed?\s*out|failed to fetch|network|load failed/i.test(String(err || ''));
       let row = await this._buildRow(inst, c);
-      // One silent retry on abort/timeout (Yahoo / futures are flaky on mobile)
-      if (gen === this._refreshGen && row?.error && /abort|timed?\s*out/i.test(row.error)) {
-        await new Promise((r) => setTimeout(r, 400));
+      // Silent retries — keep spinner; don't flash "Failed to fetch" before success
+      for (let attempt = 0; attempt < 2; attempt++) {
+        if (gen !== this._refreshGen) return;
+        if (!row?.error || !flaky(row.error)) break;
+        await new Promise((r) => setTimeout(r, 600 * (attempt + 1)));
         if (gen !== this._refreshGen) return;
         row = await this._buildRow(inst, c);
       }
       if (gen !== this._refreshGen) return;
       this.state.rows = [row];
       this.state.updatedAt = Date.now();
-      this.state.error = null;
+      this.state.error = row?.error || null;
     } catch (e) {
       if (gen !== this._refreshGen) return;
       this.state.error = this._friendlyErr(e);
