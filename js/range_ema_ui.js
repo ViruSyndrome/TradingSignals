@@ -169,7 +169,7 @@ const RangeEmaUI = {
         steps: [
           'Futures: open LONG (or spot buy) near current price / band support hold.',
           `Stop / invalidation near ${this._fmt(o.invalidation)} (opening-range low or band).`,
-          `Take profit / book near ${this._fmt(o.bookZone)} (nearest prior swing high / resistance).`,
+          `Take profit / book near ${this._fmt(o.bookZone)} (prior swing high — Y-axis EXIT marker).`,
         ],
         entry: o.price,
         stop: o.invalidation,
@@ -947,20 +947,28 @@ const RangeEmaUI = {
       : null;
 
     const levelTags = [];
-    const pushTag = (name, value, color, bg) => {
+    const pushTag = (name, value, color, bg, { priority = false } = {}) => {
       if (value == null || !Number.isFinite(Number(value))) return;
-      // Dedupe near-identical prices
-      if (levelTags.some((t) => this._nearPrice(t.value, value, 1))) return;
-      levelTags.push({ name, value: Number(value), color, bg });
+      const v = Number(value);
+      const hit = levelTags.findIndex((t) => this._nearPrice(t.value, v, 2));
+      if (hit >= 0) {
+        // Never let R/S/OR eat STOP/EXIT — rename or skip
+        if (priority) {
+          levelTags[hit] = { name, value: v, color, bg };
+        }
+        return;
+      }
+      levelTags.push({ name, value: v, color, bg });
     };
+    // STOP / EXIT first so they always win the Y-axis slot
+    if (trading) {
+      pushTag('STOP', stopPx, COL.stop, 'rgba(60, 10, 10, 0.94)', { priority: true });
+      pushTag('EXIT', exitPx, COL.exit, 'rgba(10, 40, 20, 0.94)', { priority: true });
+    }
     pushTag('OR HI', orHigh, '#eab308', 'rgba(66, 32, 6, 0.92)');
     pushTag('OR LO', orLow, '#eab308', 'rgba(66, 32, 6, 0.92)');
     pushTag('R', o.refs?.bandResist, COL.bandResist, 'rgba(46, 16, 80, 0.92)');
     pushTag('S', o.refs?.bandSupport, COL.bandSupport, 'rgba(8, 50, 48, 0.92)');
-    if (trading) {
-      pushTag('STOP', stopPx, COL.stop, 'rgba(60, 10, 10, 0.94)');
-      pushTag('EXIT', exitPx, COL.exit, 'rgba(10, 40, 20, 0.94)');
-    }
 
     this.destroyChart();
     this._chart = new Chart(canvas.getContext('2d'), {

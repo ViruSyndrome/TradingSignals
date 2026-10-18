@@ -100,13 +100,18 @@ const RedBarTrend = {
   },
 
   /**
-   * Nearest swing high/low on the working TF (same idea as marking prior high on TradingView).
-   * Swing = bar high/low strictly above/below `pivot` neighbours on each side.
+   * Swing high/low on the working TF (TV-style prior peaks).
+   * - swingHigh / swingLow: most recent completed swing above/below price (previous high/low).
+   * - nearHigh / nearLow: closest-in-price swing (may be a minor nearer peak).
    */
   nearestSwings(bars, i, pivot = 3) {
     let swingHigh = null;
     let swingLow = null;
-    if (!bars || i < pivot * 2) return { swingHigh, swingLow };
+    let nearHigh = null;
+    let nearLow = null;
+    if (!bars || i < pivot * 2) {
+      return { swingHigh, swingLow, nearHigh, nearLow };
+    }
     const price = bars[i].c;
     const end = i - pivot; // only completed swings
     for (let j = pivot; j <= end; j++) {
@@ -117,13 +122,18 @@ const RedBarTrend = {
         if (bars[j].l >= bars[j - k].l || bars[j].l >= bars[j + k].l) isLow = false;
       }
       if (isHigh && bars[j].h > price) {
-        if (swingHigh == null || bars[j].h < swingHigh) swingHigh = bars[j].h;
+        swingHigh = bars[j].h; // last write = most recent in time
+        if (nearHigh == null || bars[j].h < nearHigh) nearHigh = bars[j].h;
       }
       if (isLow && bars[j].l < price) {
-        if (swingLow == null || bars[j].l > swingLow) swingLow = bars[j].l;
+        swingLow = bars[j].l;
+        if (nearLow == null || bars[j].l > nearLow) nearLow = bars[j].l;
       }
     }
-    return { swingHigh, swingLow };
+    // Prefer the most recent prior peak for book; fall back to nearest-in-price
+    if (swingHigh == null) swingHigh = nearHigh;
+    if (swingLow == null) swingLow = nearLow;
+    return { swingHigh, swingLow, nearHigh, nearLow };
   },
 
   /**
