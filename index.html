@@ -43,7 +43,7 @@
   <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.4/dist/chart.umd.min.js" defer></script>
   <script src="https://cdn.jsdelivr.net/npm/hammerjs@2.0.8/hammer.min.js" defer></script>
   <script src="https://cdn.jsdelivr.net/npm/chartjs-plugin-zoom@2.2.0/dist/chartjs-plugin-zoom.min.js" defer></script>
-  <link rel="stylesheet" href="styles.css?v=6.94" />
+  <link rel="stylesheet" href="styles.css?v=6.95" />
   <!-- Critical boot overlay (prevents sidebar flash before styles.css applies) -->
   <style>
     html, body { margin: 0; background: #080a14; }
@@ -82,11 +82,11 @@
     if ('serviceWorker' in navigator) {
       window.addEventListener('load', () => {
         const hadController = Boolean(navigator.serviceWorker.controller);
-        navigator.serviceWorker.register('./service-worker.js?v=6.94', { updateViaCache: 'none' })
+        navigator.serviceWorker.register('./service-worker.js?v=6.95', { updateViaCache: 'none' })
           .then(reg => {
             reg.update().catch(() => {});
             navigator.serviceWorker.addEventListener('controllerchange', () => {
-              const reloadKey = 'trendrunner_sw_update_6.94';
+              const reloadKey = 'trendrunner_sw_update_6.95';
               if (hadController && !sessionStorage.getItem(reloadKey)) {
                 sessionStorage.setItem(reloadKey, '1');
                 location.reload();

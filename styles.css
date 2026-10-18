@@ -2666,12 +2666,14 @@ body.chart-zoom-open .toast-container { z-index: 13000; }
 .range-chip.pos { background: var(--c-green-bg); color: var(--c-green); }
 .range-chip.neg { background: var(--c-red-bg); color: var(--c-red); }
 .range-trend-banner {
-  display: flex;
+  display: inline-flex;
   flex-direction: row;
   flex-wrap: nowrap;
   align-items: center;
   justify-content: flex-start;
   gap: 10px;
+  width: fit-content;
+  max-width: 100%;
   padding: 10px 12px;
   margin-bottom: 8px;
   border-radius: var(--radius-sm);
