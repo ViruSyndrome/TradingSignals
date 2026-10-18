@@ -94,6 +94,8 @@ const RangeEmaUI = {
     if (!allowed.includes(tf) || tf === this.activeTf()) return;
     this.state.tf = tf;
     try { localStorage.setItem('trendrunner_rb_tf', tf); } catch (_) {}
+    // Drop old TF row so we don't paint 30m fibs on a 5m switch (or vice versa)
+    this.state.rows = [];
     this.state.loading = true;
     this.state.error = null;
     this.render();
@@ -408,7 +410,10 @@ const RangeEmaUI = {
       ? new Date(this.state.updatedAt).toLocaleTimeString()
       : '—';
     const row = (this.state.rows || [])[0];
-    const rowMatches = row && (row.instrument?.id === inst.id || row.symbol === inst.symbol);
+    // Must match instrument AND timeframe — 02:30 fibs are per-candle on that TF
+    const rowMatches = row
+      && (row.instrument?.id === inst.id || row.symbol === inst.symbol)
+      && row.tf === tf;
     const focus = document.querySelector('.topbar-focus-label');
     if (focus) {
       focus.textContent = this.state.loading
