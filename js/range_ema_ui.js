@@ -121,6 +121,7 @@ const RangeEmaUI = {
       lookbackDays: c.lookbackDays || 90,
       touchPct: c.touchPct ?? 0.15,
       dayMode: c.dayMode || 'utc',
+      chartBandDays: c.chartBandDays || 7,
     });
 
     const ema = this._emaOverlay(bars30, c.emaFast || 10, c.emaSlow || 30);
@@ -261,7 +262,7 @@ const RangeEmaUI = {
       <div class="section-heading">
         <h1>🟥 Red Bar Desk</h1>
         <p class="section-sub">
-          Visual BTC map on <strong>${tf}</strong>: candles, EMA 10/30, OR box, prior-day magnets; Stop/Exit when in a trade.
+          Visual BTC map on <strong>${tf}</strong>: candles, EMA 10/30, OR box, last ${c.chartBandDays || 7} day-ranges; Stop/Exit when in a trade.
           <span class="range-desk-meta">Updated ${when}</span>
         </p>
       </div>
@@ -287,6 +288,16 @@ const RangeEmaUI = {
     document.getElementById('rbZoomReset')?.addEventListener('click', () => {
       try { this._chart?.resetZoom?.(); } catch (_) {}
     });
+    const panBy = (dir) => {
+      const ch = this._chart;
+      if (!ch) return;
+      try {
+        // Fraction of visible window — sideways scrub when zoomed in
+        if (typeof ch.pan === 'function') ch.pan({ x: dir * 80 }, undefined, 'default');
+      } catch (_) {}
+    };
+    document.getElementById('rbPanLeft')?.addEventListener('click', () => panBy(1));
+    document.getElementById('rbPanRight')?.addEventListener('click', () => panBy(-1));
   },
 
   _deskHtml(r, c) {
@@ -322,10 +333,12 @@ const RangeEmaUI = {
               `<button type="button" class="rb-tf-btn${t === this.activeTf() ? ' active' : ''}" data-rb-tf="${t}">${t}</button>`
             ).join('')}
           </div>
-          <div class="rb-zoom-group" role="group" aria-label="Chart zoom">
+          <div class="rb-zoom-group" role="group" aria-label="Chart zoom and pan">
+            <button type="button" class="rb-zoom-btn" id="rbPanLeft" title="Pan left (earlier)">◀</button>
+            <button type="button" class="rb-zoom-btn" id="rbPanRight" title="Pan right (later)">▶</button>
             <button type="button" class="rb-zoom-btn" id="rbZoomOut" title="Zoom out">−</button>
             <button type="button" class="rb-zoom-btn" id="rbZoomIn" title="Zoom in">+</button>
-            <button type="button" class="rb-zoom-btn" id="rbZoomReset" title="Reset zoom">Reset</button>
+            <button type="button" class="rb-zoom-btn" id="rbZoomReset" title="Fit all / reset">Fit</button>
           </div>
         </div>
         <div class="rb-chart-legend">
@@ -333,14 +346,14 @@ const RangeEmaUI = {
           <span class="lg ema10">EMA ${c.emaFast || 10}</span>
           <span class="lg ema30">EMA ${c.emaSlow || 30}</span>
           <span class="lg or">OR box</span>
-          <span class="lg band">Magnets</span>
+          <span class="lg band">Day ranges</span>
           <span class="lg stop">Stop</span>
           <span class="lg tp">Exit</span>
           <span class="lg sess-asia">Asia</span>
           <span class="lg sess-london">London</span>
           <span class="lg sess-ny">US</span>
         </div>
-        <p class="rb-zoom-hint">Scroll / pinch zoom (time + price) · drag to pan · buttons above</p>
+        <p class="rb-zoom-hint">Pinch / scroll zoom · drag sideways to pan · ◀ ▶ buttons · Fit = full window</p>
         <div class="rb-chart-box">
           <canvas id="redBarChart" aria-label="BTC Red Bar chart"></canvas>
         </div>
@@ -359,7 +372,7 @@ const RangeEmaUI = {
         <span class="range-chip">Phase: ${String(o.phase).replace(/_/g, ' ')}</span>
         <span class="range-chip">EMA: ${String((r.ema && r.ema.cross) || '').replace(/_/g, ' ')}</span>
         <span class="range-chip ${r.emaAgree === 'agrees' ? 'pos' : r.emaAgree === 'disagrees' ? 'neg' : ''}">EMA ${r.emaAgree}</span>
-        <span class="range-chip">${o.bandCountPrior} prior-day bands</span>
+        <span class="range-chip">${(o.recentBands || []).length} day-ranges on chart · ${o.bandCountPrior} prior days</span>
       </div>
 
       <p class="range-desk-footnote">
@@ -583,6 +596,63 @@ const RangeEmaUI = {
     };
   },
 
+  /**
+   * Prior-day range bars (H→L bands + mid). These are the ladder that shows
+   * how high/low a trend can run — not just nearest S/R.
+   */
+  _bandZonesPlugin() {
+    return {
+      id: 'rbBandZones',
+      beforeDatasetsDraw(chart) {
+        const bands = chart.$rbDayBands;
+        if (!bands || !bands.length) return;
+        const yScale = chart.scales.y;
+        const area = chart.chartArea;
+        if (!yScale || !area) return;
+        const ctx = chart.ctx;
+        const n = bands.length;
+        ctx.save();
+        for (let i = 0; i < n; i++) {
+          const b = bands[i];
+          if (b.high == null || b.low == null) continue;
+          const yHi = yScale.getPixelForValue(b.high);
+          const yLo = yScale.getPixelForValue(b.low);
+          if (!Number.isFinite(yHi) || !Number.isFinite(yLo)) continue;
+          // Older days = fainter; newest prior day = strongest
+          const age = (i + 1) / n;
+          const alpha = 0.04 + age * 0.1;
+          const top = Math.min(yHi, yLo);
+          const h = Math.max(1, Math.abs(yLo - yHi));
+          ctx.fillStyle = `rgba(168, 85, 247, ${alpha})`;
+          ctx.fillRect(area.left, top, area.right - area.left, h);
+          ctx.strokeStyle = `rgba(168, 85, 247, ${0.25 + age * 0.45})`;
+          ctx.lineWidth = i === n - 1 ? 1.5 : 1;
+          ctx.setLineDash(i === n - 1 ? [] : [3, 4]);
+          ctx.beginPath();
+          ctx.moveTo(area.left, yHi);
+          ctx.lineTo(area.right, yHi);
+          ctx.moveTo(area.left, yLo);
+          ctx.lineTo(area.right, yLo);
+          ctx.stroke();
+          if (b.mid != null) {
+            const yM = yScale.getPixelForValue(b.mid);
+            if (Number.isFinite(yM)) {
+              ctx.strokeStyle = `rgba(45, 212, 191, ${0.2 + age * 0.4})`;
+              ctx.setLineDash([2, 5]);
+              ctx.lineWidth = 1;
+              ctx.beginPath();
+              ctx.moveTo(area.left, yM);
+              ctx.lineTo(area.right, yM);
+              ctx.stroke();
+            }
+          }
+        }
+        ctx.setLineDash([]);
+        ctx.restore();
+      },
+    };
+  },
+
   /** Shaded opening-range box between OR high and OR low. */
   _orZonePlugin() {
     return {
@@ -725,22 +795,22 @@ const RangeEmaUI = {
       return time;
     });
     const closes = bars.map((b) => b.c);
-    // Fit Y to candles first — distant magnets used to squash the OR box flat
+    const dayBands = Array.isArray(o.recentBands) ? o.recentBands : [];
+    // Fit Y to candles + prior-day range ladders (zoomed-out ladder view)
     const barHi = Math.max(...bars.map((b) => b.h));
     const barLo = Math.min(...bars.map((b) => b.l));
-    const barSpan = (barHi - barLo) || 1;
-    const midPx = (barHi + barLo) / 2;
-    const nearBand = Math.max(barSpan * 2.2, midPx * 0.006);
+    const bandPrices = dayBands.flatMap((b) => [b.high, b.low, b.mid])
+      .filter((v) => v != null && Number.isFinite(Number(v)))
+      .map(Number);
     const nearLevels = [
       o.refs?.orHigh, o.refs?.orLow,
       o.invalidation, o.bookZone,
-    ].filter((v) => {
-      if (v == null || !Number.isFinite(Number(v))) return false;
-      return Math.abs(Number(v) - midPx) <= nearBand;
-    }).map(Number);
+      ...bandPrices,
+    ].filter((v) => v != null && Number.isFinite(Number(v))).map(Number);
     const yHi = Math.max(barHi, ...nearLevels);
     const yLo = Math.min(barLo, ...nearLevels);
-    const pad = (yHi - yLo) * 0.06 || 1;
+    const barSpan = (yHi - yLo) || 1;
+    const pad = barSpan * 0.06 || 1;
     const coarse = typeof window !== 'undefined'
       && window.matchMedia
       && window.matchMedia('(pointer: coarse)').matches;
@@ -814,12 +884,12 @@ const RangeEmaUI = {
       },
     ];
 
-    // Magnets (prior-day S/R) — quiet dotted lines; always useful context
+    // Day-range ladders drawn by plugin (recentBands). Nearest S/R kept as stronger accents.
     if (o.refs?.bandResist != null) {
-      datasets.push(mkLine(o.refs.bandResist, 'Magnet R', COL.bandResist, [2, 4], 1.25));
+      datasets.push(mkLine(o.refs.bandResist, 'Nearest R', COL.bandResist, [2, 4], 1.75));
     }
     if (o.refs?.bandSupport != null) {
-      datasets.push(mkLine(o.refs.bandSupport, 'Magnet S', COL.bandSupport, [2, 4], 1.25));
+      datasets.push(mkLine(o.refs.bandSupport, 'Nearest S', COL.bandSupport, [2, 4], 1.75));
     }
 
     // Stop / Exit only when LONG or SHORT (red-bar refs become these — no duplicate lines)
@@ -847,6 +917,7 @@ const RangeEmaUI = {
       type: 'line',
       data: { labels, datasets },
       plugins: [
+        this._bandZonesPlugin(),
         this._orZonePlugin(),
         this._candlePlugin(),
         this._sessionPlugin(),
@@ -904,10 +975,16 @@ const RangeEmaUI = {
           },
           zoom: {
             limits: {
-              x: { min: 'original', max: 'original', minRange: 8 },
-              y: { min: 'original', max: 'original', minRange: Math.max(barSpan * 0.08, 20) },
+              x: { min: 'original', max: 'original', minRange: 12 },
+              y: { min: 'original', max: 'original', minRange: Math.max(barSpan * 0.06, 30) },
             },
-            pan: { enabled: true, mode: 'xy', threshold: coarse ? 10 : 6 },
+            // Sideways pan is the primary scrub when zoomed in (also works on touch)
+            pan: {
+              enabled: true,
+              mode: 'x',
+              threshold: coarse ? 4 : 6,
+              modifierKey: null,
+            },
             zoom: {
               wheel: { enabled: !coarse, speed: 0.12 },
               pinch: { enabled: true },
@@ -917,6 +994,7 @@ const RangeEmaUI = {
                 borderColor: 'rgba(124, 106, 245, 0.45)',
                 borderWidth: 1,
               },
+              // Pinch/wheel zoom both axes so day-range gaps open up
               mode: 'xy',
             },
           },
@@ -956,6 +1034,7 @@ const RangeEmaUI = {
     this._chart.$rbBars = bars;
     this._chart.$rbTimes = times;
     this._chart.$rbSessionMarks = sessionMarks;
+    this._chart.$rbDayBands = dayBands;
     this._chart.$rbOrZone = orZone;
     this._chart.$rbLevelTags = levelTags;
     this._chart.$rbUI = this;

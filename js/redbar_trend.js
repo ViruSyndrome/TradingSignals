@@ -20,6 +20,7 @@ const RedBarTrend = {
   DEFAULTS: {
     lookbackDays: 90,
     touchPct: 0.15,
+    chartBandDays: 7,
     /* Crypto has no NSE 9:15 — UTC day open is the default session clock */
     dayMode: 'utc', // 'utc' | 'ny' (America/New_York calendar day)
   },
@@ -237,6 +238,13 @@ const RedBarTrend = {
       openingRange: or,
       lastRedBar: red,
       activeBands: active.slice(-8),
+      // Last N completed days as H/M/L ladders (trend reach magnets)
+      recentBands: prior.slice(-(c.chartBandDays || 7)).map((b) => ({
+        day: b.day,
+        high: b.high,
+        mid: b.mid,
+        low: b.low,
+      })),
       bandCountPrior: prior.length,
       refs,
       invalidation,

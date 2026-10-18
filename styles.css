@@ -1788,8 +1788,17 @@ body.chart-zoom-open .toast-container { z-index: 13000; }
   .risk-calc-layout { grid-template-columns: 1fr; }
 }
 @media (max-width: 768px) {
-  .sidebar { position: absolute; height: 100%; transform: translateX(-100%); width: min(280px, 86vw); }
-  .sidebar.open { transform: translateX(0); }
+  /* Sidebar off-canvas — left: offset only (avoid transform fighting later rules) */
+  .sidebar {
+    position: fixed;
+    left: -280px;
+    top: 0;
+    height: 100%;
+    width: min(280px, 86vw);
+    transform: none;
+    z-index: 1000;
+  }
+  .sidebar.open { left: 0; transform: none; }
   .topbar {
     padding: 12px 16px;
     padding-top: max(12px, env(safe-area-inset-top));
@@ -3030,9 +3039,12 @@ body.redbar-only .site-footer-copyright {
   box-sizing: border-box;
 }
 .rb-chart-legend .band::before {
-  background: linear-gradient(90deg, #a855f7 50%, #2dd4bf 50%);
-  height: 2px;
-  border-style: dotted;
+  width: 14px;
+  height: 10px;
+  background: rgba(168, 85, 247, 0.28);
+  border: 1px solid #a855f7;
+  border-radius: 2px;
+  box-sizing: border-box;
 }
 .rb-chart-legend .stop::before { background: #ef4444; height: 4px; }
 .rb-chart-legend .tp::before { background: #4ade80; height: 4px; }
@@ -3043,17 +3055,42 @@ body.redbar-only .site-footer-copyright {
   position: relative;
   height: min(52vh, 420px);
   width: 100%;
+  touch-action: none;
 }
+#redBarChart { touch-action: none; }
 .rb-meta-row { margin-bottom: 10px; }
 @media (max-width: 768px) {
+  /*
+   * Mobile: drop desktop flex-fill. It was collapsing .rb-chart-wrap to ~16px
+   * and stacking action / chart / chips on top of each other.
+   */
   body.redbar-only #dashboardSection.main-section.active {
+    display: block;
     padding: 10px 10px 4px;
-    overflow-y: auto; /* phones: allow scroll if action card + chart need it */
+    overflow-x: hidden;
+    overflow-y: auto;
+    -webkit-overflow-scrolling: touch;
+  }
+  body.redbar-only #rangeEmaDeskBlock,
+  body.redbar-only #rangeEmaDesk {
+    display: block;
+    flex: none;
+    height: auto;
+    min-height: 0;
+    gap: 0;
+  }
+  body.redbar-only .rb-chart-wrap {
+    display: block;
+    flex: none;
+    height: auto;
+    min-height: 0;
+    padding: 10px 8px 8px;
+    margin: 0 0 10px;
   }
   body.redbar-only .rb-chart-box {
-    min-height: 240px;
-    height: min(48vh, 340px);
-    flex: 0 0 auto;
+    flex: none;
+    height: min(52vh, 360px);
+    min-height: 260px;
   }
   body.redbar-only .site-footer {
     padding: 8px 10px calc(10px + env(safe-area-inset-bottom, 0px));
@@ -3071,16 +3108,21 @@ body.redbar-only .site-footer-copyright {
   }
   .rb-action-side {
     flex-basis: auto;
-    padding: 10px;
-    font-size: 1.1rem;
+    padding: 8px;
+    font-size: 1.05rem;
   }
-  .rb-action-body { padding: 12px; }
-  .rb-action-steps { font-size: 12px; margin-bottom: 8px; }
+  .rb-action-body { padding: 10px 12px; }
+  .rb-action-sub { font-size: 11px; margin-bottom: 4px; }
+  .rb-action-steps {
+    font-size: 11px;
+    margin-bottom: 6px;
+    max-height: 4.2em;
+    overflow: hidden;
+  }
   .rb-action-levels {
-    grid-template-columns: 1fr;
+    grid-template-columns: repeat(3, 1fr);
     gap: 6px;
   }
-  .rb-chart-wrap { padding: 10px 8px 6px; margin-bottom: 0; }
   .rb-chart-toolbar {
     flex-direction: column;
     align-items: stretch;
@@ -3095,13 +3137,18 @@ body.redbar-only .site-footer-copyright {
     min-height: 40px;
   }
   .rb-chart-legend {
-    display: none; /* lines are on chart; saves vertical space on phones */
+    display: flex;
+    gap: 6px 10px;
+    font-size: 10px;
+    margin-bottom: 6px;
   }
   .rb-zoom-hint { font-size: 10px; }
   .rb-chart-box {
-    height: min(48vh, 340px);
-    min-height: 240px;
+    height: min(52vh, 360px);
+    min-height: 260px;
+    touch-action: none; /* let chart own pinch + sideways pan */
   }
+  #redBarChart { touch-action: none; }
   .range-chips { gap: 4px; }
   .range-chip { font-size: 10px; padding: 2px 6px; }
   .range-narrative { font-size: 11px; margin-bottom: 8px; }

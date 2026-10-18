@@ -88,10 +88,12 @@ const CONFIG = {
     dayMode: 'utc', // crypto default; use 'ny' to align with US session day
     lookbackDays: 90,
     touchPct: 0.15,
+    chartBandDays: 7, // how many prior-day H/M/L range bars to draw
     emaFast: 10,
     emaSlow: 30,
     ohlcLimit: { '5m': 1000, '30m': 1000, '1h': 720 },
-    chartBars: { '5m': 180, '30m': 120, '1h': 96 },
+    // Wider default window so multiple day-ranges are visible before zooming in
+    chartBars: { '5m': 360, '30m': 240, '1h': 168 },
     // Vertical markers on the chart X timeline (cash-session style, TZ-aware)
     showSessionMarkers: true,
     sessions: [
