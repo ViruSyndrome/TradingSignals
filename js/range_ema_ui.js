@@ -169,7 +169,7 @@ const RangeEmaUI = {
         steps: [
           'Futures: open LONG (or spot buy) near current price / band support hold.',
           `Stop / invalidation near ${this._fmt(o.invalidation)} (opening-range low or band).`,
-          `Take profit / book near ${this._fmt(o.bookZone)} (red-bar high or next resistance).`,
+          `Take profit / book near ${this._fmt(o.bookZone)} (nearest prior swing high / resistance).`,
         ],
         entry: o.price,
         stop: o.invalidation,
@@ -185,7 +185,7 @@ const RangeEmaUI = {
         steps: [
           'Futures: open SHORT near current price / band resistance rejection.',
           `Stop / invalidation near ${this._fmt(o.invalidation)} (opening-range high or band).`,
-          `Take profit / book near ${this._fmt(o.bookZone)} (red-bar low or next support).`,
+          `Take profit / book near ${this._fmt(o.bookZone)} (nearest prior swing low / support).`,
         ],
         entry: o.price,
         stop: o.invalidation,

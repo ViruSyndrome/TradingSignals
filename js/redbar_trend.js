@@ -21,6 +21,7 @@ const RedBarTrend = {
     lookbackDays: 90,
     touchPct: 0.15,
     chartBandDays: 7,
+    swingPivot: 3,
     /* Crypto has no NSE 9:15 — UTC day open is the default session clock */
     dayMode: 'utc', // 'utc' | 'ny' (America/New_York calendar day)
   },
@@ -99,6 +100,33 @@ const RedBarTrend = {
   },
 
   /**
+   * Nearest swing high/low on the working TF (same idea as marking prior high on TradingView).
+   * Swing = bar high/low strictly above/below `pivot` neighbours on each side.
+   */
+  nearestSwings(bars, i, pivot = 3) {
+    let swingHigh = null;
+    let swingLow = null;
+    if (!bars || i < pivot * 2) return { swingHigh, swingLow };
+    const price = bars[i].c;
+    const end = i - pivot; // only completed swings
+    for (let j = pivot; j <= end; j++) {
+      let isHigh = true;
+      let isLow = true;
+      for (let k = 1; k <= pivot; k++) {
+        if (bars[j].h <= bars[j - k].h || bars[j].h <= bars[j + k].h) isHigh = false;
+        if (bars[j].l >= bars[j - k].l || bars[j].l >= bars[j + k].l) isLow = false;
+      }
+      if (isHigh && bars[j].h > price) {
+        if (swingHigh == null || bars[j].h < swingHigh) swingHigh = bars[j].h;
+      }
+      if (isLow && bars[j].l < price) {
+        if (swingLow == null || bars[j].l > swingLow) swingLow = bars[j].l;
+      }
+    }
+    return { swingHigh, swingLow };
+  },
+
+  /**
    * First candle of asOfDay on this series = opening range.
    * Returns null if that candle is still the only / forming first bar.
    */
@@ -155,6 +183,7 @@ const RedBarTrend = {
     const prior = this.priorBands(bands, asOfDay);
     const active = this.interactingBands(bands, price, asOfDay, c.touchPct);
     const { resist, support } = this.nearestLevels(bands, price, asOfDay);
+    const { swingHigh, swingLow } = this.nearestSwings(bars, i, c.swingPivot || 3);
     const or = this.openingRange(bars.slice(0, i + 1), asOfDay, c.dayMode);
     const red = this.lastRedBar(bars, i);
 
@@ -206,16 +235,16 @@ const RedBarTrend = {
       redLow: red ? red.low : null,
     };
 
-    // Book-profit zone for a long: red bar high (as in the course videos)
-    // Invalidation lean: opposite side of OR or active band
+    // Book-profit: prefer nearest prior swing (TV-style previous high/low),
+    // then red-bar ref, then prior-day band.
     let invalidation = null;
     let bookZone = null;
     if (trend === 'bullish') {
-      invalidation = or ? or.low : support;
-      bookZone = red ? red.high : resist;
+      invalidation = or ? or.low : (swingLow != null ? swingLow : support);
+      bookZone = swingHigh != null ? swingHigh : (red ? red.high : resist);
     } else if (trend === 'bearish') {
-      invalidation = or ? or.high : resist;
-      bookZone = red ? red.low : support;
+      invalidation = or ? or.high : (swingHigh != null ? swingHigh : resist);
+      bookZone = swingLow != null ? swingLow : (red ? red.low : support);
     }
 
     const narrative = this._narrative({
@@ -246,7 +275,11 @@ const RedBarTrend = {
         low: b.low,
       })),
       bandCountPrior: prior.length,
-      refs,
+      refs: {
+        ...refs,
+        swingHigh,
+        swingLow,
+      },
       invalidation,
       bookZone,
     };
