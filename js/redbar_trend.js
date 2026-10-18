@@ -4,12 +4,11 @@
  * redbar_trend.js — Red Bar / prior-day range TREND indicator (course-style, no paid tool)
  *
  * THIS is the trend-prediction layer ("finding gold"):
- *  1. Every completed day → high / mid / low band, extended forward (all days, no pick).
- *  2. Session opening range = first working-TF candle of the day — do not trade it;
- *     after it closes: break above high → bullish bias, break below low → bearish,
- *     stuck inside → no-trade zone.
- *  3. Where price sits vs prior-day bands: inside (balance) vs held break (trend).
- *  4. Last red bar: high = book/resistance reference, low = support reference.
+ *  1. Magnets = prior session ranges (full day H/L/M, OR 02:30 IST fib on BTC).
+ *  2. Opening range = first candle of the desk day / 02:30 IST anchor candle —
+ *     do not trade it; after lock: break above → bull, below → bear, inside → WAIT.
+ *  3. Where price sits vs prior bands: inside (balance) vs held break (trend).
+ *  4. Last red bar / swings: book & stop references.
  *
  * EMA is NOT part of this indicator. Overlay it separately if you want.
  *
@@ -24,6 +23,10 @@ const RedBarTrend = {
     swingPivot: 3,
     /* Day clock for opening-range / prior-day bands */
     dayMode: 'utc', // 'utc' | 'ny' | 'ist'
+    /* 'dayHl' = full calendar-day H/L/M | 'istFib0230' = Fib on 02:30 IST candle */
+    bandStyle: 'dayHl',
+    fibLevels: [0, 0.44, 0.5, 0.56, 1],
+    orAnchor: null, // { timeZone, hour, minute } — when set, OR = that candle
   },
 
   utcDay(ts) {
@@ -50,6 +53,106 @@ const RedBarTrend = {
     return this.utcDay(ts);
   },
 
+  /** Calendar day ± n days (YYYY-MM-DD arithmetic in local noon UTC). */
+  shiftDay(dayStr, delta) {
+    const t = Date.parse(`${dayStr}T12:00:00Z`) + delta * 86400000;
+    return new Date(t).toISOString().slice(0, 10);
+  },
+
+  zonedHms(ts, timeZone) {
+    const parts = {};
+    for (const p of new Intl.DateTimeFormat('en-GB', {
+      timeZone,
+      year: 'numeric',
+      month: '2-digit',
+      day: '2-digit',
+      hour: '2-digit',
+      minute: '2-digit',
+      hour12: false,
+    }).formatToParts(new Date(ts))) {
+      if (p.type !== 'literal') parts[p.type] = p.value;
+    }
+    return {
+      day: `${parts.year}-${parts.month}-${parts.day}`,
+      hour: parseInt(parts.hour, 10),
+      minute: parseInt(parts.minute, 10),
+    };
+  },
+
+  /**
+   * Session day for an anchor clock (e.g. 02:30 IST).
+   * Before the anchor → still previous session day.
+   */
+  sessionDayKey(ts, anchor) {
+    const tz = (anchor && anchor.timeZone) || 'Asia/Kolkata';
+    const h = (anchor && anchor.hour) != null ? anchor.hour : 2;
+    const m = (anchor && anchor.minute) != null ? anchor.minute : 30;
+    const p = this.zonedHms(ts, tz);
+    if (p.hour < h || (p.hour === h && p.minute < m)) return this.shiftDay(p.day, -1);
+    return p.day;
+  },
+
+  /** UTC ms when hour:minute occurs on calendar dayStr in timeZone. */
+  zonedClockToUtc(dayStr, timeZone, hour, minute) {
+    const targetHm = `${String(hour).padStart(2, '0')}:${String(minute).padStart(2, '0')}`;
+    const base = Date.parse(`${dayStr}T12:00:00Z`);
+    let lo = base - 36 * 3600 * 1000;
+    let hi = base + 36 * 3600 * 1000;
+    const fmtDay = new Intl.DateTimeFormat('en-CA', {
+      timeZone,
+      year: 'numeric',
+      month: '2-digit',
+      day: '2-digit',
+    });
+    const fmtHm = new Intl.DateTimeFormat('en-GB', {
+      timeZone,
+      hour: '2-digit',
+      minute: '2-digit',
+      hour12: false,
+    });
+    while (hi - lo > 30 * 1000) {
+      const mid = Math.floor((lo + hi) / 2);
+      const d = new Date(mid);
+      const day = fmtDay.format(d);
+      const hm = fmtHm.format(d);
+      if (day < dayStr || (day === dayStr && hm < targetHm)) lo = mid;
+      else hi = mid;
+    }
+    return hi;
+  },
+
+  /** Fib price on candle range (0 = low / bottom, 1 = high / top — matches TV shot). */
+  fibPrice(high, low, level) {
+    return low + (high - low) * level;
+  },
+
+  /**
+   * Bar whose open is at (or nearest containing) the session anchor on dayStr.
+   */
+  findAnchorBar(bars, dayStr, anchor) {
+    if (!bars || !bars.length || !dayStr) return null;
+    const tz = (anchor && anchor.timeZone) || 'Asia/Kolkata';
+    const h = (anchor && anchor.hour) != null ? anchor.hour : 2;
+    const m = (anchor && anchor.minute) != null ? anchor.minute : 30;
+    const target = this.zonedClockToUtc(dayStr, tz, h, m);
+    const barMs = bars.length > 1 ? Math.abs(bars[1].t - bars[0].t) : 30 * 60 * 1000;
+    let best = null;
+    let bestDist = Infinity;
+    for (let i = 0; i < bars.length; i++) {
+      const b = bars[i];
+      const open = b.t;
+      const close = b.t + barMs;
+      if (target >= open && target < close) return { bar: b, index: i };
+      const dist = Math.abs(open - target);
+      if (dist < bestDist) {
+        bestDist = dist;
+        best = { bar: b, index: i };
+      }
+    }
+    if (best && bestDist <= barMs * 1.1) return best;
+    return null;
+  },
+
   buildDailyBands(bars, lookbackDays = 90, dayMode = 'utc') {
     const byDay = new Map();
     for (const b of bars) {
@@ -64,23 +167,97 @@ const RedBarTrend = {
     const days = [...byDay.keys()].sort();
     const bands = days.map((day) => {
       const r = byDay.get(day);
-      return { day, high: r.high, low: r.low, mid: (r.high + r.low) / 2 };
+      return {
+        day,
+        high: r.high,
+        low: r.low,
+        mid: (r.high + r.low) / 2,
+        style: 'dayHl',
+      };
     });
     return bands.length > lookbackDays ? bands.slice(-lookbackDays) : bands;
+  },
+
+  /**
+   * Friend's TV method: Fib 0 / 0.44 / 0.5 / 0.56 / 1 on each 02:30 IST candle,
+   * extended forward. One band per session day.
+   */
+  buildIstFibBands(bars, lookbackDays = 90, cfg = {}) {
+    const anchor = cfg.orAnchor || { timeZone: 'Asia/Kolkata', hour: 2, minute: 30 };
+    const levels = Array.isArray(cfg.fibLevels) && cfg.fibLevels.length
+      ? cfg.fibLevels
+      : [0, 0.44, 0.5, 0.56, 1];
+    const days = new Set();
+    for (const b of bars) days.add(this.zonedDay(b.t, anchor.timeZone || 'Asia/Kolkata'));
+    // Also include previous calendar day so early-session bars still find yesterday's fib
+    const sortedDays = [...days].sort();
+    if (sortedDays.length) days.add(this.shiftDay(sortedDays[0], -1));
+
+    const bands = [];
+    for (const day of [...days].sort()) {
+      const hit = this.findAnchorBar(bars, day, anchor);
+      if (!hit) continue;
+      const { bar, index } = hit;
+      const high = bar.h;
+      const low = bar.l;
+      if (!(high > low)) continue;
+      const fib = {};
+      for (const lv of levels) fib[`f${String(lv).replace('.', '_')}`] = this.fibPrice(high, low, lv);
+      bands.push({
+        day,
+        high,
+        low,
+        mid: this.fibPrice(high, low, 0.5),
+        f0: this.fibPrice(high, low, 0),
+        f44: this.fibPrice(high, low, 0.44),
+        f50: this.fibPrice(high, low, 0.5),
+        f56: this.fibPrice(high, low, 0.56),
+        f1: this.fibPrice(high, low, 1),
+        openT: bar.t,
+        index,
+        style: 'istFib0230',
+        levels: fib,
+      });
+    }
+    return bands.length > lookbackDays ? bands.slice(-lookbackDays) : bands;
+  },
+
+  buildBands(bars, cfg) {
+    if (cfg.bandStyle === 'istFib0230') {
+      return this.buildIstFibBands(bars, cfg.lookbackDays || 90, cfg);
+    }
+    return this.buildDailyBands(bars, cfg.lookbackDays || 90, cfg.dayMode || 'utc');
+  },
+
+  asOfDayFor(ts, cfg) {
+    if (cfg.bandStyle === 'istFib0230' || cfg.orAnchor) {
+      return this.sessionDayKey(ts, cfg.orAnchor || { timeZone: 'Asia/Kolkata', hour: 2, minute: 30 });
+    }
+    return this.dayKey(ts, cfg.dayMode || 'utc');
   },
 
   priorBands(bands, asOfDay) {
     return bands.filter((b) => b.day < asOfDay);
   },
 
+  bandLevelList(b) {
+    if (b.style === 'istFib0230') {
+      return [b.f1, b.f56, b.f50, b.f44, b.f0].filter((v) => v != null && Number.isFinite(v));
+    }
+    return [b.high, b.mid, b.low].filter((v) => v != null && Number.isFinite(v));
+  },
+
   interactingBands(bands, price, asOfDay, touchPct) {
     const hit = [];
     for (const b of this.priorBands(bands, asOfDay)) {
       const inside = price >= b.low && price <= b.high;
-      const near =
-        (Math.abs(price - b.high) / b.high) * 100 <= touchPct ||
-        (Math.abs(price - b.mid) / b.mid) * 100 <= touchPct ||
-        (Math.abs(price - b.low) / b.low) * 100 <= touchPct;
+      let near = false;
+      for (const lv of this.bandLevelList(b)) {
+        if ((Math.abs(price - lv) / lv) * 100 <= touchPct) {
+          near = true;
+          break;
+        }
+      }
       if (inside || near) hit.push(b);
     }
     return hit;
@@ -89,7 +266,7 @@ const RedBarTrend = {
   nearestLevels(bands, price, asOfDay) {
     const levels = [];
     for (const b of this.priorBands(bands, asOfDay)) {
-      levels.push(b.high, b.mid, b.low);
+      levels.push(...this.bandLevelList(b));
     }
     let resist = null;
     let support = null;
@@ -138,21 +315,29 @@ const RedBarTrend = {
   },
 
   /**
-   * First candle of asOfDay on this series = opening range.
-   * Returns null if that candle is still the only / forming first bar.
+   * Opening range = first candle of asOfDay, OR the session-anchor candle
+   * (e.g. 02:30 IST) when orAnchor / istFib0230 is configured.
    */
-  openingRange(bars, asOfDay, dayMode) {
+  openingRange(bars, asOfDay, dayMode, cfg = {}) {
     let first = null;
     let firstIdx = -1;
-    for (let i = 0; i < bars.length; i++) {
-      if (this.dayKey(bars[i].t, dayMode) === asOfDay) {
-        first = bars[i];
-        firstIdx = i;
-        break;
+    if (cfg.orAnchor || cfg.bandStyle === 'istFib0230') {
+      const anchor = cfg.orAnchor || { timeZone: 'Asia/Kolkata', hour: 2, minute: 30 };
+      const hit = this.findAnchorBar(bars, asOfDay, anchor);
+      if (hit) {
+        first = hit.bar;
+        firstIdx = hit.index;
+      }
+    } else {
+      for (let i = 0; i < bars.length; i++) {
+        if (this.dayKey(bars[i].t, dayMode) === asOfDay) {
+          first = bars[i];
+          firstIdx = i;
+          break;
+        }
       }
     }
     if (!first) return null;
-    const complete = firstIdx < bars.length - 1 || true; // use closed high/low of first bar
     return {
       high: first.h,
       low: first.l,
@@ -189,13 +374,14 @@ const RedBarTrend = {
     if (!bars || i < 1) return null;
 
     const price = bars[i].c;
-    const asOfDay = this.dayKey(bars[i].t, c.dayMode);
-    const bands = this.buildDailyBands(bars.slice(0, i + 1), c.lookbackDays, c.dayMode);
+    const slice = bars.slice(0, i + 1);
+    const asOfDay = this.asOfDayFor(bars[i].t, c);
+    const bands = this.buildBands(slice, c);
     const prior = this.priorBands(bands, asOfDay);
     const active = this.interactingBands(bands, price, asOfDay, c.touchPct);
     const { resist, support } = this.nearestLevels(bands, price, asOfDay);
     const { swingHigh, swingLow } = this.nearestSwings(bars, i, c.swingPivot || 3);
-    const or = this.openingRange(bars.slice(0, i + 1), asOfDay, c.dayMode);
+    const or = this.openingRange(slice, asOfDay, c.dayMode, c);
     const red = this.lastRedBar(bars, i);
 
     // Opening-range bias (Red Bar theory direction engine)
@@ -278,14 +464,25 @@ const RedBarTrend = {
       openingRange: or,
       lastRedBar: red,
       activeBands: active.slice(-8),
-      // Last N completed days as H/M/L ladders (trend reach magnets)
+      // Last N prior session magnets (day H/L/M or 02:30 IST fibs)
       recentBands: prior.slice(-(c.chartBandDays || 7)).map((b) => ({
         day: b.day,
         high: b.high,
         mid: b.mid,
         low: b.low,
+        style: b.style || 'dayHl',
+        f0: b.f0,
+        f44: b.f44,
+        f50: b.f50,
+        f56: b.f56,
+        f1: b.f1,
+        openT: b.openT,
+        index: b.index,
       })),
       bandCountPrior: prior.length,
+      bandStyle: c.bandStyle || 'dayHl',
+      // Today's 02:30 fib / day range (extends right on the chart)
+      currentBand: bands.find((b) => b.day === asOfDay) || null,
       refs: {
         ...refs,
         swingHigh,
@@ -302,10 +499,10 @@ const RedBarTrend = {
 
   _narrative({ trend, phase, bandPhase, activeCount, orBias }) {
     if (phase === 'first_candle') {
-      return 'First candle of the day — mark high/low only; do not trade yet.';
+      return 'Anchor candle (02:30 IST / day open) — mark high/low only; do not trade yet.';
     }
     if (phase === 'inside_or') {
-      return 'Price inside today’s opening range (no-trade zone). Wait for a break of that high or low.';
+      return 'Price inside today’s opening range / 02:30 fib box (no-trade zone). Wait for a break of that high or low.';
     }
     if (trend === 'bullish') {
       if (bandPhase.includes('pullback') || activeCount) {

@@ -253,6 +253,9 @@ const RangeEmaUI = {
       touchPct: c.touchPct ?? 0.15,
       dayMode: instrument.dayMode || c.dayMode || 'utc',
       chartBandDays: c.chartBandDays || 7,
+      bandStyle: instrument.bandStyle || c.bandStyle || 'dayHl',
+      orAnchor: instrument.orAnchor || c.orAnchor || null,
+      fibLevels: instrument.fibLevels || c.fibLevels || [0, 0.44, 0.5, 0.56, 1],
     });
 
     const ema = this._emaOverlay(bars30, c.emaFast || 10, c.emaSlow || 30);
@@ -541,8 +544,8 @@ const RangeEmaUI = {
           <span class="lg price">Candles</span>
           <span class="lg ema10">EMA ${c.emaFast || 10}</span>
           <span class="lg ema30">EMA ${c.emaSlow || 30}</span>
-          <span class="lg or">OR</span>
-          <span class="lg band">Day ranges</span>
+          <span class="lg or">${(r.readout?.bandStyle || r.instrument?.bandStyle) === 'istFib0230' ? 'OR @ 02:30 IST' : 'OR'}</span>
+          <span class="lg band">${(r.readout?.bandStyle || r.instrument?.bandStyle) === 'istFib0230' ? 'Fib 0·44·50·56·1' : 'Day ranges'}</span>
           <span class="lg stop rb-lg-desk">Stop</span>
           <span class="lg tp rb-lg-desk">Exit</span>
           <span class="lg sess-asia rb-lg-desk">Asia</span>
@@ -568,7 +571,7 @@ const RangeEmaUI = {
         <span class="range-chip">Phase: ${String(o.phase).replace(/_/g, ' ')}</span>
         <span class="range-chip">EMA: ${String((r.ema && r.ema.cross) || '').replace(/_/g, ' ')}</span>
         <span class="range-chip ${r.emaAgree === 'agrees' ? 'pos' : r.emaAgree === 'disagrees' ? 'neg' : ''}">EMA ${r.emaAgree}</span>
-        <span class="range-chip">${(o.recentBands || []).length} day-ranges on chart · ${o.bandCountPrior} prior days</span>
+        <span class="range-chip">${o.bandStyle === 'istFib0230' ? '02:30 IST fibs' : 'day-ranges'} · ${(o.recentBands || []).length} on chart · ${o.bandCountPrior} prior</span>
       </div>
 
       <p class="range-desk-footnote">
@@ -815,9 +818,10 @@ const RangeEmaUI = {
   },
 
   /**
-   * Prior-day range bars: a box ONLY over that calendar day (gaps between days),
-   * then thin H/L/mid lines extend forward as magnets — not a full-chart purple wash.
-   * Alternating purple / orange so days read as separate ranges.
+   * Magnets:
+   * - dayHl: box over that calendar day (legacy)
+   * - istFib0230: Fib 0/0.44/0.5/0.56/1 on 02:30 IST candle, extend right
+   *   (orange 0–0.44, green 0.44–0.56, grey 0.56–1 — matches TV)
    */
   _bandZonesPlugin() {
     return {
@@ -831,59 +835,95 @@ const RangeEmaUI = {
         if (!xScale || !yScale || !area) return;
         const ctx = chart.ctx;
         const n = bands.length;
-        const palette = [
-          { fill: 'rgba(168, 85, 247, 0.22)', stroke: 'rgba(168, 85, 247, 0.85)', mid: 'rgba(196, 181, 253, 0.7)' },
-          { fill: 'rgba(249, 115, 22, 0.20)', stroke: 'rgba(249, 115, 22, 0.85)', mid: 'rgba(253, 186, 116, 0.7)' },
-        ];
+        const lastIdx = chart.$rbBars ? chart.$rbBars.length - 1 : null;
 
         ctx.save();
         for (let i = 0; i < n; i++) {
           const b = bands[i];
-          if (b.high == null || b.low == null || b.i0 == null || b.i1 == null) continue;
-          const yHi = yScale.getPixelForValue(b.high);
-          const yLo = yScale.getPixelForValue(b.low);
-          let x0 = xScale.getPixelForValue(b.i0);
-          let x1 = xScale.getPixelForValue(b.i1);
-          if (![yHi, yLo, x0, x1].every(Number.isFinite)) continue;
-          if (x1 < x0) { const t = x0; x0 = x1; x1 = t; }
+          if (b.high == null || b.low == null || b.i0 == null) continue;
+          const i1 = b.i1 != null
+            ? b.i1
+            : (bands[i + 1]?.i0 != null ? bands[i + 1].i0 : lastIdx);
+          if (i1 == null) continue;
 
-          // Inset so neighbouring day-boxes don't touch (visible empty gap)
-          const gap = 3;
-          x0 += gap;
-          x1 -= gap;
-          if (x1 <= x0) continue;
+          let x0 = xScale.getPixelForValue(b.i0);
+          let x1 = xScale.getPixelForValue(i1);
+          if (![x0, x1].every(Number.isFinite)) continue;
+          if (x1 < x0) { const t = x0; x0 = x1; x1 = t; }
           if (x1 < area.left || x0 > area.right) continue;
           x0 = Math.max(x0, area.left);
           x1 = Math.min(x1, area.right);
+          if (x1 <= x0) continue;
 
-          const col = palette[i % 2];
-          const age = (i + 1) / n;
-          const top = Math.min(yHi, yLo);
-          const h = Math.max(2, Math.abs(yLo - yHi));
+          const isFib = b.style === 'istFib0230' && b.f44 != null;
+          const age = 0.4 + ((i + 1) / n) * 0.55;
+          ctx.globalAlpha = age;
 
-          ctx.globalAlpha = 0.55 + age * 0.45;
-          ctx.fillStyle = col.fill;
-          ctx.fillRect(x0, top, x1 - x0, h);
-          ctx.strokeStyle = col.stroke;
-          ctx.lineWidth = i === n - 1 ? 2 : 1.35;
-          ctx.setLineDash([]);
-          ctx.strokeRect(x0, top, x1 - x0, h);
-
-          // Mid only inside the day box — no chart-wide dotted extensions
-          if (b.mid != null) {
-            const yM = yScale.getPixelForValue(b.mid);
-            if (Number.isFinite(yM)) {
-              ctx.strokeStyle = col.mid;
-              ctx.setLineDash([3, 3]);
-              ctx.lineWidth = 1;
+          if (isFib) {
+            const zones = [
+              { lo: b.f0, hi: b.f44, fill: 'rgba(249, 115, 22, 0.22)' },   // orange
+              { lo: b.f44, hi: b.f56, fill: 'rgba(74, 222, 128, 0.20)' },  // green mid
+              { lo: b.f56, hi: b.f1, fill: 'rgba(148, 163, 184, 0.22)' },  // grey
+            ];
+            for (const z of zones) {
+              if (z.lo == null || z.hi == null) continue;
+              const yA = yScale.getPixelForValue(z.hi);
+              const yB = yScale.getPixelForValue(z.lo);
+              if (![yA, yB].every(Number.isFinite)) continue;
+              const top = Math.min(yA, yB);
+              const h = Math.max(1, Math.abs(yB - yA));
+              ctx.fillStyle = z.fill;
+              ctx.fillRect(x0, top, x1 - x0, h);
+            }
+            const lines = [
+              { v: b.f1, c: 'rgba(148, 163, 184, 0.95)' },
+              { v: b.f56, c: 'rgba(74, 222, 128, 0.85)' },
+              { v: b.f50, c: 'rgba(56, 189, 248, 0.9)' },
+              { v: b.f44, c: 'rgba(74, 222, 128, 0.85)' },
+              { v: b.f0, c: 'rgba(249, 115, 22, 0.95)' },
+            ];
+            ctx.setLineDash([]);
+            for (const ln of lines) {
+              if (ln.v == null) continue;
+              const y = yScale.getPixelForValue(ln.v);
+              if (!Number.isFinite(y)) continue;
+              ctx.strokeStyle = ln.c;
+              ctx.lineWidth = ln.v === b.f50 ? 1.25 : 1;
               ctx.beginPath();
-              ctx.moveTo(x0, yM);
-              ctx.lineTo(x1, yM);
+              ctx.moveTo(x0, y);
+              ctx.lineTo(x1, y);
               ctx.stroke();
+            }
+          } else {
+            const palette = [
+              { fill: 'rgba(168, 85, 247, 0.22)', stroke: 'rgba(168, 85, 247, 0.85)', mid: 'rgba(196, 181, 253, 0.7)' },
+              { fill: 'rgba(249, 115, 22, 0.20)', stroke: 'rgba(249, 115, 22, 0.85)', mid: 'rgba(253, 186, 116, 0.7)' },
+            ];
+            const col = palette[i % 2];
+            const yHi = yScale.getPixelForValue(b.high);
+            const yLo = yScale.getPixelForValue(b.low);
+            if (![yHi, yLo].every(Number.isFinite)) continue;
+            const top = Math.min(yHi, yLo);
+            const h = Math.max(2, Math.abs(yLo - yHi));
+            ctx.fillStyle = col.fill;
+            ctx.fillRect(x0, top, x1 - x0, h);
+            ctx.strokeStyle = col.stroke;
+            ctx.lineWidth = 1.35;
+            ctx.strokeRect(x0, top, x1 - x0, h);
+            if (b.mid != null) {
+              const yM = yScale.getPixelForValue(b.mid);
+              if (Number.isFinite(yM)) {
+                ctx.strokeStyle = col.mid;
+                ctx.setLineDash([3, 3]);
+                ctx.beginPath();
+                ctx.moveTo(x0, yM);
+                ctx.lineTo(x1, yM);
+                ctx.stroke();
+                ctx.setLineDash([]);
+              }
             }
           }
           ctx.globalAlpha = 1;
-          ctx.setLineDash([]);
         }
         ctx.restore();
       },
@@ -1072,25 +1112,63 @@ const RangeEmaUI = {
     const closes = bars.map((b) => b.c);
     // Map each prior-day band onto bar indices in the visible window (for day-scoped boxes)
     const dayMode = inst.dayMode || c.dayMode || 'utc';
+    const fibMode = (o.bandStyle || inst.bandStyle) === 'istFib0230';
     const daySpans = new Map();
     for (let i = 0; i < times.length; i++) {
       const day = (typeof RedBarTrend !== 'undefined')
-        ? RedBarTrend.dayKey(times[i], dayMode)
+        ? (fibMode
+          ? RedBarTrend.sessionDayKey(times[i], inst.orAnchor || { timeZone: 'Asia/Kolkata', hour: 2, minute: 30 })
+          : RedBarTrend.dayKey(times[i], dayMode))
         : new Date(times[i]).toISOString().slice(0, 10);
       if (!daySpans.has(day)) daySpans.set(day, { i0: i, i1: i });
       else daySpans.get(day).i1 = i;
     }
-    const dayBands = (Array.isArray(o.recentBands) ? o.recentBands : [])
-      .map((b) => {
-        const span = daySpans.get(b.day);
-        if (!span) return null; // day not in visible window
-        return { ...b, i0: span.i0, i1: span.i1 };
-      })
-      .filter(Boolean);
-    // Fit Y to candles + prior-day range ladders (zoomed-out ladder view)
+    const resolveBandIndex = (b) => {
+      if (b.index != null && b.index >= 0) {
+        // index is absolute in full series; map into visible window
+        const abs = b.index;
+        const visStart = row.bars.length - bars.length;
+        const local = abs - visStart;
+        if (local >= 0 && local < bars.length) return local;
+      }
+      if (b.openT != null) {
+        const idx = this._nearestBarIndex(times, b.openT);
+        if (idx >= 0) return idx;
+      }
+      const span = daySpans.get(b.day);
+      return span ? span.i0 : null;
+    };
+    const rawBands = [
+      ...(Array.isArray(o.recentBands) ? o.recentBands : []),
+      ...(o.currentBand ? [o.currentBand] : []),
+    ];
+    // Dedupe by day (currentBand may already be in recent for edge cases)
+    const byDay = new Map();
+    for (const b of rawBands) {
+      if (!b?.day) continue;
+      byDay.set(b.day, b);
+    }
+    const sortedBandDays = [...byDay.keys()].sort();
+    const dayBands = sortedBandDays.map((day, bi) => {
+      const b = byDay.get(day);
+      const i0 = resolveBandIndex(b);
+      if (i0 == null) return null;
+      const nextDay = sortedBandDays[bi + 1];
+      let i1 = bars.length - 1;
+      if (nextDay) {
+        const n0 = resolveBandIndex(byDay.get(nextDay));
+        if (n0 != null && n0 > i0) i1 = n0;
+      }
+      return { ...b, i0, i1 };
+    }).filter(Boolean);
+    // Fit Y to candles + magnet levels
     const barHi = Math.max(...bars.map((b) => b.h));
     const barLo = Math.min(...bars.map((b) => b.l));
-    const bandPrices = dayBands.flatMap((b) => [b.high, b.low, b.mid])
+    const bandPrices = dayBands.flatMap((b) => (
+      b.style === 'istFib0230'
+        ? [b.f0, b.f44, b.f50, b.f56, b.f1]
+        : [b.high, b.low, b.mid]
+    ))
       .filter((v) => v != null && Number.isFinite(Number(v)))
       .map(Number);
     const nearLevels = [
@@ -1168,13 +1246,22 @@ const RangeEmaUI = {
     const orHigh = o.refs?.orHigh;
     const orLow = o.refs?.orLow;
     const asOfDay = o.asOfDay;
+    const todayBand = dayBands.find((b) => b.day === asOfDay);
     const todaySpan = asOfDay ? daySpans.get(asOfDay) : null;
+    // OR highlight = the 02:30 (or first-day) candle only
+    const orI0 = (o.openingRange && o.openingRange.index != null)
+      ? (() => {
+          const visStart = row.bars.length - bars.length;
+          const local = o.openingRange.index - visStart;
+          return local >= 0 && local < bars.length ? local : null;
+        })()
+      : (todayBand ? todayBand.i0 : (todaySpan ? todaySpan.i0 : null));
     const orZone = (orHigh != null && orLow != null)
       ? {
           high: orHigh,
           low: orLow,
-          i0: todaySpan ? todaySpan.i0 : null,
-          i1: todaySpan ? Math.min(todaySpan.i0 + Math.max(1, Math.floor(this._barsPerHour(tf) / 2)), todaySpan.i1) : null,
+          i0: orI0,
+          i1: orI0 != null ? orI0 : null,
           fill: trading ? 'rgba(234, 179, 8, 0.14)' : 'rgba(234, 179, 8, 0.24)',
           stroke: trading ? 'rgba(234, 179, 8, 0.65)' : 'rgba(234, 179, 8, 0.9)',
         }
@@ -1367,8 +1454,8 @@ const RangeEmaUI = {
     this._chart.$rbBars = bars;
     this._chart.$rbTimes = times;
     this._chart.$rbSessionMarks = sessionMarks;
-    this._chart.$rbDayBands = compact && dayBands.length > 4
-      ? dayBands.slice(-4)
+    this._chart.$rbDayBands = compact && dayBands.length > 5
+      ? dayBands.slice(-5)
       : dayBands;
     this._chart.$rbOrZone = orZone;
     this._chart.$rbLevelTags = levelTags;
