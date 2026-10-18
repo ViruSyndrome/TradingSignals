@@ -9,22 +9,76 @@ const RangeEmaUI = {
   _timer: null,
   _busy: false,
   _chart: null,
-  state: { rows: [], updatedAt: null, error: null, tf: null },
+  state: { rows: [], updatedAt: null, error: null, tf: null, instrumentId: null },
 
   cfg() {
     return (typeof CONFIG !== 'undefined' && CONFIG.rangeEma) ? CONFIG.rangeEma : {};
   },
 
+  /**
+   * True on phones even when Chrome "Desktop site" inflates CSS width (~980px).
+   * Uses device-width + touch + visualViewport so layout/chart density stay mobile.
+   */
+  isPhoneLayout() {
+    if (typeof window === 'undefined') return false;
+    try {
+      if (window.matchMedia('(max-device-width: 900px)').matches) return true;
+      if (window.matchMedia('(pointer: coarse) and (hover: none) and (max-width: 1100px)').matches) {
+        return true;
+      }
+    } catch (_) {}
+    const vw = window.visualViewport?.width || window.innerWidth || 0;
+    return vw > 0 && vw < 720;
+  },
+
+  /** Sync html.is-phone for CSS (sidebar drawer, chart height) under desktop-site. */
+  syncPhoneClass() {
+    if (typeof document === 'undefined') return;
+    document.documentElement.classList.toggle('is-phone', this.isPhoneLayout());
+  },
+
+  instruments() {
+    const c = this.cfg();
+    if (Array.isArray(c.instruments) && c.instruments.length) return c.instruments;
+    return [{
+      id: 'BTC',
+      label: 'BTC',
+      symbol: (c.symbols && c.symbols[0]) || 'BTCUSDT',
+      feed: 'binanceSpot',
+      dayMode: c.dayMode || 'utc',
+      priceDecimals: 2,
+      tradeHint: 'Binance USDⓈ-M · BTCUSDT',
+      showSessionMarkers: c.showSessionMarkers !== false,
+      sessions: c.sessions || [],
+    }];
+  },
+
+  activeInstrument() {
+    const list = this.instruments();
+    const id = this.state.instrumentId || this.cfg().defaultInstrument || list[0]?.id;
+    return list.find((x) => x.id === id) || list[0];
+  },
+
+  setInstrument(id) {
+    const list = this.instruments();
+    if (!list.some((x) => x.id === id) || id === this.activeInstrument()?.id) return;
+    this.state.instrumentId = id;
+    try { localStorage.setItem('trendrunner_rb_instrument', id); } catch (_) {}
+    this.refresh();
+  },
+
   activeTf() {
     const c = this.cfg();
-    const allowed = c.timeframes || ['5m', '30m', '1h'];
+    const inst = this.activeInstrument() || {};
+    const allowed = inst.timeframes || c.timeframes || ['5m', '30m', '1h'];
     const tf = this.state.tf || c.workingTf || '30m';
-    return allowed.includes(tf) ? tf : '30m';
+    return allowed.includes(tf) ? tf : allowed[0];
   },
 
   setTf(tf) {
     const c = this.cfg();
-    const allowed = c.timeframes || ['5m', '30m', '1h'];
+    const inst = this.activeInstrument() || {};
+    const allowed = inst.timeframes || c.timeframes || ['5m', '30m', '1h'];
     if (!allowed.includes(tf) || tf === this.activeTf()) return;
     this.state.tf = tf;
     try { localStorage.setItem('trendrunner_rb_tf', tf); } catch (_) {}
@@ -34,9 +88,25 @@ const RangeEmaUI = {
   init() {
     const c = this.cfg();
     if (!c.enabled) return;
+    this.syncPhoneClass();
+    if (!this._phoneListen) {
+      this._phoneListen = true;
+      const sync = () => {
+        this.syncPhoneClass();
+      };
+      window.addEventListener('resize', sync, { passive: true });
+      window.visualViewport?.addEventListener('resize', sync, { passive: true });
+    }
     try {
-      const saved = localStorage.getItem('trendrunner_rb_tf');
-      if (saved && (c.timeframes || []).includes(saved)) this.state.tf = saved;
+      const savedTf = localStorage.getItem('trendrunner_rb_tf');
+      const allowed = c.timeframes || ['5m', '30m', '1h'];
+      if (savedTf && allowed.includes(savedTf)) this.state.tf = savedTf;
+      const savedInst = localStorage.getItem('trendrunner_rb_instrument');
+      if (savedInst && this.instruments().some((x) => x.id === savedInst)) {
+        this.state.instrumentId = savedInst;
+      } else {
+        this.state.instrumentId = c.defaultInstrument || this.instruments()[0]?.id;
+      }
     } catch (_) {}
     this.refresh();
     clearInterval(this._timer);
@@ -53,16 +123,14 @@ const RangeEmaUI = {
     }
     this._busy = true;
     try {
-      const symbols = c.symbols || ['BTCUSDT'];
-      const rows = [];
-      for (const sym of symbols) {
-        rows.push(await this._buildRow(sym, c));
-      }
-      this.state.rows = rows;
+      const inst = this.activeInstrument();
+      const row = await this._buildRow(inst, c);
+      this.state.rows = [row];
       this.state.updatedAt = Date.now();
       this.state.error = null;
     } catch (e) {
       this.state.error = e.message || String(e);
+      this.state.rows = [];
     } finally {
       this._busy = false;
       this.render();
@@ -108,19 +176,39 @@ const RangeEmaUI = {
     return map[tf] || 1000;
   },
 
-  async _buildRow(symbol, c) {
+  async _buildRow(inst, c) {
+    const instrument = typeof inst === 'string'
+      ? { id: inst, symbol: inst, feed: 'binanceSpot', dayMode: c.dayMode || 'utc' }
+      : (inst || this.activeInstrument());
     const tf = this.activeTf();
     const lim = this._ohlcLimit(tf, c);
-    const raw = await API.getCryptoOHLC(symbol, tf, lim);
+    let raw;
+    try {
+      raw = typeof API.getDeskOHLC === 'function'
+        ? await API.getDeskOHLC(instrument, tf, lim)
+        : await API.getCryptoOHLC(instrument.symbol, tf, lim);
+    } catch (e) {
+      return {
+        symbol: instrument.symbol,
+        instrument,
+        error: e.message || `Failed to load ${instrument.label || instrument.symbol}`,
+        tf,
+      };
+    }
     const bars30 = this._klinesToBars(raw);
     if (bars30.length < 40) {
-      return { symbol, error: `Not enough ${tf} data`, tf };
+      return {
+        symbol: instrument.symbol,
+        instrument,
+        error: `Not enough ${tf} data for ${instrument.label || instrument.symbol}`,
+        tf,
+      };
     }
 
     const readout = RedBarTrend.read(bars30, {
       lookbackDays: c.lookbackDays || 90,
       touchPct: c.touchPct ?? 0.15,
-      dayMode: c.dayMode || 'utc',
+      dayMode: instrument.dayMode || c.dayMode || 'utc',
       chartBandDays: c.chartBandDays || 7,
     });
 
@@ -135,13 +223,24 @@ const RangeEmaUI = {
       else emaAgree = 'neutral_trend';
     }
 
-    const action = this._actionPlan(readout, emaAgree);
+    const action = this._actionPlan(readout, emaAgree, instrument);
 
-    return { symbol, tf, bars: bars30, readout, ema, emaAgree, action };
+    return {
+      symbol: instrument.symbol,
+      instrument,
+      tf,
+      bars: bars30,
+      readout,
+      ema,
+      emaAgree,
+      action,
+    };
   },
 
   /** What the trader should do — plain language + levels */
-  _actionPlan(o, emaAgree) {
+  _actionPlan(o, emaAgree, instrument) {
+    const inst = instrument || this.activeInstrument() || {};
+    const hint = inst.tradeHint || 'Place the order on your exchange / broker';
     if (!o) {
       return { side: 'WAIT', title: 'No data', steps: [], cls: 'wait' };
     }
@@ -167,7 +266,7 @@ const RangeEmaUI = {
         title: 'Bias: BUY / go long',
         subtitle: `Red Bar trend bullish${emaAgree === 'agrees' ? ' · EMA agrees' : emaAgree === 'disagrees' ? ' · EMA disagrees — be smaller or skip' : ''}.`,
         steps: [
-          'Futures: open LONG (or spot buy) near current price / band support hold.',
+          `${hint}: open LONG near current price / band support hold.`,
           `Stop / invalidation near ${this._fmt(o.invalidation)} (opening-range low or band).`,
           `Take profit / book near ${this._fmt(o.bookZone)} (prior swing high — Y-axis EXIT marker).`,
         ],
@@ -183,7 +282,7 @@ const RangeEmaUI = {
         title: 'Bias: SELL / go short',
         subtitle: `Red Bar trend bearish${emaAgree === 'agrees' ? ' · EMA agrees' : emaAgree === 'disagrees' ? ' · EMA disagrees — be smaller or skip' : ''}.`,
         steps: [
-          'Futures: open SHORT near current price / band resistance rejection.',
+          `${hint}: open SHORT near current price / band resistance rejection.`,
           `Stop / invalidation near ${this._fmt(o.invalidation)} (opening-range high or band).`,
           `Take profit / book near ${this._fmt(o.bookZone)} (nearest prior swing low / support).`,
         ],
@@ -204,11 +303,12 @@ const RangeEmaUI = {
     };
   },
 
-  _fmt(n, d = 2) {
+  _fmt(n, d) {
     if (n == null || Number.isNaN(n)) return '—';
+    const decimals = d != null ? d : (this.activeInstrument()?.priceDecimals ?? 2);
     return Number(n).toLocaleString(undefined, {
-      minimumFractionDigits: d,
-      maximumFractionDigits: d,
+      minimumFractionDigits: decimals,
+      maximumFractionDigits: decimals,
     });
   },
 
@@ -252,30 +352,39 @@ const RangeEmaUI = {
       ? new Date(this.state.updatedAt).toLocaleTimeString()
       : '—';
 
+    const inst = this.activeInstrument() || { label: 'BTC', id: 'BTC' };
     if (!row) {
-      host.innerHTML = `<div class="range-desk-error">Loading BTC chart…</div>`;
+      host.innerHTML = `<div class="range-desk-error">Loading ${inst.label} chart…</div>`;
       return;
     }
 
     const tf = this.activeTf();
+    const tabs = this.instruments().map((x) =>
+      `<button type="button" class="rb-inst-btn${x.id === inst.id ? ' active' : ''}" data-rb-inst="${x.id}">${x.label}</button>`
+    ).join('');
+
     host.innerHTML = `
       <div class="section-heading">
         <h1>🟥 Red Bar Desk</h1>
         <p class="section-sub">
-          Visual BTC map on <strong>${tf}</strong>: candles, EMA 10/30, OR box, last ${c.chartBandDays || 7} day-ranges; Stop/Exit when in a trade.
-          <span class="range-desk-meta">Updated ${when}</span>
+          ${inst.label} on <strong>${tf}</strong>: candles, EMA 10/30, OR box, day-ranges; Stop/Exit when in a trade.
+          <span class="range-desk-meta">${inst.tradeHint || ''} · Updated ${when}</span>
         </p>
       </div>
+      <div class="rb-inst-tabs" role="tablist" aria-label="Instrument">${tabs}</div>
       ${this._deskHtml(row, c)}
     `;
 
     this._bindChartControls();
     const focus = document.querySelector('.topbar-focus-label');
-    if (focus) focus.textContent = `BTC · ${tf} Red Bar`;
+    if (focus) focus.textContent = `${inst.label} · ${tf} Red Bar`;
     requestAnimationFrame(() => this._paintChart(row, c));
   },
 
   _bindChartControls() {
+    document.querySelectorAll('[data-rb-inst]').forEach((btn) => {
+      btn.addEventListener('click', () => this.setInstrument(btn.getAttribute('data-rb-inst')));
+    });
     document.querySelectorAll('[data-rb-tf]').forEach((btn) => {
       btn.addEventListener('click', () => this.setTf(btn.getAttribute('data-rb-tf')));
     });
@@ -292,7 +401,6 @@ const RangeEmaUI = {
       const ch = this._chart;
       if (!ch) return;
       try {
-        // Fraction of visible window — sideways scrub when zoomed in
         if (typeof ch.pan === 'function') ch.pan({ x: dir * 80 }, undefined, 'default');
       } catch (_) {}
     };
@@ -305,7 +413,7 @@ const RangeEmaUI = {
       return `<div class="range-desk-error">${r.error}</div>`;
     }
     const o = r.readout;
-    const a = r.action || this._actionPlan(o, r.emaAgree);
+    const a = r.action || this._actionPlan(o, r.emaAgree, r.instrument);
     const trendCls =
       o.trend === 'bullish' ? 'pos' : o.trend === 'bearish' ? 'neg' : '';
 
@@ -345,17 +453,17 @@ const RangeEmaUI = {
           <span class="lg price">Candles</span>
           <span class="lg ema10">EMA ${c.emaFast || 10}</span>
           <span class="lg ema30">EMA ${c.emaSlow || 30}</span>
-          <span class="lg or">OR box</span>
+          <span class="lg or">OR</span>
           <span class="lg band">Day ranges</span>
-          <span class="lg stop">Stop (Y marker)</span>
-          <span class="lg tp">Exit (Y marker)</span>
-          <span class="lg sess-asia">Asia</span>
-          <span class="lg sess-london">London</span>
-          <span class="lg sess-ny">US</span>
+          <span class="lg stop rb-lg-desk">Stop</span>
+          <span class="lg tp rb-lg-desk">Exit</span>
+          <span class="lg sess-asia rb-lg-desk">Asia</span>
+          <span class="lg sess-london rb-lg-desk">London</span>
+          <span class="lg sess-ny rb-lg-desk">US</span>
         </div>
-        <p class="rb-zoom-hint">Pinch / scroll zoom · drag sideways to pan · ◀ ▶ buttons · Fit = full window</p>
+        <p class="rb-zoom-hint">Pinch to zoom · drag to pan · Fit resets</p>
         <div class="rb-chart-box">
-          <canvas id="redBarChart" aria-label="BTC Red Bar chart"></canvas>
+          <canvas id="redBarChart" aria-label="Red Bar chart"></canvas>
         </div>
       </div>
 
@@ -394,18 +502,18 @@ const RangeEmaUI = {
    * X-axis step in bars: 5m → every 30m; 30m/1h → every 1h.
    * If that would draw too many labels, step up in whole hours.
    */
-  _xTickStep(tf, n, coarse) {
+  _xTickStep(tf, n, compact) {
     const bph = this._barsPerHour(tf);
-    const hoursPerTick = tf === '5m' ? 0.5 : 1;
+    const hoursPerTick = tf === '5m' ? (compact ? 2 : 0.5) : (compact ? 4 : 1);
     let step = Math.max(1, Math.round(bph * hoursPerTick));
-    const maxLabels = coarse ? 8 : 14;
+    const maxLabels = compact ? 5 : 12;
     while (n / step > maxLabels + 1) {
-      step += bph; // add one hour of bars
+      step += Math.max(1, bph * (compact ? 2 : 1));
     }
     return step;
   },
 
-  _fmtAxisTick(ts, prevTs) {
+  _fmtAxisTick(ts, prevTs, compact) {
     const d = new Date(ts);
     const time = d.toLocaleTimeString(undefined, {
       hour: '2-digit',
@@ -414,8 +522,12 @@ const RangeEmaUI = {
     });
     const dayChanged = !prevTs || new Date(prevTs).toDateString() !== d.toDateString();
     if (dayChanged) {
-      const day = d.toLocaleDateString(undefined, { month: 'short', day: 'numeric' });
-      return [day, time];
+      const day = d.toLocaleDateString(undefined, {
+        month: 'short',
+        day: 'numeric',
+      });
+      // Single line on phones — multi-line ticks collide on a narrow canvas
+      return compact ? `${day}` : `${day} ${time}`;
     }
     return time;
   },
@@ -519,16 +631,32 @@ const RangeEmaUI = {
         const self = chart.$rbUI;
         if (!self) return;
 
+        const plotW = area.right - area.left;
+        const compact = !!chart.$rbCompact;
+        // Opens only when cramped; skips close ticks that double the barcode
+        const list = compact
+          ? markers.filter((m) => m.kind === 'open')
+          : markers;
+        const minLineGap = compact ? 10 : 6;
+        const minLabelGap = compact ? 42 : 28;
+        const showLabels = plotW >= (compact ? 280 : 200);
+        let lastLineX = -Infinity;
+        let lastLabelX = -Infinity;
+
         ctx.save();
-        for (const m of markers) {
+        for (const m of list) {
           const idx = self._nearestBarIndex(times, m.ts);
           if (idx < 0) continue;
           const x = xScale.getPixelForValue(idx);
           if (!Number.isFinite(x) || x < area.left - 2 || x > area.right + 2) continue;
+          if (x - lastLineX < minLineGap) continue;
+          lastLineX = x;
 
           ctx.strokeStyle = m.color;
-          ctx.globalAlpha = m.kind === 'open' ? 0.85 : 0.45;
-          ctx.lineWidth = m.kind === 'open' ? 1.5 : 1;
+          ctx.globalAlpha = compact
+            ? (m.kind === 'open' ? 0.55 : 0.3)
+            : (m.kind === 'open' ? 0.85 : 0.45);
+          ctx.lineWidth = m.kind === 'open' ? (compact ? 1 : 1.5) : 1;
           ctx.setLineDash(m.kind === 'open' ? [] : [4, 4]);
           ctx.beginPath();
           ctx.moveTo(x, area.top);
@@ -536,13 +664,19 @@ const RangeEmaUI = {
           ctx.stroke();
           ctx.setLineDash([]);
 
-          ctx.globalAlpha = 0.95;
+          if (!showLabels || m.kind !== 'open') continue;
+          if (x - lastLabelX < minLabelGap) continue;
+          lastLabelX = x;
+
+          ctx.globalAlpha = 0.9;
           ctx.fillStyle = m.color;
-          ctx.font = '600 9px Outfit, system-ui, sans-serif';
+          ctx.font = compact
+            ? '600 8px Outfit, system-ui, sans-serif'
+            : '600 9px Outfit, system-ui, sans-serif';
           ctx.textAlign = 'center';
-          ctx.textBaseline = 'bottom';
-          const tag = m.kind === 'open' ? `${m.label}▲` : `${m.label}▼`;
           ctx.textBaseline = 'top';
+          // Short tag — full "London▲" piles into neighbours on 30m
+          const tag = compact ? String(m.label || '').slice(0, 1) : `${m.label}`;
           ctx.fillText(tag, x, area.top + 2);
         }
         ctx.restore();
@@ -741,11 +875,14 @@ const RangeEmaUI = {
         if (!yScale || !area) return;
         const ctx = chart.ctx;
         const placed = [];
-        const minGap = 14;
+        const compact = !!chart.$rbCompact;
+        const minGap = compact ? 16 : 14;
         const axisX = area.right;
 
         ctx.save();
-        ctx.font = '600 10px Outfit, system-ui, sans-serif';
+        ctx.font = compact
+          ? '600 9px Outfit, system-ui, sans-serif'
+          : '600 10px Outfit, system-ui, sans-serif';
         for (const t of tags) {
           if (t.value == null || !Number.isFinite(t.value)) continue;
           let y = yScale.getPixelForValue(t.value);
@@ -767,11 +904,15 @@ const RangeEmaUI = {
           placed.push(y);
 
           const price = Number(t.value).toFixed(0);
-          const label = `${t.name} ${price}`;
-          const padX = 5;
+          // Compact: "X 82295" not "EXIT 82295" — fits the right gutter
+          const shortName = compact
+            ? ({ STOP: 'STP', EXIT: 'TP', 'OR HI': 'OR↑', 'OR LO': 'OR↓', R: 'R', S: 'S' }[t.name] || t.name)
+            : t.name;
+          const label = `${shortName} ${price}`;
+          const padX = compact ? 4 : 5;
           const tw = ctx.measureText(label).width;
           const boxW = tw + padX * 2;
-          const boxH = 15;
+          const boxH = compact ? 13 : 15;
           const x = axisX + 2;
 
           // Short tick into the plot so the eye can find the level without a full line
@@ -816,8 +957,16 @@ const RangeEmaUI = {
     const canvas = document.getElementById('redBarChart');
     if (!canvas || typeof Chart === 'undefined' || !row.bars) return;
 
+    this.syncPhoneClass();
+    const compact = this.isPhoneLayout();
+    const inst = row.instrument || this.activeInstrument() || { label: 'BTC', dayMode: 'utc' };
+    const priceLabel = inst.label || 'Price';
     const tf = row.tf || this.activeTf();
-    const want = (c.chartBars && c.chartBars[tf]) || 120;
+    // Mobile: fewer bars so candles have width (240 bars on a 360px phone = needles)
+    const wantDesktop = (c.chartBars && c.chartBars[tf]) || 120;
+    const wantMobile = (c.chartBarsMobile && c.chartBarsMobile[tf])
+      || ({ '5m': 96, '30m': 72, '1h': 56 }[tf] || 72);
+    const want = compact ? wantMobile : wantDesktop;
     const showN = Math.min(want, row.bars.length);
     const bars = row.bars.slice(-showN);
     const offset = row.bars.length - showN;
@@ -838,7 +987,7 @@ const RangeEmaUI = {
     });
     const closes = bars.map((b) => b.c);
     // Map each prior-day band onto bar indices in the visible window (for day-scoped boxes)
-    const dayMode = c.dayMode || 'utc';
+    const dayMode = inst.dayMode || c.dayMode || 'utc';
     const daySpans = new Map();
     for (let i = 0; i < times.length; i++) {
       const day = (typeof RedBarTrend !== 'undefined')
@@ -869,14 +1018,16 @@ const RangeEmaUI = {
     const yLo = Math.min(barLo, ...nearLevels);
     const barSpan = (yHi - yLo) || 1;
     const pad = barSpan * 0.06 || 1;
-    const coarse = typeof window !== 'undefined'
-      && window.matchMedia
-      && window.matchMedia('(pointer: coarse)').matches;
-    const xStep = this._xTickStep(tf, n, coarse);
+    const xStep = this._xTickStep(tf, n, compact);
     const self = this;
-    const sessionMarks = (c.showSessionMarkers !== false)
-      ? this._sessionMarkersInRange(times[0], times[n - 1], c.sessions || [])
+    const showSessions = inst.showSessionMarkers !== false && (inst.sessions || c.sessions);
+    let sessionMarks = showSessions
+      ? this._sessionMarkersInRange(times[0], times[n - 1], inst.sessions || c.sessions || [])
       : [];
+    if (compact && sessionMarks.length) {
+      // Opens only — closes double the vertical barcode on a phone
+      sessionMarks = sessionMarks.filter((m) => m.kind === 'open');
+    }
 
     // Distinct palette (avoid overlapping blues/reds/greens across layers)
     const COL = {
@@ -897,7 +1048,7 @@ const RangeEmaUI = {
     // Invisible close series: hit-testing + tooltip OHLC (candles drawn by plugin)
     const datasets = [
       {
-        label: 'BTC',
+        label: priceLabel,
         data: closes,
         borderColor: 'rgba(0,0,0,0)',
         backgroundColor: 'rgba(0,0,0,0)',
@@ -984,9 +1135,15 @@ const RangeEmaUI = {
       options: {
         responsive: true,
         maintainAspectRatio: false,
-        animation: { duration: 280 },
+        animation: { duration: compact ? 0 : 280 },
         interaction: { mode: 'index', intersect: false },
-        layout: { padding: { top: 14, bottom: 4, right: 72 } },
+        layout: {
+          padding: {
+            top: compact ? 12 : 14,
+            bottom: 4,
+            right: compact ? 58 : 72,
+          },
+        },
         plugins: {
           legend: { display: false },
           tooltip: {
@@ -999,7 +1156,7 @@ const RangeEmaUI = {
             caretPadding: 8,
             filter(item) {
               const l = item.dataset.label || '';
-              return l === 'BTC' || l.startsWith('EMA');
+              return l === priceLabel || l.startsWith('EMA');
             },
             callbacks: {
               title(items) {
@@ -1015,14 +1172,15 @@ const RangeEmaUI = {
                 });
               },
               label(ctx) {
-                if (ctx.dataset.label === 'BTC') {
+                if (ctx.dataset.label === priceLabel) {
                   const b = bars[ctx.dataIndex];
-                  if (!b) return 'BTC';
+                  if (!b) return priceLabel;
+                  const d = inst.priceDecimals ?? 2;
                   return [
-                    `O  ${Number(b.o).toFixed(2)}`,
-                    `H  ${Number(b.h).toFixed(2)}`,
-                    `L  ${Number(b.l).toFixed(2)}`,
-                    `C  ${Number(b.c).toFixed(2)}`,
+                    `O  ${Number(b.o).toFixed(d)}`,
+                    `H  ${Number(b.h).toFixed(d)}`,
+                    `L  ${Number(b.l).toFixed(d)}`,
+                    `C  ${Number(b.c).toFixed(d)}`,
                   ];
                 }
                 const v = ctx.parsed.y;
@@ -1040,14 +1198,14 @@ const RangeEmaUI = {
             pan: {
               enabled: true,
               mode: 'x',
-              threshold: coarse ? 4 : 6,
+              threshold: compact ? 4 : 6,
               modifierKey: null,
             },
             zoom: {
-              wheel: { enabled: !coarse, speed: 0.12 },
+              wheel: { enabled: !compact, speed: 0.12 },
               pinch: { enabled: true },
               drag: {
-                enabled: !coarse,
+                enabled: !compact,
                 backgroundColor: 'rgba(124, 106, 245, 0.18)',
                 borderColor: 'rgba(124, 106, 245, 0.45)',
                 borderWidth: 1,
@@ -1061,17 +1219,22 @@ const RangeEmaUI = {
           x: {
             type: 'category',
             offset: true,
-            grid: { color: 'rgba(255,255,255,0.05)' },
+            grid: {
+              color: 'rgba(255,255,255,0.05)',
+              display: !compact,
+            },
             ticks: {
               color: 'rgba(255,255,255,0.55)',
-              font: { size: 10, family: 'Outfit' },
-              autoSkip: false,
+              font: { size: compact ? 9 : 10, family: 'Outfit' },
+              autoSkip: true,
+              autoSkipPadding: compact ? 16 : 10,
+              maxTicksLimit: compact ? 5 : 10,
               maxRotation: 0,
               minRotation: 0,
               callback(value, index) {
                 if (index % xStep !== 0 && index !== n - 1) return '';
                 const prev = index >= xStep ? times[index - xStep] : null;
-                return self._fmtAxisTick(times[index], prev);
+                return self._fmtAxisTick(times[index], prev, compact);
               },
             },
           },
@@ -1082,7 +1245,8 @@ const RangeEmaUI = {
             grid: { color: 'rgba(255,255,255,0.06)' },
             ticks: {
               color: 'rgba(255,255,255,0.45)',
-              font: { size: 10, family: 'Outfit' },
+              font: { size: compact ? 9 : 10, family: 'Outfit' },
+              maxTicksLimit: compact ? 5 : 8,
               callback: (v) => Number(v).toFixed(0),
             },
           },
@@ -1092,9 +1256,12 @@ const RangeEmaUI = {
     this._chart.$rbBars = bars;
     this._chart.$rbTimes = times;
     this._chart.$rbSessionMarks = sessionMarks;
-    this._chart.$rbDayBands = dayBands;
+    this._chart.$rbDayBands = compact && dayBands.length > 4
+      ? dayBands.slice(-4)
+      : dayBands;
     this._chart.$rbOrZone = orZone;
     this._chart.$rbLevelTags = levelTags;
+    this._chart.$rbCompact = compact;
     this._chart.$rbUI = this;
     // Flex layout settles after paint — force Chart.js to fill the box
     requestAnimationFrame(() => {

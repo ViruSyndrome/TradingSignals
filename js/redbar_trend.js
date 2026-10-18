@@ -22,15 +22,15 @@ const RedBarTrend = {
     touchPct: 0.15,
     chartBandDays: 7,
     swingPivot: 3,
-    /* Crypto has no NSE 9:15 — UTC day open is the default session clock */
-    dayMode: 'utc', // 'utc' | 'ny' (America/New_York calendar day)
+    /* Day clock for opening-range / prior-day bands */
+    dayMode: 'utc', // 'utc' | 'ny' | 'ist'
   },
 
   utcDay(ts) {
     return new Date(ts).toISOString().slice(0, 10);
   },
 
-  /** Calendar day string in a timezone (for NY session later). */
+  /** Calendar day string in a timezone. */
   zonedDay(ts, timeZone) {
     try {
       return new Intl.DateTimeFormat('en-CA', {
@@ -46,6 +46,7 @@ const RedBarTrend = {
 
   dayKey(ts, dayMode) {
     if (dayMode === 'ny') return this.zonedDay(ts, 'America/New_York');
+    if (dayMode === 'ist') return this.zonedDay(ts, 'Asia/Kolkata');
     return this.utcDay(ts);
   },
 

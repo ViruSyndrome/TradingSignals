@@ -399,6 +399,117 @@ const API = {
     }
   },
 
+  /** Binance USDⓈ-M Futures klines (e.g. XAUUSDT TradFi perp). Same row shape as spot. */
+  async getFuturesOHLC(symbol, interval = '30m', limitOverride) {
+    const limit = limitOverride || 500;
+    const sym = String(symbol || '').toUpperCase().replace('_4H', '').replace('_5M', '');
+    const key = `fapi_hist_${sym}_${interval}_${limit}`;
+    const cached = this._get(key);
+    if (cached) return cached;
+
+    const path = `/fapi/v1/klines?symbol=${encodeURIComponent(sym)}&interval=${interval}&limit=${limit}`;
+    const hosts = [
+      'https://fapi.binance.com',
+      'https://fstream.binance.com',
+    ];
+    let lastErr;
+    for (const host of hosts) {
+      try {
+        const data = await this._fetch(`${host}${path}`, 8000, 0);
+        if (!Array.isArray(data) || !data.length) throw new Error('Empty futures klines');
+        return this._set(key, data, CONFIG.refresh.cacheMs);
+      } catch (e) {
+        lastErr = e;
+        console.warn(`[API] Futures OHLC failed ${host} ${sym}:`, e.message);
+      }
+    }
+    throw lastErr || new Error(`Futures OHLC failed for ${sym}`);
+  },
+
+  _yahooInterval(interval) {
+    const map = { '5m': '5m', '15m': '15m', '30m': '30m', '1h': '60m', '4h': '60m', '1d': '1d' };
+    return map[interval] || '30m';
+  },
+
+  _yahooRange(interval, limit) {
+    const n = limit || 500;
+    if (interval === '5m') return n > 500 ? '60d' : '30d';
+    if (interval === '30m' || interval === '1h' || interval === '60m') return '60d';
+    if (interval === '1d') return '2y';
+    return '60d';
+  },
+
+  /**
+   * Yahoo Finance chart OHLC (Nifty ^NSEI, etc.) → Binance-shaped kline rows.
+   * Tries direct fetch, then allorigins CORS proxy.
+   */
+  async getYahooOHLC(symbol, interval = '30m', limitOverride) {
+    const limit = limitOverride || 500;
+    const yInt = this._yahooInterval(interval);
+    const range = this._yahooRange(yInt, limit);
+    const key = `yahoo_hist_${symbol}_${yInt}_${range}_${limit}`;
+    const cached = this._get(key);
+    if (cached) return cached;
+
+    const chartPath = `https://query1.finance.yahoo.com/v8/finance/chart/${encodeURIComponent(symbol)}?interval=${yInt}&range=${range}&includePrePost=false`;
+    const urls = [
+      chartPath,
+      `https://api.allorigins.win/raw?url=${encodeURIComponent(chartPath)}`,
+    ];
+    let lastErr;
+    for (const url of urls) {
+      try {
+        const data = await this._fetch(url, 12000, 0);
+        const result = data?.chart?.result?.[0];
+        if (!result) throw new Error('Empty Yahoo chart');
+        const ts = result.timestamp || [];
+        const q = result.indicators?.quote?.[0] || {};
+        const rows = [];
+        for (let i = 0; i < ts.length; i++) {
+          const o = q.open?.[i];
+          const h = q.high?.[i];
+          const l = q.low?.[i];
+          const c = q.close?.[i];
+          const v = q.volume?.[i];
+          if (![o, h, l, c].every(Number.isFinite)) continue;
+          rows.push([ts[i] * 1000, o, h, l, c, v || 0]);
+        }
+        if (rows.length < 20) throw new Error('Not enough Yahoo bars');
+        const sliced = rows.length > limit ? rows.slice(-limit) : rows;
+        return this._set(key, sliced, CONFIG.refresh.cacheMs);
+      } catch (e) {
+        lastErr = e;
+        console.warn(`[API] Yahoo OHLC failed (${symbol}):`, e.message);
+      }
+    }
+    throw lastErr || new Error(`Yahoo OHLC failed for ${symbol}`);
+  },
+
+  /**
+   * Desk OHLC router by instrument.feed.
+   * instrument: { feed, symbol, fallbackSymbol? }
+   */
+  async getDeskOHLC(instrument, interval = '30m', limitOverride) {
+    if (!instrument) return null;
+    const feed = instrument.feed || 'binanceSpot';
+    const sym = instrument.symbol;
+    if (feed === 'yahoo') {
+      return this.getYahooOHLC(sym, interval, limitOverride);
+    }
+    if (feed === 'binanceFutures') {
+      try {
+        return await this.getFuturesOHLC(sym, interval, limitOverride);
+      } catch (e) {
+        if (instrument.fallbackSymbol) {
+          console.warn(`[API] Futures ${sym} failed — falling back to ${instrument.fallbackSymbol}`);
+          return this.getCryptoOHLC(instrument.fallbackSymbol, interval, limitOverride);
+        }
+        throw e;
+      }
+    }
+    return this.getCryptoOHLC(sym, interval, limitOverride);
+  },
+
   /**
    * Fetch all crypto data: prices + historical prices.
    * Live-patches the last close with the current ticker price so signals

@@ -2917,6 +2917,36 @@ body.redbar-only .site-footer-copyright {
   opacity: 0.65;
 }
 
+/* Instrument tabs (BTC / NIFTY / XAU) */
+.rb-inst-tabs {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin: 0 0 12px;
+}
+.rb-inst-btn {
+  font-family: inherit;
+  font-size: 13px;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  padding: 8px 14px;
+  border-radius: 10px;
+  border: 1px solid rgba(255,255,255,0.12);
+  background: rgba(255,255,255,0.04);
+  color: var(--text-muted);
+  cursor: pointer;
+  min-height: 40px;
+}
+.rb-inst-btn:hover {
+  color: var(--text-main);
+  border-color: rgba(255,255,255,0.28);
+}
+.rb-inst-btn.active {
+  background: rgba(124, 106, 245, 0.28);
+  border-color: rgba(124, 106, 245, 0.65);
+  color: #f8fafc;
+}
+
 /* Red Bar action + chart */
 .rb-action {
   display: flex;
@@ -3060,7 +3090,8 @@ body.redbar-only .site-footer-copyright {
 }
 #redBarChart { touch-action: none; }
 .rb-meta-row { margin-bottom: 10px; }
-@media (max-width: 768px) {
+/* Phone chart/layout — also via max-device-width (Chrome desktop-site) */
+@media (max-width: 768px), (max-device-width: 900px) {
   /*
    * Mobile: drop desktop flex-fill. It was collapsing .rb-chart-wrap to ~16px
    * and stacking action / chart / chips on top of each other.
@@ -3090,8 +3121,9 @@ body.redbar-only .site-footer-copyright {
   }
   body.redbar-only .rb-chart-box {
     flex: none;
-    height: min(52vh, 360px);
-    min-height: 260px;
+    /* Wider aspect: less tall so candles aren't needle-thin */
+    height: min(42vh, 300px);
+    min-height: 220px;
   }
   body.redbar-only .site-footer {
     padding: 8px 10px calc(10px + env(safe-area-inset-bottom, 0px));
@@ -3143,11 +3175,12 @@ body.redbar-only .site-footer-copyright {
     font-size: 10px;
     margin-bottom: 6px;
   }
-  .rb-zoom-hint { font-size: 10px; }
+  .rb-chart-legend .rb-lg-desk { display: none; }
+  .rb-zoom-hint { font-size: 10px; margin-bottom: 4px; }
   .rb-chart-box {
-    height: min(52vh, 360px);
-    min-height: 260px;
-    touch-action: none; /* let chart own pinch + sideways pan */
+    height: min(42vh, 300px);
+    min-height: 220px;
+    touch-action: none;
   }
   #redBarChart { touch-action: none; }
   .range-chips { gap: 4px; }
@@ -3155,4 +3188,41 @@ body.redbar-only .site-footer-copyright {
   .range-narrative { font-size: 11px; margin-bottom: 8px; }
   .site-footer-links a { font-size: 11px; }
   .site-footer-disclaimer { font-size: 10px; padding: 0 4px; }
+}
+
+/*
+ * Chrome "Request desktop site" inflates layout width to ~980px so max-width:768
+ * never fires — phone is still ~360–430 device CSS px. Force drawer sidebar.
+ */
+@media (max-device-width: 900px) {
+  .sidebar {
+    position: fixed !important;
+    left: -280px !important;
+    top: 0;
+    height: 100%;
+    width: min(280px, 86vw);
+    z-index: 1000;
+  }
+  .sidebar.open { left: 0 !important; }
+  .main-content { margin-left: 0 !important; }
+  .mobile-close-btn { display: flex; }
+}
+
+/* JS sets html.is-phone (covers desktop-site + odd viewports) */
+html.is-phone .sidebar {
+  position: fixed !important;
+  left: -280px !important;
+  top: 0;
+  height: 100%;
+  width: min(280px, 86vw);
+  z-index: 1000;
+}
+html.is-phone .sidebar.open { left: 0 !important; }
+html.is-phone .main-content { margin-left: 0 !important; }
+html.is-phone .mobile-close-btn { display: flex; }
+html.is-phone .rb-chart-legend .rb-lg-desk { display: none; }
+html.is-phone .rb-chart-box,
+html.is-phone body.redbar-only .rb-chart-box {
+  height: min(42vh, 300px) !important;
+  min-height: 220px !important;
 }

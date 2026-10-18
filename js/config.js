@@ -79,27 +79,65 @@ const CONFIG = {
   // ─── Red Bar Desk (trend prediction) + optional EMA overlay ────────────────
   // CORE = prior-day bands + opening-range break + red-bar refs (js/redbar_trend.js).
   // EMA 10/30 is a SEPARATE overlay on the desk — not the trend engine.
-  // Same map later: Nifty / gold / oil / NG once OHLC is wired.
+  // Tabs: BTC (Binance spot), NIFTY (Yahoo ^NSEI), XAU (Binance futures / PAXG fallback).
   rangeEma: {
     enabled: true,
-    symbols: ['BTCUSDT'],
     workingTf: '30m',
     timeframes: ['5m', '30m', '1h'],
-    dayMode: 'utc', // crypto default; use 'ny' to align with US session day
     lookbackDays: 90,
     touchPct: 0.15,
-    chartBandDays: 7, // how many prior-day H/M/L range bars to draw
+    chartBandDays: 7,
     emaFast: 10,
     emaSlow: 30,
     ohlcLimit: { '5m': 1000, '30m': 1000, '1h': 720 },
-    // Wider default window so multiple day-ranges are visible before zooming in
     chartBars: { '5m': 360, '30m': 240, '1h': 168 },
-    // Vertical markers on the chart X timeline (cash-session style, TZ-aware)
-    showSessionMarkers: true,
-    sessions: [
-      { id: 'asia', label: 'Asia', timeZone: 'Asia/Tokyo', open: [9, 0], close: [15, 0], color: '#818cf8' },
-      { id: 'london', label: 'London', timeZone: 'Europe/London', open: [8, 0], close: [16, 30], color: '#f472b6' },
-      { id: 'ny', label: 'US', timeZone: 'America/New_York', open: [9, 30], close: [16, 0], color: '#cbd5e1' },
+    // Fewer bars on phones so candles have horizontal room
+    chartBarsMobile: { '5m': 96, '30m': 72, '1h': 56 },
+    defaultInstrument: 'BTC',
+    instruments: [
+      {
+        id: 'BTC',
+        label: 'BTC',
+        symbol: 'BTCUSDT',
+        feed: 'binanceSpot',
+        dayMode: 'utc',
+        priceDecimals: 2,
+        tradeHint: 'Binance USDⓈ-M · BTCUSDT',
+        showSessionMarkers: true,
+        sessions: [
+          { id: 'asia', label: 'Asia', timeZone: 'Asia/Tokyo', open: [9, 0], close: [15, 0], color: '#818cf8' },
+          { id: 'london', label: 'London', timeZone: 'Europe/London', open: [8, 0], close: [16, 30], color: '#f472b6' },
+          { id: 'ny', label: 'US', timeZone: 'America/New_York', open: [9, 30], close: [16, 0], color: '#cbd5e1' },
+        ],
+      },
+      {
+        id: 'NIFTY',
+        label: 'NIFTY',
+        symbol: '^NSEI',
+        feed: 'yahoo',
+        dayMode: 'ist',
+        priceDecimals: 2,
+        tradeHint: 'Chart research — trade on your NSE broker',
+        showSessionMarkers: true,
+        sessions: [
+          { id: 'nse', label: 'NSE', timeZone: 'Asia/Kolkata', open: [9, 15], close: [15, 30], color: '#38bdf8' },
+        ],
+      },
+      {
+        id: 'XAU',
+        label: 'XAU',
+        symbol: 'XAUUSDT',
+        fallbackSymbol: 'PAXGUSDT',
+        feed: 'binanceFutures',
+        dayMode: 'ny',
+        priceDecimals: 2,
+        tradeHint: 'Binance Futures TradFi · XAUUSDT (or PAXG spot)',
+        showSessionMarkers: true,
+        sessions: [
+          { id: 'london', label: 'London', timeZone: 'Europe/London', open: [8, 0], close: [16, 30], color: '#f472b6' },
+          { id: 'ny', label: 'US', timeZone: 'America/New_York', open: [9, 30], close: [16, 0], color: '#cbd5e1' },
+        ],
+      },
     ],
   },
 
