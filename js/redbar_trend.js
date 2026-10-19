@@ -3,12 +3,13 @@
 /**
  * redbar_trend.js — Red Bar / session-mark TREND indicator (course-style, no paid tool)
  *
- * THIS is the trend-prediction layer ("finding gold"):
- *  1. Magnets = Fib 0/0.44/0.5/0.56/1 on each mark window (e.g. BTC 02:30–03:30 IST),
- *     or full calendar-day H/L/M when bandStyle = dayHl.
- *  2. Opening range = that same mark window — wait until it locks; then break bias.
- *  3. Where price sits vs prior bands: inside (balance) vs held break (trend).
- *  4. Last red bar / swings: book & stop references.
+ * Sagar desk playbook (what we predict from):
+ *  1. Magnets = Fib 0/0.44/0.5/0.56/1 on each mark window
+ *     (BTC 02:30–03:30, XAU 01:30–02:30, Nifty 15:15–15:45 IST).
+ *  2. Pivot = first 1H red of the session day (trade 1 leave / trade 2 revisit).
+ *  3. Stop = prior swing; book = prior calendar-day H/L (then swing / fib).
+ *  4. Clock: pre-London continuation → London hunts Asia H/L → US hunts London
+ *     (and Asia if untouched); US open often needs 1m for the “zoom” entry.
  *
  * EMA is NOT part of this indicator. Overlay it separately if you want.
  *
@@ -437,6 +438,133 @@ const RedBarTrend = {
     return null;
   },
 
+  /** Full calendar-day H/L in dayMode (Sagar book magnets = prior day H/L). */
+  calendarDayHl(bars, day, dayMode = 'ist') {
+    if (!bars || !day) return null;
+    let high = null;
+    let low = null;
+    for (const b of bars) {
+      if (this.dayKey(b.t, dayMode) !== day) continue;
+      high = high == null ? b.h : Math.max(high, b.h);
+      low = low == null ? b.l : Math.min(low, b.l);
+    }
+    if (high == null) return null;
+    return { day, high, low, mid: (high + low) / 2 };
+  },
+
+  /** H/L of one exchange session for the IST calendar day that contains `asOfTs`. */
+  sessionHlForIstDay(bars, session, asOfTs) {
+    if (!bars || !session || !session.timeZone || !asOfTs) return null;
+    const istDay = this.zonedDay(asOfTs, 'Asia/Kolkata');
+    const openH = (session.open && session.open[0]) || 0;
+    const openM = (session.open && session.open[1]) || 0;
+    const closeH = (session.close && session.close[0]) || 23;
+    const closeM = (session.close && session.close[1]) || 59;
+    const openMins = openH * 60 + openM;
+    const closeMins = closeH * 60 + closeM;
+    let high = null;
+    let low = null;
+    let touched = false;
+    for (const b of bars) {
+      if (this.zonedDay(b.t, 'Asia/Kolkata') !== istDay) continue;
+      const z = this.zonedHms(b.t, session.timeZone);
+      const mins = z.hour * 60 + z.minute;
+      const inSession = closeMins > openMins
+        ? (mins >= openMins && mins < closeMins)
+        : (mins >= openMins || mins < closeMins);
+      if (!inSession) continue;
+      touched = true;
+      high = high == null ? b.h : Math.max(high, b.h);
+      low = low == null ? b.l : Math.min(low, b.l);
+    }
+    if (!touched || high == null) return null;
+    return {
+      id: session.id || session.label || 'session',
+      label: session.label || session.id || 'Session',
+      high,
+      low,
+      mid: (high + low) / 2,
+    };
+  },
+
+  /**
+   * IST clock phase for BTC/XAU session flow (Sagar).
+   * Pre-London continuation → London Asia sweep → US London/Asia hunt.
+   */
+  istClockPhase(ts) {
+    const z = this.zonedHms(ts || Date.now(), 'Asia/Kolkata');
+    const mins = z.hour * 60 + z.minute;
+    if (mins < 12 * 60 + 30) {
+      return {
+        id: 'pre_london',
+        label: 'Pre-London',
+        tip: 'Until ~12:30 IST, BTC often keeps the morning direction.',
+      };
+    }
+    if (mins < 16 * 60 + 30) {
+      return {
+        id: 'london',
+        label: 'London',
+        tip: 'London usually sweeps Asia high or low, then reverses.',
+      };
+    }
+    if (mins < 18 * 60 + 30) {
+      return {
+        id: 'us_open',
+        label: 'US open',
+        tip: 'US hunts London H/L (Asia if untouched). Heavy window ~4:30–6:30 IST — use 1m when it zooms.',
+      };
+    }
+    return {
+      id: 'late',
+      label: 'After US open',
+      tip: 'Pivot stays the first 1H red; watch prior-day H/L as book magnets.',
+    };
+  },
+
+  /**
+   * First-red trade setup: trade 1 (leave the bar) / trade 2 (2–3h revisit).
+   */
+  firstRedSetup(price, firstRed, asOfTs, touchPct = 0.15) {
+    if (!firstRed || price == null) {
+      return { id: 'no_red', label: 'No 1H first red yet', near: false, hoursSince: null };
+    }
+    const hoursSince = asOfTs != null && firstRed.t != null
+      ? (asOfTs - firstRed.t) / 3600000
+      : null;
+    const nearHigh = (Math.abs(price - firstRed.high) / firstRed.high) * 100 <= touchPct;
+    const nearLow = (Math.abs(price - firstRed.low) / firstRed.low) * 100 <= touchPct;
+    const inside = price <= firstRed.high && price >= firstRed.low;
+    const near = nearHigh || nearLow || inside;
+    const leftAbove = price > firstRed.high && !nearHigh;
+    const leftBelow = price < firstRed.low && !nearLow;
+    // Sagar: after ~2–3h price often revisits the first-red level
+    const revisitWindow = near && hoursSince != null && hoursSince >= 1.5 && hoursSince <= 6;
+    let id = 'marked';
+    let label = '1H first red marked';
+    if (revisitWindow) {
+      id = 'trade2_revisit';
+      label = 'Trade 2 · revisit of 1H first red';
+    } else if (leftAbove || leftBelow) {
+      id = 'trade1_away';
+      label = leftAbove ? 'Trade 1 · left above first red' : 'Trade 1 · left below first red';
+    } else if (near) {
+      id = 'at_pivot';
+      label = 'At 1H first-red pivot';
+    }
+    return {
+      id,
+      label,
+      near,
+      hoursSince,
+      revisitWindow,
+      leftAbove,
+      leftBelow,
+      pivotHigh: firstRed.high,
+      pivotLow: firstRed.low,
+    };
+  },
+
   /**
    * Core readout at bar index i — trend prediction, not an auto-entry bot.
    */
@@ -493,6 +621,23 @@ const RedBarTrend = {
     if (orBias === 'bear' && bandPhase !== 'inside_or') trend = 'bearish';
     if (phase === 'inside_or' || phase === 'first_candle') trend = 'neutral';
 
+    const firstRed1h = c.firstRed1h || null;
+    const dayMode = c.dayMode || 'ist';
+    const istDay = this.zonedDay(bars[i].t, 'Asia/Kolkata');
+    const priorDayStr = this.shiftDay(istDay, -1);
+    const priorDay = this.calendarDayHl(slice, priorDayStr, dayMode);
+    const clock = this.istClockPhase(bars[i].t);
+    const redSetup = this.firstRedSetup(price, firstRed1h, bars[i].t, c.touchPct ?? 0.15);
+
+    const sessions = Array.isArray(c.sessions) ? c.sessions : [];
+    const asiaSess = sessions.find((s) => (s.id || '').toLowerCase() === 'asia')
+      || sessions.find((s) => /asia/i.test(s.label || ''));
+    const londonSess = sessions.find((s) => (s.id || '').toLowerCase() === 'london')
+      || sessions.find((s) => /london/i.test(s.label || ''));
+    const asiaHl = asiaSess ? this.sessionHlForIstDay(slice, asiaSess, bars[i].t) : null;
+    const londonHl = londonSess ? this.sessionHlForIstDay(slice, londonSess, bars[i].t) : null;
+    const asiaUntouched = !!(asiaHl && price < asiaHl.high && price > asiaHl.low);
+
     // Suggested reference levels (what YOU do with them is optional)
     const refs = {
       orHigh: or ? or.high : null,
@@ -501,19 +646,42 @@ const RedBarTrend = {
       bandSupport: support,
       redHigh: red ? red.high : null,
       redLow: red ? red.low : null,
+      priorDayHigh: priorDay ? priorDay.high : null,
+      priorDayLow: priorDay ? priorDay.low : null,
+      asiaHigh: asiaHl ? asiaHl.high : null,
+      asiaLow: asiaHl ? asiaHl.low : null,
+      londonHigh: londonHl ? londonHl.high : null,
+      londonLow: londonHl ? londonHl.low : null,
+      firstRed1hHigh: firstRed1h ? firstRed1h.high : null,
+      firstRed1hLow: firstRed1h ? firstRed1h.low : null,
     };
 
-    // Book-profit: prefer nearest prior swing (TV-style previous high/low),
-    // then red-bar ref, then prior-day band.
+    // Sagar: stop = prior swing; book = prior-day H/L when still ahead of price, else swing / fib
     let invalidation = null;
     let bookZone = null;
     if (trend === 'bullish') {
-      invalidation = or ? or.low : (swingLow != null ? swingLow : support);
-      bookZone = swingHigh != null ? swingHigh : (red ? red.high : resist);
+      invalidation = swingLow != null ? swingLow : (or ? or.low : support);
+      const pdh = priorDay?.high;
+      bookZone = (pdh != null && pdh > price)
+        ? pdh
+        : (swingHigh != null ? swingHigh : (red ? red.high : resist));
     } else if (trend === 'bearish') {
-      invalidation = or ? or.high : (swingHigh != null ? swingHigh : resist);
-      bookZone = swingLow != null ? swingLow : (red ? red.low : support);
+      invalidation = swingHigh != null ? swingHigh : (or ? or.high : resist);
+      const pdl = priorDay?.low;
+      bookZone = (pdl != null && pdl < price)
+        ? pdl
+        : (swingLow != null ? swingLow : (red ? red.low : support));
     }
+
+    const playbook = {
+      clock,
+      redSetup,
+      priorDay,
+      asiaHl,
+      londonHl,
+      asiaUntouched,
+      liquidityTip: this._liquidityTip(clock, asiaHl, londonHl, asiaUntouched),
+    };
 
     const narrative = this._narrative({
       trend,
@@ -521,6 +689,7 @@ const RedBarTrend = {
       bandPhase,
       activeCount: active.length,
       orBias,
+      playbook,
     });
 
     return {
@@ -534,7 +703,8 @@ const RedBarTrend = {
       narrative,
       openingRange: or,
       lastRedBar: red,
-      firstRed1h: c.firstRed1h || null,
+      firstRed1h,
+      playbook,
       activeBands: active.slice(-8),
       // Last N prior session magnets (day H/L/M or 02:30 IST fibs)
       recentBands: prior.slice(-(c.chartBandDays || 7)).map((b) => ({
@@ -569,26 +739,47 @@ const RedBarTrend = {
     return this.readAt(bars, bars.length - 1, cfg);
   },
 
-  _narrative({ trend, phase, bandPhase, activeCount, orBias }) {
+  _liquidityTip(clock, asiaHl, londonHl, asiaUntouched) {
+    if (!clock) return '';
+    if (clock.id === 'london' && asiaHl) {
+      return `London liquidity: Asia ${asiaHl.high.toFixed?.(0) ?? asiaHl.high} / ${asiaHl.low.toFixed?.(0) ?? asiaHl.low}`;
+    }
+    if (clock.id === 'us_open') {
+      const bits = [];
+      if (londonHl) bits.push(`London ${londonHl.high.toFixed?.(0) ?? londonHl.high} / ${londonHl.low.toFixed?.(0) ?? londonHl.low}`);
+      if (asiaUntouched && asiaHl) bits.push('Asia still inside — may get hunted');
+      return bits.length ? `US hunt: ${bits.join(' · ')}` : clock.tip;
+    }
+    return clock.tip || '';
+  },
+
+  _narrative({ trend, phase, bandPhase, activeCount, orBias, playbook }) {
+    const clockBit = playbook?.clock?.tip ? ` ${playbook.clock.tip}` : '';
+    const redBit = playbook?.redSetup?.id === 'trade2_revisit'
+      ? ' Price is back at the 1H first-red pivot — Trade 2 window: watch reject vs reverse.'
+      : playbook?.redSetup?.id === 'trade1_away'
+        ? ' Price has left the 1H first red — Trade 1 style: stop at prior swing, book toward prior-day H/L.'
+        : '';
+
     if (phase === 'first_candle') {
       return 'Mark window still forming — record high/low only; do not trade until it locks.';
     }
     if (phase === 'inside_or') {
-      return 'Price inside today’s mark-window fib box (no-trade zone). Wait for a break of that high or low.';
+      return `Price inside today’s mark-window fib box (no-trade zone). Wait for a break of Fib 0 / Fib 1.${clockBit}`;
     }
     if (trend === 'bullish') {
       if (bandPhase.includes('pullback') || activeCount) {
-        return 'Bullish (above mark-window fib). Price is back in a prior-session band — classic pullback into old range; watch for hold then continuation.';
+        return `Bullish (above mark-window fib). Pullback into a prior-session band — hold then continuation.${redBit}${clockBit}`;
       }
-      return 'Bullish (broke above mark-window Fib 0/1). Prior-session fibs above are magnets; red-bar high is a book-profit reference.';
+      return `Bullish (broke above mark-window Fib 0/1). Book toward prior-day high; 1H first red is the pivot.${redBit}${clockBit}`;
     }
     if (trend === 'bearish') {
       if (bandPhase.includes('pullback') || activeCount) {
-        return 'Bearish (below mark-window fib). Price is back in a prior-session band — pullback into old range; watch for rejection then continuation down.';
+        return `Bearish (below mark-window fib). Pullback into a prior-session band — rejection then continuation down.${redBit}${clockBit}`;
       }
-      return 'Bearish (broke below mark-window Fib 0/1). Prior-session fibs below are magnets; red-bar low is a book-profit reference for shorts.';
+      return `Bearish (broke below mark-window Fib 0/1). Book toward prior-day low; 1H first red is the pivot.${redBit}${clockBit}`;
     }
-    return 'No clear opening-range break yet. Prior-day bands still matter as magnets when price reaches them.';
+    return `No clear fib-box break yet. Prior-day H/L and session fibs are still magnets.${redBit}${clockBit}`;
   },
 };
 

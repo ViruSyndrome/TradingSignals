@@ -259,6 +259,7 @@ const RangeEmaUI = {
       markWindow: instrument.markWindow || c.markWindow || null,
       orAnchor: instrument.orAnchor || c.orAnchor || null,
       fibLevels: instrument.fibLevels || c.fibLevels || [0, 0.44, 0.5, 0.56, 1],
+      sessions: instrument.sessions || c.sessions || [],
     };
 
     // Always compute Sagar's magnet: first red bar of the session day on 1H
@@ -310,13 +311,29 @@ const RangeEmaUI = {
     };
   },
 
-  /** What the trader should do — plain language + levels */
+  /** Sagar playbook → plain language + levels (fib mark + 1H first red + session clock). */
   _actionPlan(o, emaAgree, instrument) {
     const inst = instrument || this.activeInstrument() || {};
     const hint = inst.tradeHint || 'Place the order on your exchange / broker';
     if (!o) {
       return { side: 'WAIT', title: 'No data', steps: [], cls: 'wait' };
     }
+    const pb = o.playbook || {};
+    const red = pb.redSetup || {};
+    const clock = pb.clock || {};
+    const emaNote = emaAgree === 'agrees'
+      ? ' · EMA agrees'
+      : emaAgree === 'disagrees'
+        ? ' · EMA disagrees — be smaller or skip'
+        : '';
+    const clockStep = clock.tip ? clock.tip : null;
+    const liqStep = pb.liquidityTip && pb.liquidityTip !== clock.tip ? pb.liquidityTip : null;
+    const pivotStep = o.firstRed1h
+      ? `Pivot = 1H first red ${this._fmt(o.firstRed1h.high)} / ${this._fmt(o.firstRed1h.low)}.`
+      : 'Waiting for the session’s first 1H red to mark the pivot.';
+    const pdh = o.refs?.priorDayHigh;
+    const pdl = o.refs?.priorDayLow;
+
     if (o.phase === 'first_candle' || o.phase === 'inside_or') {
       const fibHi = o.currentBand?.high ?? o.refs?.orHigh;
       const fibLo = o.currentBand?.low ?? o.refs?.orLow;
@@ -326,27 +343,52 @@ const RangeEmaUI = {
         title: 'Do not trade yet',
         subtitle: 'Inside today’s mark-window fib box (or window still forming).',
         steps: [
-          `Fib 0 / Fib 1 from the mark window: ${this._fmt(fibHi)} / ${this._fmt(fibLo)}.`,
-          'Only act after a clear break and hold outside that box.',
+          `Fib 0 / Fib 1: ${this._fmt(fibHi)} / ${this._fmt(fibLo)} — wait for break & hold.`,
+          pivotStep,
+          ...(clockStep ? [clockStep] : []),
         ],
         entry: null,
         stop: null,
         exit: null,
       };
     }
+
+    // Trade 2: revisit of first 1H red (Sagar: often 2–3h later)
+    if (red.id === 'trade2_revisit') {
+      const side = o.trend === 'bullish' ? 'LONG' : o.trend === 'bearish' ? 'SHORT' : 'WAIT';
+      const cls = side === 'LONG' ? 'long' : side === 'SHORT' ? 'short' : 'wait';
+      return {
+        side,
+        cls,
+        title: side === 'WAIT' ? 'Trade 2 · watch the revisit' : `Trade 2 · ${side}`,
+        subtitle: `Price back at 1H first-red pivot${emaNote}. Watch reject (continue) vs reverse.`,
+        steps: [
+          `${pivotStep} Hours since red: ${red.hoursSince != null ? red.hoursSince.toFixed(1) : '—'}h.`,
+          'At the revisit: if it rejects and continues the morning bias → take Trade 2; if it reverses → flip with the new direction.',
+          side !== 'WAIT'
+            ? `Stop near prior swing ${this._fmt(o.invalidation)} · book toward prior-day ${side === 'LONG' ? 'high' : 'low'} ${this._fmt(o.bookZone)}.`
+            : `Prior-day H/L magnets: ${this._fmt(pdh)} / ${this._fmt(pdl)}.`,
+          ...(liqStep ? [liqStep] : clockStep ? [clockStep] : []),
+          side !== 'WAIT' ? `${hint}.` : 'Stay flat until reject vs reverse is clear.',
+        ],
+        entry: side === 'WAIT' ? null : o.price,
+        stop: side === 'WAIT' ? null : o.invalidation,
+        exit: side === 'WAIT' ? null : o.bookZone,
+      };
+    }
+
     if (o.trend === 'bullish') {
       return {
         side: 'LONG',
         cls: 'long',
-        title: 'Bias: BUY / go long',
-        subtitle: `Red Bar trend bullish${emaAgree === 'agrees' ? ' · EMA agrees' : emaAgree === 'disagrees' ? ' · EMA disagrees — be smaller or skip' : ''}.`,
+        title: red.id === 'trade1_away' ? 'Trade 1 · BUY / go long' : 'Bias: BUY / go long',
+        subtitle: `Bullish${emaNote}${red.id === 'trade1_away' ? ' · left the 1H first red' : ''}.`,
         steps: [
-          `${hint}: open LONG near current price / band support hold.`,
-          `Stop / invalidation near ${this._fmt(o.invalidation)} (fib low or band).`,
-          `Take profit / book near ${this._fmt(o.bookZone)} (prior swing high — Y-axis EXIT marker).`,
-          ...(o.firstRed1h
-            ? [`1H first red high ${this._fmt(o.firstRed1h.high)} — price often revisits before next move.`]
-            : []),
+          `${hint}: LONG near price / band support hold.`,
+          `Stop at prior swing ${this._fmt(o.invalidation)} (not the fib box).`,
+          `Book toward prior-day high ${this._fmt(o.bookZone)}${pdh != null ? '' : ' (swing / fib fallback)'}.`,
+          pivotStep,
+          ...(liqStep ? [liqStep] : clockStep ? [clockStep] : []),
         ],
         entry: o.price,
         stop: o.invalidation,
@@ -357,15 +399,14 @@ const RangeEmaUI = {
       return {
         side: 'SHORT',
         cls: 'short',
-        title: 'Bias: SELL / go short',
-        subtitle: `Red Bar trend bearish${emaAgree === 'agrees' ? ' · EMA agrees' : emaAgree === 'disagrees' ? ' · EMA disagrees — be smaller or skip' : ''}.`,
+        title: red.id === 'trade1_away' ? 'Trade 1 · SELL / go short' : 'Bias: SELL / go short',
+        subtitle: `Bearish${emaNote}${red.id === 'trade1_away' ? ' · left the 1H first red' : ''}.`,
         steps: [
-          `${hint}: open SHORT near current price / band resistance rejection.`,
-          `Stop / invalidation near ${this._fmt(o.invalidation)} (fib high or band).`,
-          `Take profit / book near ${this._fmt(o.bookZone)} (nearest prior swing low / support).`,
-          ...(o.firstRed1h
-            ? [`1H first red high ${this._fmt(o.firstRed1h.high)} — price often revisits before next move.`]
-            : []),
+          `${hint}: SHORT near price / band resistance rejection.`,
+          `Stop at prior swing ${this._fmt(o.invalidation)} (not the fib box).`,
+          `Book toward prior-day low ${this._fmt(o.bookZone)}${pdl != null ? '' : ' (swing / fib fallback)'}.`,
+          pivotStep,
+          ...(liqStep ? [liqStep] : clockStep ? [clockStep] : []),
         ],
         entry: o.price,
         stop: o.invalidation,
@@ -377,7 +418,12 @@ const RangeEmaUI = {
       cls: 'wait',
       title: 'No clear bias',
       subtitle: 'No fib-box break yet.',
-      steps: ['Watch prior-session fibs as magnets; wait for a break of today’s Fib 0 / Fib 1.'],
+      steps: [
+        'Watch prior-session fibs; wait for a break of today’s Fib 0 / Fib 1.',
+        pivotStep,
+        `Prior-day H/L: ${this._fmt(pdh)} / ${this._fmt(pdl)}.`,
+        ...(clockStep ? [clockStep] : []),
+      ],
       entry: null,
       stop: null,
       exit: null,
@@ -497,7 +543,7 @@ const RangeEmaUI = {
       <div class="section-heading">
         <h1>🟥 Red Bar Desk</h1>
         <p class="section-sub">
-          ${inst.label} on <strong>${tf}</strong>: candles, EMA 10/30, session fibs; Stop/Exit when in a trade.
+          ${inst.label} on <strong>${tf}</strong>: session fibs · 1H first-red pivot · prior-day H/L · session clock.
           <span class="range-desk-meta">${inst.tradeHint || ''} · Updated ${when}${this.state.loading ? ' · refreshing…' : ''}</span>
         </p>
       </div>
@@ -584,6 +630,7 @@ const RangeEmaUI = {
           <span class="lg ema30">EMA ${c.emaSlow || 30}</span>
           <span class="lg band">${this._isFibStyle(r) ? `Fib 0·44·50·56·1${r.instrument?.markLabel ? ` · ${r.instrument.markLabel}` : ''}` : 'Day ranges'}</span>
           <span class="lg stop">1H first red</span>
+          <span class="lg tp rb-lg-desk">PDH / PDL</span>
           <span class="lg stop rb-lg-desk">Stop</span>
           <span class="lg tp rb-lg-desk">Exit</span>
           <span class="lg sess-asia rb-lg-desk">Asia</span>
@@ -606,18 +653,29 @@ const RangeEmaUI = {
 
       <div class="range-chips">
         <span class="range-chip">Fib bias: ${o.orBias}</span>
-        <span class="range-chip">Phase: ${String(o.phase).replace(/_/g, ' ')}</span>
+        ${o.playbook?.clock
+          ? `<span class="range-chip">${o.playbook.clock.label}</span>`
+          : ''}
+        ${o.playbook?.redSetup
+          ? `<span class="range-chip ${o.playbook.redSetup.revisitWindow ? 'pos' : ''}">${o.playbook.redSetup.label}</span>`
+          : ''}
         <span class="range-chip">EMA: ${String((r.ema && r.ema.cross) || '').replace(/_/g, ' ')}</span>
         <span class="range-chip ${r.emaAgree === 'agrees' ? 'pos' : r.emaAgree === 'disagrees' ? 'neg' : ''}">EMA ${r.emaAgree}</span>
-        <span class="range-chip">${this._isFibStyle(r) ? ((r.instrument && r.instrument.markLabel) || 'session fibs') : 'day-ranges'} · ${(o.recentBands || []).length} on chart · ${o.bandCountPrior} prior</span>
+        ${o.refs?.priorDayHigh != null
+          ? `<span class="range-chip">PDH ${this._fmt(o.refs.priorDayHigh)} · PDL ${this._fmt(o.refs.priorDayLow)}</span>`
+          : ''}
         ${o.firstRed1h
-          ? `<span class="range-chip">1H first red high ${this._fmt(o.firstRed1h.high)}</span>`
+          ? `<span class="range-chip">1H first red ${this._fmt(o.firstRed1h.high)}</span>`
+          : ''}
+        ${o.playbook?.liquidityTip
+          ? `<span class="range-chip">${o.playbook.liquidityTip}</span>`
           : ''}
       </div>
 
       <p class="range-desk-footnote">
-        Green box = look long · Red box = look short · Grey = wait.
-        You still place the order on the exchange after checking the chart.
+        Green = long · Red = short · Grey = wait.
+        Trade 1 = leave the 1H first red · Trade 2 = revisit · book at prior-day H/L.
+        You still place the order on the exchange.
       </p>
     `;
   },
@@ -1050,7 +1108,7 @@ const RangeEmaUI = {
           const price = Number(t.value).toFixed(0);
           // Compact: "X 82295" not "EXIT 82295" — fits the right gutter
           const shortName = compact
-            ? ({ STOP: 'STP', EXIT: 'TP', '1H RED': '1R', R: 'R', S: 'S' }[t.name] || t.name)
+            ? ({ STOP: 'STP', EXIT: 'TP', '1H RED': '1R', PDH: 'PDH', PDL: 'PDL', 'ASIA HI': 'A↑', 'ASIA LO': 'A↓', 'LON HI': 'L↑', 'LON LO': 'L↓', R: 'R', S: 'S' }[t.name] || t.name)
             : t.name;
           const label = `${shortName} ${price}`;
           const padX = compact ? 4 : 5;
@@ -1198,6 +1256,9 @@ const RangeEmaUI = {
       o.currentBand?.high, o.currentBand?.low,
       o.invalidation, o.bookZone,
       o.firstRed1h?.high, o.firstRed1h?.low,
+      o.refs?.priorDayHigh, o.refs?.priorDayLow,
+      o.refs?.asiaHigh, o.refs?.asiaLow,
+      o.refs?.londonHigh, o.refs?.londonLow,
       ...bandPrices,
     ].filter((v) => v != null && Number.isFinite(Number(v))).map(Number);
     const yHi = Math.max(barHi, ...nearLevels);
@@ -1286,8 +1347,19 @@ const RangeEmaUI = {
       pushTag('STOP', stopPx, COL.stop, 'rgba(60, 10, 10, 0.94)', { priority: true });
       pushTag('EXIT', exitPx, COL.exit, 'rgba(10, 40, 20, 0.94)', { priority: true });
     }
-    // Sagar: first 1H red of the day — high is the revisit magnet
+    // Sagar: first 1H red pivot + prior-day H/L book magnets + session liquidity
     pushTag('1H RED', o.firstRed1h?.high, '#f43f5e', 'rgba(60, 10, 20, 0.94)', { priority: true });
+    pushTag('PDH', o.refs?.priorDayHigh, '#38bdf8', 'rgba(8, 40, 60, 0.92)');
+    pushTag('PDL', o.refs?.priorDayLow, '#38bdf8', 'rgba(8, 40, 60, 0.92)');
+    const clockId = o.playbook?.clock?.id;
+    if (clockId === 'london' || clockId === 'us_open') {
+      pushTag('ASIA HI', o.refs?.asiaHigh, '#818cf8', 'rgba(30, 30, 70, 0.9)');
+      pushTag('ASIA LO', o.refs?.asiaLow, '#818cf8', 'rgba(30, 30, 70, 0.9)');
+    }
+    if (clockId === 'us_open') {
+      pushTag('LON HI', o.refs?.londonHigh, '#f472b6', 'rgba(60, 20, 40, 0.9)');
+      pushTag('LON LO', o.refs?.londonLow, '#f472b6', 'rgba(60, 20, 40, 0.9)');
+    }
     pushTag('R', o.refs?.bandResist, COL.bandResist, 'rgba(46, 16, 80, 0.92)');
     pushTag('S', o.refs?.bandSupport, COL.bandSupport, 'rgba(8, 50, 48, 0.92)');
 

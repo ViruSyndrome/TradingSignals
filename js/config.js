@@ -77,7 +77,8 @@ const CONFIG = {
   },
 
   // ─── Red Bar Desk (trend prediction) + optional EMA overlay ────────────────
-  // CORE = prior-day bands + opening-range break + red-bar refs (js/redbar_trend.js).
+  // Sagar playbook: mark-window fibs + 1H first-red pivot (trade 1 / revisit trade 2)
+  // + prior-day H/L book + Asia→London→US liquidity clock (js/redbar_trend.js).
   // EMA 10/30 is a SEPARATE overlay on the desk — not the trend engine.
   // Tabs: BTC (Binance spot), NIFTY (Yahoo ^NSEI), XAU (Binance futures / PAXG fallback).
   rangeEma: {
@@ -160,6 +161,7 @@ const CONFIG = {
         tradeHint: 'Binance Futures · XAUUSDT · Fib 01:30–02:30 IST',
         showSessionMarkers: true,
         sessions: [
+          { id: 'asia', label: 'Asia', timeZone: 'Asia/Tokyo', open: [9, 0], close: [15, 0], color: '#818cf8' },
           { id: 'london', label: 'London', timeZone: 'Europe/London', open: [8, 0], close: [16, 30], color: '#f472b6' },
           { id: 'ny', label: 'US', timeZone: 'America/New_York', open: [9, 30], close: [16, 0], color: '#cbd5e1' },
         ],
