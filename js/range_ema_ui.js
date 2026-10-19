@@ -1359,9 +1359,8 @@ const RangeEmaUI = {
       },
     ];
 
-    // Y-axis tags: only levels that still matter for the current setup
-    // (entry available / in trade / liquidity not yet swept). Fib R/S stay on
-    // the band paint — no duplicate axis clutter.
+    // Y-axis: keep it sparse. Chips carry PDH/PDL + Asia/London liquidity.
+    // Axis only shows live trade levels + 1H RED at entry moments.
     const levelTags = [];
     const priceNow = Number(o.price);
     const pushTag = (name, value, color, bg, { priority = false } = {}) => {
@@ -1374,7 +1373,6 @@ const RangeEmaUI = {
       }
       levelTags.push({ name, value: v, color, bg });
     };
-    /** Level still usable as a target above/below price (not already passed). */
     const ahead = (level, dir) => {
       if (level == null || !Number.isFinite(priceNow)) return false;
       const v = Number(level);
@@ -1382,14 +1380,12 @@ const RangeEmaUI = {
       if (dir === 'below') return v < priceNow;
       return true;
     };
-    /** Liquidity extreme not swept yet. */
-    const unsweptHi = (level) => ahead(level, 'above');
-    const unsweptLo = (level) => ahead(level, 'below');
 
     const redId = o.playbook?.redSetup?.id;
-    const showPivot = !!(o.firstRed1h?.high != null && redId && redId !== 'no_red');
+    // Dashed pivot line + tag only when price is at/revisit the first-red entry
+    const showPivot = !!(o.firstRed1h?.high != null
+      && (redId === 'trade2_revisit' || redId === 'at_pivot'));
 
-    // STOP / EXIT only when a side is live; EXIT only if still ahead
     if (trading) {
       pushTag('STOP', stopPx, COL.stop, 'rgba(60, 10, 10, 0.94)', { priority: true });
       if (action.side === 'LONG' && ahead(exitPx, 'above')) {
@@ -1398,43 +1394,8 @@ const RangeEmaUI = {
         pushTag('EXIT', exitPx, COL.exit, 'rgba(10, 40, 20, 0.94)', { priority: true });
       }
     }
-
-    // 1H first-red pivot while it is the active magnet (marked / trade 1 / trade 2)
     if (showPivot) {
       pushTag('1H RED', o.firstRed1h.high, '#f43f5e', 'rgba(60, 10, 20, 0.94)', { priority: true });
-    }
-
-    // Prior-day book magnets: only the side that is still ahead for the bias
-    if (trading && action.side === 'LONG' && ahead(o.refs?.priorDayHigh, 'above')) {
-      pushTag('PDH', o.refs.priorDayHigh, '#38bdf8', 'rgba(8, 40, 60, 0.92)');
-    } else if (trading && action.side === 'SHORT' && ahead(o.refs?.priorDayLow, 'below')) {
-      pushTag('PDL', o.refs.priorDayLow, '#38bdf8', 'rgba(8, 40, 60, 0.92)');
-    } else if (!trading && (redId === 'trade2_revisit' || redId === 'at_pivot')) {
-      if (ahead(o.refs?.priorDayHigh, 'above')) {
-        pushTag('PDH', o.refs.priorDayHigh, '#38bdf8', 'rgba(8, 40, 60, 0.92)');
-      }
-      if (ahead(o.refs?.priorDayLow, 'below')) {
-        pushTag('PDL', o.refs.priorDayLow, '#38bdf8', 'rgba(8, 40, 60, 0.92)');
-      }
-    }
-
-    // Session liquidity: only unswept extremes in the active clock window
-    const clockId = o.playbook?.clock?.id;
-    if (clockId === 'london' || clockId === 'us_open') {
-      if (unsweptHi(o.refs?.asiaHigh)) {
-        pushTag('ASIA HI', o.refs.asiaHigh, '#818cf8', 'rgba(30, 30, 70, 0.9)');
-      }
-      if (unsweptLo(o.refs?.asiaLow)) {
-        pushTag('ASIA LO', o.refs.asiaLow, '#818cf8', 'rgba(30, 30, 70, 0.9)');
-      }
-    }
-    if (clockId === 'us_open') {
-      if (unsweptHi(o.refs?.londonHigh)) {
-        pushTag('LON HI', o.refs.londonHigh, '#f472b6', 'rgba(60, 20, 40, 0.9)');
-      }
-      if (unsweptLo(o.refs?.londonLow)) {
-        pushTag('LON LO', o.refs.londonLow, '#f472b6', 'rgba(60, 20, 40, 0.9)');
-      }
     }
 
     this.destroyChart();
@@ -1592,7 +1553,8 @@ const RangeEmaUI = {
             ticks: {
               color: 'rgba(255,255,255,0.45)',
               font: { size: compact ? 9 : 10, family: 'Outfit' },
-              maxTicksLimit: compact ? 5 : 8,
+              // Fewer plain price ticks — custom STOP/EXIT tags carry the action
+              maxTicksLimit: compact ? 3 : 5,
               callback: (v) => Number(v).toFixed(0),
             },
           },
