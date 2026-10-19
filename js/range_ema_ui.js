@@ -636,7 +636,6 @@ const RangeEmaUI = {
           <span class="lg ema30">EMA ${c.emaSlow || 30}</span>
           <span class="lg band">${this._isFibStyle(r) ? `Fib 0·44·50·56·1${r.instrument?.markLabel ? ` · ${r.instrument.markLabel}` : ''}` : 'Day ranges'}</span>
           <span class="lg stop">1H first red</span>
-          <span class="lg tp rb-lg-desk">PDH / PDL</span>
           <span class="lg stop rb-lg-desk">Stop</span>
           <span class="lg tp rb-lg-desk">Exit</span>
           <span class="lg sess-asia rb-lg-desk">Asia</span>
@@ -1042,11 +1041,12 @@ const RangeEmaUI = {
     };
   },
 
-  /** Full-width dashed line at first 1H red high (session-day magnet). */
+  /** Full-width dashed line at first 1H red high — only while pivot is active. */
   _firstRed1hPlugin() {
     return {
       id: 'rbFirstRed1h',
       afterDatasetsDraw(chart) {
+        if (chart.$rbShowFirstRed === false) return;
         const red = chart.$rbFirstRed1h;
         if (!red || red.high == null) return;
         const yScale = chart.scales.y;
@@ -1333,41 +1333,83 @@ const RangeEmaUI = {
       },
     ];
 
-    // Levels = Y-axis markers only (no chart-wide dotted / solid rails)
+    // Y-axis tags: only levels that still matter for the current setup
+    // (entry available / in trade / liquidity not yet swept). Fib R/S stay on
+    // the band paint — no duplicate axis clutter.
     const levelTags = [];
+    const priceNow = Number(o.price);
     const pushTag = (name, value, color, bg, { priority = false } = {}) => {
       if (value == null || !Number.isFinite(Number(value))) return;
       const v = Number(value);
       const hit = levelTags.findIndex((t) => this._nearPrice(t.value, v, 2));
       if (hit >= 0) {
-        // Never let R/S eat STOP/EXIT — rename or skip
-        if (priority) {
-          levelTags[hit] = { name, value: v, color, bg };
-        }
+        if (priority) levelTags[hit] = { name, value: v, color, bg };
         return;
       }
       levelTags.push({ name, value: v, color, bg });
     };
-    // STOP / EXIT first so they always win the Y-axis slot
+    /** Level still usable as a target above/below price (not already passed). */
+    const ahead = (level, dir) => {
+      if (level == null || !Number.isFinite(priceNow)) return false;
+      const v = Number(level);
+      if (dir === 'above') return v > priceNow;
+      if (dir === 'below') return v < priceNow;
+      return true;
+    };
+    /** Liquidity extreme not swept yet. */
+    const unsweptHi = (level) => ahead(level, 'above');
+    const unsweptLo = (level) => ahead(level, 'below');
+
+    const redId = o.playbook?.redSetup?.id;
+    const showPivot = !!(o.firstRed1h?.high != null && redId && redId !== 'no_red');
+
+    // STOP / EXIT only when a side is live; EXIT only if still ahead
     if (trading) {
       pushTag('STOP', stopPx, COL.stop, 'rgba(60, 10, 10, 0.94)', { priority: true });
-      pushTag('EXIT', exitPx, COL.exit, 'rgba(10, 40, 20, 0.94)', { priority: true });
+      if (action.side === 'LONG' && ahead(exitPx, 'above')) {
+        pushTag('EXIT', exitPx, COL.exit, 'rgba(10, 40, 20, 0.94)', { priority: true });
+      } else if (action.side === 'SHORT' && ahead(exitPx, 'below')) {
+        pushTag('EXIT', exitPx, COL.exit, 'rgba(10, 40, 20, 0.94)', { priority: true });
+      }
     }
-    // Sagar: first 1H red pivot + prior-day H/L book magnets + session liquidity
-    pushTag('1H RED', o.firstRed1h?.high, '#f43f5e', 'rgba(60, 10, 20, 0.94)', { priority: true });
-    pushTag('PDH', o.refs?.priorDayHigh, '#38bdf8', 'rgba(8, 40, 60, 0.92)');
-    pushTag('PDL', o.refs?.priorDayLow, '#38bdf8', 'rgba(8, 40, 60, 0.92)');
+
+    // 1H first-red pivot while it is the active magnet (marked / trade 1 / trade 2)
+    if (showPivot) {
+      pushTag('1H RED', o.firstRed1h.high, '#f43f5e', 'rgba(60, 10, 20, 0.94)', { priority: true });
+    }
+
+    // Prior-day book magnets: only the side that is still ahead for the bias
+    if (trading && action.side === 'LONG' && ahead(o.refs?.priorDayHigh, 'above')) {
+      pushTag('PDH', o.refs.priorDayHigh, '#38bdf8', 'rgba(8, 40, 60, 0.92)');
+    } else if (trading && action.side === 'SHORT' && ahead(o.refs?.priorDayLow, 'below')) {
+      pushTag('PDL', o.refs.priorDayLow, '#38bdf8', 'rgba(8, 40, 60, 0.92)');
+    } else if (!trading && (redId === 'trade2_revisit' || redId === 'at_pivot')) {
+      if (ahead(o.refs?.priorDayHigh, 'above')) {
+        pushTag('PDH', o.refs.priorDayHigh, '#38bdf8', 'rgba(8, 40, 60, 0.92)');
+      }
+      if (ahead(o.refs?.priorDayLow, 'below')) {
+        pushTag('PDL', o.refs.priorDayLow, '#38bdf8', 'rgba(8, 40, 60, 0.92)');
+      }
+    }
+
+    // Session liquidity: only unswept extremes in the active clock window
     const clockId = o.playbook?.clock?.id;
     if (clockId === 'london' || clockId === 'us_open') {
-      pushTag('ASIA HI', o.refs?.asiaHigh, '#818cf8', 'rgba(30, 30, 70, 0.9)');
-      pushTag('ASIA LO', o.refs?.asiaLow, '#818cf8', 'rgba(30, 30, 70, 0.9)');
+      if (unsweptHi(o.refs?.asiaHigh)) {
+        pushTag('ASIA HI', o.refs.asiaHigh, '#818cf8', 'rgba(30, 30, 70, 0.9)');
+      }
+      if (unsweptLo(o.refs?.asiaLow)) {
+        pushTag('ASIA LO', o.refs.asiaLow, '#818cf8', 'rgba(30, 30, 70, 0.9)');
+      }
     }
     if (clockId === 'us_open') {
-      pushTag('LON HI', o.refs?.londonHigh, '#f472b6', 'rgba(60, 20, 40, 0.9)');
-      pushTag('LON LO', o.refs?.londonLow, '#f472b6', 'rgba(60, 20, 40, 0.9)');
+      if (unsweptHi(o.refs?.londonHigh)) {
+        pushTag('LON HI', o.refs.londonHigh, '#f472b6', 'rgba(60, 20, 40, 0.9)');
+      }
+      if (unsweptLo(o.refs?.londonLow)) {
+        pushTag('LON LO', o.refs.londonLow, '#f472b6', 'rgba(60, 20, 40, 0.9)');
+      }
     }
-    pushTag('R', o.refs?.bandResist, COL.bandResist, 'rgba(46, 16, 80, 0.92)');
-    pushTag('S', o.refs?.bandSupport, COL.bandSupport, 'rgba(8, 50, 48, 0.92)');
 
     this.destroyChart();
     this._chart = new Chart(canvas.getContext('2d'), {
@@ -1536,6 +1578,7 @@ const RangeEmaUI = {
       ? dayBands.slice(-5)
       : dayBands;
     this._chart.$rbFirstRed1h = o.firstRed1h || null;
+    this._chart.$rbShowFirstRed = showPivot;
     this._chart.$rbLevelTags = levelTags;
     this._chart.$rbCompact = compact;
     this._chart.$rbUI = this;
