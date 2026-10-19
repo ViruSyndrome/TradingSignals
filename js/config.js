@@ -101,12 +101,17 @@ const CONFIG = {
         symbol: 'BTCUSDT',
         feed: 'binanceSpot',
         dayMode: 'ist',
-        // Friend's TV method: Fib on 02:30 IST candle (≈ US cash close)
-        bandStyle: 'istFib0230',
-        orAnchor: { timeZone: 'Asia/Kolkata', hour: 2, minute: 30 },
+        // Last hour before ~03:30 IST universal open — institutional close window
+        bandStyle: 'sessionFib',
+        markWindow: {
+          timeZone: 'Asia/Kolkata',
+          startHour: 2, startMinute: 30,
+          endHour: 3, endMinute: 30,
+        },
+        markLabel: '02:30–03:30 IST',
         fibLevels: [0, 0.44, 0.5, 0.56, 1],
         priceDecimals: 2,
-        tradeHint: 'Binance USDⓈ-M · BTCUSDT · OR/Fib @ 02:30 IST',
+        tradeHint: 'Binance USDⓈ-M · BTCUSDT · Fib 02:30–03:30 IST',
         showSessionMarkers: true,
         sessions: [
           { id: 'asia', label: 'Asia', timeZone: 'Asia/Tokyo', open: [9, 0], close: [15, 0], color: '#818cf8' },
@@ -120,8 +125,17 @@ const CONFIG = {
         symbol: '^NSEI',
         feed: 'yahoo',
         dayMode: 'ist',
+        // Cash close window 15:15–15:45 IST (15:30 close + 15:45 bar)
+        bandStyle: 'sessionFib',
+        markWindow: {
+          timeZone: 'Asia/Kolkata',
+          startHour: 15, startMinute: 15,
+          endHour: 15, endMinute: 45,
+        },
+        markLabel: '15:15–15:45 IST',
+        fibLevels: [0, 0.44, 0.5, 0.56, 1],
         priceDecimals: 2,
-        tradeHint: 'Chart research — trade on your NSE broker',
+        tradeHint: 'NSE · Fib on 15:15–15:45 IST close window',
         showSessionMarkers: true,
         sessions: [
           { id: 'nse', label: 'NSE', timeZone: 'Asia/Kolkata', open: [9, 15], close: [15, 30], color: '#38bdf8' },
@@ -134,11 +148,16 @@ const CONFIG = {
         fallbackSymbol: 'PAXGUSDT',
         feed: 'binanceFutures',
         dayMode: 'ist',
-        bandStyle: 'istFib0230',
-        orAnchor: { timeZone: 'Asia/Kolkata', hour: 2, minute: 30 },
+        bandStyle: 'sessionFib',
+        markWindow: {
+          timeZone: 'Asia/Kolkata',
+          startHour: 1, startMinute: 30,
+          endHour: 2, endMinute: 30,
+        },
+        markLabel: '01:30–02:30 IST',
         fibLevels: [0, 0.44, 0.5, 0.56, 1],
         priceDecimals: 2,
-        tradeHint: 'Binance Futures TradFi · XAUUSDT · OR/Fib @ 02:30 IST',
+        tradeHint: 'Binance Futures · XAUUSDT · Fib 01:30–02:30 IST',
         showSessionMarkers: true,
         sessions: [
           { id: 'london', label: 'London', timeZone: 'Europe/London', open: [8, 0], close: [16, 30], color: '#f472b6' },

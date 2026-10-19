@@ -1,12 +1,12 @@
 'use strict';
 
 /**
- * redbar_trend.js — Red Bar / prior-day range TREND indicator (course-style, no paid tool)
+ * redbar_trend.js — Red Bar / session-mark TREND indicator (course-style, no paid tool)
  *
  * THIS is the trend-prediction layer ("finding gold"):
- *  1. Magnets = prior session ranges (full day H/L/M, OR 02:30 IST fib on BTC).
- *  2. Opening range = first candle of the desk day / 02:30 IST anchor candle —
- *     do not trade it; after lock: break above → bull, below → bear, inside → WAIT.
+ *  1. Magnets = Fib 0/0.44/0.5/0.56/1 on each mark window (e.g. BTC 02:30–03:30 IST),
+ *     or full calendar-day H/L/M when bandStyle = dayHl.
+ *  2. Opening range = that same mark window — wait until it locks; then break bias.
  *  3. Where price sits vs prior bands: inside (balance) vs held break (trend).
  *  4. Last red bar / swings: book & stop references.
  *
@@ -21,12 +21,14 @@ const RedBarTrend = {
     touchPct: 0.15,
     chartBandDays: 7,
     swingPivot: 3,
-    /* Day clock for opening-range / prior-day bands */
+    /* Day clock for dayHl mode */
     dayMode: 'utc', // 'utc' | 'ny' | 'ist'
-    /* 'dayHl' = full calendar-day H/L/M | 'istFib0230' = Fib on 02:30 IST candle */
+    /* 'dayHl' | 'sessionFib' (alias: istFib0230) */
     bandStyle: 'dayHl',
     fibLevels: [0, 0.44, 0.5, 0.56, 1],
-    orAnchor: null, // { timeZone, hour, minute } — when set, OR = that candle
+    /* Mark window: aggregate H/L over [start, end) then Fib — e.g. BTC 02:30–03:30 IST */
+    markWindow: null, // { timeZone, startHour, startMinute, endHour, endMinute }
+    orAnchor: null, // legacy single-candle → treated as start; prefer markWindow
   },
 
   utcDay(ts) {
@@ -79,14 +81,44 @@ const RedBarTrend = {
     };
   },
 
+  /** Normalize markWindow from cfg (supports legacy orAnchor). */
+  getMarkWindow(cfg = {}) {
+    if (cfg.markWindow && cfg.markWindow.timeZone) return cfg.markWindow;
+    if (cfg.orAnchor) {
+      const a = cfg.orAnchor;
+      const sh = a.hour != null ? a.hour : 2;
+      const sm = a.minute != null ? a.minute : 30;
+      // Legacy: single candle → 1h window from that clock
+      let eh = sh + 1;
+      let em = sm;
+      if (eh >= 24) eh -= 24;
+      return {
+        timeZone: a.timeZone || 'Asia/Kolkata',
+        startHour: sh,
+        startMinute: sm,
+        endHour: eh,
+        endMinute: em,
+      };
+    }
+    return null;
+  },
+
+  isSessionFib(cfg = {}) {
+    const s = cfg.bandStyle;
+    return s === 'sessionFib' || s === 'istFib0230';
+  },
+
   /**
-   * Session day for an anchor clock (e.g. 02:30 IST).
-   * Before the anchor → still previous session day.
+   * Session day for a mark window: before window START → previous calendar day.
+   * (Today's fib belongs to calendar day D once that day's window has begun.)
    */
-  sessionDayKey(ts, anchor) {
-    const tz = (anchor && anchor.timeZone) || 'Asia/Kolkata';
-    const h = (anchor && anchor.hour) != null ? anchor.hour : 2;
-    const m = (anchor && anchor.minute) != null ? anchor.minute : 30;
+  sessionDayKey(ts, windowOrAnchor) {
+    const w = windowOrAnchor && windowOrAnchor.startHour != null
+      ? windowOrAnchor
+      : this.getMarkWindow({ orAnchor: windowOrAnchor, markWindow: windowOrAnchor });
+    const tz = (w && w.timeZone) || 'Asia/Kolkata';
+    const h = w && w.startHour != null ? w.startHour : 2;
+    const m = w && w.startMinute != null ? w.startMinute : 30;
     const p = this.zonedHms(ts, tz);
     if (p.hour < h || (p.hour === h && p.minute < m)) return this.shiftDay(p.day, -1);
     return p.day;
@@ -127,30 +159,39 @@ const RedBarTrend = {
   },
 
   /**
-   * Bar whose open is at (or nearest containing) the session anchor on dayStr.
+   * Aggregate H/L of all bars that overlap [start, end) on dayStr.
+   * e.g. BTC 02:30–03:30 IST = last hour before “universal” open.
+   * Uses overlap (not open-only) so binary-search clock skew cannot drop the open bar.
    */
-  findAnchorBar(bars, dayStr, anchor) {
-    if (!bars || !bars.length || !dayStr) return null;
-    const tz = (anchor && anchor.timeZone) || 'Asia/Kolkata';
-    const h = (anchor && anchor.hour) != null ? anchor.hour : 2;
-    const m = (anchor && anchor.minute) != null ? anchor.minute : 30;
-    const target = this.zonedClockToUtc(dayStr, tz, h, m);
-    const barMs = bars.length > 1 ? Math.abs(bars[1].t - bars[0].t) : 30 * 60 * 1000;
-    let best = null;
-    let bestDist = Infinity;
+  findMarkWindowRange(bars, dayStr, window) {
+    if (!bars || !bars.length || !dayStr || !window) return null;
+    const tz = window.timeZone || 'Asia/Kolkata';
+    const t0 = this.zonedClockToUtc(dayStr, tz, window.startHour, window.startMinute);
+    const t1 = this.zonedClockToUtc(dayStr, tz, window.endHour, window.endMinute);
+    if (!(t1 > t0)) return null;
+    let high = -Infinity;
+    let low = Infinity;
+    let i0 = -1;
+    let i1 = -1;
+    let openT = null;
+    // Open-in-window with slack: clock search can sit a few seconds after true HH:MM,
+    // which would otherwise drop the exact open bar or pull in the end bar.
+    const openFrom = t0 - 90 * 1000;
+    const openUntil = t1 - 30 * 1000;
     for (let i = 0; i < bars.length; i++) {
       const b = bars[i];
-      const open = b.t;
-      const close = b.t + barMs;
-      if (target >= open && target < close) return { bar: b, index: i };
-      const dist = Math.abs(open - target);
-      if (dist < bestDist) {
-        bestDist = dist;
-        best = { bar: b, index: i };
+      if (b.t >= openFrom && b.t < openUntil) {
+        if (i0 < 0) {
+          i0 = i;
+          openT = b.t;
+        }
+        i1 = i;
+        high = Math.max(high, b.h);
+        low = Math.min(low, b.l);
       }
     }
-    if (best && bestDist <= barMs * 1.1) return best;
-    return null;
+    if (i0 < 0 || !(high > low) || !Number.isFinite(high) || !Number.isFinite(low)) return null;
+    return { high, low, i0, i1, openT, t0, t1 };
   },
 
   buildDailyBands(bars, lookbackDays = 90, dayMode = 'utc') {
@@ -179,28 +220,25 @@ const RedBarTrend = {
   },
 
   /**
-   * Friend's TV method: Fib 0 / 0.44 / 0.5 / 0.56 / 1 on each 02:30 IST candle,
-   * extended forward. One band per session day.
+   * Fib 0 / 0.44 / 0.5 / 0.56 / 1 on each day's mark window H/L, extended forward.
    */
-  buildIstFibBands(bars, lookbackDays = 90, cfg = {}) {
-    const anchor = cfg.orAnchor || { timeZone: 'Asia/Kolkata', hour: 2, minute: 30 };
+  buildSessionFibBands(bars, lookbackDays = 90, cfg = {}) {
+    const window = this.getMarkWindow(cfg);
+    if (!window) return [];
     const levels = Array.isArray(cfg.fibLevels) && cfg.fibLevels.length
       ? cfg.fibLevels
       : [0, 0.44, 0.5, 0.56, 1];
+    const tz = window.timeZone || 'Asia/Kolkata';
     const days = new Set();
-    for (const b of bars) days.add(this.zonedDay(b.t, anchor.timeZone || 'Asia/Kolkata'));
-    // Also include previous calendar day so early-session bars still find yesterday's fib
+    for (const b of bars) days.add(this.zonedDay(b.t, tz));
     const sortedDays = [...days].sort();
     if (sortedDays.length) days.add(this.shiftDay(sortedDays[0], -1));
 
     const bands = [];
     for (const day of [...days].sort()) {
-      const hit = this.findAnchorBar(bars, day, anchor);
+      const hit = this.findMarkWindowRange(bars, day, window);
       if (!hit) continue;
-      const { bar, index } = hit;
-      const high = bar.h;
-      const low = bar.l;
-      if (!(high > low)) continue;
+      const { high, low, i0, openT } = hit;
       const fib = {};
       for (const lv of levels) fib[`f${String(lv).replace('.', '_')}`] = this.fibPrice(high, low, lv);
       bands.push({
@@ -213,9 +251,12 @@ const RedBarTrend = {
         f50: this.fibPrice(high, low, 0.5),
         f56: this.fibPrice(high, low, 0.56),
         f1: this.fibPrice(high, low, 1),
-        openT: bar.t,
-        index,
-        style: 'istFib0230',
+        openT,
+        index: i0,
+        i1Mark: hit.i1,
+        t0: hit.t0,
+        t1: hit.t1,
+        style: 'sessionFib',
         levels: fib,
       });
     }
@@ -223,16 +264,15 @@ const RedBarTrend = {
   },
 
   buildBands(bars, cfg) {
-    if (cfg.bandStyle === 'istFib0230') {
-      return this.buildIstFibBands(bars, cfg.lookbackDays || 90, cfg);
+    if (this.isSessionFib(cfg) && this.getMarkWindow(cfg)) {
+      return this.buildSessionFibBands(bars, cfg.lookbackDays || 90, cfg);
     }
     return this.buildDailyBands(bars, cfg.lookbackDays || 90, cfg.dayMode || 'utc');
   },
 
   asOfDayFor(ts, cfg) {
-    if (cfg.bandStyle === 'istFib0230' || cfg.orAnchor) {
-      return this.sessionDayKey(ts, cfg.orAnchor || { timeZone: 'Asia/Kolkata', hour: 2, minute: 30 });
-    }
+    const w = this.getMarkWindow(cfg);
+    if (w) return this.sessionDayKey(ts, w);
     return this.dayKey(ts, cfg.dayMode || 'utc');
   },
 
@@ -241,7 +281,7 @@ const RedBarTrend = {
   },
 
   bandLevelList(b) {
-    if (b.style === 'istFib0230') {
+    if (b.style === 'sessionFib' || b.style === 'istFib0230') {
       return [b.f1, b.f56, b.f50, b.f44, b.f0].filter((v) => v != null && Number.isFinite(v));
     }
     return [b.high, b.mid, b.low].filter((v) => v != null && Number.isFinite(v));
@@ -315,26 +355,35 @@ const RedBarTrend = {
   },
 
   /**
-   * Opening range = first candle of asOfDay, OR the session-anchor candle
-   * (e.g. 02:30 IST) when orAnchor / istFib0230 is configured.
+   * Opening range = mark-window H/L (sessionFib), else first candle of asOfDay.
+   * Locked only after the mark window END (institutions done / range complete).
    */
   openingRange(bars, asOfDay, dayMode, cfg = {}) {
+    const window = this.getMarkWindow(cfg);
+    if (window && this.isSessionFib(cfg)) {
+      const hit = this.findMarkWindowRange(bars, asOfDay, window);
+      if (!hit) return null;
+      const lastT = bars.length ? bars[bars.length - 1].t : 0;
+      const locked = lastT >= hit.t1;
+      return {
+        high: hit.high,
+        low: hit.low,
+        mid: (hit.high + hit.low) / 2,
+        openT: hit.openT,
+        index: hit.i0,
+        indexEnd: hit.i1,
+        t0: hit.t0,
+        t1: hit.t1,
+        locked,
+      };
+    }
     let first = null;
     let firstIdx = -1;
-    if (cfg.orAnchor || cfg.bandStyle === 'istFib0230') {
-      const anchor = cfg.orAnchor || { timeZone: 'Asia/Kolkata', hour: 2, minute: 30 };
-      const hit = this.findAnchorBar(bars, asOfDay, anchor);
-      if (hit) {
-        first = hit.bar;
-        firstIdx = hit.index;
-      }
-    } else {
-      for (let i = 0; i < bars.length; i++) {
-        if (this.dayKey(bars[i].t, dayMode) === asOfDay) {
-          first = bars[i];
-          firstIdx = i;
-          break;
-        }
+    for (let i = 0; i < bars.length; i++) {
+      if (this.dayKey(bars[i].t, dayMode) === asOfDay) {
+        first = bars[i];
+        firstIdx = i;
+        break;
       }
     }
     if (!first) return null;
@@ -344,7 +393,6 @@ const RedBarTrend = {
       mid: (first.h + first.l) / 2,
       openT: first.t,
       index: firstIdx,
-      /* True once at least one later bar exists — first candle is "ignored" for entries */
       locked: firstIdx < bars.length - 1,
     };
   },
@@ -499,10 +547,10 @@ const RedBarTrend = {
 
   _narrative({ trend, phase, bandPhase, activeCount, orBias }) {
     if (phase === 'first_candle') {
-      return 'Anchor candle (02:30 IST / day open) — mark high/low only; do not trade yet.';
+      return 'Mark window still forming — record high/low only; do not trade until it locks.';
     }
     if (phase === 'inside_or') {
-      return 'Price inside today’s opening range / 02:30 fib box (no-trade zone). Wait for a break of that high or low.';
+      return 'Price inside today’s mark-window fib box (no-trade zone). Wait for a break of that high or low.';
     }
     if (trend === 'bullish') {
       if (bandPhase.includes('pullback') || activeCount) {

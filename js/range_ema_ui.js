@@ -256,6 +256,7 @@ const RangeEmaUI = {
       dayMode: instrument.dayMode || c.dayMode || 'utc',
       chartBandDays: c.chartBandDays || 7,
       bandStyle: instrument.bandStyle || c.bandStyle || 'dayHl',
+      markWindow: instrument.markWindow || c.markWindow || null,
       orAnchor: instrument.orAnchor || c.orAnchor || null,
       fibLevels: instrument.fibLevels || c.fibLevels || [0, 0.44, 0.5, 0.56, 1],
     });
@@ -549,8 +550,8 @@ const RangeEmaUI = {
           <span class="lg price">Candles</span>
           <span class="lg ema10">EMA ${c.emaFast || 10}</span>
           <span class="lg ema30">EMA ${c.emaSlow || 30}</span>
-          <span class="lg or">${(r.readout?.bandStyle || r.instrument?.bandStyle) === 'istFib0230' ? 'OR @ 02:30 IST' : 'OR'}</span>
-          <span class="lg band">${(r.readout?.bandStyle || r.instrument?.bandStyle) === 'istFib0230' ? 'Fib 0·44·50·56·1' : 'Day ranges'}</span>
+          <span class="lg or">${this._isFibStyle(r) ? `OR ${r.instrument?.markLabel || ''}`.trim() : 'OR'}</span>
+          <span class="lg band">${this._isFibStyle(r) ? 'Fib 0·44·50·56·1' : 'Day ranges'}</span>
           <span class="lg stop rb-lg-desk">Stop</span>
           <span class="lg tp rb-lg-desk">Exit</span>
           <span class="lg sess-asia rb-lg-desk">Asia</span>
@@ -576,7 +577,7 @@ const RangeEmaUI = {
         <span class="range-chip">Phase: ${String(o.phase).replace(/_/g, ' ')}</span>
         <span class="range-chip">EMA: ${String((r.ema && r.ema.cross) || '').replace(/_/g, ' ')}</span>
         <span class="range-chip ${r.emaAgree === 'agrees' ? 'pos' : r.emaAgree === 'disagrees' ? 'neg' : ''}">EMA ${r.emaAgree}</span>
-        <span class="range-chip">${o.bandStyle === 'istFib0230' ? '02:30 IST fibs' : 'day-ranges'} · ${(o.recentBands || []).length} on chart · ${o.bandCountPrior} prior</span>
+        <span class="range-chip">${this._isFibStyle(r) ? ((r.instrument && r.instrument.markLabel) || 'session fibs') : 'day-ranges'} · ${(o.recentBands || []).length} on chart · ${o.bandCountPrior} prior</span>
       </div>
 
       <p class="range-desk-footnote">
@@ -825,9 +826,16 @@ const RangeEmaUI = {
   /**
    * Magnets:
    * - dayHl: box over that calendar day (legacy)
-   * - istFib0230: Fib 0/0.44/0.5/0.56/1 on 02:30 IST candle, extend right
+   * - sessionFib: Fib 0/0.44/0.5/0.56/1 on mark-window H/L, extend right
    *   (orange 0–0.44, green 0.44–0.56, grey 0.56–1 — matches TV)
    */
+  _isFibStyle(rowOrStyle) {
+    const s = typeof rowOrStyle === 'string'
+      ? rowOrStyle
+      : (rowOrStyle?.readout?.bandStyle || rowOrStyle?.instrument?.bandStyle || rowOrStyle?.bandStyle);
+    return s === 'sessionFib' || s === 'istFib0230';
+  },
+
   _bandZonesPlugin() {
     return {
       id: 'rbBandZones',
@@ -860,7 +868,7 @@ const RangeEmaUI = {
           x1 = Math.min(x1, area.right);
           if (x1 <= x0) continue;
 
-          const isFib = b.style === 'istFib0230' && b.f44 != null;
+          const isFib = (b.style === 'sessionFib' || b.style === 'istFib0230') && b.f44 != null;
           const age = 0.4 + ((i + 1) / n) * 0.55;
           ctx.globalAlpha = age;
 
@@ -1117,12 +1125,15 @@ const RangeEmaUI = {
     const closes = bars.map((b) => b.c);
     // Map each prior-day band onto bar indices in the visible window (for day-scoped boxes)
     const dayMode = inst.dayMode || c.dayMode || 'utc';
-    const fibMode = (o.bandStyle || inst.bandStyle) === 'istFib0230';
+    const fibMode = this._isFibStyle(o.bandStyle || inst.bandStyle);
+    const markWin = inst.markWindow || (typeof RedBarTrend !== 'undefined'
+      ? RedBarTrend.getMarkWindow({ markWindow: inst.markWindow, orAnchor: inst.orAnchor, bandStyle: inst.bandStyle })
+      : null);
     const daySpans = new Map();
     for (let i = 0; i < times.length; i++) {
       const day = (typeof RedBarTrend !== 'undefined')
-        ? (fibMode
-          ? RedBarTrend.sessionDayKey(times[i], inst.orAnchor || { timeZone: 'Asia/Kolkata', hour: 2, minute: 30 })
+        ? (fibMode && markWin
+          ? RedBarTrend.sessionDayKey(times[i], markWin)
           : RedBarTrend.dayKey(times[i], dayMode))
         : new Date(times[i]).toISOString().slice(0, 10);
       if (!daySpans.has(day)) daySpans.set(day, { i0: i, i1: i });
@@ -1170,7 +1181,7 @@ const RangeEmaUI = {
     const barHi = Math.max(...bars.map((b) => b.h));
     const barLo = Math.min(...bars.map((b) => b.l));
     const bandPrices = dayBands.flatMap((b) => (
-      b.style === 'istFib0230'
+      (b.style === 'sessionFib' || b.style === 'istFib0230')
         ? [b.f0, b.f44, b.f50, b.f56, b.f1]
         : [b.high, b.low, b.mid]
     ))
@@ -1253,20 +1264,21 @@ const RangeEmaUI = {
     const asOfDay = o.asOfDay;
     const todayBand = dayBands.find((b) => b.day === asOfDay);
     const todaySpan = asOfDay ? daySpans.get(asOfDay) : null;
-    // OR highlight = the 02:30 (or first-day) candle only
-    const orI0 = (o.openingRange && o.openingRange.index != null)
-      ? (() => {
-          const visStart = row.bars.length - bars.length;
-          const local = o.openingRange.index - visStart;
-          return local >= 0 && local < bars.length ? local : null;
-        })()
-      : (todayBand ? todayBand.i0 : (todaySpan ? todaySpan.i0 : null));
+    // OR highlight = full mark window (e.g. 02:30–03:30 bars)
+    const toLocal = (absIdx) => {
+      if (absIdx == null) return null;
+      const visStart = row.bars.length - bars.length;
+      const local = absIdx - visStart;
+      return local >= 0 && local < bars.length ? local : null;
+    };
+    const orI0 = toLocal(o.openingRange?.index) ?? todayBand?.i0 ?? todaySpan?.i0 ?? null;
+    const orI1 = toLocal(o.openingRange?.indexEnd) ?? orI0;
     const orZone = (orHigh != null && orLow != null)
       ? {
           high: orHigh,
           low: orLow,
           i0: orI0,
-          i1: orI0 != null ? orI0 : null,
+          i1: orI1,
           fill: trading ? 'rgba(234, 179, 8, 0.14)' : 'rgba(234, 179, 8, 0.24)',
           stroke: trading ? 'rgba(234, 179, 8, 0.65)' : 'rgba(234, 179, 8, 0.9)',
         }
