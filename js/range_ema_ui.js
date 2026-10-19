@@ -24,19 +24,28 @@ const RangeEmaUI = {
   },
 
   /**
-   * True on phones even when Chrome "Desktop site" inflates CSS width (~980px).
-   * Uses device-width + touch + visualViewport so layout/chart density stay mobile.
+   * True on phones even when Chrome "Desktop site" inflates CSS width (~980px),
+   * and in landscape where CSS width jumps past 900 (e.g. Pro Max ~932).
    */
   isPhoneLayout() {
     if (typeof window === 'undefined') return false;
     try {
-      if (window.matchMedia('(max-device-width: 900px)').matches) return true;
-      if (window.matchMedia('(pointer: coarse) and (hover: none) and (max-width: 1100px)').matches) {
+      // Cover large-phone landscape (device-width can exceed 900)
+      if (window.matchMedia('(max-device-width: 1180px)').matches) return true;
+      // Short viewport = phone landscape even if width looks "desktop"
+      if (window.matchMedia('(orientation: landscape) and (max-height: 520px)').matches) {
+        return true;
+      }
+      if (window.matchMedia('(pointer: coarse) and (hover: none) and (max-width: 1200px)').matches) {
         return true;
       }
     } catch (_) {}
     const vw = window.visualViewport?.width || window.innerWidth || 0;
-    return vw > 0 && vw < 720;
+    const vh = window.visualViewport?.height || window.innerHeight || 0;
+    if (vw > 0 && vw < 720) return true;
+    // Landscape phone: wide but short
+    if (vw >= 720 && vh > 0 && vh <= 520 && vw <= 1000) return true;
+    return false;
   },
 
   /** Sync html.is-phone for CSS (sidebar drawer, chart height) under desktop-site. */
@@ -108,11 +117,27 @@ const RangeEmaUI = {
     this.syncPhoneClass();
     if (!this._phoneListen) {
       this._phoneListen = true;
+      let phoneWas = this.isPhoneLayout();
       const sync = () => {
         this.syncPhoneClass();
+        const phoneNow = this.isPhoneLayout();
+        // Re-paint when crossing phone/desktop (portrait↔landscape) so
+        // chart padding / touch / height match the new viewport.
+        if (phoneWas !== phoneNow) {
+          phoneWas = phoneNow;
+          try { this.render(); } catch (_) {}
+        } else if (phoneNow && this._chart) {
+          try {
+            this._chart.resize?.();
+            this._chart.update?.('none');
+          } catch (_) {}
+        }
       };
       window.addEventListener('resize', sync, { passive: true });
-      window.addEventListener('orientationchange', sync, { passive: true });
+      window.addEventListener('orientationchange', () => {
+        // iOS reports new size after a beat
+        setTimeout(sync, 120);
+      }, { passive: true });
       window.visualViewport?.addEventListener('resize', sync, { passive: true });
     }
     try {
@@ -1112,16 +1137,17 @@ const RangeEmaUI = {
           placed.push(y);
 
           const price = Number(t.value).toFixed(0);
-          // Compact: "X 82295" not "EXIT 82295" — fits the right gutter
+          // Compact: short labels drawn INSIDE the plot (no dead right gutter)
           const shortName = compact
             ? ({ STOP: 'STP', EXIT: 'TP', '1H RED': '1R', PDH: 'PDH', PDL: 'PDL', 'ASIA HI': 'A↑', 'ASIA LO': 'A↓', 'LON HI': 'L↑', 'LON LO': 'L↓', R: 'R', S: 'S' }[t.name] || t.name)
             : t.name;
           const label = `${shortName} ${price}`;
-          const padX = compact ? 4 : 5;
+          const padX = compact ? 3 : 5;
           const tw = ctx.measureText(label).width;
           const boxW = tw + padX * 2;
           const boxH = compact ? 13 : 15;
-          const x = axisX + 2;
+          // Inside chart area, flush to the right scale — reclaim the old padding gutter
+          const x = Math.max(area.left + 2, axisX - boxW - (compact ? 2 : 4));
 
           // Short tick into the plot so the eye can find the level without a full line
           ctx.strokeStyle = t.color || '#e2e8f0';
@@ -1428,10 +1454,12 @@ const RangeEmaUI = {
         animation: { duration: compact ? 0 : 280 },
         interaction: { mode: 'index', intersect: false },
         layout: {
+          // Tags draw inside the plot now — only a slim edge for the Y tick labels
           padding: {
-            top: compact ? 12 : 14,
+            top: compact ? 8 : 14,
             bottom: 4,
-            right: compact ? 58 : 72,
+            right: compact ? 2 : 8,
+            left: compact ? 2 : 4,
           },
         },
         plugins: {

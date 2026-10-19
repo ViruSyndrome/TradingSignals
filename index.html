@@ -43,7 +43,7 @@
   <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.4/dist/chart.umd.min.js" defer></script>
   <script src="https://cdn.jsdelivr.net/npm/hammerjs@2.0.8/hammer.min.js" defer></script>
   <script src="https://cdn.jsdelivr.net/npm/chartjs-plugin-zoom@2.2.0/dist/chartjs-plugin-zoom.min.js" defer></script>
-  <link rel="stylesheet" href="styles.css?v=7.01" />
+  <link rel="stylesheet" href="styles.css?v=7.05" />
   <!-- Critical boot overlay (prevents sidebar flash before styles.css applies) -->
   <style>
     html, body { margin: 0; background: #080a14; }
@@ -59,13 +59,17 @@
     #trendrunner-loader.is-hidden { display: none !important; }
   </style>
   <script>
-    /* Mark phones before CSS paints — survives Chrome "Desktop site" width inflate */
+    /* Mark phones before CSS paints — survives Desktop site + large-phone landscape */
     (function () {
       try {
         var phone = false;
-        if (window.matchMedia('(max-device-width: 900px)').matches) phone = true;
-        else if (window.matchMedia('(pointer: coarse) and (hover: none) and (max-width: 1100px)').matches) phone = true;
-        else if ((window.visualViewport && window.visualViewport.width || window.innerWidth) < 720) phone = true;
+        var vw = (window.visualViewport && window.visualViewport.width) || window.innerWidth || 0;
+        var vh = (window.visualViewport && window.visualViewport.height) || window.innerHeight || 0;
+        if (window.matchMedia('(max-device-width: 1180px)').matches) phone = true;
+        else if (window.matchMedia('(orientation: landscape) and (max-height: 520px)').matches) phone = true;
+        else if (window.matchMedia('(pointer: coarse) and (hover: none) and (max-width: 1200px)').matches) phone = true;
+        else if (vw > 0 && vw < 720) phone = true;
+        else if (vw >= 720 && vh > 0 && vh <= 520 && vw <= 1000) phone = true;
         if (phone) document.documentElement.classList.add('is-phone');
       } catch (e) {}
     })();
@@ -82,11 +86,11 @@
     if ('serviceWorker' in navigator) {
       window.addEventListener('load', () => {
         const hadController = Boolean(navigator.serviceWorker.controller);
-        navigator.serviceWorker.register('./service-worker.js?v=7.04', { updateViaCache: 'none' })
+        navigator.serviceWorker.register('./service-worker.js?v=7.05', { updateViaCache: 'none' })
           .then(reg => {
             reg.update().catch(() => {});
             navigator.serviceWorker.addEventListener('controllerchange', () => {
-              const reloadKey = 'trendrunner_sw_update_7.04';
+              const reloadKey = 'trendrunner_sw_update_7.05';
               if (hadController && !sessionStorage.getItem(reloadKey)) {
                 sessionStorage.setItem(reloadKey, '1');
                 location.reload();
@@ -610,7 +614,7 @@
   <script src="js/indicators.js?v=6.60" defer></script>
   <script src="js/redbar_trend.js?v=1.11" defer></script>
   <script src="js/range_ema_engine.js?v=1.1" defer></script>
-  <script src="js/range_ema_ui.js?v=1.31" defer></script>
+  <script src="js/range_ema_ui.js?v=1.32" defer></script>
   <script src="js/signals.js?v=6.70" defer></script>
   <script src="js/charts.js?v=6.60" defer></script>
   

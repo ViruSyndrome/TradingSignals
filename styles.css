@@ -3237,7 +3237,7 @@ body.redbar-only .site-footer-copyright {
  * Chrome "Request desktop site" inflates layout width to ~980px so max-width:768
  * never fires — phone is still ~360–430 device CSS px. Force drawer sidebar.
  */
-@media (max-device-width: 900px) {
+@media (max-device-width: 1180px) {
   .sidebar {
     position: fixed !important;
     left: -280px !important;
@@ -3273,16 +3273,32 @@ html.is-phone body.redbar-only .rb-chart-box {
 html.is-phone #redBarChart { touch-action: pan-y pinch-zoom !important; }
 
 /*
- * Landscape phones often report width > 768px, so the desktop redbar flex
- * (overflow:hidden) used to lock scroll. Keep the page scrollable on phones.
+ * Phones (incl. landscape where width > 768): document scroll, not nested
+ * overflow:hidden flex shells that lock the page.
  */
-html.is-phone body.redbar-only #dashboardSection.main-section.active {
-  display: block !important;
+html.is-phone {
+  height: auto !important;
   overflow-x: hidden !important;
   overflow-y: auto !important;
   -webkit-overflow-scrolling: touch;
+}
+html.is-phone body {
+  height: auto !important;
+  min-height: 100dvh;
+  overflow-x: hidden !important;
+  overflow-y: visible !important;
+}
+html.is-phone .main-content {
+  overflow: visible !important;
+  flex: 1 1 auto;
+  min-height: 0;
+}
+html.is-phone body.redbar-only #dashboardSection.main-section.active {
+  display: block !important;
+  overflow: visible !important;
   height: auto !important;
   max-height: none !important;
+  flex: none !important;
 }
 html.is-phone body.redbar-only #rangeEmaDeskBlock,
 html.is-phone body.redbar-only #rangeEmaDesk {
@@ -3292,8 +3308,18 @@ html.is-phone body.redbar-only #rangeEmaDesk {
   min-height: 0 !important;
   overflow: visible !important;
 }
-html.is-phone .main-content {
-  overflow-x: hidden !important;
-  overflow-y: auto !important;
-  -webkit-overflow-scrolling: touch;
+
+/* Landscape phone: shorter chart so action + chips stay reachable by scroll */
+@media (orientation: landscape) and (max-height: 520px) {
+  html.is-phone .rb-chart-box,
+  html.is-phone body.redbar-only .rb-chart-box {
+    height: min(58vh, 220px) !important;
+    min-height: 160px !important;
+  }
+  html.is-phone body.redbar-only .rb-action-steps {
+    max-height: 2.8em;
+  }
+  html.is-phone body.redbar-only .section-sub {
+    display: none;
+  }
 }
