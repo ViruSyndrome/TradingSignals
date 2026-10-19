@@ -250,7 +250,7 @@ const RangeEmaUI = {
       };
     }
 
-    const readout = RedBarTrend.read(bars30, {
+    const readCfg = {
       lookbackDays: c.lookbackDays || 90,
       touchPct: c.touchPct ?? 0.15,
       dayMode: instrument.dayMode || c.dayMode || 'utc',
@@ -259,7 +259,31 @@ const RangeEmaUI = {
       markWindow: instrument.markWindow || c.markWindow || null,
       orAnchor: instrument.orAnchor || c.orAnchor || null,
       fibLevels: instrument.fibLevels || c.fibLevels || [0, 0.44, 0.5, 0.56, 1],
-    });
+    };
+
+    // Always compute Sagar's magnet: first red bar of the session day on 1H
+    let firstRed1h = null;
+    try {
+      const raw1h = typeof API.getDeskOHLC === 'function'
+        ? await API.getDeskOHLC(instrument, '1h', 180)
+        : await API.getCryptoOHLC(instrument.symbol, '1h', 180);
+      const bars1h = this._klinesToBars(raw1h);
+      if (bars1h.length >= 24) {
+        const asOf = RedBarTrend.asOfDayFor(bars30[bars30.length - 1].t, readCfg);
+        firstRed1h = RedBarTrend.firstRedBarOfSession(bars1h, asOf, readCfg);
+      }
+    } catch (e) {
+      console.warn('[RangeEmaUI] 1H first-red fetch failed:', e.message || e);
+    }
+
+    const readout = RedBarTrend.read(bars30, { ...readCfg, firstRed1h });
+    if (readout) {
+      readout.firstRed1h = firstRed1h;
+      if (readout.refs) {
+        readout.refs.firstRed1hHigh = firstRed1h ? firstRed1h.high : null;
+        readout.refs.firstRed1hLow = firstRed1h ? firstRed1h.low : null;
+      }
+    }
 
     const ema = this._emaOverlay(bars30, c.emaFast || 10, c.emaSlow || 30);
 
@@ -318,6 +342,9 @@ const RangeEmaUI = {
           `${hint}: open LONG near current price / band support hold.`,
           `Stop / invalidation near ${this._fmt(o.invalidation)} (opening-range low or band).`,
           `Take profit / book near ${this._fmt(o.bookZone)} (prior swing high — Y-axis EXIT marker).`,
+          ...(o.firstRed1h
+            ? [`1H first red high ${this._fmt(o.firstRed1h.high)} — price often revisits before next move.`]
+            : []),
         ],
         entry: o.price,
         stop: o.invalidation,
@@ -334,6 +361,9 @@ const RangeEmaUI = {
           `${hint}: open SHORT near current price / band resistance rejection.`,
           `Stop / invalidation near ${this._fmt(o.invalidation)} (opening-range high or band).`,
           `Take profit / book near ${this._fmt(o.bookZone)} (nearest prior swing low / support).`,
+          ...(o.firstRed1h
+            ? [`1H first red high ${this._fmt(o.firstRed1h.high)} — price often revisits before next move.`]
+            : []),
         ],
         entry: o.price,
         stop: o.invalidation,
@@ -552,6 +582,7 @@ const RangeEmaUI = {
           <span class="lg ema30">EMA ${c.emaSlow || 30}</span>
           <span class="lg or">${this._isFibStyle(r) ? `OR ${r.instrument?.markLabel || ''}`.trim() : 'OR'}</span>
           <span class="lg band">${this._isFibStyle(r) ? 'Fib 0·44·50·56·1' : 'Day ranges'}</span>
+          <span class="lg stop">1H first red</span>
           <span class="lg stop rb-lg-desk">Stop</span>
           <span class="lg tp rb-lg-desk">Exit</span>
           <span class="lg sess-asia rb-lg-desk">Asia</span>
@@ -578,6 +609,9 @@ const RangeEmaUI = {
         <span class="range-chip">EMA: ${String((r.ema && r.ema.cross) || '').replace(/_/g, ' ')}</span>
         <span class="range-chip ${r.emaAgree === 'agrees' ? 'pos' : r.emaAgree === 'disagrees' ? 'neg' : ''}">EMA ${r.emaAgree}</span>
         <span class="range-chip">${this._isFibStyle(r) ? ((r.instrument && r.instrument.markLabel) || 'session fibs') : 'day-ranges'} · ${(o.recentBands || []).length} on chart · ${o.bandCountPrior} prior</span>
+        ${o.firstRed1h
+          ? `<span class="range-chip">1H first red high ${this._fmt(o.firstRed1h.high)}</span>`
+          : ''}
       </div>
 
       <p class="range-desk-footnote">
@@ -947,6 +981,33 @@ const RangeEmaUI = {
    * Opening range: small gold box on today's first bar(s) only — not chart-wide dotted rails.
    * OR HI / OR LO also appear as Y-axis markers.
    */
+  /** Full-width dashed line at first 1H red high (session-day magnet). */
+  _firstRed1hPlugin() {
+    return {
+      id: 'rbFirstRed1h',
+      afterDatasetsDraw(chart) {
+        const red = chart.$rbFirstRed1h;
+        if (!red || red.high == null) return;
+        const yScale = chart.scales.y;
+        const area = chart.chartArea;
+        if (!yScale || !area) return;
+        const y = yScale.getPixelForValue(red.high);
+        if (!Number.isFinite(y) || y < area.top || y > area.bottom) return;
+        const ctx = chart.ctx;
+        ctx.save();
+        ctx.strokeStyle = 'rgba(244, 63, 94, 0.85)';
+        ctx.lineWidth = 1.5;
+        ctx.setLineDash([6, 4]);
+        ctx.beginPath();
+        ctx.moveTo(area.left, y);
+        ctx.lineTo(area.right, y);
+        ctx.stroke();
+        ctx.setLineDash([]);
+        ctx.restore();
+      },
+    };
+  },
+
   _orZonePlugin() {
     return {
       id: 'rbOrZone',
@@ -1043,7 +1104,7 @@ const RangeEmaUI = {
           const price = Number(t.value).toFixed(0);
           // Compact: "X 82295" not "EXIT 82295" — fits the right gutter
           const shortName = compact
-            ? ({ STOP: 'STP', EXIT: 'TP', 'OR HI': 'OR↑', 'OR LO': 'OR↓', R: 'R', S: 'S' }[t.name] || t.name)
+            ? ({ STOP: 'STP', EXIT: 'TP', 'OR HI': 'OR↑', 'OR LO': 'OR↓', '1H RED': '1R', R: 'R', S: 'S' }[t.name] || t.name)
             : t.name;
           const label = `${shortName} ${price}`;
           const padX = compact ? 4 : 5;
@@ -1190,6 +1251,7 @@ const RangeEmaUI = {
     const nearLevels = [
       o.refs?.orHigh, o.refs?.orLow,
       o.invalidation, o.bookZone,
+      o.firstRed1h?.high, o.firstRed1h?.low,
       ...bandPrices,
     ].filter((v) => v != null && Number.isFinite(Number(v))).map(Number);
     const yHi = Math.max(barHi, ...nearLevels);
@@ -1305,6 +1367,8 @@ const RangeEmaUI = {
     }
     pushTag('OR HI', orHigh, '#eab308', 'rgba(66, 32, 6, 0.92)');
     pushTag('OR LO', orLow, '#eab308', 'rgba(66, 32, 6, 0.92)');
+    // Sagar: first 1H red of the day — high is the revisit magnet
+    pushTag('1H RED', o.firstRed1h?.high, '#f43f5e', 'rgba(60, 10, 20, 0.94)', { priority: true });
     pushTag('R', o.refs?.bandResist, COL.bandResist, 'rgba(46, 16, 80, 0.92)');
     pushTag('S', o.refs?.bandSupport, COL.bandSupport, 'rgba(8, 50, 48, 0.92)');
 
@@ -1315,6 +1379,7 @@ const RangeEmaUI = {
       plugins: [
         this._bandZonesPlugin(),
         this._orZonePlugin(),
+        this._firstRed1hPlugin(),
         this._candlePlugin(),
         this._sessionPlugin(),
         this._levelTagsPlugin(),
@@ -1475,6 +1540,7 @@ const RangeEmaUI = {
       ? dayBands.slice(-5)
       : dayBands;
     this._chart.$rbOrZone = orZone;
+    this._chart.$rbFirstRed1h = o.firstRed1h || null;
     this._chart.$rbLevelTags = levelTags;
     this._chart.$rbCompact = compact;
     this._chart.$rbUI = this;

@@ -415,6 +415,29 @@ const RedBarTrend = {
   },
 
   /**
+   * First red candle of the session day on this series (Sagar: 1H first red —
+   * price often revisits this high before the next move).
+   */
+  firstRedBarOfSession(bars, asOfDay, cfg = {}) {
+    if (!bars || !bars.length || !asOfDay) return null;
+    for (let i = 0; i < bars.length; i++) {
+      if (this.asOfDayFor(bars[i].t, cfg) !== asOfDay) continue;
+      if (bars[i].c < bars[i].o) {
+        return {
+          high: bars[i].h,
+          low: bars[i].l,
+          open: bars[i].o,
+          close: bars[i].c,
+          t: bars[i].t,
+          index: i,
+          asOfDay,
+        };
+      }
+    }
+    return null;
+  },
+
+  /**
    * Core readout at bar index i — trend prediction, not an auto-entry bot.
    */
   readAt(bars, i, cfg = {}) {
@@ -511,6 +534,7 @@ const RedBarTrend = {
       narrative,
       openingRange: or,
       lastRedBar: red,
+      firstRed1h: c.firstRed1h || null,
       activeBands: active.slice(-8),
       // Last N prior session magnets (day H/L/M or 02:30 IST fibs)
       recentBands: prior.slice(-(c.chartBandDays || 7)).map((b) => ({
