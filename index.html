@@ -82,11 +82,11 @@
     if ('serviceWorker' in navigator) {
       window.addEventListener('load', () => {
         const hadController = Boolean(navigator.serviceWorker.controller);
-        navigator.serviceWorker.register('./service-worker.js?v=7.01', { updateViaCache: 'none' })
+        navigator.serviceWorker.register('./service-worker.js?v=7.03', { updateViaCache: 'none' })
           .then(reg => {
             reg.update().catch(() => {});
             navigator.serviceWorker.addEventListener('controllerchange', () => {
-              const reloadKey = 'trendrunner_sw_update_7.01';
+              const reloadKey = 'trendrunner_sw_update_7.03';
               if (hadController && !sessionStorage.getItem(reloadKey)) {
                 sessionStorage.setItem(reloadKey, '1');
                 location.reload();
@@ -608,9 +608,9 @@
   <script src="js/config.js?v=7.01" defer></script>
   <script src="js/api.js?v=6.93" defer></script>
   <script src="js/indicators.js?v=6.60" defer></script>
-  <script src="js/redbar_trend.js?v=1.9" defer></script>
+  <script src="js/redbar_trend.js?v=1.11" defer></script>
   <script src="js/range_ema_engine.js?v=1.1" defer></script>
-  <script src="js/range_ema_ui.js?v=1.29" defer></script>
+  <script src="js/range_ema_ui.js?v=1.30" defer></script>
   <script src="js/signals.js?v=6.70" defer></script>
   <script src="js/charts.js?v=6.60" defer></script>
   

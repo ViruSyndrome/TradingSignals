@@ -416,22 +416,36 @@ const RedBarTrend = {
   },
 
   /**
-   * First red candle of the session day on this series (Sagar: 1H first red —
-   * price often revisits this high before the next move).
+   * First red on the calendar day (Sagar: 1H first-red pivot).
+   * - Use calendar dayKey (IST), NOT mark-window session day — fibs and first-red
+   *   are separate: fibs = mark window; pivot = first red after day open.
+   * - Never mark the day’s first candle even if it is red.
+   * - Only closed bars (skip the still-forming candle).
    */
   firstRedBarOfSession(bars, asOfDay, cfg = {}) {
     if (!bars || !bars.length || !asOfDay) return null;
+    const dayMode = cfg.dayMode || 'ist';
+    const now = cfg.asOfTs != null ? cfg.asOfTs : Date.now();
+    const barMs = cfg.barMs != null ? cfg.barMs : 3600000; // 1H default
+    const dayBars = [];
     for (let i = 0; i < bars.length; i++) {
-      if (this.asOfDayFor(bars[i].t, cfg) !== asOfDay) continue;
-      if (bars[i].c < bars[i].o) {
+      if (this.dayKey(bars[i].t, dayMode) !== asOfDay) continue;
+      if (bars[i].t + barMs > now) continue; // still forming
+      dayBars.push({ bar: bars[i], index: i });
+    }
+    // Need at least open bar + one later bar
+    for (let j = 1; j < dayBars.length; j++) {
+      const { bar, index } = dayBars[j];
+      if (bar.c < bar.o) {
         return {
-          high: bars[i].h,
-          low: bars[i].l,
-          open: bars[i].o,
-          close: bars[i].c,
-          t: bars[i].t,
-          index: i,
+          high: bar.h,
+          low: bar.l,
+          open: bar.o,
+          close: bar.c,
+          t: bar.t,
+          index,
           asOfDay,
+          skippedOpen: true,
         };
       }
     }

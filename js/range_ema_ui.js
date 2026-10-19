@@ -262,7 +262,8 @@ const RangeEmaUI = {
       sessions: instrument.sessions || c.sessions || [],
     };
 
-    // Always compute Sagar's magnet: first red bar of the session day on 1H
+    // Sagar pivot: first CLOSED 1H red AFTER the calendar day’s first candle
+    // (never the open bar itself). Calendar IST day — not mark-window session day.
     let firstRed1h = null;
     try {
       const raw1h = typeof API.getDeskOHLC === 'function'
@@ -270,8 +271,13 @@ const RangeEmaUI = {
         : await API.getCryptoOHLC(instrument.symbol, '1h', 180);
       const bars1h = this._klinesToBars(raw1h);
       if (bars1h.length >= 24) {
-        const asOf = RedBarTrend.asOfDayFor(bars30[bars30.length - 1].t, readCfg);
-        firstRed1h = RedBarTrend.firstRedBarOfSession(bars1h, asOf, readCfg);
+        const lastT = bars30[bars30.length - 1].t;
+        const calDay = RedBarTrend.dayKey(lastT, readCfg.dayMode || 'ist');
+        firstRed1h = RedBarTrend.firstRedBarOfSession(bars1h, calDay, {
+          ...readCfg,
+          asOfTs: lastT,
+          barMs: 3600000,
+        });
       }
     } catch (e) {
       console.warn('[RangeEmaUI] 1H first-red fetch failed:', e.message || e);
@@ -329,8 +335,8 @@ const RangeEmaUI = {
     const clockStep = clock.tip ? clock.tip : null;
     const liqStep = pb.liquidityTip && pb.liquidityTip !== clock.tip ? pb.liquidityTip : null;
     const pivotStep = o.firstRed1h
-      ? `Pivot = 1H first red ${this._fmt(o.firstRed1h.high)} / ${this._fmt(o.firstRed1h.low)}.`
-      : 'Waiting for the session’s first 1H red to mark the pivot.';
+      ? `Pivot = 1H first red after day open ${this._fmt(o.firstRed1h.high)} / ${this._fmt(o.firstRed1h.low)} (day’s first candle skipped).`
+      : 'Waiting for the first 1H red after the day’s opening candle.';
     const pdh = o.refs?.priorDayHigh;
     const pdl = o.refs?.priorDayLow;
 
