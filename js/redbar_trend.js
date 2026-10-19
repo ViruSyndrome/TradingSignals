@@ -578,15 +578,15 @@ const RedBarTrend = {
     }
     if (trend === 'bullish') {
       if (bandPhase.includes('pullback') || activeCount) {
-        return 'Bullish (above opening range). Price is back in a prior-day band — classic pullback into old range; watch for hold then continuation.';
+        return 'Bullish (above mark-window fib). Price is back in a prior-session band — classic pullback into old range; watch for hold then continuation.';
       }
-      return 'Bullish (broke above opening range). Prior-day bands above are magnets; red-bar high is a book-profit reference.';
+      return 'Bullish (broke above mark-window Fib 0/1). Prior-session fibs above are magnets; red-bar high is a book-profit reference.';
     }
     if (trend === 'bearish') {
       if (bandPhase.includes('pullback') || activeCount) {
-        return 'Bearish (below opening range). Price is back in a prior-day band — pullback into old range; watch for rejection then continuation down.';
+        return 'Bearish (below mark-window fib). Price is back in a prior-session band — pullback into old range; watch for rejection then continuation down.';
       }
-      return 'Bearish (broke below opening range). Prior-day bands below are magnets; red-bar low is a book-profit reference for shorts.';
+      return 'Bearish (broke below mark-window Fib 0/1). Prior-session fibs below are magnets; red-bar low is a book-profit reference for shorts.';
     }
     return 'No clear opening-range break yet. Prior-day bands still matter as magnets when price reaches them.';
   },

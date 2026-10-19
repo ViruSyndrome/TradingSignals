@@ -318,13 +318,15 @@ const RangeEmaUI = {
       return { side: 'WAIT', title: 'No data', steps: [], cls: 'wait' };
     }
     if (o.phase === 'first_candle' || o.phase === 'inside_or') {
+      const fibHi = o.currentBand?.high ?? o.refs?.orHigh;
+      const fibLo = o.currentBand?.low ?? o.refs?.orLow;
       return {
         side: 'WAIT',
         cls: 'wait',
         title: 'Do not trade yet',
-        subtitle: 'Inside today’s opening range (or first candle still forming).',
+        subtitle: 'Inside today’s mark-window fib box (or window still forming).',
         steps: [
-          `Mark OR high ${this._fmt(o.refs.orHigh)} and OR low ${this._fmt(o.refs.orLow)} on your chart.`,
+          `Fib 0 / Fib 1 from the mark window: ${this._fmt(fibHi)} / ${this._fmt(fibLo)}.`,
           'Only act after a clear break and hold outside that box.',
         ],
         entry: null,
@@ -340,7 +342,7 @@ const RangeEmaUI = {
         subtitle: `Red Bar trend bullish${emaAgree === 'agrees' ? ' · EMA agrees' : emaAgree === 'disagrees' ? ' · EMA disagrees — be smaller or skip' : ''}.`,
         steps: [
           `${hint}: open LONG near current price / band support hold.`,
-          `Stop / invalidation near ${this._fmt(o.invalidation)} (opening-range low or band).`,
+          `Stop / invalidation near ${this._fmt(o.invalidation)} (fib low or band).`,
           `Take profit / book near ${this._fmt(o.bookZone)} (prior swing high — Y-axis EXIT marker).`,
           ...(o.firstRed1h
             ? [`1H first red high ${this._fmt(o.firstRed1h.high)} — price often revisits before next move.`]
@@ -359,7 +361,7 @@ const RangeEmaUI = {
         subtitle: `Red Bar trend bearish${emaAgree === 'agrees' ? ' · EMA agrees' : emaAgree === 'disagrees' ? ' · EMA disagrees — be smaller or skip' : ''}.`,
         steps: [
           `${hint}: open SHORT near current price / band resistance rejection.`,
-          `Stop / invalidation near ${this._fmt(o.invalidation)} (opening-range high or band).`,
+          `Stop / invalidation near ${this._fmt(o.invalidation)} (fib high or band).`,
           `Take profit / book near ${this._fmt(o.bookZone)} (nearest prior swing low / support).`,
           ...(o.firstRed1h
             ? [`1H first red high ${this._fmt(o.firstRed1h.high)} — price often revisits before next move.`]
@@ -374,8 +376,8 @@ const RangeEmaUI = {
       side: 'WAIT',
       cls: 'wait',
       title: 'No clear bias',
-      subtitle: 'No opening-range break yet.',
-      steps: ['Watch prior-day bands as magnets; wait for OR break.'],
+      subtitle: 'No fib-box break yet.',
+      steps: ['Watch prior-session fibs as magnets; wait for a break of today’s Fib 0 / Fib 1.'],
       entry: null,
       stop: null,
       exit: null,
@@ -495,7 +497,7 @@ const RangeEmaUI = {
       <div class="section-heading">
         <h1>🟥 Red Bar Desk</h1>
         <p class="section-sub">
-          ${inst.label} on <strong>${tf}</strong>: candles, EMA 10/30, OR box, day-ranges; Stop/Exit when in a trade.
+          ${inst.label} on <strong>${tf}</strong>: candles, EMA 10/30, session fibs; Stop/Exit when in a trade.
           <span class="range-desk-meta">${inst.tradeHint || ''} · Updated ${when}${this.state.loading ? ' · refreshing…' : ''}</span>
         </p>
       </div>
@@ -580,8 +582,7 @@ const RangeEmaUI = {
           <span class="lg price">Candles</span>
           <span class="lg ema10">EMA ${c.emaFast || 10}</span>
           <span class="lg ema30">EMA ${c.emaSlow || 30}</span>
-          <span class="lg or">${this._isFibStyle(r) ? `OR ${r.instrument?.markLabel || ''}`.trim() : 'OR'}</span>
-          <span class="lg band">${this._isFibStyle(r) ? 'Fib 0·44·50·56·1' : 'Day ranges'}</span>
+          <span class="lg band">${this._isFibStyle(r) ? `Fib 0·44·50·56·1${r.instrument?.markLabel ? ` · ${r.instrument.markLabel}` : ''}` : 'Day ranges'}</span>
           <span class="lg stop">1H first red</span>
           <span class="lg stop rb-lg-desk">Stop</span>
           <span class="lg tp rb-lg-desk">Exit</span>
@@ -604,7 +605,7 @@ const RangeEmaUI = {
       </div>
 
       <div class="range-chips">
-        <span class="range-chip">OR bias: ${o.orBias}</span>
+        <span class="range-chip">Fib bias: ${o.orBias}</span>
         <span class="range-chip">Phase: ${String(o.phase).replace(/_/g, ' ')}</span>
         <span class="range-chip">EMA: ${String((r.ema && r.ema.cross) || '').replace(/_/g, ' ')}</span>
         <span class="range-chip ${r.emaAgree === 'agrees' ? 'pos' : r.emaAgree === 'disagrees' ? 'neg' : ''}">EMA ${r.emaAgree}</span>
@@ -977,10 +978,6 @@ const RangeEmaUI = {
     };
   },
 
-  /**
-   * Opening range: small gold box on today's first bar(s) only — not chart-wide dotted rails.
-   * OR HI / OR LO also appear as Y-axis markers.
-   */
   /** Full-width dashed line at first 1H red high (session-day magnet). */
   _firstRed1hPlugin() {
     return {
@@ -1003,57 +1000,6 @@ const RangeEmaUI = {
         ctx.lineTo(area.right, y);
         ctx.stroke();
         ctx.setLineDash([]);
-        ctx.restore();
-      },
-    };
-  },
-
-  _orZonePlugin() {
-    return {
-      id: 'rbOrZone',
-      beforeDatasetsDraw(chart) {
-        const zone = chart.$rbOrZone;
-        if (!zone || zone.high == null || zone.low == null) return;
-        const xScale = chart.scales.x;
-        const yScale = chart.scales.y;
-        const area = chart.chartArea;
-        if (!xScale || !yScale || !area) return;
-        let yHi = yScale.getPixelForValue(zone.high);
-        let yLo = yScale.getPixelForValue(zone.low);
-        if (!Number.isFinite(yHi) || !Number.isFinite(yLo)) return;
-        let top = Math.min(yHi, yLo);
-        let h = Math.abs(yLo - yHi);
-        if (h < 8) {
-          const mid = (yHi + yLo) / 2;
-          h = 8;
-          top = mid - h / 2;
-        }
-        let x0 = area.left;
-        let x1 = area.left + 28;
-        if (zone.i0 != null && zone.i1 != null) {
-          x0 = xScale.getPixelForValue(zone.i0);
-          x1 = xScale.getPixelForValue(zone.i1);
-          if (Number.isFinite(x0) && Number.isFinite(x1)) {
-            if (x1 < x0) { const t = x0; x0 = x1; x1 = t; }
-            // Widen a single-bar OR so it’s visible
-            if (x1 - x0 < 12) {
-              const midX = (x0 + x1) / 2;
-              x0 = midX - 8;
-              x1 = midX + 8;
-            }
-          }
-        }
-        x0 = Math.max(area.left, x0);
-        x1 = Math.min(area.right, x1);
-        if (x1 <= x0) return;
-        const ctx = chart.ctx;
-        ctx.save();
-        ctx.fillStyle = zone.fill || 'rgba(234, 179, 8, 0.22)';
-        ctx.fillRect(x0, top, x1 - x0, h);
-        ctx.strokeStyle = zone.stroke || 'rgba(234, 179, 8, 0.85)';
-        ctx.lineWidth = 1.5;
-        ctx.setLineDash([]);
-        ctx.strokeRect(x0, top, x1 - x0, h);
         ctx.restore();
       },
     };
@@ -1104,7 +1050,7 @@ const RangeEmaUI = {
           const price = Number(t.value).toFixed(0);
           // Compact: "X 82295" not "EXIT 82295" — fits the right gutter
           const shortName = compact
-            ? ({ STOP: 'STP', EXIT: 'TP', 'OR HI': 'OR↑', 'OR LO': 'OR↓', '1H RED': '1R', R: 'R', S: 'S' }[t.name] || t.name)
+            ? ({ STOP: 'STP', EXIT: 'TP', '1H RED': '1R', R: 'R', S: 'S' }[t.name] || t.name)
             : t.name;
           const label = `${shortName} ${price}`;
           const padX = compact ? 4 : 5;
@@ -1249,7 +1195,7 @@ const RangeEmaUI = {
       .filter((v) => v != null && Number.isFinite(Number(v)))
       .map(Number);
     const nearLevels = [
-      o.refs?.orHigh, o.refs?.orLow,
+      o.currentBand?.high, o.currentBand?.low,
       o.invalidation, o.bookZone,
       o.firstRed1h?.high, o.firstRed1h?.low,
       ...bandPrices,
@@ -1321,38 +1267,13 @@ const RangeEmaUI = {
     ];
 
     // Levels = Y-axis markers only (no chart-wide dotted / solid rails)
-    const orHigh = o.refs?.orHigh;
-    const orLow = o.refs?.orLow;
-    const asOfDay = o.asOfDay;
-    const todayBand = dayBands.find((b) => b.day === asOfDay);
-    const todaySpan = asOfDay ? daySpans.get(asOfDay) : null;
-    // OR highlight = full mark window (e.g. 02:30–03:30 bars)
-    const toLocal = (absIdx) => {
-      if (absIdx == null) return null;
-      const visStart = row.bars.length - bars.length;
-      const local = absIdx - visStart;
-      return local >= 0 && local < bars.length ? local : null;
-    };
-    const orI0 = toLocal(o.openingRange?.index) ?? todayBand?.i0 ?? todaySpan?.i0 ?? null;
-    const orI1 = toLocal(o.openingRange?.indexEnd) ?? orI0;
-    const orZone = (orHigh != null && orLow != null)
-      ? {
-          high: orHigh,
-          low: orLow,
-          i0: orI0,
-          i1: orI1,
-          fill: trading ? 'rgba(234, 179, 8, 0.14)' : 'rgba(234, 179, 8, 0.24)',
-          stroke: trading ? 'rgba(234, 179, 8, 0.65)' : 'rgba(234, 179, 8, 0.9)',
-        }
-      : null;
-
     const levelTags = [];
     const pushTag = (name, value, color, bg, { priority = false } = {}) => {
       if (value == null || !Number.isFinite(Number(value))) return;
       const v = Number(value);
       const hit = levelTags.findIndex((t) => this._nearPrice(t.value, v, 2));
       if (hit >= 0) {
-        // Never let R/S/OR eat STOP/EXIT — rename or skip
+        // Never let R/S eat STOP/EXIT — rename or skip
         if (priority) {
           levelTags[hit] = { name, value: v, color, bg };
         }
@@ -1365,8 +1286,6 @@ const RangeEmaUI = {
       pushTag('STOP', stopPx, COL.stop, 'rgba(60, 10, 10, 0.94)', { priority: true });
       pushTag('EXIT', exitPx, COL.exit, 'rgba(10, 40, 20, 0.94)', { priority: true });
     }
-    pushTag('OR HI', orHigh, '#eab308', 'rgba(66, 32, 6, 0.92)');
-    pushTag('OR LO', orLow, '#eab308', 'rgba(66, 32, 6, 0.92)');
     // Sagar: first 1H red of the day — high is the revisit magnet
     pushTag('1H RED', o.firstRed1h?.high, '#f43f5e', 'rgba(60, 10, 20, 0.94)', { priority: true });
     pushTag('R', o.refs?.bandResist, COL.bandResist, 'rgba(46, 16, 80, 0.92)');
@@ -1378,7 +1297,6 @@ const RangeEmaUI = {
       data: { labels, datasets },
       plugins: [
         this._bandZonesPlugin(),
-        this._orZonePlugin(),
         this._firstRed1hPlugin(),
         this._candlePlugin(),
         this._sessionPlugin(),
@@ -1539,7 +1457,6 @@ const RangeEmaUI = {
     this._chart.$rbDayBands = compact && dayBands.length > 5
       ? dayBands.slice(-5)
       : dayBands;
-    this._chart.$rbOrZone = orZone;
     this._chart.$rbFirstRed1h = o.firstRed1h || null;
     this._chart.$rbLevelTags = levelTags;
     this._chart.$rbCompact = compact;
