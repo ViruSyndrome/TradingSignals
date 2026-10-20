@@ -630,9 +630,19 @@ const RedBarTrend = {
       : leftBelow
         ? ((firstRed.low - price) / firstRed.low) * 100
         : 0;
+    // Short freshness window (≤2 bars since leaving the 1H first-red range) so Trade 1
+    // only fires on the actual departure, then transitions to WATCH (trend_bias).
+    let justDeparted = false;
+    if ((leftAbove || leftBelow) && Array.isArray(slice) && slice.length >= 2) {
+      const lookBars = slice.slice(-3, -1); // 1–2 bars immediately before current bar
+      justDeparted = leftAbove
+        ? lookBars.some((b) => b.c <= firstRed.high + tol)
+        : lookBars.some((b) => b.c >= firstRed.low - tol);
+    }
     const trade1Fresh = (leftAbove || leftBelow)
-      && (hoursSince == null || (hoursSince >= 0.25 && hoursSince <= 4.0))
-      && distFromPivotPct <= 1.25;
+      && justDeparted
+      && (hoursSince == null || (hoursSince >= 0.25 && hoursSince <= 3.0))
+      && distFromPivotPct <= 1.0;
 
     let id = 'marked';
     let label = '1H first red marked';
