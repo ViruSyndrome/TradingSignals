@@ -17,6 +17,8 @@ const RangeEmaUI = {
     tf: null,
     instrumentId: null,
     loading: false,
+    capital: 1000,
+    riskPct: 1,
   },
 
   cfg() {
@@ -150,6 +152,10 @@ const RangeEmaUI = {
       } else {
         this.state.instrumentId = c.defaultInstrument || this.instruments()[0]?.id;
       }
+      const savedCap = Number(localStorage.getItem('trendrunner_rb_capital'));
+      if (Number.isFinite(savedCap) && savedCap > 0) this.state.capital = savedCap;
+      const savedRisk = Number(localStorage.getItem('trendrunner_rb_risk_pct'));
+      if (Number.isFinite(savedRisk) && savedRisk > 0 && savedRisk <= 25) this.state.riskPct = savedRisk;
     } catch (_) {}
     this.refresh();
     clearInterval(this._timer);
@@ -342,20 +348,21 @@ const RangeEmaUI = {
     };
   },
 
-  /** Sagar playbook → plain language + levels (fib mark + 1H first red + session clock). */
+  /** Sagar playbook → plain language + levels (fib mark + 1H first red + session clock + futures R:R). */
   _actionPlan(o, emaAgree, instrument) {
     const inst = instrument || this.activeInstrument() || {};
-    const hint = inst.tradeHint || 'Place the order on your exchange / broker';
+    const hint = inst.tradeHint || 'Place the futures order on your exchange / broker';
     if (!o) {
       return { side: 'WAIT', title: 'No data', steps: [], cls: 'wait' };
     }
     const pb = o.playbook || {};
     const red = pb.redSetup || {};
     const clock = pb.clock || {};
+    const sweep = pb.sweep || null;
     const emaNote = emaAgree === 'agrees'
       ? ' · EMA agrees'
       : emaAgree === 'disagrees'
-        ? ' · EMA disagrees — be smaller or skip'
+        ? ' · EMA disagrees — size down or wait for alignment'
         : '';
     const clockStep = clock.tip ? clock.tip : null;
     const liqStep = pb.liquidityTip && pb.liquidityTip !== clock.tip ? pb.liquidityTip : null;
@@ -364,6 +371,12 @@ const RangeEmaUI = {
       : 'Waiting for the first 1H red after the day’s opening candle.';
     const pdh = o.refs?.priorDayHigh;
     const pdl = o.refs?.priorDayLow;
+    const rrStr = o.rr != null ? `1:${o.rr.toFixed(2)}` : '—';
+    const stopPctStr = o.stopPct != null ? ` (${o.stopPct.toFixed(2)}%)` : '';
+    const targetPctStr = o.targetPct != null ? ` (+${o.targetPct.toFixed(2)}%)` : '';
+    const magnetObstacleStep = o.firstMagnet && o.firstMagnet.price !== o.bookZone
+      ? `First obstacle: ${o.firstMagnet.reason} at ${this._fmt(o.firstMagnet.price)} (${o.firstMagnet.rr.toFixed(1)}R) — move stop to Breakeven at +0.8R.`
+      : 'Trade management: move stop to Breakeven (+0.10% fee cover) once price reaches +0.8R.';
 
     if (o.phase === 'first_candle' || o.phase === 'inside_or') {
       const fibHi = o.currentBand?.high ?? o.refs?.orHigh;
@@ -371,16 +384,17 @@ const RangeEmaUI = {
       return {
         side: 'WAIT',
         cls: 'wait',
-        title: 'Do not trade yet',
-        subtitle: 'Inside today’s mark-window fib box (or window still forming).',
+        title: 'Do not trade yet (Inside Fib Box)',
+        subtitle: 'Inside today’s mark-window fib box (or window still forming). Sideways accumulation zone.',
         steps: [
-          `Fib 0 / Fib 1: ${this._fmt(fibHi)} / ${this._fmt(fibLo)} — wait for break & hold.`,
+          `Fib 0 / Fib 1: ${this._fmt(fibHi)} / ${this._fmt(fibLo)} — wait for a clean break & hold outside the box.`,
           pivotStep,
           ...(clockStep ? [clockStep] : []),
         ],
         entry: null,
         stop: null,
         exit: null,
+        rr: null,
       };
     }
 
@@ -388,76 +402,107 @@ const RangeEmaUI = {
     if (red.id === 'trade2_revisit') {
       const side = o.trend === 'bullish' ? 'LONG' : o.trend === 'bearish' ? 'SHORT' : 'WAIT';
       const cls = side === 'LONG' ? 'long' : side === 'SHORT' ? 'short' : 'wait';
+      const readTag = red.revisitRead === 'reject_bull'
+        ? 'Bullish rejection confirmed'
+        : red.revisitRead === 'reject_bear'
+          ? 'Bearish rejection confirmed'
+          : red.revisitRead === 'reverse_bull'
+            ? 'Bullish reclaim / flip confirmed'
+            : red.revisitRead === 'reverse_bear'
+              ? 'Bearish breakdown / flip confirmed'
+              : 'Testing pivot — watch reject vs reverse';
       return {
         side,
         cls,
-        title: side === 'WAIT' ? 'Trade 2 · watch the revisit' : `Trade 2 · ${side}`,
-        subtitle: `Price back at 1H first-red pivot${emaNote}. Watch reject (continue) vs reverse.`,
+        title: side === 'WAIT' ? 'Trade 2 · Watch 1H Red Revisit' : `Trade 2 · Futures ${side} (${readTag})`,
+        subtitle: `Price revisiting 1H first-red pivot (${red.hoursSince != null ? red.hoursSince.toFixed(1) : '—'}h after mark)${emaNote}.`,
         steps: [
-          `${pivotStep} Hours since red: ${red.hoursSince != null ? red.hoursSince.toFixed(1) : '—'}h.`,
-          'At the revisit: if it rejects and continues the morning bias → take Trade 2; if it reverses → flip with the new direction.',
+          `${pivotStep} ${red.detail || ''}`,
           side !== 'WAIT'
-            ? `Stop near prior swing ${this._fmt(o.invalidation)} · book toward prior-day ${side === 'LONG' ? 'high' : 'low'} ${this._fmt(o.bookZone)}.`
-            : `Prior-day H/L magnets: ${this._fmt(pdh)} / ${this._fmt(pdl)}.`,
+            ? `Structural Stop (${o.invalidationReason || 'swing'}): ${this._fmt(o.invalidation)}${stopPctStr} · Book Target (${o.bookReason || 'liquidity'}): ${this._fmt(o.bookZone)}${targetPctStr} · R:R ${rrStr}.`
+            : `Prior-day H/L liquidity magnets: ${this._fmt(pdh)} / ${this._fmt(pdl)}.`,
+          ...(side !== 'WAIT' ? [magnetObstacleStep] : []),
           ...(liqStep ? [liqStep] : clockStep ? [clockStep] : []),
-          side !== 'WAIT' ? `${hint}.` : 'Stay flat until reject vs reverse is clear.',
+          side !== 'WAIT' ? `${hint}.` : 'Wait for the candle to close rejecting or flipping the 1H first-red bar.',
         ],
         entry: side === 'WAIT' ? null : o.price,
         stop: side === 'WAIT' ? null : o.invalidation,
         exit: side === 'WAIT' ? null : o.bookZone,
+        rr: side === 'WAIT' ? null : o.rr,
       };
     }
 
     if (o.trend === 'bullish') {
+      const kindTitle = o.setupKind === 'session_sweep'
+        ? `Session Sweep Reversal · Futures LONG`
+        : o.setupKind === 'trade1_departure' || red.id === 'trade1_away'
+          ? 'Trade 1 · Futures LONG (1H Red Departure)'
+          : o.setupKind === 'fib_pullback'
+            ? 'Fib 0.44–0.56 Pullback · Futures LONG'
+            : 'Trend Bias · Futures LONG';
       return {
         side: 'LONG',
         cls: 'long',
-        title: red.id === 'trade1_away' ? 'Trade 1 · BUY / go long' : 'Bias: BUY / go long',
-        subtitle: `Bullish${emaNote}${red.id === 'trade1_away' ? ' · left the 1H first red' : ''}.`,
+        title: kindTitle,
+        subtitle: `Bullish above mark-window Fibs${emaNote}${sweep ? ` · ${sweep.label}` : ''}.`,
         steps: [
-          `${hint}: LONG near price / band support hold.`,
-          `Stop at prior swing ${this._fmt(o.invalidation)} (not the fib box).`,
-          `Book toward prior-day high ${this._fmt(o.bookZone)}${pdh != null ? '' : ' (swing / fib fallback)'}.`,
+          `${hint}: Futures LONG near ${this._fmt(o.price)}.`,
+          `Structural Stop (${o.invalidationReason || 'swing low'}): ${this._fmt(o.invalidation)}${stopPctStr} (never inside the fib box).`,
+          `Book Target (${o.bookReason || 'PDH / liquidity'}): ${this._fmt(o.bookZone)}${targetPctStr} · R:R ${rrStr}.`,
+          magnetObstacleStep,
           pivotStep,
           ...(liqStep ? [liqStep] : clockStep ? [clockStep] : []),
         ],
         entry: o.price,
         stop: o.invalidation,
         exit: o.bookZone,
+        rr: o.rr,
       };
     }
+
     if (o.trend === 'bearish') {
+      const kindTitle = o.setupKind === 'session_sweep'
+        ? `Session Sweep Reversal · Futures SHORT`
+        : o.setupKind === 'trade1_departure' || red.id === 'trade1_away'
+          ? 'Trade 1 · Futures SHORT (1H Red Departure)'
+          : o.setupKind === 'fib_pullback'
+            ? 'Fib 0.44–0.56 Pullback · Futures SHORT'
+            : 'Trend Bias · Futures SHORT';
       return {
         side: 'SHORT',
         cls: 'short',
-        title: red.id === 'trade1_away' ? 'Trade 1 · SELL / go short' : 'Bias: SELL / go short',
-        subtitle: `Bearish${emaNote}${red.id === 'trade1_away' ? ' · left the 1H first red' : ''}.`,
+        title: kindTitle,
+        subtitle: `Bearish below mark-window Fibs${emaNote}${sweep ? ` · ${sweep.label}` : ''}.`,
         steps: [
-          `${hint}: SHORT near price / band resistance rejection.`,
-          `Stop at prior swing ${this._fmt(o.invalidation)} (not the fib box).`,
-          `Book toward prior-day low ${this._fmt(o.bookZone)}${pdl != null ? '' : ' (swing / fib fallback)'}.`,
+          `${hint}: Futures SHORT near ${this._fmt(o.price)}.`,
+          `Structural Stop (${o.invalidationReason || 'swing high'}): ${this._fmt(o.invalidation)}${stopPctStr} (never inside the fib box).`,
+          `Book Target (${o.bookReason || 'PDL / liquidity'}): ${this._fmt(o.bookZone)}${targetPctStr} · R:R ${rrStr}.`,
+          magnetObstacleStep,
           pivotStep,
           ...(liqStep ? [liqStep] : clockStep ? [clockStep] : []),
         ],
         entry: o.price,
         stop: o.invalidation,
         exit: o.bookZone,
+        rr: o.rr,
       };
     }
+
     return {
       side: 'WAIT',
       cls: 'wait',
-      title: 'No clear bias',
-      subtitle: 'No fib-box break yet.',
+      title: 'No clear bias · Stay Flat',
+      subtitle: 'Waiting for Fib box break or 1H first-red pivot confirmation.',
       steps: [
-        'Watch prior-session fibs; wait for a break of today’s Fib 0 / Fib 1.',
+        'Watch prior-session fibs; wait for a clean break of today’s Fib 0 / Fib 1.',
         pivotStep,
-        `Prior-day H/L: ${this._fmt(pdh)} / ${this._fmt(pdl)}.`,
+        `Prior-day H/L magnets: ${this._fmt(pdh)} / ${this._fmt(pdl)}.`,
         ...(clockStep ? [clockStep] : []),
       ],
       entry: null,
       stop: null,
       exit: null,
+      rr: null,
     };
   },
 
@@ -611,6 +656,63 @@ const RangeEmaUI = {
     };
     document.getElementById('rbPanLeft')?.addEventListener('click', () => panBy(1));
     document.getElementById('rbPanRight')?.addEventListener('click', () => panBy(-1));
+
+    // Inline Futures Sizing controls
+    const capIn = document.getElementById('rbFuturesCap');
+    const riskIn = document.getElementById('rbFuturesRisk');
+    const recalcInlineSizing = () => {
+      const cap = Number(capIn?.value);
+      const risk = Number(riskIn?.value);
+      if (Number.isFinite(cap) && cap > 0) {
+        this.state.capital = cap;
+        try { localStorage.setItem('trendrunner_rb_capital', String(cap)); } catch (_) {}
+      }
+      if (Number.isFinite(risk) && risk > 0 && risk <= 25) {
+        this.state.riskPct = risk;
+        try { localStorage.setItem('trendrunner_rb_risk_pct', String(risk)); } catch (_) {}
+      }
+      const row = (this.state.rows || [])[0];
+      const o = row?.readout;
+      if (!o || !o.price || !o.invalidation || typeof RedBarTrend === 'undefined') return;
+      const sz = RedBarTrend.futuresSizing({
+        entry: o.price,
+        stop: o.invalidation,
+        exit: o.bookZone,
+        capital: this.state.capital,
+        riskPct: this.state.riskPct,
+      });
+      if (!sz) return;
+      const elRisk = document.getElementById('rbSzRisk');
+      const elNotional = document.getElementById('rbSzNotional');
+      const elLev = document.getElementById('rbSzLev');
+      const elLiq = document.getElementById('rbSzLiq');
+      const sym = (row?.instrument?.id || 'BTC').replace(/USDT$/i, '');
+      if (elRisk) elRisk.textContent = `$${sz.riskUsd.toFixed(2)} (TP +$${sz.netProfitUsd.toFixed(2)})`;
+      if (elNotional) elNotional.textContent = `$${sz.notionalUsd.toFixed(0)} · ${sz.qty.toFixed(3)} ${sym}`;
+      if (elLev) elLev.textContent = `${sz.recLeverage}× iso (max ${sz.maxSafeLeverage}×)`;
+      if (elLiq) elLiq.textContent = this._fmt(sz.liqPrice);
+    };
+    capIn?.addEventListener('input', recalcInlineSizing);
+    riskIn?.addEventListener('input', recalcInlineSizing);
+
+    document.getElementById('rbSendToRiskCalc')?.addEventListener('click', () => {
+      const row = (this.state.rows || [])[0];
+      const o = row?.readout;
+      if (!o || !o.price || !o.invalidation) return;
+      const capEl = document.getElementById('totalCapital');
+      const pctEl = document.getElementById('riskPct');
+      const entEl = document.getElementById('entryPrice');
+      const stpEl = document.getElementById('stopLossPrice');
+      const tpEl = document.getElementById('targetPrice');
+      if (capEl) capEl.value = String(this.state.capital || 1000);
+      if (pctEl) pctEl.value = String(this.state.riskPct || 1);
+      if (entEl) entEl.value = String(o.price);
+      if (stpEl) stpEl.value = String(o.invalidation);
+      if (tpEl && o.bookZone) tpEl.value = String(o.bookZone);
+      const navBtn = document.querySelector('.nav-link[data-section="riskSection"]');
+      if (navBtn) navBtn.click();
+      document.getElementById('calcRisk')?.click();
+    });
   },
 
   _deskHtml(r, c) {
@@ -624,6 +726,44 @@ const RangeEmaUI = {
     const trendWord = o.trend === 'bullish' ? 'BULLISH' : o.trend === 'bearish' ? 'BEARISH' : 'NEUTRAL';
 
     const steps = (a.steps || []).map((s) => `<li>${s}</li>`).join('');
+    const stopSub = o.stopPct != null ? `<small class="rb-level-sub">-${o.stopPct.toFixed(2)}% (${o.invalidationReason || 'swing'})</small>` : '';
+    const exitSub = o.targetPct != null ? `<small class="rb-level-sub">+${o.targetPct.toFixed(2)}% (${o.bookReason || 'magnet'})</small>` : '';
+    const rrBadge = a.rr != null ? `${a.rr.toFixed(2)}R` : '—';
+
+    let futuresBarHtml = '';
+    if (a.side === 'LONG' || a.side === 'SHORT') {
+      const sz = (typeof RedBarTrend !== 'undefined' && RedBarTrend.futuresSizing)
+        ? RedBarTrend.futuresSizing({
+          entry: a.entry,
+          stop: a.stop,
+          exit: a.exit,
+          capital: this.state.capital || 1000,
+          riskPct: this.state.riskPct || 1,
+        })
+        : o.sizing;
+      if (sz) {
+        const sym = (r.instrument?.id || 'BTC').replace(/USDT$/i, '');
+        futuresBarHtml = `
+          <div class="rb-futures-bar">
+            <div class="rb-futures-inputs">
+              <label>Wallet $
+                <input type="number" id="rbFuturesCap" value="${this.state.capital || 1000}" min="10" step="50" />
+              </label>
+              <label>Risk %
+                <input type="number" id="rbFuturesRisk" value="${this.state.riskPct || 1}" min="0.1" max="10" step="0.25" />
+              </label>
+            </div>
+            <div class="rb-futures-metrics">
+              <div><span>1R Risk / Net TP</span><strong id="rbSzRisk">$${sz.riskUsd.toFixed(2)} (TP +$${sz.netProfitUsd.toFixed(2)})</strong></div>
+              <div><span>Futures Size</span><strong id="rbSzNotional">$${sz.notionalUsd.toFixed(0)} · ${sz.qty.toFixed(3)} ${sym}</strong></div>
+              <div><span>Safe Leverage</span><strong id="rbSzLev">${sz.recLeverage}× iso (max ${sz.maxSafeLeverage}×)</strong></div>
+              <div><span>Est. Liq Price</span><strong id="rbSzLiq" class="neg-text">${this._fmt(sz.liqPrice)}</strong></div>
+            </div>
+            <button type="button" class="rb-futures-calc-btn" id="rbSendToRiskCalc" title="Open setup in Futures Risk Calculator">Risk Calc ↗</button>
+          </div>
+        `;
+      }
+    }
 
     return `
       <div class="rb-action ${a.cls}">
@@ -634,9 +774,11 @@ const RangeEmaUI = {
           <ul class="rb-action-steps">${steps}</ul>
           <div class="rb-action-levels">
             <div><span>Entry lean</span><strong>${this._fmt(a.entry)}</strong></div>
-            <div><span>Stop</span><strong class="neg-text">${this._fmt(a.stop)}</strong></div>
-            <div><span>Exit / book</span><strong class="pos-text">${this._fmt(a.exit)}</strong></div>
+            <div><span>Structural Stop</span><strong class="neg-text">${this._fmt(a.stop)}</strong>${stopSub}</div>
+            <div><span>Book Target</span><strong class="pos-text">${this._fmt(a.exit)}</strong>${exitSub}</div>
+            <div><span>Reward : Risk</span><strong>${rrBadge}</strong><small class="rb-level-sub">BE @ +0.8R</small></div>
           </div>
+          ${futuresBarHtml}
         </div>
       </div>
 
@@ -689,13 +831,16 @@ const RangeEmaUI = {
         ${o.playbook?.redSetup
           ? `<span class="range-chip ${o.playbook.redSetup.revisitWindow ? 'pos' : ''}">${o.playbook.redSetup.label}</span>`
           : ''}
+        ${o.playbook?.sweep
+          ? `<span class="range-chip pos">${o.playbook.sweep.label}</span>`
+          : ''}
         <span class="range-chip">EMA: ${String((r.ema && r.ema.cross) || '').replace(/_/g, ' ')}</span>
         <span class="range-chip ${r.emaAgree === 'agrees' ? 'pos' : r.emaAgree === 'disagrees' ? 'neg' : ''}">EMA ${r.emaAgree}</span>
         ${o.refs?.priorDayHigh != null
           ? `<span class="range-chip">PDH ${this._fmt(o.refs.priorDayHigh)} · PDL ${this._fmt(o.refs.priorDayLow)}</span>`
           : ''}
         ${o.firstRed1h
-          ? `<span class="range-chip">1H first red ${this._fmt(o.firstRed1h.high)}</span>`
+          ? `<span class="range-chip">1H first red ${this._fmt(o.firstRed1h.high)} / ${this._fmt(o.firstRed1h.low)}</span>`
           : ''}
         ${o.playbook?.liquidityTip
           ? `<span class="range-chip">${o.playbook.liquidityTip}</span>`
@@ -703,9 +848,8 @@ const RangeEmaUI = {
       </div>
 
       <p class="range-desk-footnote">
-        Green = long · Red = short · Grey = wait.
-        Trade 1 = leave the 1H first red · Trade 2 = revisit · book at prior-day H/L.
-        You still place the order on the exchange.
+        Futures Desk · Green = LONG · Red = SHORT · Grey = WAIT.
+        Trade 1 = leave 1H first red · Trade 2 = 2–3h revisit · Move stop to BE at +0.8R · Book at ≥1.5R liquidity magnet.
       </p>
     `;
   },
@@ -750,6 +894,9 @@ const RangeEmaUI = {
 
   /** UTC ms when `hour:minute` occurs in `timeZone` on calendar `dayStr` (YYYY-MM-DD in that zone). */
   _zonedClockToUtc(dayStr, timeZone, hour, minute) {
+    if (typeof RedBarTrend !== 'undefined' && typeof RedBarTrend.zonedClockToUtc === 'function') {
+      return RedBarTrend.zonedClockToUtc(dayStr, timeZone, hour, minute);
+    }
     const targetHm = `${String(hour).padStart(2, '0')}:${String(minute).padStart(2, '0')}`;
     const base = Date.parse(`${dayStr}T12:00:00Z`);
     let lo = base - 36 * 3600 * 1000;
@@ -778,6 +925,9 @@ const RangeEmaUI = {
   },
 
   _zonedDayStr(ts, timeZone) {
+    if (typeof RedBarTrend !== 'undefined' && typeof RedBarTrend.zonedDay === 'function') {
+      return RedBarTrend.zonedDay(ts, timeZone);
+    }
     return new Intl.DateTimeFormat('en-CA', {
       timeZone,
       year: 'numeric',

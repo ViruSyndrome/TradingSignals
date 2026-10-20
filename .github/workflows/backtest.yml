@@ -1,4 +1,4 @@
-name: Weekly Backtest
+name: Weekly Red Bar Desk Backtest
 
 on:
   schedule:
@@ -7,73 +7,28 @@ on:
   workflow_dispatch:  # Allow manual trigger from GitHub UI
 
 permissions:
-  contents: write
+  contents: read
 
 jobs:
   backtest:
     runs-on: ubuntu-latest
-    
+
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
-        with:
-          token: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Setup Node.js
         uses: actions/setup-node@v4
         with:
           node-version: '20'
 
-      - name: Run Backtest
-        run: node backtest.js 2>&1 | tee backtest_output.txt
+      - name: Run Red Bar Futures Desk Walk-Forward Backtest & Live Readout
+        run: node redbar_desk_backtest.js --live 2>&1 | tee backtest_output.txt
 
       - name: Upload backtest log
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: backtest-output
+          name: redbar-backtest-output
           path: backtest_output.txt
           if-no-files-found: ignore
-
-      # Optional robustness log (does not rewrite winners — informational only)
-      # Continues even if rolling mode errors, so the main winners update still commits.
-      - name: Rolling walk-forward check
-        continue-on-error: true
-        run: node backtest.js --walk-forward-rolling 2>&1 | tee -a backtest_output.txt
-
-      # Research-only: does NOT rewrite provenWinners / config (daily engine owns that)
-      - name: Moonshot + scalp research logs
-        continue-on-error: true
-        run: |
-          node backtest.js --moonshots 2>&1 | tee -a backtest_output.txt
-          node backtest.js --scalps 2>&1 | tee -a backtest_output.txt
-
-      # Controlled A/B for SMC / Wyckoff / VPOC (does NOT rewrite winners)
-      - name: SMC factor ablation
-        continue-on-error: true
-        run: node backtest.js --smc-ablation 2>&1 | tee -a backtest_output.txt
-
-      - name: Check if config changed
-        id: changes
-        run: |
-          git diff --quiet js/config.js js/backtest_database.json && echo "changed=false" >> $GITHUB_OUTPUT || echo "changed=true" >> $GITHUB_OUTPUT
-
-      - name: Commit and push updated winners
-        if: steps.changes.outputs.changed == 'true'
-        run: |
-          git config user.name "github-actions[bot]"
-          git config user.email "github-actions[bot]@users.noreply.github.com"
-          git add js/config.js js/backtest_database.json
-          
-          # Extract key stats for the commit message
-          CORE=$(grep -oP "coreWinners: \[\K[^\]]*" js/config.js | tr -cd ',' | wc -c)
-          CORE=$((CORE + 1))
-          PROB=$(grep -oP "probationWinners: \[\K[^\]]*" js/config.js | tr -cd ',' | wc -c)
-          PROB=$((PROB + 1))
-          
-          git commit -m "data: automated weekly backtest - ${CORE} core, ${PROB} probation winners"
-          git push
-
-      - name: No changes detected
-        if: steps.changes.outputs.changed == 'false'
-        run: echo "No changes to winner lists. Config is up to date."

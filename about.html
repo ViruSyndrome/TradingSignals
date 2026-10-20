@@ -28,36 +28,28 @@
 <body>
   <a href="index.html" class="back-btn">← Back to Red Bar Desk</a>
   <h1>About TrendRunner</h1>
-  <p>TrendRunner is now a <strong>BTC Red Bar Desk</strong>: a visual map of prior-day range bands, today’s opening range, and red-bar exit references, with a clear <strong>LONG / SHORT / WAIT</strong> strip. It is educational research — not financial advice, and it does not execute trades for you.</p>
+  <p>TrendRunner is a <strong>Red Bar Futures Desk</strong> for <strong>BTC</strong>, <strong>XAU (Gold)</strong>, and <strong>NIFTY</strong>: a visual map of mark-window Fibonacci boxes (<code>0 · 0.44 · 0.5 · 0.56 · 1</code>), the <strong>1H first-red daily pivot</strong> (Trade 1 departure &amp; Trade 2 revisit), and the <strong>Asia → London → US session liquidity clock</strong>, complete with a <strong>Futures LONG / SHORT / WAIT</strong> action strip and isolated-margin sizing. It is educational research — not financial advice, and it does not execute trades for you.</p>
 
-  <h2>What you see on the desk</h2>
+  <h2>The 4 Pillars on the Desk</h2>
   <ul>
-    <li><strong>Predicted trend</strong> from opening-range break + interaction with prior-day bands</li>
-    <li><strong>Chart</strong> — BTC 30m price, EMA 10/30 overlay, OR / band / stop / exit lines</li>
-    <li><strong>Action strip</strong> — what bias to take and where stop / book references sit</li>
+    <li><strong>1. Mark-Window Fib Boxes (0 / 0.44 / 0.5 / 0.56 / 1):</strong> Drawn from each market’s institutional mark window (BTC <code>02:30–03:30 IST</code>, XAU <code>01:30–02:30 IST</code>, NIFTY <code>15:15–15:45 IST</code>) and extended right across the session. Inside <code>[0, 1]</code> is sideways accumulation (WAIT); outside is directional expansion.</li>
+    <li><strong>2. 1H First Red Candle (Session Pivot):</strong> After skipping the opening candle of the day, the first closed 1H red candle marks the daily pivot. <strong>Trade 1</strong> rides the morning departure away from that bar; <strong>Trade 2</strong> watches the 2–3h revisit (reject = continue trend; reverse = flip direction).</li>
+    <li><strong>3. Session Liquidity Clock:</strong> Pre-London holds the morning bias; London (<code>12:30 IST</code>) sweeps Asia High/Low and reverses; US Open (<code>16:30–18:30 IST</code>) hunts London H/L (and untouched Asia H/L).</li>
+    <li><strong>4. Structural Stops, +0.8R Breakeven &amp; ≥1.5R Targets:</strong> Stops sit at recent local swings or the 1H red pivot (never arbitrarily inside the Fib box). At <strong>+0.8R</strong>, move the stop to Breakeven (+0.10% fee cover) and book at the nearest liquidity magnet (Prior-Day H/L, London/Asia H/L, or Fib extension) offering <strong>≥1.5R</strong>.</li>
   </ul>
 
-  <h2>Two separate ideas</h2>
-  <ul>
-    <li><strong>Red Bar / ranges</strong> — trend prediction (the core)</li>
-    <li><strong>EMA 10/30</strong> — separate overlay (agree / disagree only)</li>
-  </ul>
-
-  <h2>Spot vs futures</h2>
-  <p>Spot is long-only. To profit from a <strong>SHORT</strong> bias you need futures (or margin). Leverage adds liquidation risk — start small, isolated margin, always use a stop.</p>
+  <h2>Futures Execution &amp; Risk Sizing</h2>
+  <p>The desk is built for <strong>Futures LONG and SHORT</strong> execution. Both the inline Futures Sizing bar on the desk and the <strong>Risk Calculator</strong> tab compute your 1R dollar risk, position notional, contract quantity, recommended safe isolated leverage, and estimated liquidation price so your structural stop always triggers well before liquidation.</p>
 
   <h2>Funding (India)</h2>
-  <p>P2P guides are only for moving INR ↔ USDT into your wallet — not the strategy itself:
+  <p>P2P guides are for moving INR ↔ USDT into your futures margin wallet:
     <a href="guides/binance-p2p.html">P2P funding</a>,
     <a href="guides/avoid-convert.html">avoid Convert</a>,
     <a href="guides/inr-to-usdt.html">INR → USDT</a>,
     <a href="guides/cash-out.html">cash out</a>.
   </p>
 
-  <h2>Legacy</h2>
-  <p>The old multi-coin High Conf / moonshot / Strong Buy scoreboard is hidden. Code may still exist for research; the live product path is Red Bar on BTC.</p>
-
-  <h2>Philosophy</h2>
-  <p>Transparent levels on a chart beat a black-box “buy this alt” list. You remain responsible for every order on the exchange.</p>
+  <h2>Walk-Forward Backtest</h2>
+  <p>Run <code>node redbar_desk_backtest.js --live</code> to test the 30m + 1H Red Bar Futures engine across 4,000 historical candles with 0.08% round-trip futures fees.</p>
 </body>
 </html>

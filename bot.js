@@ -3,9 +3,10 @@ const { TelegramBot } = require('node-telegram-bot-api');
 const fs = require('fs');
 
 // Load exact same indicator math as the frontend — now via proper require()
-const CONFIG     = require('./js/config.js');
-const Indicators = require('./js/indicators.js');
-const Signals    = require('./js/signals.js');
+const CONFIG      = require('./js/config.js');
+const Indicators  = require('./js/indicators.js');
+const Signals     = require('./js/signals.js');
+const RedBarTrend = require('./js/redbar_trend.js');
 // --- Node.js Polyfills for Browser API ---
 if (typeof global.localStorage === 'undefined') {
   global.localStorage = {
@@ -20,6 +21,7 @@ const { renderTweetCardPng, TW_OG_FALLBACK } = require('./js/tweet_card.js');
 
 global.CONFIG = CONFIG;
 global.Indicators = Indicators; // signals.js references Indicators as a global
+global.RedBarTrend = RedBarTrend;
 
 const token = process.env.TELEGRAM_BOT_TOKEN;
 const chatId = process.env.TELEGRAM_CHAT_ID;
@@ -362,12 +364,92 @@ async function fetchFearGreed() {
   } catch { return undefined; }
 }
 
+async function scanRedBarDesk() {
+  const rbCfg = CONFIG.rangeEma || {};
+  const instruments = (rbCfg.instruments || []).filter((i) => i.feed === 'binanceSpot');
+  const actionableKinds = new Set([
+    'trade1_departure',
+    'trade2_confirmed',
+    'session_sweep',
+    'pivot_reversal',
+  ]);
+  for (const inst of instruments) {
+    try {
+      const [bars30m, bars1h] = await Promise.all([
+        API.getBinanceKlines(inst.symbol, '30m', 420),
+        API.getBinanceKlines(inst.symbol, '1h', 220),
+      ]);
+      if (!bars30m || bars30m.length < 40) continue;
+      const readout = RedBarTrend.readAt(bars30m, bars30m.length - 1, {
+        ...rbCfg,
+        ...inst,
+        bars1h,
+      });
+      if (!readout) continue;
+      const side = readout.trend === 'bullish' ? 'LONG' : readout.trend === 'bearish' ? 'SHORT' : 'WAIT';
+      const setupKind = readout.setupKind || 'wait';
+      const alertKey = `${side}|${setupKind}|${readout.currentDay || ''}`;
+      const alreadyAlerted = lastAlerted[`RB_${inst.id}`] === alertKey;
+
+      console.log(
+        `[RedBarBot] ${inst.id} (${inst.symbol}): ${side} | setup=${setupKind} | price=${readout.price} | stop=${readout.invalidation} | book=${readout.bookZone} | RR=${readout.rr != null ? readout.rr.toFixed(2) : '—'}`
+      );
+
+      if ((side === 'LONG' || side === 'SHORT') && actionableKinds.has(setupKind) && (readout.rr || 0) >= 1.45) {
+        if (!alreadyAlerted) {
+          const dec = inst.priceDecimals ?? 2;
+          const fmt = (n) => (n != null && Number.isFinite(n) ? Number(n).toFixed(dec) : '—');
+          const sz = readout.sizing || RedBarTrend.futuresSizing({
+            entry: readout.price,
+            stop: readout.invalidation,
+            exit: readout.bookZone,
+            capital: 1000,
+            riskPct: 1,
+          });
+          const futLink = `https://www.binance.com/en/futures/${inst.symbol}?ref=TRENDRUNNER`;
+          const emoji = side === 'LONG' ? '🟢' : '🔴';
+          const msg = `${emoji} <b>RED BAR FUTURES ${side}: ${inst.label} (${inst.symbol})</b>
+Setup: <b>${readout.playbook?.redSetup?.label || setupKind}</b> (${readout.playbook?.clock?.label || 'Session'})
+Entry Lean: <b>$${fmt(readout.price)}</b>
+🛑 Structural Stop (${readout.invalidationReason || 'swing'}): <b>$${fmt(readout.invalidation)}</b> (-${(readout.stopPct || 0).toFixed(2)}%)
+🎯 Book Target (${readout.bookReason || 'liquidity'}): <b>$${fmt(readout.bookZone)}</b> (+${(readout.targetPct || 0).toFixed(2)}% · <b>1:${(readout.rr || 0).toFixed(2)} R:R</b>)
+🛡️ Management: Move stop to Breakeven at <b>+0.8R</b>${sz ? `\n⚡ Safe Iso Leverage: <b>${sz.recLeverage}×</b> (max ${sz.maxSafeLeverage}× · Est. Liq $${fmt(sz.liqPrice)})` : ''}
+
+🔗 <a href="${futLink}">Trade ${inst.symbol} Perp on Binance Futures</a> · <a href="https://trendrunner.app">Open Red Bar Desk</a>`;
+
+          if (bot && chatId) {
+            bot.sendMessage(chatId, msg, { parse_mode: 'HTML', disable_web_page_preview: true })
+              .catch((err) => console.error('[RedBarBot] Telegram send failed:', err.message));
+          }
+          lastAlerted[`RB_${inst.id}`] = alertKey;
+          saveAlertState(lastAlerted);
+        }
+      } else if (side === 'WAIT') {
+        delete lastAlerted[`RB_${inst.id}`];
+        saveAlertState(lastAlerted);
+      }
+    } catch (e) {
+      console.warn(`[RedBarBot] Failed scanning ${inst.id}:`, e.message);
+    }
+  }
+}
+
 async function scanMarket() {
   if (scanInProgress) {
     console.log('Scan already running — skipping overlapping trigger.');
     return;
   }
   scanInProgress = true;
+  if (CONFIG.ui?.redBarOnly) {
+    console.log('Scanning Red Bar Futures Desk instruments...');
+    try {
+      await scanRedBarDesk();
+    } finally {
+      scanInProgress = false;
+      console.log('Red Bar scan complete.');
+    }
+    return;
+  }
   console.log('Scanning market...');
   const portfolio = loadPortfolio();
 
@@ -683,6 +765,7 @@ function saveListingsSeen(state) {
 }
 
 async function pollNewListings() {
+  if (CONFIG.listings?.enabled === false || CONFIG.ui?.redBarOnly) return;
   if (String(process.env.LISTINGS_ALERTS || 'true').toLowerCase() === 'false') return;
   if (!bot || !chatId) return;
   try {

@@ -43,7 +43,7 @@
   <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.4/dist/chart.umd.min.js" defer></script>
   <script src="https://cdn.jsdelivr.net/npm/hammerjs@2.0.8/hammer.min.js" defer></script>
   <script src="https://cdn.jsdelivr.net/npm/chartjs-plugin-zoom@2.2.0/dist/chartjs-plugin-zoom.min.js" defer></script>
-  <link rel="stylesheet" href="styles.css?v=7.06" />
+  <link rel="stylesheet" href="styles.css?v=7.07" />
   <!-- Critical boot overlay (prevents sidebar flash before styles.css applies) -->
   <style>
     html, body { margin: 0; background: #080a14; }
@@ -86,11 +86,11 @@
     if ('serviceWorker' in navigator) {
       window.addEventListener('load', () => {
         const hadController = Boolean(navigator.serviceWorker.controller);
-        navigator.serviceWorker.register('./service-worker.js?v=7.06', { updateViaCache: 'none' })
+        navigator.serviceWorker.register('./service-worker.js?v=7.07', { updateViaCache: 'none' })
           .then(reg => {
             reg.update().catch(() => {});
             navigator.serviceWorker.addEventListener('controllerchange', () => {
-              const reloadKey = 'trendrunner_sw_update_7.06';
+              const reloadKey = 'trendrunner_sw_update_7.07';
               if (hadController && !sessionStorage.getItem(reloadKey)) {
                 sessionStorage.setItem(reloadKey, '1');
                 location.reload();
@@ -336,89 +336,88 @@
     <section class="main-section" id="educationSection">
       <div class="section-block">
         <div class="section-heading">
-          <h2>📚 Learn — Red Bar Desk</h2>
-          <p class="section-sub">How to read the BTC chart, LONG / SHORT / WAIT, and place your own trade</p>
+          <h2>📚 Learn — Red Bar Futures Desk</h2>
+          <p class="section-sub">Mark-window Fibs · 1H first-red pivot (Trade 1 &amp; Trade 2) · Asia / London / US liquidity clock · Futures sizing</p>
         </div>
 
         <div class="edu-full-grid">
 
           <div class="edu-full-card highlight-card edu-card-accent">
-            <div class="edu-header"><span>🟥</span><h3>What TrendRunner is now</h3></div>
-            <p>The old multi-coin High Conf / moonshot scoreboard is retired from the main UI. The live product is the <strong>Red Bar Desk</strong>: one BTC 30m map with trend bias and levels. It does <em>not</em> place orders for you.</p>
+            <div class="edu-header"><span>🟥</span><h3>1. Mark-Window Fib Boxes (0 · 0.44 · 0.5 · 0.56 · 1)</h3></div>
+            <p>Each session starts with an institutional mark window drawn forward across the chart with custom Fibonacci levels <code>0, 0.44, 0.5, 0.56, 1</code>:</p>
             <ul>
-              <li><strong>Primary:</strong> Prior-day range bands + today’s opening range + last red-bar refs → <strong>BULLISH / BEARISH / NEUTRAL</strong>.</li>
-              <li><strong>Action strip:</strong> <strong>LONG</strong>, <strong>SHORT</strong>, or <strong>WAIT</strong> with entry lean, stop, and exit/book levels.</li>
-              <li><strong>Chart:</strong> Switch <strong>5m / 30m / 1h</strong>, zoom in/out, candles + EMA, opening range / bands / stop / exit, plus <strong>Asia / London / US</strong> session open (solid) and close (dashed) markers.</li>
-              <li><strong>You:</strong> Confirm on the chart → trade on the exchange (futures for shorts; spot only for longs).</li>
+              <li><strong>BTC:</strong> <code>02:30–03:30 IST</code> · <strong>XAU (Gold):</strong> <code>01:30–02:30 IST</code> · <strong>NIFTY:</strong> <code>15:15–15:45 IST</code> institutional close.</li>
+              <li><strong>Inside [0, 1]:</strong> Sideways accumulation zone → <strong>WAIT</strong> (do not force trades inside the box).</li>
+              <li><strong>0.44–0.56 Golden Pocket:</strong> Institutional equilibrium zone on pullbacks into prior-day or current-day Fibs.</li>
+              <li><strong>Outside [0, 1]:</strong> Directional expansion (above Fib 0 = Bullish; below Fib 1 = Bearish).</li>
             </ul>
           </div>
 
           <div class="edu-full-card highlight-card">
-            <div class="edu-header"><span>📐</span><h3>Red Bar theory (the gold)</h3></div>
-            <p>This is the <strong>trend prediction</strong> layer — not the same thing as EMA crosses.</p>
+            <div class="edu-header"><span>🕯️</span><h3>2. The 1H First Red Pivot (Trade 1 &amp; Trade 2)</h3></div>
+            <p>On the 1H chart, skip the day’s opening candle and mark the <strong>first closed 1H red candle</strong> (High &amp; Low). That bar is the session’s master pivot:</p>
             <ul>
-              <li><strong>Every prior day</strong> gets a high / mid / low band, extended forward. No cherry-picking days.</li>
-              <li><strong>First candle of the day</strong> on 30m = opening range. Do not trade it. After it locks: break above high → bullish bias; break below low → bearish; stuck inside → <strong>WAIT</strong>.</li>
-              <li><strong>Price back inside an old band</strong> often means pullback / balance — watch for hold or rejection.</li>
-              <li><strong>Last red bar</strong> high/low = book-profit and structure references (as in the course-style demos).</li>
+              <li><strong>Trade 1 (Morning Departure):</strong> When price breaks and moves away from the 1H first-red bar in the morning, take Trade 1 in that direction.</li>
+              <li><strong>Trade 2 (2–3h Revisit):</strong> Roughly 2–3 hours later (1.5h–6.5h window), price frequently revisits that 1H first-red level.</li>
+              <li><strong>At the Revisit:</strong> Watch whether the candle <strong>rejects</strong> the pivot (continue the morning trend) or <strong>reverses through</strong> it (flip direction for Trade 2).</li>
             </ul>
-            <div class="edu-tip">💡 Same geometry can later apply to Nifty, gold, oil, gas — once that market’s OHLC is wired. Live desk = <strong>BTC</strong> first.</div>
+            <div class="edu-tip">💡 The desk automatically flags <strong>Trade 1 Departure</strong> and <strong>Trade 2 Revisit (Reject vs Reverse)</strong> on the action strip.</div>
           </div>
 
-          <div class="edu-full-card">
-            <div class="edu-header"><span>📈</span><h3>EMA overlay (separate theory)</h3></div>
-            <p>EMA 10 / 30 on the chart is a <strong>second opinion</strong>, not the Red Bar engine.</p>
+          <div class="edu-full-card highlight-card edu-card-warning">
+            <div class="edu-header"><span>🕒</span><h3>3. Session Liquidity Clock (Asia → London → US)</h3></div>
+            <p>Institutions hunt session highs and lows rather than random mid-air targets:</p>
             <ul>
-              <li>Desk shows whether EMA <strong>agrees</strong> or <strong>disagrees</strong> with the Red Bar trend.</li>
-              <li>If they disagree, size smaller or skip — do not force the trade.</li>
+              <li><strong>Pre-London (until 12:30 IST):</strong> BTC typically keeps its post-mark morning direction.</li>
+              <li><strong>London Open (12:30–16:30 IST):</strong> Watch for a liquidity sweep of <strong>Asia High or Low</strong> followed by a reversal.</li>
+              <li><strong>US Open (16:30–18:30 IST):</strong> Heavy institutional flow hunts <strong>London H/L</strong> (and untouched Asia H/L). Drop to the 1-minute chart when it zooms and ride the impulse.</li>
             </ul>
           </div>
 
           <div class="edu-full-card highlight-card edu-card-warning">
-            <div class="edu-header"><span>↕️</span><h3>LONG, SHORT, WAIT — what to do</h3></div>
+            <div class="edu-header"><span>🎯</span><h3>4. Structural Stops, +0.8R Breakeven &amp; ≥1.5R Targets</h3></div>
             <ul>
-              <li><strong class="green">LONG</strong> — Bias up. Futures: open long. Spot: buy only if you accept long-only. Stop at invalidation; book near exit line.</li>
-              <li><strong class="red">SHORT</strong> — Bias down. Needs <strong>futures / margin</strong> (spot cannot short-first). Stop above invalidation; book near exit line.</li>
-              <li><strong>WAIT</strong> — Inside opening range or no clear break. Mark the yellow OR lines and do nothing until a hold outside the box.</li>
-            </ul>
-            <div class="edu-tip">💡 Always place stop + take-profit on the exchange when you enter. The desk shows references; the exchange enforces them.</div>
-          </div>
-
-          <div class="edu-full-card highlight-card edu-card-warning">
-            <div class="edu-header"><span>⚡</span><h3>Futures basics (for SHORT and leverage)</h3></div>
-            <ul>
-              <li><strong>Long</strong> = profit if price rises. <strong>Short</strong> = profit if price falls.</li>
-              <li>You post <strong>margin</strong>; leverage multiplies gains <em>and</em> losses. Wrong side → liquidation risk.</li>
-              <li>Start with <strong>low leverage (2×–3×)</strong>, <strong>isolated</strong> margin, tiny size, and a hard stop every time.</li>
-              <li>Transfer USDT to the futures wallet only after you understand funding fees and liquidation.</li>
+              <li><strong>Structural Stop:</strong> Placed at the recent local swing high/low or 1H first-red pivot edge (typically <code>0.30%–1.50%</code>), <em>never</em> arbitrarily inside the Fib box.</li>
+              <li><strong>+0.8R Breakeven Lock:</strong> Once a trade reaches <strong>+0.8R</strong> in your favor, move your stop to Breakeven (+0.10% fee cover) so a late session reversal cannot turn a winner into a full loss.</li>
+              <li><strong>Book Target (≥1.5R):</strong> Book profits at the nearest liquidity magnet (<strong>Prior-Day High/Low</strong>, <strong>London/Asia H/L</strong>, or <strong>Fib extension</strong>) that offers at least <strong>1.5R</strong> reward-to-risk.</li>
             </ul>
           </div>
 
           <div class="edu-full-card">
-            <div class="edu-header"><span>💱</span><h3>Funding the wallet (India — still useful)</h3></div>
-            <p>P2P / cash-out guides are <strong>how to move INR ↔ USDT</strong>, not the trading strategy. Use them to fund spot or futures margin, then trade from the Red Bar Desk.</p>
+            <div class="edu-header"><span>⚡</span><h3>5. Futures-Only Execution &amp; Safe Leverage</h3></div>
+            <p>The Red Bar Desk is built for <strong>USDⓈ-M Perpetual Futures</strong> (both <strong>LONG</strong> and <strong>SHORT</strong>):</p>
+            <ul>
+              <li>Always use <strong>Isolated Margin</strong> so a black-swan wick cannot drain your entire wallet.</li>
+              <li>Let your <strong>stop distance</strong> dictate your leverage: if your stop is 1.0% away and you risk 1% of capital, your position notional equals 1× your wallet (use <strong>2×–5× isolated leverage</strong> so liquidation stays far beyond your stop).</li>
+              <li>Use the inline <strong>Futures Sizing bar</strong> on the desk or the <strong>Risk</strong> calculator tab before placing any order.</li>
+            </ul>
+          </div>
+
+          <div class="edu-full-card">
+            <div class="edu-header"><span>📈</span><h3>6. EMA 10 / 30 Overlay (Second Opinion)</h3></div>
+            <p>EMA 10 / 30 on the chart is a <strong>confirmation overlay</strong>, not the primary trigger.</p>
+            <ul>
+              <li>When EMA <strong>agrees</strong> with the Red Bar setup, take standard risk (1%).</li>
+              <li>When EMA <strong>disagrees</strong>, cut risk in half (0.5%) or wait for candle confirmation.</li>
+            </ul>
+          </div>
+
+          <div class="edu-full-card">
+            <div class="edu-header"><span>💱</span><h3>7. Funding the Futures Wallet (INR ↔ USDT)</h3></div>
+            <p>Need to move INR ↔ USDT before funding your futures margin wallet? Use our step-by-step guides:</p>
             <ul>
               <li><a href="guides/binance-p2p.html">Binance P2P funding</a></li>
-              <li><a href="guides/avoid-convert.html">Avoid Convert when possible</a></li>
+              <li><a href="guides/avoid-convert.html">Avoid Convert fees</a></li>
               <li><a href="guides/inr-to-usdt.html">INR → USDT</a></li>
               <li><a href="guides/cash-out.html">Cash out to bank</a></li>
             </ul>
           </div>
 
-          <div class="edu-full-card highlight-card">
-            <div class="edu-header"><span>🛡️</span><h3>Risk rules</h3></div>
-            <ul>
-              <li>Risk only <strong>1–2%</strong> of trading capital per idea (smaller with leverage).</li>
-              <li>No stop = no trade.</li>
-              <li>Never average a losing futures position.</li>
-              <li>If the desk flips to WAIT or the opposite bias, exit and reassess.</li>
-            </ul>
-            <div class="edu-tip">💡 Use the <strong>Risk</strong> sidebar calculator for position size before you click buy/sell on the exchange.</div>
-          </div>
-
           <div class="edu-full-card">
-            <div class="edu-header"><span>🧪</span><h3>Research / backtester</h3></div>
-            <p>The visual Backtester and old daily-score CLI are <strong>legacy research</strong>. For Red Bar rules use <code>node redbar_ema_backtest.js</code> on a machine with Node. Historical results are not a promise of live profit.</p>
+            <div class="edu-header"><span>🧪</span><h3>8. Walk-Forward Red Bar Backtester</h3></div>
+            <p>To test the exact 30m + 1H Red Bar Futures engine (mark-window Fibs, 1H first-red Trade 1/Trade 2, session sweeps, +0.8R BE lock, and 0.08% futures fees), run:</p>
+            <p><code>node redbar_desk_backtest.js --live</code></p>
+            <div class="edu-tip">💡 Across 83 days of 30m + 1H BTC futures data, the 4-pillar playbook with ≥1.5R targets and +0.8R BE lock achieved a <strong>56.9% win rate</strong> and positive out-of-sample return.</div>
           </div>
 
         </div>
@@ -429,41 +428,46 @@
     <section class="main-section" id="riskSection">
       <div class="section-block">
         <div class="section-heading">
-          <h2>🛡️ Position Size & Risk Calculator</h2>
-          <p class="section-sub">Calculate how much to invest per trade to protect your capital</p>
+          <h2>🛡️ Futures Position Size, Leverage &amp; Liquidation Calculator</h2>
+          <p class="section-sub">Supports both Futures LONG (Stop below Entry) and Futures SHORT (Stop above Entry) with isolated liquidation safety checks</p>
         </div>
 
         <div class="risk-calc-layout">
           <div class="risk-form glass">
-            <h3>Trade Parameters</h3>
+            <h3>Futures Trade Parameters</h3>
             <div class="form-group">
-              <label for="totalCapital">Total Trading Capital (₹ or $)</label>
-              <input type="number" id="totalCapital" value="100000" min="1000" />
+              <label for="totalCapital">Futures Wallet Balance ($ or ₹)</label>
+              <input type="number" id="totalCapital" value="1000" min="10" step="50" />
             </div>
             <div class="form-group">
               <label for="riskPct">Risk per Trade (%)</label>
-              <input type="number" id="riskPct" value="1.5" min="0.1" max="5" step="0.1" />
-              <small>Recommended: 1% to 2% max per trade</small>
+              <input type="number" id="riskPct" value="1.0" min="0.1" max="10" step="0.25" />
+              <small>Recommended: 0.5% to 1.5% max per futures trade</small>
             </div>
             <div class="form-group">
               <label for="entryPrice">Entry Price</label>
-              <input type="number" id="entryPrice" value="1000" min="0.01" step="0.01" />
+              <input type="number" id="entryPrice" value="90000" min="0.0001" step="any" />
             </div>
             <div class="form-group">
-              <label for="stopLossPrice">Stop-Loss Price</label>
-              <input type="number" id="stopLossPrice" value="950" min="0.01" step="0.01" />
+              <label for="stopLossPrice">Structural Stop-Loss Price (Below Entry = LONG · Above Entry = SHORT)</label>
+              <input type="number" id="stopLossPrice" value="89200" min="0.0001" step="any" />
             </div>
             <div class="form-group">
-              <label for="targetPrice">Target Price (optional)</label>
-              <input type="number" id="targetPrice" value="1100" min="0.01" step="0.01" />
+              <label for="targetPrice">Book Target Price (PDH / PDL / Liquidity Magnet)</label>
+              <input type="number" id="targetPrice" value="91500" min="0.0001" step="any" />
             </div>
-            <button id="calcRisk" class="btn-primary">Calculate</button>
+            <div class="form-group">
+              <label for="customLeverage">Isolated Leverage (0 = Auto Recommended Safe Leverage)</label>
+              <input type="number" id="customLeverage" value="0" min="0" max="50" step="1" />
+              <small>Leave at 0 to auto-select safe isolated leverage where liquidation is well past your stop</small>
+            </div>
+            <button id="calcRisk" class="btn-primary">Calculate Futures Position</button>
           </div>
 
           <div class="risk-results glass" id="riskResults">
-            <h3>📊 Position Sizing Results</h3>
+            <h3>📊 Futures Sizing &amp; Liquidation Readout</h3>
             <div class="risk-result-grid" id="riskResultGrid">
-              <p class="risk-placeholder">Fill in the form and click Calculate to see your recommended position size.</p>
+              <p class="risk-placeholder">Enter your LONG or SHORT levels and click Calculate (or click <strong>Risk Calc ↗</strong> directly on the Red Bar Desk).</p>
             </div>
           </div>
         </div>
@@ -474,8 +478,8 @@
     <section class="main-section" id="backtestSection">
       <div class="section-block">
         <div class="section-heading">
-          <h2>🧪 Visual Backtester</h2>
-          <p class="section-sub">Legacy score-engine research on Binance history. For Red Bar rules prefer <code>node redbar_ema_backtest.js</code>. Live trading desk = BTC Red Bar, not this panel.</p>
+          <h2>🧪 Strategy Backtester</h2>
+          <p class="section-sub">For the 30m + 1H Red Bar Futures Playbook (mark-window Fibs + 1H first-red Trade 1/Trade 2 + session sweeps), run <code>node redbar_desk_backtest.js --live</code>. The interactive panel below runs the legacy multi-timeframe candle simulator.</p>
         </div>
 
         <div class="backtest-workspace">
@@ -489,9 +493,9 @@
             <div class="control-group">
               <label for="btInterval">Timeframe</label>
               <select id="btInterval">
-                <option value="1d" selected>Daily</option>
+                <option value="1d">Daily</option>
                 <option value="4h">4 Hours</option>
-                <option value="1h">1 Hour</option>
+                <option value="1h" selected>1 Hour</option>
                 <option value="15m">15 Minutes</option>
                 <option value="5m">5 Minutes</option>
               </select>
@@ -503,7 +507,7 @@
             <button id="runBacktestBtn" class="backtest-run-btn">Run Analysis</button>
           </div>
           <div class="backtest-context">
-            <span>Next-bar execution</span><span>0.40% round-trip costs</span><span>10% TP · 7-Day Hold Limit</span>
+            <span>Red Bar CLI: 56.9% WR (n=58, 30m+1H)</span><span>0.08% Futures Round-Trip Fees</span><span>+0.8R → Breakeven · ≥1.5R Liquidity Target</span>
           </div>
         </div>
 
@@ -612,9 +616,9 @@
   <script src="js/config.js?v=7.01" defer></script>
   <script src="js/api.js?v=6.93" defer></script>
   <script src="js/indicators.js?v=6.60" defer></script>
-  <script src="js/redbar_trend.js?v=1.11" defer></script>
+  <script src="js/redbar_trend.js?v=1.12" defer></script>
   <script src="js/range_ema_engine.js?v=1.1" defer></script>
-  <script src="js/range_ema_ui.js?v=1.33" defer></script>
+  <script src="js/range_ema_ui.js?v=1.34" defer></script>
   <script src="js/signals.js?v=6.70" defer></script>
   <script src="js/charts.js?v=6.60" defer></script>
   
@@ -634,39 +638,88 @@
     }
   </script>
 
-  <!-- Risk calculator (inline, small) -->
+  <!-- Futures Risk & Liquidation Calculator (LONG & SHORT) -->
   <script>
     document.getElementById('calcRisk')?.addEventListener('click', () => {
-      const capital   = +document.getElementById('totalCapital').value;
-      const riskPct   = +document.getElementById('riskPct').value / 100;
-      const entry     = +document.getElementById('entryPrice').value;
-      const stop      = +document.getElementById('stopLossPrice').value;
-      const target    = +document.getElementById('targetPrice').value;
+      const capital  = +document.getElementById('totalCapital').value;
+      const riskPct  = +document.getElementById('riskPct').value;
+      const entry    = +document.getElementById('entryPrice').value;
+      const stop     = +document.getElementById('stopLossPrice').value;
+      const target   = +document.getElementById('targetPrice').value;
+      const userLev  = +(document.getElementById('customLeverage')?.value || 0);
 
-      if (!capital || !entry || !stop || entry <= stop) {
-        document.getElementById('riskResultGrid').innerHTML = '<p class="risk-error">⚠️ Please enter valid values. Stop-loss must be below entry price.</p>';
+      if (!capital || !entry || !stop || entry === stop || riskPct <= 0) {
+        document.getElementById('riskResultGrid').innerHTML =
+          '<p class="risk-error">⚠️ Please enter valid values. Entry and Stop-Loss cannot be identical (Stop &lt; Entry = LONG, Stop &gt; Entry = SHORT).</p>';
         return;
       }
 
-      const maxRiskAmount = capital * riskPct;
-      const riskPerShare  = entry - stop;
-      const shares        = Math.floor(maxRiskAmount / riskPerShare);
-      const investment    = shares * entry;
-      const maxLoss       = shares * riskPerShare;
-      const rrr           = target > entry ? ((target - entry) / riskPerShare).toFixed(2) : '–';
-      const potentialProfit = target > entry ? ((target - entry) * shares).toFixed(2) : '–';
+      const side = stop < entry ? 'LONG' : 'SHORT';
+      const targetValid = target > 0 && ((side === 'LONG' && target > entry) || (side === 'SHORT' && target < entry));
+      const stopDist = Math.abs(entry - stop);
+      const stopPct = (stopDist / entry) * 100;
+      const riskAmount = capital * (riskPct / 100);
+      const qty = riskAmount / stopDist;
+      const notional = qty * entry;
+      const feeRoundTrip = notional * 0.0008; // 0.04% per side USDⓈ-M taker
+
+      // Safe isolated leverage calculation
+      const maintMargin = 0.005;
+      const maxSafeLev = Math.max(1, Math.min(25, Math.floor(1 / ((stopDist / entry) * 1.35 + maintMargin))));
+      const recLev = Math.max(1, Math.min(10, maxSafeLev));
+      const activeLev = userLev > 0 ? userLev : recLev;
+      const marginReq = notional / activeLev;
+      const liqPrice = side === 'LONG'
+        ? entry * (1 - (1 / activeLev) + maintMargin)
+        : entry * (1 + (1 / activeLev) - maintMargin);
+      const stopSafeFromLiq = side === 'LONG' ? stop > liqPrice * 1.001 : stop < liqPrice * 0.999;
+
+      const grossProfit = targetValid ? Math.abs(target - entry) * qty : 0;
+      const netProfit = targetValid ? grossProfit - feeRoundTrip : 0;
+      const rrr = targetValid ? (Math.abs(target - entry) / stopDist).toFixed(2) : '–';
+      const beLevel = side === 'LONG'
+        ? entry + 0.8 * stopDist
+        : entry - 0.8 * stopDist;
+      const beStop = side === 'LONG' ? entry * 1.001 : entry * 0.999;
 
       document.getElementById('riskResultGrid').innerHTML = `
-        <div class="risk-item"><span>Max Risk Amount</span><strong>₹${maxRiskAmount.toLocaleString('en-IN')}</strong></div>
-        <div class="risk-item"><span>Risk per Unit</span><strong>₹${riskPerShare.toFixed(2)}</strong></div>
-        <div class="risk-item highlight"><span>Recommended Units/Shares</span><strong>${shares.toLocaleString('en-IN')}</strong></div>
-        <div class="risk-item"><span>Total Investment</span><strong>₹${investment.toLocaleString('en-IN')}</strong></div>
-        <div class="risk-item warn"><span>Maximum Possible Loss</span><strong>₹${maxLoss.toFixed(2)}</strong></div>
-        <div class="risk-item"><span>Risk-to-Reward Ratio</span><strong>1 : ${rrr}</strong></div>
-        <div class="risk-item ${+rrr >= 2 ? 'good' : 'warn'}"><span>Potential Profit</span><strong>₹${potentialProfit}</strong></div>
-        <div class="risk-item ${+rrr >= 2 ? 'good' : 'warn'}">
-          <span>Trade Quality</span>
-          <strong>${+rrr >= 2 ? '✅ Good Setup (RRR ≥ 2)' : +rrr >= 1 ? '⚠️ Marginal Setup' : '❌ Poor Setup (avoid)'}</strong>
+        <div class="risk-item highlight">
+          <span>Detected Futures Side</span>
+          <strong class="${side === 'LONG' ? 'pos-text' : 'neg-text'}">FUTURES ${side} (${stopPct.toFixed(2)}% stop)</strong>
+        </div>
+        <div class="risk-item">
+          <span>1R Dollar Risk (+ Fees)</span>
+          <strong>$${riskAmount.toFixed(2)} (+$${feeRoundTrip.toFixed(2)} est. fee)</strong>
+        </div>
+        <div class="risk-item highlight">
+          <span>Position Notional &amp; Size</span>
+          <strong>$${notional.toFixed(2)} (${qty.toFixed(4)} units)</strong>
+        </div>
+        <div class="risk-item ${activeLev <= maxSafeLev ? 'good' : 'warn'}">
+          <span>Isolated Leverage &amp; Margin</span>
+          <strong>${activeLev}× iso ($${marginReq.toFixed(2)} margin · max safe ${maxSafeLev}×)</strong>
+        </div>
+        <div class="risk-item ${stopSafeFromLiq ? 'good' : 'warn'}">
+          <span>Est. Isolated Liquidation Price</span>
+          <strong>${liqPrice.toFixed(2)} (${stopSafeFromLiq ? '✅ Stop hits before Liq' : '❌ DANGER: Liq hits before Stop — lower leverage!'})</strong>
+        </div>
+        <div class="risk-item">
+          <span>+0.8R Breakeven Trigger</span>
+          <strong>At ${beLevel.toFixed(2)} → move stop to ${beStop.toFixed(2)}</strong>
+        </div>
+        <div class="risk-item ${+rrr >= 1.5 ? 'good' : 'warn'}">
+          <span>Reward : Risk &amp; Net Profit</span>
+          <strong>1 : ${rrr} (${targetValid ? `+$${netProfit.toFixed(2)} net` : 'Enter valid target on ' + side + ' side'})</strong>
+        </div>
+        <div class="risk-item ${(+rrr >= 1.5 && stopSafeFromLiq) ? 'good' : 'warn'}">
+          <span>Playbook Verdict</span>
+          <strong>${!stopSafeFromLiq
+            ? '❌ Unsafe Leverage (Liquidation before Stop)'
+            : +rrr >= 1.5
+              ? '✅ Meets Red Bar Futures Standard (≥1.5R & Safe Stop)'
+              : +rrr >= 1.0
+                ? '⚠️ Sub-1.5R Target — wait for pullback or wider magnet'
+                : '❌ Poor R:R — Skip trade'}</strong>
         </div>
       `;
     });
@@ -703,19 +756,19 @@
   <div class="modal-overlay" id="tradeConfirmModal">
     <div class="modal-box trade-confirm-box">
       <div class="modal-header">
-        <h2 id="tradeConfirmTitle">Buy / Exit Plan</h2>
+        <h2 id="tradeConfirmTitle">Order / Exit Plan</h2>
         <button class="modal-close-btn" id="closeTradeConfirmModal" type="button">&times;</button>
       </div>
       <div class="modal-body">
         <p id="tradeConfirmSummary" class="trade-confirm-summary"></p>
         <div class="input-group">
-          <label for="tradeQuoteUsdt">USDT to spend</label>
+          <label for="tradeQuoteUsdt">USDT Margin / Notional</label>
           <input type="number" id="tradeQuoteUsdt" class="auth-input" min="5" step="1" value="50">
         </div>
         
-        <p class="trade-confirm-note">Places: market buy -> limit sell 100% at +15% target. Caps enforced on the bot.</p>
+        <p class="trade-confirm-note">Red Bar Desk setups are traded on Futures with structural stops and liquidity targets. Legacy bot endpoint caps are enforced on the server.</p>
         <p id="tradeConfirmError" class="auth-error"></p>
-        <button type="button" id="tradeConfirmSubmit" class="btn btn-primary auth-submit-btn">Confirm buy on Binance</button>
+        <button type="button" id="tradeConfirmSubmit" class="btn btn-primary auth-submit-btn">Confirm order via Bot</button>
       </div>
     </div>
   </div>

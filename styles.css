@@ -3032,7 +3032,7 @@ body.redbar-only .site-footer-copyright {
 }
 .rb-action-levels {
   display: grid;
-  grid-template-columns: repeat(3, 1fr);
+  grid-template-columns: repeat(4, 1fr);
   gap: 8px;
   font-size: 12px;
 }
@@ -3043,8 +3043,81 @@ body.redbar-only .site-footer-copyright {
   letter-spacing: 0.04em;
   color: var(--text-muted);
 }
+.rb-action-levels .rb-level-sub {
+  display: block;
+  font-size: 10px;
+  color: var(--text-muted);
+  margin-top: 2px;
+}
 .rb-action-levels .neg-text { color: var(--c-red); }
 .rb-action-levels .pos-text { color: var(--c-green); }
+
+/* Inline Futures Sizing Strip */
+.rb-futures-bar {
+  margin-top: 10px;
+  padding-top: 10px;
+  border-top: 1px solid rgba(255, 255, 255, 0.08);
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  font-size: 12px;
+}
+.rb-futures-inputs {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+}
+.rb-futures-inputs label {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  font-size: 11px;
+  color: var(--text-muted);
+  font-weight: 600;
+}
+.rb-futures-inputs input {
+  width: 72px;
+  padding: 4px 6px;
+  border-radius: 6px;
+  border: 1px solid rgba(255, 255, 255, 0.16);
+  background: rgba(15, 23, 42, 0.7);
+  color: var(--text-main);
+  font-family: inherit;
+  font-size: 12px;
+  font-weight: 600;
+}
+.rb-futures-metrics {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(110px, 1fr));
+  gap: 8px;
+  flex: 1;
+}
+.rb-futures-metrics span {
+  display: block;
+  font-size: 10px;
+  text-transform: uppercase;
+  letter-spacing: 0.03em;
+  color: var(--text-muted);
+}
+.rb-futures-metrics .neg-text { color: var(--c-red); }
+.rb-futures-calc-btn {
+  padding: 6px 10px;
+  border-radius: 8px;
+  border: 1px solid rgba(124, 106, 245, 0.45);
+  background: rgba(124, 106, 245, 0.18);
+  color: #e2e8f0;
+  font-family: inherit;
+  font-size: 11px;
+  font-weight: 600;
+  cursor: pointer;
+  white-space: nowrap;
+}
+.rb-futures-calc-btn:hover {
+  background: rgba(124, 106, 245, 0.32);
+}
+
 .rb-chart-wrap {
   padding: 12px 14px 8px;
   border-radius: var(--radius-lg);
@@ -3192,12 +3265,16 @@ body.redbar-only .site-footer-copyright {
   .rb-action-steps {
     font-size: 11px;
     margin-bottom: 6px;
-    max-height: 4.2em;
+    max-height: 4.8em;
     overflow: hidden;
   }
   .rb-action-levels {
-    grid-template-columns: repeat(3, 1fr);
+    grid-template-columns: repeat(2, 1fr);
     gap: 6px;
+  }
+  .rb-futures-metrics {
+    grid-template-columns: repeat(2, 1fr);
+    width: 100%;
   }
   .rb-chart-toolbar {
     flex-direction: column;

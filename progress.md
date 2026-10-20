@@ -1,6 +1,26 @@
 # Trading Signals Progress & Strategy Document
 
-## What We Have Built So Far
+## 2026 Red Bar Futures Desk Overhaul (ACTIVE ARCHITECTURE ✅)
+
+TrendRunner has transitioned from a multi-coin spot scoreboard into a dedicated **Red Bar Futures Desk** (`CONFIG.ui.redBarOnly = true`) for **BTC** (`02:30–03:30 IST` mark window), **XAU / Gold** (`01:30–02:30 IST`), and **NIFTY** (`15:15–15:45 IST` institutional close).
+
+### The 4-Pillar Playbook (`js/redbar_trend.js` & `js/range_ema_ui.js`)
+1. **Mark-Window Fibonacci Boxes (`0 · 0.44 · 0.5 · 0.56 · 1`):** Drawn from each session's mark window and extended across the chart. Price inside `[0, 1]` = sideways accumulation (`WAIT`). Outside = directional expansion.
+2. **1H First Red Candle (Session Pivot):** Skip the day's opening candle and mark the first closed 1H red candle (`High` / `Low`).
+   - **Trade 1:** Morning departure away from the 1H first-red bar.
+   - **Trade 2:** 2–3h revisit (1.5h–6.5h window) testing the 1H first-red bar (`reject_bull` / `reject_bear` continuation vs `reverse_bull` / `reverse_bear` flip).
+3. **Session Liquidity Clock (`Asia → London → US`):** Pre-London holds morning bias; London (`12:30–16:30 IST`) sweeps Asia H/L and reverses (`detectSessionSweep`); US (`16:30–18:30 IST`) hunts London/Asia H/L.
+4. **Structural Stops, `+0.8R → Breakeven` Lock & `≥1.5R` Liquidity Targets:**
+   - Fixed the original 0.59 Long R:R bug by selecting tight local structural stops (`0.28%–1.50%`) and building an ordered liquidity magnet ladder (`PDH/PDL`, `London H/L`, `Asia H/L`, `Fib extensions`, `prior-day bands`) that guarantees `bookZone` is **≥1.5R**.
+   - Moving the stop to Breakeven (`+0.10%` fee cushion) once price reaches `+0.8R` lifted 83-day 30m+1H walk-forward performance (`node redbar_desk_backtest.js`) from `-13.19%` (naive breakout) to **56.9% win rate (`n=58`), +1.33% net total, and +2.31% in the unseen out-of-sample second half**.
+5. **Futures-Only Sizing & Liquidation Protection:**
+   - Added `RedBarTrend.futuresSizing()` + inline Futures Sizing bar on the desk + upgraded `#riskSection` to support both **Futures LONG** (`Stop < Entry`) and **Futures SHORT** (`Stop > Entry`), computing 1R dollar risk, position notional, contract quantity, safe isolated leverage, and estimated liquidation price.
+
+---
+
+## Historical Archive: Legacy Multi-Coin Spot Engine
+
+### What We Built Previously
 
 1. **Cloud Hosting Migration:** Moved the bot from your local PC to Render.com so it runs 24/7 without keeping your computer awake. Set up UptimeRobot to prevent it from sleeping.
 2. **Dashboard Upgrades:**

@@ -1,51 +1,35 @@
-# TrendRunner — BTC Red Bar Desk
+# TrendRunner — Red Bar Futures Desk
 
-Visual **Bitcoin** research desk: prior-day range bands, opening-range bias, red-bar exit refs, and a **LONG / SHORT / WAIT** action strip on a 30m chart.
+Visual **Futures** research desk for **BTC** (`02:30–03:30 IST` mark window), **XAU / Gold** (`01:30–02:30 IST`), and **NIFTY** (`15:15–15:45 IST` institutional close):
+- **Mark-Window Fib Boxes (`0 · 0.44 · 0.5 · 0.56 · 1`)** extended across the session
+- **1H First Red Candle** as the daily session pivot (**Trade 1** departure & **Trade 2** 2–3h revisit)
+- **Session Liquidity Clock** (**Asia → London sweep → US open**)
+- **Structural Stops, `+0.8R → Breakeven` protection & `≥1.5R` Liquidity Targets**
+- **Futures Position Sizing, Safe Isolated Leverage & Liquidation Price** (inline on the desk and in the Risk Calculator tab)
 
-Educational only — the app does **not** place trades. Futures shorts need an exchange futures account; spot is long-only.
+Educational only — the app does **not** place trades automatically.
 
-## What the live UI is
+## Live Desk Architecture
 
 | Piece | Role |
 |--------|------|
-| **Red Bar Desk** | Primary screen (`CONFIG.ui.redBarOnly`) |
-| **`js/redbar_trend.js`** | Trend prediction (all prior-day bands + OR break + red bar) |
-| **`js/range_ema_ui.js`** | Chart + action strip + EMA overlay chips |
-| **EMA 10/30** | Separate overlay (agree/disagree) — not the core engine |
-| **Learn** | How to read LONG/SHORT/WAIT and fund a wallet |
+| **Red Bar Desk** | Primary screen (`CONFIG.ui.redBarOnly = true`) |
+| **`js/redbar_trend.js`** | 4-pillar engine: mark-window Fibs, 1H first-red Trade 1/Trade 2, session sweeps, `≥1.5R` liquidity magnet ladder, and `futuresSizing()` |
+| **`js/range_ema_ui.js`** | Interactive multi-instrument chart (`5m / 15m / 30m / 1h`), LONG/SHORT/WAIT action plan, and inline Futures Sizing strip |
+| **`redbar_desk_backtest.js`** | Walk-forward 30m + 1H Futures CLI backtester (0.08% round-trip fees, `+0.8R → BE` lock, `≥1.5R` targets) |
+| **Risk Calculator (`#riskSection`)** | Full Futures LONG & SHORT position size, isolated leverage, and liquidation price calculator |
 
-Legacy multi-coin High Conf / moonshots / listings are **hidden** from the main UI.
-
-## Quick start
-
-Serve the folder (or open via GitHub Pages / your host) and hard-refresh so the service worker picks up the new cache.
+## Walk-Forward Backtest CLI
 
 ```bash
-# Optional research CLI (Node)
-node redbar_ema_backtest.js
-node redbar_ema_backtest.js --live
+# Run 4,000-bar (83-day) 30m + 1H walk-forward backtest + live BTC/XAU readout
+node redbar_desk_backtest.js --live
+
+# Compare naive box-breakout vs Trade 1 + Trade 2 + Sweep + 0.8R BE lock
+node redbar_desk_backtest.js --compare
 ```
-
-## Config knobs (`js/config.js`)
-
-- `ui.redBarOnly` — hide legacy chrome  
-- `rangeEma.symbols` — default `['BTCUSDT']`  
-- `rangeEma.workingTf` — default `30m`  
-- `rangeEma.dayMode` — `utc` or `ny`
-
-## Funding guides (not strategy)
-
-India INR ↔ USDT helpers still live under `guides/` (P2P, Convert caution, cash-out). Use them to fund margin/spot, then trade from the desk.
-
-## Architecture (current)
-
-- `js/redbar_trend.js` — Red Bar trend readout  
-- `js/range_ema_engine.js` — EMA helpers / older experiment backtest hooks  
-- `js/range_ema_ui.js` — desk UI + Chart.js  
-- `js/dashboard.js` — boot in red-bar-only mode (skips 50-coin load)  
-- `js/config.js` — `ui` + `rangeEma`  
-- Legacy: `js/signals.js`, `backtest.js`, moonshot scanner — research / unused in main UI  
 
 ## Disclaimer
 
-Crypto and futures trading can result in total loss of margin (liquidation). Levels on the desk are research references, not guarantees.
+Crypto and futures trading can result in total loss of margin (liquidation). Always use isolated margin and a hard stop-loss on the exchange.
+
