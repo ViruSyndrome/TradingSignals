@@ -759,6 +759,7 @@ const RedBarTrend = {
     priorDay,
     asiaHl,
     londonHl,
+    nyHl,
     priorBands,
     resist,
     support,
@@ -773,6 +774,8 @@ const RedBarTrend = {
         invalidation: null,
         invalidationReason: null,
         stopStructural: false,
+        tp1: null,
+        tp3: null,
         bookZone: null,
         firstMagnet: null,
         bookReason: null,
@@ -786,6 +789,8 @@ const RedBarTrend = {
     const recentBars = Array.isArray(slice) ? slice.slice(-10) : [];
     const localLow = recentBars.length ? Math.min(...recentBars.map((b) => b.l)) : null;
     const localHigh = recentBars.length ? Math.max(...recentBars.map((b) => b.h)) : null;
+    const prevSwingLow = localLow;
+    const prevSwingHigh = localHigh;
     const minStopDist = price * 0.0028; // 0.28% minimum stop floor (avoids micro noise stops)
     const maxStopDist = price * 0.015;  // 1.50% maximum stop cap on 30m futures
     const pad = price * 0.0006;         // 6 bps buffer beyond structure wick
@@ -802,7 +807,7 @@ const RedBarTrend = {
       const candidates = [
         sweep?.side === 'bullish' && sweep.wickExtreme != null ? { v: sweep.wickExtreme - pad, tag: 'sweep wick' } : null,
         firstRed1h?.low != null && firstRed1h.low < price ? { v: firstRed1h.low - pad, tag: '1H red low' } : null,
-        localLow != null && localLow < price ? { v: localLow - pad, tag: '5h swing low' } : null,
+        localLow != null && localLow < price ? { v: localLow - pad, tag: 'prev swing low' } : null,
         or?.low != null && or.low < price ? { v: or.low - pad, tag: 'Fib 1 edge' } : null,
         support != null && support < price ? { v: support - pad, tag: 'prior fib support' } : null,
         swingLow != null && swingLow < price ? { v: swingLow, tag: 'pivot swing low' } : null,
@@ -835,7 +840,7 @@ const RedBarTrend = {
       const candidates = [
         sweep?.side === 'bearish' && sweep.wickExtreme != null ? { v: sweep.wickExtreme + pad, tag: 'sweep wick' } : null,
         firstRed1h?.high != null && firstRed1h.high > price ? { v: firstRed1h.high + pad, tag: '1H red high' } : null,
-        localHigh != null && localHigh > price ? { v: localHigh + pad, tag: '5h swing high' } : null,
+        localHigh != null && localHigh > price ? { v: localHigh + pad, tag: 'prev swing high' } : null,
         or?.high != null && or.high > price ? { v: or.high + pad, tag: 'Fib 0 edge' } : null,
         resist != null && resist > price ? { v: resist + pad, tag: 'prior fib resistance' } : null,
         swingHigh != null && swingHigh > price ? { v: swingHigh, tag: 'pivot swing high' } : null,
@@ -874,6 +879,8 @@ const RedBarTrend = {
     };
     pushMag(priorDay?.high, 'prior_day_high');
     pushMag(priorDay?.low, 'prior_day_low');
+    pushMag(nyHl?.high, 'ny_high');
+    pushMag(nyHl?.low, 'ny_low');
     pushMag(londonHl?.high, 'london_high');
     pushMag(londonHl?.low, 'london_low');
     pushMag(asiaHl?.high, 'asia_high');
@@ -941,6 +948,12 @@ const RedBarTrend = {
       }
     }
 
+    // Sagar rule:
+    // 1) Decide Stop-Loss first (invalidation, distance = 1R = risk)
+    // 2) 1:1 reward is your 50% TP (tp1), then move stop to BE
+    // 3) Trail the remaining 50% until EMA 10/30 cross over (with liquidity magnet / 1:3 as stretch cap)
+    const tp1 = trend === 'bullish' ? price + risk : price - risk;
+    const tp3 = trend === 'bullish' ? price + risk * 3.0 : price - risk * 3.0;
     const reward = Math.abs(bookZone - price);
     const stopPct = (risk / price) * 100;
     const targetPct = (reward / price) * 100;
@@ -959,6 +972,10 @@ const RedBarTrend = {
       invalidation,
       invalidationReason,
       stopStructural,
+      prevSwingHigh,
+      prevSwingLow,
+      tp1,
+      tp3,
       bookZone,
       firstMagnet: firstMagnetOut,
       bookReason,
@@ -1004,7 +1021,13 @@ const RedBarTrend = {
     const notionalUsd = riskUsd / effectiveStopFrac;
     const qty = notionalUsd / e;
     const estFeesUsd = notionalUsd * 2 * feePerSide;
-    const netWinUsd = targetDist > 0 ? (qty * targetDist - estFeesUsd) : null;
+    const tp1 = side === 'LONG' ? e + stopDist : e - stopDist;
+    const tp3 = side === 'LONG' ? e + stopDist * 3 : e - stopDist * 3;
+    // Net profit banked on 50% at 1:1 after half the round-trip fees
+    const tp1HalfNetUsd = 0.5 * (qty * stopDist - estFeesUsd);
+    const netWinUsd = targetDist > 0
+      ? (0.5 * qty * stopDist + 0.5 * qty * targetDist - estFeesUsd)
+      : (qty * stopDist - estFeesUsd);
 
     // Safe isolated leverage: keep liquidation distance >= 1.6x stop distance + maintenance margin
     const rawMaxSafeLev = Math.floor(100 / (stopPct * 1.6 + maintMargin * 100));
@@ -1030,6 +1053,9 @@ const RedBarTrend = {
       riskUsd,
       notionalUsd,
       qty,
+      tp1,
+      tp3,
+      tp1HalfNetUsd,
       estFeesUsd,
       netWinUsd: netWinUsd ?? 0,
       netProfitUsd: netWinUsd ?? 0,
@@ -1102,8 +1128,11 @@ const RedBarTrend = {
       || sessions.find((s) => /asia/i.test(s.label || ''));
     const londonSess = sessions.find((s) => (s.id || '').toLowerCase() === 'london')
       || sessions.find((s) => /london/i.test(s.label || ''));
+    const nySess = sessions.find((s) => ['ny', 'us', 'newyork'].includes((s.id || '').toLowerCase()))
+      || sessions.find((s) => /us|ny|new\s*york/i.test(s.label || ''));
     const asiaHl = asiaSess ? this.sessionHlForIstDay(slice, asiaSess, bars[i].t) : null;
     const londonHl = londonSess ? this.sessionHlForIstDay(slice, londonSess, bars[i].t) : null;
+    const nyHl = nySess ? this.sessionHlForIstDay(slice, nySess, bars[i].t) : null;
     const asiaUntouched = !!(asiaHl && price < asiaHl.high && price > asiaHl.low);
     const sweep = this.detectSessionSweep(slice, clock, asiaHl, londonHl, firstRed1h);
 
@@ -1170,6 +1199,8 @@ const RedBarTrend = {
       asiaLow: asiaHl ? asiaHl.low : null,
       londonHigh: londonHl ? londonHl.high : null,
       londonLow: londonHl ? londonHl.low : null,
+      nyHigh: nyHl ? nyHl.high : null,
+      nyLow: nyHl ? nyHl.low : null,
       firstRed1hHigh: firstRed1h ? firstRed1h.high : null,
       firstRed1hLow: firstRed1h ? firstRed1h.low : null,
     };
@@ -1183,6 +1214,7 @@ const RedBarTrend = {
       priorDay,
       asiaHl,
       londonHl,
+      nyHl,
       priorBands: prior,
       resist,
       support,
@@ -1217,9 +1249,12 @@ const RedBarTrend = {
       priorDay,
       asiaHl,
       londonHl,
+      nyHl,
       asiaUntouched,
       sweep,
       setupKind,
+      tp1: levels.tp1,
+      tp3: levels.tp3,
       firstMagnet: levels.firstMagnet,
       bookReason: levels.bookReason,
       rr: levels.rr,
@@ -1277,10 +1312,14 @@ const RedBarTrend = {
         ...refs,
         swingHigh,
         swingLow,
+        prevSwingHigh: levels.prevSwingHigh ?? swingHigh,
+        prevSwingLow: levels.prevSwingLow ?? swingLow,
       },
       invalidation,
       invalidationReason: levels.invalidationReason,
       stopStructural: levels.stopStructural,
+      tp1: levels.tp1,
+      tp3: levels.tp3,
       bookZone,
       firstMagnet: levels.firstMagnet,
       bookReason: levels.bookReason,
@@ -1316,13 +1355,13 @@ const RedBarTrend = {
       }[setupKind] || 'Bias only — not an entry.';
       return { state: 'watch', reason: why };
     }
-    if (!(rr >= 1.5)) {
-      return { state: 'watch', reason: `Setup present but R:R ${rr != null ? rr.toFixed(2) : '—'} < 1.5.` };
+    if (!(rr >= 1.0)) {
+      return { state: 'watch', reason: `Setup present but R:R ${rr != null ? rr.toFixed(2) : '—'} < 1.0.` };
     }
     if (!stopStructural) {
       return { state: 'watch', reason: `Setup present but no real swing fits the stop window (${invalidationReason}).` };
     }
-    return { state: 'enter', reason: 'Fresh trigger, structural stop, ≥1.5R magnet.' };
+    return { state: 'enter', reason: 'Fresh trigger · Stop set · 50% TP at 1:1 + trail 50% till EMA 10/30 cross.' };
   },
 
   _liquidityTip(clock, asiaHl, londonHl, asiaUntouched, sweep) {

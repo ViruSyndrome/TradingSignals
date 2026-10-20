@@ -375,11 +375,11 @@
           </div>
 
           <div class="edu-full-card highlight-card edu-card-warning">
-            <div class="edu-header"><span>🎯</span><h3>4. Structural Stops, +0.8R Breakeven &amp; ≥1.5R Targets</h3></div>
+            <div class="edu-header"><span>🎯</span><h3>4. 15m Swing Stop, 50% TP at 1:1 &amp; EMA 10/30 Runner Trail</h3></div>
             <ul>
-              <li><strong>Structural Stop:</strong> Placed at the recent local swing high/low or 1H first-red pivot edge (typically <code>0.30%–1.50%</code>), <em>never</em> arbitrarily inside the Fib box.</li>
-              <li><strong>+0.8R Breakeven Lock:</strong> Once a trade reaches <strong>+0.8R</strong> in your favor, move your stop to Breakeven (+0.10% fee cover) so a late session reversal cannot turn a winner into a full loss.</li>
-              <li><strong>Book Target (≥1.5R):</strong> Book profits at the nearest liquidity magnet (<strong>Prior-Day High/Low</strong>, <strong>London/Asia H/L</strong>, or <strong>Fib extension</strong>) that offers at least <strong>1.5R</strong> reward-to-risk.</li>
+              <li><strong>1️⃣ Stop-Loss First (15m Previous Swing H/L):</strong> Switch to the <strong>15-minute chart</strong> and place your Stop-Loss behind the <strong>previous swing low</strong> (LONG) or <strong>previous swing high</strong> (SHORT) — not the distant Previous Day H/L. That stop distance defines <code>1R</code>.</li>
+              <li><strong>2️⃣ 50% Take-Profit at 1:1:</strong> Once price reaches <strong>1:1 reward (<code>+1R</code>)</strong>, close <strong>50% of your position</strong> and move the stop on the remaining 50% to Breakeven.</li>
+              <li><strong>3️⃣ Trail 50% Runner Until EMA 10/30 Cross Over:</strong> Keep trailing the second half until <strong>EMA 10 crosses EMA 30</strong> against your trade, or into marked liquidity (<strong>Asia / London / NY Session H/L</strong> or <strong>Previous Day H/L</strong>; <code>1:3</code> is ideal but rare).</li>
             </ul>
           </div>
 
@@ -394,11 +394,11 @@
           </div>
 
           <div class="edu-full-card">
-            <div class="edu-header"><span>📈</span><h3>6. EMA 10 / 30 Overlay (Second Opinion)</h3></div>
-            <p>EMA 10 / 30 on the chart is a <strong>confirmation overlay</strong>, not the primary trigger.</p>
+            <div class="edu-header"><span>📈</span><h3>6. EMA 10 / 30 Runner Trail &amp; Marked Session Levels</h3></div>
+            <p>EMA 10 / 30 serves both as directional alignment at entry and as the <strong>exit trigger for your 50% runner</strong> after <code>1:1</code> hits:</p>
             <ul>
-              <li>When EMA <strong>agrees</strong> with the Red Bar setup, take standard risk (1%).</li>
-              <li>When EMA <strong>disagrees</strong>, cut risk in half (0.5%) or wait for candle confirmation.</li>
+              <li><strong>Runner Exit:</strong> After banking 50% at <code>1:1</code>, hold the remaining 50% as long as EMA 10 stays stacked with your trade; close when <strong>EMA 10 crosses EMA 30</strong>.</li>
+              <li><strong>Always Mark Key Liquidity:</strong> The desk automatically marks <strong>Asia, London &amp; New York Session H/L</strong>, <strong>Previous Day H/L (PDH/PDL)</strong>, and <strong>15m Previous Swing H/L</strong> right on the chart.</li>
             </ul>
           </div>
 
@@ -613,12 +613,12 @@
       // Nuke bloated caches that are causing QuotaExceededError (Removed to allow instant paint)
     } catch(e) {}
   </script>
-  <script src="js/config.js?v=7.11" defer></script>
+  <script src="js/config.js?v=7.12" defer></script>
   <script src="js/api.js?v=6.95" defer></script>
   <script src="js/indicators.js?v=6.60" defer></script>
-  <script src="js/redbar_trend.js?v=1.13" defer></script>
+  <script src="js/redbar_trend.js?v=1.15" defer></script>
   <script src="js/range_ema_engine.js?v=1.1" defer></script>
-  <script src="js/range_ema_ui.js?v=1.40" defer></script>
+  <script src="js/range_ema_ui.js?v=1.42" defer></script>
   <script src="js/signals.js?v=6.70" defer></script>
   <script src="js/charts.js?v=6.60" defer></script>
   
@@ -677,9 +677,10 @@
       const grossProfit = targetValid ? Math.abs(target - entry) * qty : 0;
       const netProfit = targetValid ? grossProfit - feeRoundTrip : 0;
       const rrr = targetValid ? (Math.abs(target - entry) / stopDist).toFixed(2) : '–';
-      const beLevel = side === 'LONG'
-        ? entry + 0.8 * stopDist
-        : entry - 0.8 * stopDist;
+      const tp1Level = side === 'LONG' ? entry + stopDist : entry - stopDist;
+      const tp3Level = side === 'LONG' ? entry + 3 * stopDist : entry - 3 * stopDist;
+      const tp1HalfNet = 0.5 * (riskAmount - feeRoundTrip);
+      const splitNetProfit = targetValid ? 0.5 * (riskAmount + grossProfit) - feeRoundTrip : tp1HalfNet;
       const beStop = side === 'LONG' ? entry * 1.001 : entry * 0.999;
 
       document.getElementById('riskResultGrid').innerHTML = `
@@ -703,13 +704,13 @@
           <span>Est. Isolated Liquidation Price</span>
           <strong>${liqPrice.toFixed(2)} (${stopSafeFromLiq ? '✅ Stop hits before Liq' : '❌ DANGER: Liq hits before Stop — lower leverage!'})</strong>
         </div>
-        <div class="risk-item">
-          <span>+0.8R Breakeven Trigger</span>
-          <strong>At ${beLevel.toFixed(2)} → move stop to ${beStop.toFixed(2)}</strong>
+        <div class="risk-item good">
+          <span>2️⃣ 50% TP at 1:1 (Bank Half + SL→BE)</span>
+          <strong>At ${tp1Level.toFixed(2)} → Bank 50% (+$${tp1HalfNet.toFixed(2)}) &amp; move SL to ${beStop.toFixed(2)}</strong>
         </div>
-        <div class="risk-item ${+rrr >= 1.5 ? 'good' : 'warn'}">
-          <span>Reward : Risk &amp; Net Profit</span>
-          <strong>1 : ${rrr} (${targetValid ? `+$${netProfit.toFixed(2)} net` : 'Enter valid target on ' + side + ' side'})</strong>
+        <div class="risk-item ${+rrr >= 1.0 ? 'good' : 'warn'}">
+          <span>3️⃣ 50% Runner (Trail till EMA 10/30 Cross)</span>
+          <strong>Stretch 1:${rrr} (${targetValid ? `+$${splitNetProfit.toFixed(2)} total net` : `Rare 1:3 @ ${tp3Level.toFixed(2)}`})</strong>
         </div>
         <div class="risk-item ${(+rrr >= 1.5 && stopSafeFromLiq) ? 'good' : 'warn'}">
           <span>Playbook Verdict</span>

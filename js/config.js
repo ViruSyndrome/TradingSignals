@@ -83,17 +83,17 @@ const CONFIG = {
   // Tabs: BTC (Binance spot), NIFTY (Yahoo ^NSEI), XAU (Binance futures / PAXG fallback).
   rangeEma: {
     enabled: true,
-    workingTf: '30m',
-    timeframes: ['5m', '30m', '1h'],
+    workingTf: '15m',
+    timeframes: ['5m', '15m', '30m', '1h'],
     lookbackDays: 90,
     touchPct: 0.15,
     chartBandDays: 7,
     emaFast: 10,
     emaSlow: 30,
-    ohlcLimit: { '5m': 1000, '30m': 1000, '1h': 720 },
-    chartBars: { '5m': 360, '30m': 240, '1h': 168 },
+    ohlcLimit: { '5m': 1000, '15m': 1000, '30m': 1000, '1h': 720 },
+    chartBars: { '5m': 360, '15m': 240, '30m': 240, '1h': 168 },
     // Fewer bars on phones so candles have horizontal room
-    chartBarsMobile: { '5m': 96, '30m': 72, '1h': 56 },
+    chartBarsMobile: { '5m': 96, '15m': 80, '30m': 72, '1h': 56 },
     defaultInstrument: 'BTC',
     instruments: [
       {
@@ -137,8 +137,8 @@ const CONFIG = {
         fibLevels: [0, 0.44, 0.5, 0.56, 1],
         priceDecimals: 2,
         // Yahoo 5m is fine in small ranges; keep limits lean so CORS proxies don't hang
-        timeframes: ['5m', '30m', '1h'],
-        ohlcLimit: { '5m': 360, '30m': 500, '1h': 400 },
+        timeframes: ['5m', '15m', '30m', '1h'],
+        ohlcLimit: { '5m': 360, '15m': 500, '30m': 500, '1h': 400 },
         tradeHint: 'NSE broker · Fib on 15:15–15:45 IST close window (not Binance)',
         showSessionMarkers: true,
         sessions: [

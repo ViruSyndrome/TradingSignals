@@ -73,6 +73,21 @@ async function fetchKlines(symbol, interval, targetBars) {
     }));
 }
 
+function calcEma(closes, period) {
+  const out = new Array(closes.length).fill(null);
+  if (closes.length < period) return out;
+  const k = 2 / (period + 1);
+  let sum = 0;
+  for (let i = 0; i < period; i++) sum += closes[i];
+  let ema = sum / period;
+  out[period - 1] = ema;
+  for (let i = period; i < closes.length; i++) {
+    ema = closes[i] * k + ema * (1 - k);
+    out[i] = ema;
+  }
+  return out;
+}
+
 function summarize(label, trades) {
   if (!trades.length) {
     console.log(`  ${label}: n=0`);
@@ -84,12 +99,13 @@ function summarize(label, trades) {
   const winRate = (wins.length / trades.length) * 100;
   const rrs = trades.map((t) => t.rr).filter(Number.isFinite).sort((a, b) => a - b);
   const medRR = rrs.length ? rrs[rrs.length >> 1] : 0;
-  const tpCount = trades.filter((t) => t.exitReason === 'book').length;
-  const beCount = trades.filter((t) => t.exitReason === 'be_stop').length;
+  const tpCount = trades.filter((t) => t.exitReason === 'tp1+book').length;
+  const emaCount = trades.filter((t) => t.exitReason === 'tp1+ema_cross').length;
+  const beCount = trades.filter((t) => t.exitReason === 'tp1+be_stop').length;
   const slCount = trades.filter((t) => t.exitReason === 'stop').length;
-  const tsCount = trades.filter((t) => t.exitReason === 'session_end').length;
+  const tsCount = trades.filter((t) => t.exitReason === 'session_end' || t.exitReason === 'tp1+session_end').length;
   console.log(
-    `  ${label.padEnd(28)} n=${String(trades.length).padStart(3)}  WR=${winRate.toFixed(1).padStart(5)}%  avg=${(avgPct >= 0 ? '+' : '') + avgPct.toFixed(3)}%  sum=${(sumPct >= 0 ? '+' : '') + sumPct.toFixed(2)}%  medRR=${medRR.toFixed(2)}  (book=${tpCount} be=${beCount} stop=${slCount} time=${tsCount})`
+    `  ${label.padEnd(28)} n=${String(trades.length).padStart(3)}  WR=${winRate.toFixed(1).padStart(5)}%  avg=${(avgPct >= 0 ? '+' : '') + avgPct.toFixed(3)}%  sum=${(sumPct >= 0 ? '+' : '') + sumPct.toFixed(2)}%  medRR=${medRR.toFixed(2)}  (1:1+book=${tpCount} 1:1+ema=${emaCount} 1:1+be=${beCount} stop=${slCount} time=${tsCount})`
   );
   return { n: trades.length, winRate, avgPct, sumPct, medRR };
 }
@@ -102,10 +118,10 @@ function summarize(label, trades) {
  *     candle closes, price breaks cleanly outside the 1H red bar in agreement with the mark-window
  *     Fib bias (`orBias`) and active band support/resistance.
  */
-function isActionableEntry(o, curBar, prevBar) {
+function isActionableEntry(o, curBar, prevBar, emaFast, emaSlow) {
   if (!o || !curBar || !prevBar) return false;
   if (o.actionState !== 'enter') return false;
-  if (o.invalidation == null || o.bookZone == null || !(o.rr >= 1.5)) return false;
+  if (o.invalidation == null || o.tp1 == null || o.bookZone == null || !(o.rr >= 1.5)) return false;
 
   const isBull = o.trend === 'bullish';
   const dirCandle = isBull
@@ -119,6 +135,10 @@ function isActionableEntry(o, curBar, prevBar) {
   if (sk === 'trade1_departure') {
     const red = o.firstRed1h;
     if (!red) return false;
+    const emaAligned = emaFast != null && emaSlow != null
+      ? (isBull ? emaFast >= emaSlow : emaFast <= emaSlow)
+      : true;
+    if (!emaAligned) return false;
     const justLeft = isBull
       ? (prevBar.c <= red.high && curBar.c > red.high)
       : (prevBar.c >= red.low && curBar.c < red.low);
@@ -128,8 +148,11 @@ function isActionableEntry(o, curBar, prevBar) {
   return false;
 }
 
-function runSimulation(bars30, bars1h, cfg, { maxHoldBars = 24, beTriggerR = 0.8 } = {}) {
+function runSimulation(bars30, bars1h, cfg, { maxHoldBars = 36 } = {}) {
   const WARM = 48 * 3;
+  const closes = bars30.map((b) => b.c);
+  const ema10 = calcEma(closes, 10);
+  const ema30 = calcEma(closes, 30);
   const trades = [];
   let pos = null;
   let lastTradeDay = null;
@@ -140,42 +163,65 @@ function runSimulation(bars30, bars1h, cfg, { maxHoldBars = 24, beTriggerR = 0.8
 
     if (pos) {
       const isLong = pos.side === 'LONG';
-      const hitStop = isLong ? bar.l <= pos.activeStop : bar.h >= pos.activeStop;
-      const hitBook = isLong ? bar.h >= pos.exit : bar.l <= pos.exit;
+      const legRet = (exitPx) => (isLong ? (exitPx - pos.entry) / pos.entry : (pos.entry - exitPx) / pos.entry) - 2 * FEE_PER_SIDE;
 
-      if (hitStop || hitBook) {
-        const exitPx = hitStop ? pos.activeStop : pos.exit;
-        const rawRet = isLong ? (exitPx - pos.entry) / pos.entry : (pos.entry - exitPx) / pos.entry;
-        const pnlPct = (rawRet - 2 * FEE_PER_SIDE) * 100;
-        trades.push({
-          ...pos,
-          exitPx,
-          exitT: bar.t,
-          exitReason: hitStop ? (pos.movedBe ? 'be_stop' : 'stop') : 'book',
-          pnlPct,
-          barsHeld: i - pos.entryIdx,
-        });
-        pos = null;
-      } else if (beTriggerR > 0 && !pos.movedBe) {
-        const oneR = Math.abs(pos.entry - pos.stop);
-        const trigDist = oneR * beTriggerR;
-        const reached = isLong ? bar.h >= pos.entry + trigDist : bar.l <= pos.entry - trigDist;
-        if (reached) {
-          // Move stop to entry + 0.10% fee cushion once trade reaches +0.8R
-          pos.activeStop = isLong ? pos.entry * 1.001 : pos.entry * 0.999;
-          pos.movedBe = true;
+      // Before 50% TP (1:1) is banked: check initial stop vs 1:1 TP
+      if (!pos.banked50) {
+        const hitStop = isLong ? bar.l <= pos.activeStop : bar.h >= pos.activeStop;
+        const hitTp1 = isLong ? bar.h >= pos.tp1 : bar.l <= pos.tp1;
+        if (hitStop) {
+          const pnlPct = legRet(pos.activeStop) * 100;
+          trades.push({
+            ...pos,
+            exitPx: pos.activeStop,
+            exitT: bar.t,
+            exitReason: 'stop',
+            pnlPct,
+            barsHeld: i - pos.entryIdx,
+          });
+          pos = null;
+        } else if (hitTp1) {
+          // Sagar rule: 1:1 reward is your 50% TP -> bank 50% (+1R makes the whole trade risk-free!),
+          // then trail the remaining 50% until EMA 10/30 cross over (or stretch target / structural stop).
+          pos.banked50 = true;
+          pos.half1Ret = legRet(pos.tp1);
+        }
+      } else {
+        // 50% already banked at 1:1; now trailing the remaining 50% runner until EMA 10/30 cross over (or stretch magnet / BE stop)
+        const hitBeStop = isLong ? bar.l <= pos.activeStop : bar.h >= pos.activeStop;
+        const hitStretch = isLong ? bar.h >= pos.exit : bar.l <= pos.exit;
+        const emaCrossAgainst = ema10[i] != null && ema30[i] != null && ema10[i - 1] != null && ema30[i - 1] != null
+          ? (isLong
+            ? (ema10[i - 1] >= ema30[i - 1] && ema10[i] < ema30[i])
+            : (ema10[i - 1] <= ema30[i - 1] && ema10[i] > ema30[i]))
+          : false;
+
+        if (hitStretch || hitBeStop || emaCrossAgainst) {
+          const runnerExitPx = hitStretch ? pos.exit : hitBeStop ? pos.activeStop : bar.c;
+          const runnerReason = hitStretch ? 'tp1+book' : hitBeStop ? 'tp1+be_stop' : 'tp1+ema_cross';
+          const pnlPct = (0.5 * pos.half1Ret + 0.5 * legRet(runnerExitPx)) * 100;
+          trades.push({
+            ...pos,
+            exitPx: runnerExitPx,
+            exitT: bar.t,
+            exitReason: runnerReason,
+            pnlPct,
+            barsHeld: i - pos.entryIdx,
+          });
+          pos = null;
         }
       }
 
       if (pos && (i - pos.entryIdx) >= maxHoldBars) {
         const exitPx = bar.c;
-        const rawRet = isLong ? (exitPx - pos.entry) / pos.entry : (pos.entry - exitPx) / pos.entry;
-        const pnlPct = (rawRet - 2 * FEE_PER_SIDE) * 100;
+        const pnlPct = pos.banked50
+          ? (0.5 * pos.half1Ret + 0.5 * legRet(exitPx)) * 100
+          : legRet(exitPx) * 100;
         trades.push({
           ...pos,
           exitPx,
           exitT: bar.t,
-          exitReason: 'session_end',
+          exitReason: pos.banked50 ? 'tp1+session_end' : 'session_end',
           pnlPct,
           barsHeld: i - pos.entryIdx,
         });
@@ -202,7 +248,7 @@ function runSimulation(bars30, bars1h, cfg, { maxHoldBars = 24, beTriggerR = 0.8
 
     const slice = bars30.slice(Math.max(0, i - 48 * 15), i + 1);
     const o = RedBarTrend.readAt(slice, slice.length - 1, { ...cfg, firstRed1h });
-    if (!isActionableEntry(o, bar, bars30[i - 1])) continue;
+    if (!isActionableEntry(o, bar, bars30[i - 1], ema10[i], ema30[i])) continue;
 
     const side = o.trend === 'bullish' ? 'LONG' : 'SHORT';
     const okLevels = side === 'LONG'
@@ -210,13 +256,17 @@ function runSimulation(bars30, bars1h, cfg, { maxHoldBars = 24, beTriggerR = 0.8
       : (o.invalidation > bar.c && o.bookZone < bar.c);
     if (!okLevels) continue;
 
+    const oneR = Math.abs(bar.c - o.invalidation);
+    const tp1 = side === 'LONG' ? bar.c + oneR : bar.c - oneR;
     pos = {
       side,
       setupKind: o.setupKind,
       entry: bar.c,
       stop: o.invalidation,
       activeStop: o.invalidation,
-      movedBe: false,
+      tp1,
+      banked50: false,
+      half1Ret: 0,
       exit: o.bookZone,
       rr: o.rr,
       entryIdx: i,
@@ -253,7 +303,7 @@ function runSimulation(bars30, bars1h, cfg, { maxHoldBars = 24, beTriggerR = 0.8
     const fromDate = new Date(bars30[0].t).toISOString().slice(0, 10);
     const toDate = new Date(bars30[bars30.length - 1].t).toISOString().slice(0, 10);
     console.log(`\n=== Red Bar Futures Desk Walk-Forward Backtest: ${SYMBOL} (${fromDate} -> ${toDate}) ===`);
-    console.log(`Fee model: ${(FEE_PER_SIDE * 200).toFixed(2)}% round-trip taker · Max 2 setups/day · >=1.5R target ladder · 0.8R -> BE protection\n`);
+    console.log(`Fee model: ${(FEE_PER_SIDE * 200).toFixed(2)}% round-trip taker · 15m Swing Stop · 50% TP at 1:1 + 50% Runner Trail till EMA 10/30 cross\n`);
 
     const trades = runSimulation(bars30, bars1h, cfg);
     summarize('ALL TRADES', trades);
@@ -295,7 +345,10 @@ function runSimulation(bars30, bars1h, cfg, { maxHoldBars = 24, beTriggerR = 0.8
       invalidation: readout.invalidation,
       invalidationReason: readout.invalidationReason,
       stopStructural: readout.stopStructural,
+      tp1: readout.tp1,
+      tp3: readout.tp3,
       bookZone: readout.bookZone,
+      refs: readout.refs,
       bookReason: readout.bookReason,
       firstMagnet: readout.firstMagnet,
       rr: readout.rr,

@@ -369,15 +369,21 @@ async function scanRedBarDesk() {
   const instruments = (rbCfg.instruments || []).filter((i) => i.feed === 'binanceSpot');
   for (const inst of instruments) {
     try {
-      const [bars30m, bars1h] = await Promise.all([
-        API.getBinanceKlines(inst.symbol, '30m', 420),
+      const workTf = rbCfg.workingTf || '15m';
+      const [barsWork, bars1h] = await Promise.all([
+        API.getBinanceKlines(inst.symbol, workTf, 500),
         API.getBinanceKlines(inst.symbol, '1h', 220),
       ]);
-      if (!bars30m || bars30m.length < 40) continue;
-      const readout = RedBarTrend.readAt(bars30m, bars30m.length - 1, {
+      if (!barsWork || barsWork.length < 40) continue;
+      const lastT = barsWork[barsWork.length - 1].t;
+      const calDay = RedBarTrend.dayKey(lastT, inst.dayMode || rbCfg.dayMode || 'ist');
+      const firstRed1h = bars1h && bars1h.length >= 24
+        ? RedBarTrend.firstRedBarOfSession(bars1h, calDay, { ...rbCfg, ...inst, asOfTs: lastT, barMs: 3600000 })
+        : null;
+      const readout = RedBarTrend.readAt(barsWork, barsWork.length - 1, {
         ...rbCfg,
         ...inst,
-        bars1h,
+        firstRed1h,
       });
       if (!readout) continue;
       const side = readout.trend === 'bullish' ? 'LONG' : readout.trend === 'bearish' ? 'SHORT' : 'WAIT';
@@ -405,10 +411,10 @@ async function scanRedBarDesk() {
           const emoji = side === 'LONG' ? '🟢' : '🔴';
           const msg = `${emoji} <b>RED BAR FUTURES ${side}: ${inst.label} (${inst.symbol})</b>
 Setup: <b>${readout.playbook?.redSetup?.label || setupKind}</b> (${readout.playbook?.clock?.label || 'Session'})
-Entry Lean: <b>$${fmt(readout.price)}</b>
-🛑 Structural Stop (${readout.invalidationReason || 'swing'}): <b>$${fmt(readout.invalidation)}</b> (-${(readout.stopPct || 0).toFixed(2)}%)
-🎯 Book Target (${readout.bookReason || 'liquidity'}): <b>$${fmt(readout.bookZone)}</b> (+${(readout.targetPct || 0).toFixed(2)}% · <b>1:${(readout.rr || 0).toFixed(2)} R:R</b>)
-🛡️ Management: Move stop to Breakeven at <b>+0.8R</b>${sz ? `\n⚡ Safe Iso Leverage: <b>${sz.recLeverage}×</b> (max ${sz.maxSafeLeverage}× · Est. Liq $${fmt(sz.liqPrice)})` : ''}
+Entry Lean (15m): <b>$${fmt(readout.price)}</b>
+🛑 1. Stop-Loss (${readout.invalidationReason || '15m prev swing'}): <b>$${fmt(readout.invalidation)}</b> (-${(readout.stopPct || 0).toFixed(2)}%)
+✅ 2. 50% TP (1:1): <b>$${fmt(readout.tp1)}</b> (+${(readout.stopPct || 0).toFixed(2)}% · Bank 50% &amp; move SL to BE)
+📈 3. 50% Runner: <b>Trail till EMA 10/30 cross</b> (Stretch $${fmt(readout.bookZone)} · 1:${(readout.rr || 0).toFixed(2)} R:R)${sz ? `\n⚡ Safe Iso Leverage: <b>${sz.recLeverage}×</b> (max ${sz.maxSafeLeverage}× · Est. Liq $${fmt(sz.liqPrice)})` : ''}
 
 🔗 <a href="${futLink}">Trade ${inst.symbol} Perp on Binance Futures</a> · <a href="https://trendrunner.app">Open Red Bar Desk</a>`;
 

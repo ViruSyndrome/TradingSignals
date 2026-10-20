@@ -93,18 +93,18 @@ const RangeEmaUI = {
   activeTf() {
     const c = this.cfg();
     const inst = this.activeInstrument() || {};
-    const allowed = inst.timeframes || c.timeframes || ['5m', '30m', '1h'];
-    const tf = this.state.tf || c.workingTf || '30m';
+    const allowed = inst.timeframes || c.timeframes || ['5m', '15m', '30m', '1h'];
+    const tf = this.state.tf || c.workingTf || '15m';
     return allowed.includes(tf) ? tf : allowed[0];
   },
 
   setTf(tf) {
     const c = this.cfg();
     const inst = this.activeInstrument() || {};
-    const allowed = inst.timeframes || c.timeframes || ['5m', '30m', '1h'];
+    const allowed = inst.timeframes || c.timeframes || ['5m', '15m', '30m', '1h'];
     if (!allowed.includes(tf) || tf === this.activeTf()) return;
     this.state.tf = tf;
-    try { localStorage.setItem('trendrunner_rb_tf', tf); } catch (_) {}
+    try { localStorage.setItem('trendrunner_rb_tf_v2', tf); } catch (_) {}
     // Drop old TF row so we don't paint 30m fibs on a 5m switch (or vice versa)
     this.state.rows = [];
     this.state.loading = true;
@@ -150,15 +150,17 @@ const RangeEmaUI = {
         this.state.instrumentId = c.defaultInstrument || this.instruments()[0]?.id;
       }
       const inst = this.activeInstrument() || {};
-      const allowed = inst.timeframes || c.timeframes || ['5m', '30m', '1h'];
-      const savedTf = localStorage.getItem('trendrunner_rb_tf');
-      // Prefer a safe TF on Yahoo (Nifty) boots — 5m CORS hangs left the desk stuck
+      const allowed = inst.timeframes || c.timeframes || ['5m', '15m', '30m', '1h'];
+      const savedTf = localStorage.getItem('trendrunner_rb_tf_v2');
+      // Default to 15m (Sagar: mark previous swing high/low on 15m chart)
       if (savedTf && allowed.includes(savedTf)) {
         if (inst.feed === 'yahoo' && savedTf === '5m') {
-          this.state.tf = allowed.includes('30m') ? '30m' : allowed[0];
+          this.state.tf = allowed.includes('15m') ? '15m' : allowed[0];
         } else {
           this.state.tf = savedTf;
         }
+      } else {
+        this.state.tf = allowed.includes('15m') ? '15m' : (c.workingTf || allowed[0]);
       }
       const savedCap = Number(localStorage.getItem('trendrunner_rb_capital'));
       if (Number.isFinite(savedCap) && savedCap > 0) this.state.capital = savedCap;
@@ -405,9 +407,10 @@ const RangeEmaUI = {
     const rrStr = o.rr != null ? `1:${o.rr.toFixed(2)}` : '—';
     const stopPctStr = o.stopPct != null ? ` (${o.stopPct.toFixed(2)}%)` : '';
     const targetPctStr = o.targetPct != null ? ` (+${o.targetPct.toFixed(2)}%)` : '';
-    const magnetObstacleStep = o.firstMagnet && o.firstMagnet.price !== o.bookZone
-      ? `First obstacle: ${o.firstMagnet.reason} at ${this._fmt(o.firstMagnet.price)} (${o.firstMagnet.rr.toFixed(1)}R) — move stop to Breakeven at +0.8R.`
-      : 'Trade management: move stop to Breakeven (+0.10% fee cover) once price reaches +0.8R.';
+    const tp1Str = o.tp1 != null ? this._fmt(o.tp1) : '—';
+    const tp3Str = o.tp3 != null ? this._fmt(o.tp3) : '—';
+    const oneRPctStr = o.stopPct != null ? ` (+${o.stopPct.toFixed(2)}%)` : '';
+    const sagarExitStep = `2️⃣ 50% TP at 1:1: ${tp1Str}${oneRPctStr} (bank 50% & move stop to Breakeven) · 3️⃣ Trail remaining 50% until EMA 10/30 cross over (Stretch: ${this._fmt(o.bookZone)} / rare 1:3 ${tp3Str}).`;
 
     if ((o.phase === 'first_candle' || o.phase === 'inside_or') && o.setupKind !== 'session_sweep') {
       const fibHi = o.currentBand?.high ?? o.refs?.orHigh;
@@ -448,16 +451,18 @@ const RangeEmaUI = {
         side: biasDir,
         cls: biasDir === 'LONG' ? 'long' : 'short',
         title: setupLabel,
-        subtitle: `Actionable setup · ${o.actionReason || 'Fresh trigger + structural stop + ≥1.5R magnet'}${emaNote}.`,
+        subtitle: `Actionable setup · ${o.actionReason || '15m Swing Stop set · 50% TP at 1:1 + trail 50% till EMA 10/30 cross'}${emaNote}.`,
         steps: [
           `${hint}: Enter Futures ${biasDir} near ${this._fmt(o.price)}.`,
-          `Structural Stop (${stopTag}): ${this._fmt(o.invalidation)}${stopPctStr} · Book Target (${bookTag}): ${this._fmt(o.bookZone)}${targetPctStr} · R:R ${rrStr}.${stopWarn}`,
-          magnetObstacleStep,
+          `1️⃣ Stop-Loss First (${stopTag} on 15m): ${this._fmt(o.invalidation)}${stopPctStr}.${stopWarn}`,
+          sagarExitStep,
           pivotStep,
           ...(liqStep ? [liqStep] : clockStep ? [clockStep] : []),
         ],
         entry: o.price,
         stop: o.invalidation,
+        tp1: o.tp1,
+        tp3: o.tp3,
         exit: o.bookZone,
         rr: o.rr,
       };
@@ -479,10 +484,12 @@ const RangeEmaUI = {
         subtitle: `${o.actionReason || 'Bias only — wait for a fresh Trade 1, Trade 2 revisit, or session sweep before entering'}${emaNote}.`,
         steps: [
           `Do NOT enter mid-air: directional bias is ${biasDir}, but there is no fresh Trade 1 departure, decisive Trade 2 candle, or session sweep on this bar.`,
-          `Reference levels if a trigger prints — Stop (${stopTag}): ${this._fmt(o.invalidation)}${stopPctStr} · Magnet (${bookTag}): ${this._fmt(o.bookZone)}${targetPctStr} (${rrStr}).${stopWarn}`,
+          `Reference levels if a trigger prints — 1️⃣ Stop (${stopTag} on 15m): ${this._fmt(o.invalidation)}${stopPctStr} · 2️⃣ 50% TP (1:1): ${tp1Str}${oneRPctStr} · 3️⃣ Runner Trail: EMA 10/30 cross (Magnet ${this._fmt(o.bookZone)} · ${rrStr}).${stopWarn}`,
           pivotStep,
           ...(liqStep ? [liqStep] : clockStep ? [clockStep] : []),
         ],
+        tp1: o.tp1,
+        tp3: o.tp3,
         entry: o.price,
         stop: o.invalidation,
         exit: o.bookZone,
@@ -689,7 +696,7 @@ const RangeEmaUI = {
       const elLev = document.getElementById('rbSzLev');
       const elLiq = document.getElementById('rbSzLiq');
       const sym = (row?.instrument?.id || 'BTC').replace(/USDT$/i, '');
-      if (elRisk) elRisk.textContent = `$${sz.riskUsd.toFixed(2)} (TP +$${sz.netProfitUsd.toFixed(2)})`;
+      if (elRisk) elRisk.textContent = `$${sz.riskUsd.toFixed(2)} (50%@1:1 +$${(sz.tp1HalfNetUsd || 0).toFixed(2)})`;
       if (elNotional) elNotional.textContent = `$${sz.notionalUsd.toFixed(0)} · ${sz.qty.toFixed(3)} ${sym}`;
       if (elLev) elLev.textContent = `${sz.recLeverage}× iso (max ${sz.maxSafeLeverage}×)`;
       if (elLiq) elLiq.textContent = this._fmt(sz.liqPrice);
@@ -728,9 +735,12 @@ const RangeEmaUI = {
     const trendWord = o.trend === 'bullish' ? 'BULLISH' : o.trend === 'bearish' ? 'BEARISH' : 'NEUTRAL';
 
     const steps = (a.steps || []).map((s) => `<li>${s}</li>`).join('');
-    const stopSub = o.stopPct != null ? `<small class="rb-level-sub">-${o.stopPct.toFixed(2)}% (${o.invalidationReason || 'swing'})</small>` : '';
-    const exitSub = o.targetPct != null ? `<small class="rb-level-sub">+${o.targetPct.toFixed(2)}% (${o.bookReason || 'magnet'})</small>` : '';
+    const stopSub = o.stopPct != null ? `<small class="rb-level-sub">-${o.stopPct.toFixed(2)}% (${o.invalidationReason || '15m swing'})</small>` : '';
+    const tp1Sub = o.stopPct != null ? `<small class="rb-level-sub">+${o.stopPct.toFixed(2)}% · Bank 50% &amp; SL→BE</small>` : '';
     const rrBadge = a.rr != null ? `${a.rr.toFixed(2)}R` : '—';
+    const runnerSub = a.exit != null
+      ? `<small class="rb-level-sub">Magnet ${this._fmt(a.exit)} (${rrBadge}) · 1:3 ${this._fmt(a.tp3 ?? o.tp3)}</small>`
+      : '<small class="rb-level-sub">Trail 50% till EMA 10/30 cross</small>';
 
     let futuresBarHtml = '';
     if (a.side === 'LONG' || a.side === 'SHORT') {
@@ -756,7 +766,7 @@ const RangeEmaUI = {
               </label>
             </div>
             <div class="rb-futures-metrics">
-              <div><span>1R Risk / Net TP</span><strong id="rbSzRisk">$${sz.riskUsd.toFixed(2)} (TP +$${sz.netProfitUsd.toFixed(2)})</strong></div>
+              <div><span>1R Risk / 50% @ 1:1</span><strong id="rbSzRisk">$${sz.riskUsd.toFixed(2)} (50%@1:1 +$${(sz.tp1HalfNetUsd || 0).toFixed(2)})</strong></div>
               <div><span>Futures Size</span><strong id="rbSzNotional">$${sz.notionalUsd.toFixed(0)} · ${sz.qty.toFixed(3)} ${sym}</strong></div>
               <div><span>Safe Leverage</span><strong id="rbSzLev">${sz.recLeverage}× iso (max ${sz.maxSafeLeverage}×)</strong></div>
               <div><span>Est. Liq Price</span><strong id="rbSzLiq" class="neg-text">${this._fmt(sz.liqPrice)}</strong></div>
@@ -775,10 +785,10 @@ const RangeEmaUI = {
           <div class="rb-action-sub">${a.subtitle || ''}</div>
           <ul class="rb-action-steps">${steps}</ul>
           <div class="rb-action-levels">
-            <div><span>Entry lean</span><strong>${this._fmt(a.entry)}</strong></div>
-            <div><span>Structural Stop</span><strong class="neg-text">${this._fmt(a.stop)}</strong>${stopSub}</div>
-            <div><span>Book Target</span><strong class="pos-text">${this._fmt(a.exit)}</strong>${exitSub}</div>
-            <div><span>Reward : Risk</span><strong>${rrBadge}</strong><small class="rb-level-sub">BE @ +0.8R</small></div>
+            <div><span>Entry Lean</span><strong>${this._fmt(a.entry)}</strong><small class="rb-level-sub">15m Execution</small></div>
+            <div><span>1. Stop-Loss (1R)</span><strong class="neg-text">${this._fmt(a.stop)}</strong>${stopSub}</div>
+            <div><span>2. 50% TP (1:1)</span><strong class="pos-text">${this._fmt(a.tp1 ?? o.tp1)}</strong>${tp1Sub}</div>
+            <div><span>3. 50% Runner</span><strong class="pos-text">EMA 10/30 Cross</strong>${runnerSub}</div>
           </div>
           ${futuresBarHtml}
         </div>
@@ -787,7 +797,7 @@ const RangeEmaUI = {
       <div class="rb-chart-wrap glass">
         <div class="rb-chart-toolbar">
           <div class="rb-tf-group" role="group" aria-label="Chart timeframe">
-            ${(c.timeframes || ['5m', '30m', '1h']).map((t) =>
+            ${(c.timeframes || ['5m', '15m', '30m', '1h']).map((t) =>
               `<button type="button" class="rb-tf-btn${t === this.activeTf() ? ' active' : ''}" data-rb-tf="${t}">${t}</button>`
             ).join('')}
           </div>
@@ -800,16 +810,16 @@ const RangeEmaUI = {
           </div>
         </div>
         <div class="rb-chart-legend">
-          <span class="lg price">Candles</span>
+          <span class="lg price">Candles (${this.activeTf()})</span>
           <span class="lg ema10">EMA ${c.emaFast || 10}</span>
-          <span class="lg ema30">EMA ${c.emaSlow || 30}</span>
+          <span class="lg ema30">EMA ${c.emaSlow || 30} (Runner Trail)</span>
           <span class="lg band">${this._isFibStyle(r) ? `Fib 0·44·50·56·1${r.instrument?.markLabel ? ` · ${r.instrument.markLabel}` : ''}` : 'Day ranges'}</span>
           <span class="lg stop">1H first red</span>
-          <span class="lg stop rb-lg-desk">Stop</span>
-          <span class="lg tp rb-lg-desk">Exit</span>
-          <span class="lg sess-asia rb-lg-desk">Asia</span>
-          <span class="lg sess-london rb-lg-desk">London</span>
-          <span class="lg sess-ny rb-lg-desk">US</span>
+          <span class="lg stop rb-lg-desk">15m Swing SL</span>
+          <span class="lg tp rb-lg-desk">1:1 (50% TP) &amp; Stretch</span>
+          <span class="lg sess-asia rb-lg-desk">Asia H/L</span>
+          <span class="lg sess-london rb-lg-desk">London H/L</span>
+          <span class="lg sess-ny rb-lg-desk">NY H/L</span>
         </div>
         <p class="rb-zoom-hint">Pinch to zoom · drag to pan · Fit resets</p>
         <div class="rb-chart-box">
@@ -838,8 +848,20 @@ const RangeEmaUI = {
           : ''}
         <span class="range-chip">EMA: ${String((r.ema && r.ema.cross) || '').replace(/_/g, ' ')}</span>
         <span class="range-chip ${r.emaAgree === 'agrees' ? 'pos' : r.emaAgree === 'disagrees' ? 'neg' : ''}">EMA ${r.emaAgree}</span>
+        ${(o.refs?.prevSwingHigh != null || o.refs?.prevSwingLow != null)
+          ? `<span class="range-chip">15m Prev Swing H/L: ${this._fmt(o.refs.prevSwingHigh)} / ${this._fmt(o.refs.prevSwingLow)}</span>`
+          : ''}
         ${o.refs?.priorDayHigh != null
-          ? `<span class="range-chip">PDH ${this._fmt(o.refs.priorDayHigh)} · PDL ${this._fmt(o.refs.priorDayLow)}</span>`
+          ? `<span class="range-chip">Prev Day (PDH/PDL): ${this._fmt(o.refs.priorDayHigh)} / ${this._fmt(o.refs.priorDayLow)}</span>`
+          : ''}
+        ${o.refs?.asiaHigh != null
+          ? `<span class="range-chip">Asia H/L: ${this._fmt(o.refs.asiaHigh)} / ${this._fmt(o.refs.asiaLow)}</span>`
+          : ''}
+        ${o.refs?.londonHigh != null
+          ? `<span class="range-chip">London H/L: ${this._fmt(o.refs.londonHigh)} / ${this._fmt(o.refs.londonLow)}</span>`
+          : ''}
+        ${o.refs?.nyHigh != null
+          ? `<span class="range-chip">NY (US) H/L: ${this._fmt(o.refs.nyHigh)} / ${this._fmt(o.refs.nyLow)}</span>`
           : ''}
         ${o.firstRed1h
           ? `<span class="range-chip">1H first red ${this._fmt(o.firstRed1h.high)} / ${this._fmt(o.firstRed1h.low)}</span>`
@@ -859,9 +881,10 @@ const RangeEmaUI = {
   /** Bars per clock-hour on this timeframe */
   _barsPerHour(tf) {
     if (tf === '5m') return 12;
+    if (tf === '15m') return 4;
     if (tf === '30m') return 2;
     if (tf === '1h') return 1;
-    return 2;
+    return 4;
   },
 
   /**
@@ -1323,7 +1346,7 @@ const RangeEmaUI = {
           const price = Number(t.value).toFixed(0);
           // Compact: short labels drawn INSIDE the plot (no dead right gutter)
           const shortName = compact
-            ? ({ STOP: 'STP', EXIT: 'TP', '1H RED': '1R', PDH: 'PDH', PDL: 'PDL', 'ASIA HI': 'A↑', 'ASIA LO': 'A↓', 'LON HI': 'L↑', 'LON LO': 'L↓', R: 'R', S: 'S' }[t.name] || t.name)
+            ? ({ STOP: 'STP', '1:1 TP': '1:1', EXIT: 'TP', '1H RED': '1R', 'SWG HI': 'SwH', 'SWG LO': 'SwL', PDH: 'PDH', PDL: 'PDL', 'ASIA HI': 'A↑', 'ASIA LO': 'A↓', 'LON HI': 'L↑', 'LON LO': 'L↓', 'NY HI': 'NY↑', 'NY LO': 'NY↓', R: 'R', S: 'S' }[t.name] || t.name)
             : t.name;
           const label = `${shortName} ${price}`;
           const padX = compact ? 3 : 5;
@@ -1383,7 +1406,7 @@ const RangeEmaUI = {
     // Mobile: fewer bars so candles have width (240 bars on a 360px phone = needles)
     const wantDesktop = (c.chartBars && c.chartBars[tf]) || 120;
     const wantMobile = (c.chartBarsMobile && c.chartBarsMobile[tf])
-      || ({ '5m': 96, '30m': 72, '1h': 56 }[tf] || 72);
+      || ({ '5m': 96, '15m': 80, '30m': 72, '1h': 56 }[tf] || 80);
     const want = compact ? wantMobile : wantDesktop;
     const showN = Math.min(want, row.bars.length);
     const bars = row.bars.slice(-showN);
@@ -1571,16 +1594,32 @@ const RangeEmaUI = {
     const showPivot = !!(o.firstRed1h?.high != null
       && (redId === 'trade2_revisit' || redId === 'at_pivot'));
 
+    // Sagar: mark Session High/Low (Asia, London, New York), Previous Day H/L (PDH/PDL), and 15m Prev Swing H/L
+    pushTag('PDH', o.refs?.priorDayHigh, '#fbbf24', 'rgba(55, 40, 10, 0.90)');
+    pushTag('PDL', o.refs?.priorDayLow, '#fbbf24', 'rgba(55, 40, 10, 0.90)');
+    pushTag('ASIA HI', o.refs?.asiaHigh, '#818cf8', 'rgba(25, 25, 60, 0.88)');
+    pushTag('ASIA LO', o.refs?.asiaLow, '#818cf8', 'rgba(25, 25, 60, 0.88)');
+    pushTag('LON HI', o.refs?.londonHigh, '#f472b6', 'rgba(55, 18, 42, 0.88)');
+    pushTag('LON LO', o.refs?.londonLow, '#f472b6', 'rgba(55, 18, 42, 0.88)');
+    pushTag('NY HI', o.refs?.nyHigh, '#cbd5e1', 'rgba(30, 41, 59, 0.88)');
+    pushTag('NY LO', o.refs?.nyLow, '#cbd5e1', 'rgba(30, 41, 59, 0.88)');
+    pushTag('SWG HI', o.refs?.prevSwingHigh, '#fb923c', 'rgba(55, 28, 10, 0.88)');
+    pushTag('SWG LO', o.refs?.prevSwingLow, '#fb923c', 'rgba(55, 28, 10, 0.88)');
+    if (o.firstRed1h?.high != null) {
+      pushTag('1H RED', o.firstRed1h.high, '#f43f5e', 'rgba(60, 10, 20, 0.94)', { priority: showPivot });
+    }
+
     if (trading) {
       pushTag('STOP', stopPx, COL.stop, 'rgba(60, 10, 10, 0.94)', { priority: true });
+      const tp1Px = action.tp1 ?? o.tp1;
+      if (tp1Px != null) {
+        pushTag('1:1 TP', tp1Px, '#38bdf8', 'rgba(8, 47, 73, 0.94)', { priority: true });
+      }
       if (action.side === 'LONG' && ahead(exitPx, 'above')) {
         pushTag('EXIT', exitPx, COL.exit, 'rgba(10, 40, 20, 0.94)', { priority: true });
       } else if (action.side === 'SHORT' && ahead(exitPx, 'below')) {
         pushTag('EXIT', exitPx, COL.exit, 'rgba(10, 40, 20, 0.94)', { priority: true });
       }
-    }
-    if (showPivot) {
-      pushTag('1H RED', o.firstRed1h.high, '#f43f5e', 'rgba(60, 10, 20, 0.94)', { priority: true });
     }
 
     this.destroyChart();
