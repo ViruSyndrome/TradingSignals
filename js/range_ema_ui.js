@@ -444,9 +444,11 @@ const RangeEmaUI = {
     if (isActionable) {
       const setupLabel = o.setupKind === 'session_sweep'
         ? `Session Sweep Reversal · Futures ${biasDir}`
-        : o.setupKind === 'trade2_confirmed'
-          ? `Trade 2 Confirmed · Futures ${biasDir} (${red.revisitRead ? red.revisitRead.replace('_', ' ') : '1H red revisit'})`
-          : `Trade 1 Departure · Futures ${biasDir} (Left 1H Red)`;
+        : o.setupKind === 'session_continuation'
+          ? `Session Continuation · Futures ${biasDir} (London/US bias confirm)`
+          : o.setupKind === 'trade2_confirmed'
+            ? `Trade 2 Confirmed · Futures ${biasDir} (${red.revisitRead ? red.revisitRead.replace('_', ' ') : '1H red revisit'})`
+            : `Trade 1 Departure · Futures ${biasDir} (Left 1H Red)`;
       return {
         side: biasDir,
         cls: biasDir === 'LONG' ? 'long' : 'short',

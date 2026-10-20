@@ -534,11 +534,11 @@ const RedBarTrend = {
         tip: 'London usually sweeps Asia high or low, then reverses.',
       };
     }
-    if (mins < 18 * 60 + 30) {
+    if (mins < 19 * 60) {
       return {
         id: 'us_open',
         label: 'US open',
-        tip: 'US hunts London H/L (Asia if untouched). Heavy window ~4:30–6:30 IST — use 1m when it zooms.',
+        tip: 'US hunts London H/L (Asia if untouched). Heavy window ~4:30–7:00 IST — use 1m when it zooms.',
       };
     }
     return {
@@ -589,9 +589,10 @@ const RedBarTrend = {
       ? (curBar.l <= firstRed.high + tol && curBar.h >= firstRed.low - tol)
       : near;
 
-    // Sagar: after ~1.5–6.5h price often revisits the first-red level
+    // Sagar: Price often revisits the first-red 1.5–6.5h later (London); keep the
+    // window open through US (~16h) so afternoon/US retests of the same pivot still qualify.
     const revisitWindow = (near || (barTouchedPivot && (hadLeftAbove || hadLeftBelow)))
-      && hoursSince != null && hoursSince >= 1.5 && hoursSince <= 6.5;
+      && hoursSince != null && hoursSince >= 1.5 && hoursSince <= 16;
 
     // At revisit: classify reject (continue morning bias) vs reverse (flip through pivot)
     let revisitRead = null;
@@ -691,19 +692,19 @@ const RedBarTrend = {
   detectSessionSweep(slice, clock, asiaHl, londonHl, firstRed1h = null) {
     if (!Array.isArray(slice) || slice.length < 5 || !clock) return null;
     const cur = slice[slice.length - 1];
-    const prev = slice[slice.length - 2];
     const prior3 = slice.slice(-4, -1);
     const rng = cur.h - cur.l;
     if (!(rng > 0)) return null;
 
     const checkPool = (pool, poolName) => {
       if (!pool || pool.high == null || pool.low == null) return null;
-      // Bearish sweep of session high: pool was intact on prior closes, current bar wicked above pool.high,
-      // closed back below pool.high as a red candle with ≥35% upper rejection wick, aligned with 1H first-red pivot
-      const highIntact = prior3.every((b) => b.c <= pool.high);
+      // Bearish sweep: prior 2 closes intact below pool high, wick above, close back inside as red
+      // with ≥25% upper rejection. Soft pivot align (prefer below first-red high).
+      const prior2 = prior3.slice(-2);
+      const highIntact = prior2.every((b) => b.c <= pool.high);
       const upperWick = cur.h - Math.max(cur.o, cur.c);
       const pivotOkShort = !firstRed1h || cur.c < firstRed1h.high;
-      if (highIntact && cur.h > pool.high && cur.c < pool.high && cur.c < cur.o && cur.c < prev.c && upperWick / rng >= 0.35 && pivotOkShort) {
+      if (highIntact && cur.h > pool.high && cur.c < pool.high && cur.c < cur.o && upperWick / rng >= 0.25 && pivotOkShort) {
         return {
           id: `sweep_${poolName}_high`,
           side: 'bearish',
@@ -713,12 +714,12 @@ const RedBarTrend = {
           label: `${clock.label} swept ${poolName} high (${pool.high.toFixed?.(0) ?? pool.high}) & rejected → SHORT`,
         };
       }
-      // Bullish sweep of session low: pool was intact on prior closes, current bar wicked below pool.low,
-      // closed back above pool.low as a green candle with ≥35% lower rejection wick, aligned with 1H first-red pivot
-      const lowIntact = prior3.every((b) => b.c >= pool.low);
+      // Bullish sweep: prior 2 closes intact above pool low, wick below, close back inside as green
+      // with ≥25% lower rejection. Soft pivot align (prefer above first-red low).
+      const lowIntact = prior2.every((b) => b.c >= pool.low);
       const lowerWick = Math.min(cur.o, cur.c) - cur.l;
       const pivotOkLong = !firstRed1h || cur.c > firstRed1h.low;
-      if (lowIntact && cur.l < pool.low && cur.c > pool.low && cur.c > cur.o && cur.c > prev.c && lowerWick / rng >= 0.35 && pivotOkLong) {
+      if (lowIntact && cur.l < pool.low && cur.c > pool.low && cur.c > cur.o && lowerWick / rng >= 0.25 && pivotOkLong) {
         return {
           id: `sweep_${poolName}_low`,
           side: 'bullish',
@@ -1186,6 +1187,26 @@ const RedBarTrend = {
       setupKind = 'session_sweep';
     }
 
+    // London / US: if the morning first-red side is still intact and the current bar
+    // confirms the fib-break bias (decisive body + close beating prior), promote
+    // trend_bias → session_continuation so the desk can ENTER instead of only WATCH.
+    // Covers days where price never revisits the 1H pivot and never tags Asia/London H/L.
+    if (
+      setupKind === 'trend_bias'
+      && (clock.id === 'london' || clock.id === 'us_open')
+      && ((trend === 'bearish' && redSetup.leftBelow) || (trend === 'bullish' && redSetup.leftAbove))
+    ) {
+      const cur = bars[i];
+      const prevBar = bars[i - 1];
+      const rng = cur.h - cur.l;
+      const body = Math.abs(cur.c - cur.o);
+      const confirms = rng > 0 && (body / rng) >= 0.18 && prevBar && (
+        (trend === 'bearish' && cur.c < cur.o && cur.c < prevBar.c)
+        || (trend === 'bullish' && cur.c > cur.o && cur.c > prevBar.c)
+      );
+      if (confirms) setupKind = 'session_continuation';
+    }
+
     const refs = {
       orHigh: or ? or.high : null,
       orLow: or ? or.low : null,
@@ -1336,7 +1357,7 @@ const RedBarTrend = {
   },
 
   /** Setup kinds that may be traded immediately (everything else is bias / watch). */
-  ACTIONABLE_SETUPS: ['trade1_departure', 'trade2_confirmed', 'session_sweep'],
+  ACTIONABLE_SETUPS: ['trade1_departure', 'trade2_confirmed', 'session_sweep', 'session_continuation'],
 
   /**
    * Single source of truth for "enter now" vs "watch" vs "wait".
@@ -1348,7 +1369,7 @@ const RedBarTrend = {
     }
     if (!this.ACTIONABLE_SETUPS.includes(setupKind)) {
       const why = {
-        trend_bias: 'Fib-break bias only — no fresh Trade 1, Trade 2 or sweep.',
+        trend_bias: 'Fib-break bias only — wait for a confirming London/US candle, Trade 2, or sweep.',
         fib_pullback: 'Pullback into a prior fib band — wait for a Trade 1/2 trigger.',
         pivot_reversal: 'Price crossed the 1H red against the fib bias — conflicting, wait.',
         trade2_watch: 'At the 1H red revisit, but the candle is not decisive yet — watch the close.',
