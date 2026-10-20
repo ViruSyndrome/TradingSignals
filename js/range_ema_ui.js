@@ -1692,10 +1692,10 @@ const RangeEmaUI = {
         layout: {
           // Tags draw inside the plot now — only a slim edge for the Y tick labels
           padding: {
-            top: compact ? 8 : 14,
-            bottom: 4,
-            right: compact ? 2 : 8,
-            left: compact ? 2 : 4,
+            top: compact ? 10 : 14,
+            bottom: compact ? 8 : 6,
+            right: compact ? 6 : 8,
+            left: compact ? 4 : 6,
           },
         },
         plugins: {

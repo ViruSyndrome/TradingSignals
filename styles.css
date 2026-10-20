@@ -2658,8 +2658,12 @@ body.chart-zoom-open .toast-container { z-index: 13000; }
 }
 .range-chip {
   font-size: 11px;
-  padding: 3px 8px;
-  border-radius: 999px;
+  padding: 4px 8px;
+  border-radius: 8px;
+  max-width: 100%;
+  line-height: 1.35;
+  overflow-wrap: break-word;
+  word-break: break-word;
   background: rgba(255,255,255,0.06);
   color: var(--text-muted);
 }
@@ -3020,9 +3024,15 @@ body.redbar-only .site-footer-copyright {
 .rb-action.long .rb-action-side { background: var(--c-green); color: #052e16; }
 .rb-action.short .rb-action-side { background: var(--c-red); color: #fff; }
 .rb-action.wait .rb-action-side { background: #475569; color: #f8fafc; }
-.rb-action-body { flex: 1; padding: 14px 16px; }
-.rb-action-title { font-size: 1.05rem; font-weight: 700; margin-bottom: 4px; }
-.rb-action-sub { font-size: 12px; color: var(--text-muted); margin-bottom: 8px; }
+.rb-action-body {
+  flex: 1;
+  min-width: 0;
+  padding: 14px 16px;
+  overflow-wrap: break-word;
+  word-break: break-word;
+}
+.rb-action-title { font-size: 1.05rem; font-weight: 700; margin-bottom: 4px; line-height: 1.3; }
+.rb-action-sub { font-size: 12px; color: var(--text-muted); margin-bottom: 8px; line-height: 1.4; }
 .rb-action-steps {
   margin: 0 0 10px;
   padding-left: 18px;
@@ -3030,11 +3040,21 @@ body.redbar-only .site-footer-copyright {
   line-height: 1.45;
   color: var(--text-main);
 }
+.rb-action-steps li {
+  margin-bottom: 3px;
+  overflow-wrap: break-word;
+  word-break: break-word;
+}
 .rb-action-levels {
   display: grid;
-  grid-template-columns: repeat(4, 1fr);
+  grid-template-columns: repeat(4, minmax(0, 1fr));
   gap: 8px;
   font-size: 12px;
+}
+.rb-action-levels > div {
+  min-width: 0;
+  overflow-wrap: break-word;
+  word-break: break-word;
 }
 .rb-action-levels span {
   display: block;
@@ -3245,11 +3265,9 @@ body.redbar-only .site-footer-copyright {
     padding: 8px 10px calc(10px + env(safe-area-inset-bottom, 0px));
   }
   body.redbar-only .topbar-focus-label {
-    font-size: 11px;
-    max-width: 42vw;
-    overflow: hidden;
-    text-overflow: ellipsis;
-    white-space: nowrap;
+    font-size: 12px;
+    max-width: none;
+    white-space: normal;
   }
   .rb-action {
     flex-direction: column;
@@ -3261,19 +3279,20 @@ body.redbar-only .site-footer-copyright {
     font-size: 1.05rem;
   }
   .rb-action-body { padding: 10px 12px; }
-  .rb-action-sub { font-size: 11px; margin-bottom: 4px; }
+  .rb-action-sub { font-size: 11px; margin-bottom: 6px; }
   .rb-action-steps {
-    font-size: 11px;
-    margin-bottom: 6px;
-    max-height: 4.8em;
-    overflow: hidden;
+    font-size: 11.5px;
+    line-height: 1.45;
+    margin-bottom: 8px;
+    max-height: none;
+    overflow: visible;
   }
   .rb-action-levels {
-    grid-template-columns: repeat(2, 1fr);
-    gap: 6px;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 8px;
   }
   .rb-futures-metrics {
-    grid-template-columns: repeat(2, 1fr);
+    grid-template-columns: repeat(2, minmax(0, 1fr));
     width: 100%;
   }
   .rb-chart-toolbar {
@@ -3341,6 +3360,30 @@ html.is-phone .sidebar.open { left: 0 !important; }
 html.is-phone .main-content { margin-left: 0 !important; }
 html.is-phone .mobile-close-btn { display: flex; }
 html.is-phone .rb-chart-legend .rb-lg-desk { display: none; }
+html.is-phone .rb-action {
+  flex-direction: column;
+  margin-bottom: 10px;
+}
+html.is-phone .rb-action-side {
+  flex-basis: auto;
+  padding: 8px;
+  font-size: 1.05rem;
+}
+html.is-phone .rb-action-body { padding: 10px 12px; }
+html.is-phone .rb-action-steps {
+  font-size: 11.5px;
+  line-height: 1.45;
+  max-height: none !important;
+  overflow: visible !important;
+}
+html.is-phone .rb-action-levels {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 8px;
+}
+html.is-phone .rb-futures-metrics {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  width: 100%;
+}
 html.is-phone .rb-chart-box,
 html.is-phone body.redbar-only .rb-chart-box {
   height: min(42vh, 300px) !important;
@@ -3395,7 +3438,8 @@ html.is-phone body.redbar-only #rangeEmaDesk {
     min-height: 160px !important;
   }
   html.is-phone body.redbar-only .rb-action-steps {
-    max-height: 2.8em;
+    max-height: none;
+    overflow: visible;
   }
   html.is-phone body.redbar-only .section-sub {
     display: none;
