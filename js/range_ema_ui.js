@@ -938,11 +938,17 @@ const RangeEmaUI = {
     }).format(new Date(ts));
   },
 
-  /** Collect open/close markers that fall inside [t0, t1]. */
-  _sessionMarkersInRange(t0, t1, sessions) {
+  /**
+   * Collect open/close markers in the visible candle window.
+   * t0/t1 are first/last bar OPEN times — extend end by barMs so a session
+   * open on the forming 1H candle (e.g. London 07:00:12 vs bar 07:00:00) is kept.
+   */
+  _sessionMarkersInRange(t0, t1, sessions, barMs = 30 * 60 * 1000) {
     const out = [];
     if (!sessions || !sessions.length || t1 <= t0) return out;
     const pad = 48 * 3600 * 1000;
+    const winStart = t0;
+    const winEnd = t1 + Math.max(barMs, 60 * 1000);
     for (const s of sessions) {
       const tz = s.timeZone || 'UTC';
       const [oH, oM] = s.open || [0, 0];
@@ -957,10 +963,10 @@ const RangeEmaUI = {
       for (const day of days) {
         const openTs = this._zonedClockToUtc(day, tz, oH, oM);
         const closeTs = this._zonedClockToUtc(day, tz, cH, cM);
-        if (openTs >= t0 && openTs <= t1) {
+        if (openTs >= winStart && openTs < winEnd) {
           out.push({ ts: openTs, kind: 'open', label: s.label, color: s.color || '#94a3b8' });
         }
-        if (closeTs >= t0 && closeTs <= t1) {
+        if (closeTs >= winStart && closeTs < winEnd) {
           out.push({ ts: closeTs, kind: 'close', label: s.label, color: s.color || '#94a3b8' });
         }
       }
@@ -1041,14 +1047,16 @@ const RangeEmaUI = {
           if (idx < 0) continue;
           const x = xScale.getPixelForValue(idx);
           if (!Number.isFinite(x) || x < area.left - 2 || x > area.right + 2) continue;
-          if (x - lastLineX < minLineGap) continue;
+          // Allow overlapping session labels on the last (forming) bar — don't skip London
+          const onLastBar = idx >= times.length - 1;
+          if (!onLastBar && x - lastLineX < minLineGap) continue;
           lastLineX = x;
 
           ctx.strokeStyle = m.color;
           ctx.globalAlpha = compact
-            ? (m.kind === 'open' ? 0.55 : 0.3)
-            : (m.kind === 'open' ? 0.85 : 0.45);
-          ctx.lineWidth = m.kind === 'open' ? (compact ? 1 : 1.5) : 1;
+            ? (m.kind === 'open' ? 0.7 : 0.35)
+            : (m.kind === 'open' ? 0.9 : 0.5);
+          ctx.lineWidth = m.kind === 'open' ? (compact ? 1.5 : 2) : 1;
           ctx.setLineDash(m.kind === 'open' ? [] : [4, 4]);
           ctx.beginPath();
           ctx.moveTo(x, area.top);
@@ -1057,19 +1065,19 @@ const RangeEmaUI = {
           ctx.setLineDash([]);
 
           if (!showLabels || m.kind !== 'open') continue;
-          if (x - lastLabelX < minLabelGap) continue;
+          if (!onLastBar && x - lastLabelX < minLabelGap) continue;
           lastLabelX = x;
 
-          ctx.globalAlpha = 0.9;
+          ctx.globalAlpha = 0.95;
           ctx.fillStyle = m.color;
           ctx.font = compact
-            ? '600 8px Outfit, system-ui, sans-serif'
-            : '600 9px Outfit, system-ui, sans-serif';
-          ctx.textAlign = 'center';
+            ? '700 9px Outfit, system-ui, sans-serif'
+            : '700 10px Outfit, system-ui, sans-serif';
+          ctx.textAlign = onLastBar ? 'right' : 'center';
           ctx.textBaseline = 'top';
-          // Short tag — full "London▲" piles into neighbours on 30m
           const tag = compact ? String(m.label || '').slice(0, 1) : `${m.label}`;
-          ctx.fillText(tag, x, area.top + 2);
+          const tx = onLastBar ? Math.min(x, area.right - 4) : x;
+          ctx.fillText(tag, tx, area.top + 2);
         }
         ctx.restore();
       },
@@ -1475,8 +1483,9 @@ const RangeEmaUI = {
     const pad = barSpan * 0.06 || 1;
     const self = this;
     const showSessions = inst.showSessionMarkers !== false && (inst.sessions || c.sessions);
+    const barMs = this._barMs(times);
     let sessionMarks = showSessions
-      ? this._sessionMarkersInRange(times[0], times[n - 1], inst.sessions || c.sessions || [])
+      ? this._sessionMarkersInRange(times[0], times[n - 1], inst.sessions || c.sessions || [], barMs)
       : [];
     if (compact && sessionMarks.length) {
       // Opens only — closes double the vertical barcode on a phone
