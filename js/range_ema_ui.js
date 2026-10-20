@@ -143,20 +143,31 @@ const RangeEmaUI = {
       window.visualViewport?.addEventListener('resize', sync, { passive: true });
     }
     try {
-      const savedTf = localStorage.getItem('trendrunner_rb_tf');
-      const allowed = c.timeframes || ['5m', '30m', '1h'];
-      if (savedTf && allowed.includes(savedTf)) this.state.tf = savedTf;
       const savedInst = localStorage.getItem('trendrunner_rb_instrument');
       if (savedInst && this.instruments().some((x) => x.id === savedInst)) {
         this.state.instrumentId = savedInst;
       } else {
         this.state.instrumentId = c.defaultInstrument || this.instruments()[0]?.id;
       }
+      const inst = this.activeInstrument() || {};
+      const allowed = inst.timeframes || c.timeframes || ['5m', '30m', '1h'];
+      const savedTf = localStorage.getItem('trendrunner_rb_tf');
+      // Prefer a safe TF on Yahoo (Nifty) boots — 5m CORS hangs left the desk stuck
+      if (savedTf && allowed.includes(savedTf)) {
+        if (inst.feed === 'yahoo' && savedTf === '5m') {
+          this.state.tf = allowed.includes('30m') ? '30m' : allowed[0];
+        } else {
+          this.state.tf = savedTf;
+        }
+      }
       const savedCap = Number(localStorage.getItem('trendrunner_rb_capital'));
       if (Number.isFinite(savedCap) && savedCap > 0) this.state.capital = savedCap;
       const savedRisk = Number(localStorage.getItem('trendrunner_rb_risk_pct'));
       if (Number.isFinite(savedRisk) && savedRisk > 0 && savedRisk <= 25) this.state.riskPct = savedRisk;
     } catch (_) {}
+    // Paint shell immediately so we never sit on the static "Loading…" HTML
+    this.state.loading = true;
+    this.render();
     this.refresh();
     clearInterval(this._timer);
     this._timer = setInterval(() => this.refresh(), 60 * 1000);
@@ -185,17 +196,30 @@ const RangeEmaUI = {
     const inst = this.activeInstrument();
     this.state.loading = true;
     this.state.error = null;
+    this.render();
+
+    const withTimeout = (p, ms, label) => Promise.race([
+      p,
+      new Promise((_, rej) => setTimeout(() => rej(new Error(`${label} timed out`)), ms)),
+    ]);
 
     try {
       const flaky = (err) => /abort|timed?\s*out|failed to fetch|network|load failed/i.test(String(err || ''));
-      let row = await this._buildRow(inst, c);
-      // Silent retries — keep spinner; don't flash "Failed to fetch" before success
-      for (let attempt = 0; attempt < 2; attempt++) {
+      // Hard ceiling so a hung Yahoo/CORS proxy can never leave the desk blank forever
+      let row = await withTimeout(this._buildRow(inst, c), 22000, `${inst?.label || 'Desk'} feed`);
+      for (let attempt = 0; attempt < 1; attempt++) {
         if (gen !== this._refreshGen) return;
         if (!row?.error || !flaky(row.error)) break;
-        await new Promise((r) => setTimeout(r, 600 * (attempt + 1)));
+        await new Promise((r) => setTimeout(r, 500));
         if (gen !== this._refreshGen) return;
-        row = await this._buildRow(inst, c);
+        row = await withTimeout(this._buildRow(inst, c), 18000, `${inst?.label || 'Desk'} retry`);
+      }
+      if (gen !== this._refreshGen) return;
+      // If Yahoo 5m failed, fall back to 30m once so the desk recovers
+      if (row?.error && inst?.feed === 'yahoo' && this.activeTf() === '5m') {
+        this.state.tf = '30m';
+        try { localStorage.setItem('trendrunner_rb_tf', '30m'); } catch (_) {}
+        row = await withTimeout(this._buildRow(inst, c), 18000, 'Nifty 30m fallback');
       }
       if (gen !== this._refreshGen) return;
       this.state.rows = [row];
@@ -204,7 +228,12 @@ const RangeEmaUI = {
     } catch (e) {
       if (gen !== this._refreshGen) return;
       this.state.error = this._friendlyErr(e);
-      this.state.rows = [];
+      this.state.rows = [{
+        symbol: inst?.symbol,
+        instrument: inst,
+        error: this.state.error,
+        tf: this.activeTf(),
+      }];
     } finally {
       if (gen === this._refreshGen) {
         this.state.loading = false;

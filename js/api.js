@@ -462,20 +462,17 @@ const API = {
     if (cached) return cached;
 
     const chartQs = `interval=${yInt}&range=${range}&includePrePost=false`;
-    const hosts = [
-      `https://query1.finance.yahoo.com/v8/finance/chart/${encodeURIComponent(symbol)}?${chartQs}`,
-      `https://query2.finance.yahoo.com/v8/finance/chart/${encodeURIComponent(symbol)}?${chartQs}`,
-    ];
+    const direct = `https://query1.finance.yahoo.com/v8/finance/chart/${encodeURIComponent(symbol)}?${chartQs}`;
+    // Keep the list short — long proxy chains left the desk on "Loading…" for minutes
     const urls = [
-      ...hosts,
-      ...hosts.map((u) => `https://corsproxy.io/?${encodeURIComponent(u)}`),
-      ...hosts.map((u) => `https://api.allorigins.win/raw?url=${encodeURIComponent(u)}`),
+      direct,
+      `https://query2.finance.yahoo.com/v8/finance/chart/${encodeURIComponent(symbol)}?${chartQs}`,
+      `https://api.allorigins.win/raw?url=${encodeURIComponent(direct)}`,
     ];
     let lastErr;
     for (const url of urls) {
       try {
-        // Short timeout — fail over instead of spinning for 20s×retries
-        const data = await this._fetch(url, 10000, 0);
+        const data = await this._fetch(url, 8000, 0);
         const result = data?.chart?.result?.[0];
         if (!result) {
           const yErr = data?.chart?.error?.description || data?.chart?.error?.code;

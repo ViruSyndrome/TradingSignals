@@ -1229,17 +1229,28 @@ const Dashboard = {
       this._hideBootLoader();
     }
 
-    // Red Bar–only: skip 50-coin boot; desk loads its own BTC 30m bars
+    // Red Bar–only: skip 50-coin boot; desk loads its own bars
     if (CONFIG.ui?.redBarOnly) {
       this.state.loading = false;
       this._hideBootLoader(true);
-      this._scheduleRefresh();
+      this._bootComplete = true;
       try {
-        if (typeof RangeEmaUI !== 'undefined') RangeEmaUI.init();
+        if (typeof RangeEmaUI !== 'undefined') {
+          RangeEmaUI.init();
+        } else {
+          const host = document.getElementById('rangeEmaDesk');
+          if (host) {
+            host.innerHTML = '<div class="range-desk-error">Red Bar Desk failed to load scripts. Hard-refresh (Ctrl+Shift+R).</div>';
+          }
+        }
       } catch (e) {
         console.warn('[Dashboard] Red Bar Desk init failed:', e);
+        const host = document.getElementById('rangeEmaDesk');
+        if (host) {
+          host.innerHTML = `<div class="range-desk-error">Desk init error: ${e.message || e}</div>`;
+        }
       }
-      this._bootComplete = true;
+      this._scheduleRefresh();
       return;
     }
 
