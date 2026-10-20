@@ -968,8 +968,34 @@ const RangeEmaUI = {
     return out.sort((a, b) => a.ts - b.ts);
   },
 
+  _barMs(times) {
+    if (!times || times.length < 2) return 30 * 60 * 1000;
+    // Median step — more stable than times[1]-times[0] when the window starts on a gap
+    const steps = [];
+    for (let i = 1; i < Math.min(times.length, 24); i++) {
+      const d = times[i] - times[i - 1];
+      if (d > 0) steps.push(d);
+    }
+    if (!steps.length) return 30 * 60 * 1000;
+    steps.sort((a, b) => a - b);
+    return steps[Math.floor(steps.length / 2)];
+  },
+
+  /**
+   * Map a session open/close timestamp onto a candle index.
+   * Prefer the bar that CONTAINS the event (open <= ts < open+barMs) so 1H
+   * still shows London/US even when the open isn't exactly on a candle open.
+   */
   _nearestBarIndex(times, ts) {
     if (!times.length) return -1;
+    const barMs = this._barMs(times);
+
+    // 1) Bar that contains the event
+    for (let i = 0; i < times.length; i++) {
+      if (times[i] <= ts && ts < times[i] + barMs) return i;
+    }
+
+    // 2) Nearest open within ~one bar (covers edge / gap cases)
     let best = 0;
     let bestDist = Math.abs(times[0] - ts);
     for (let i = 1; i < times.length; i++) {
@@ -979,9 +1005,7 @@ const RangeEmaUI = {
         bestDist = d;
       }
     }
-    // Ignore if farther than ~1.25 bars from a sample (avoids edge ghosts)
-    const barMs = times.length > 1 ? Math.abs(times[1] - times[0]) : 30 * 60 * 1000;
-    if (bestDist > barMs * 1.25) return -1;
+    if (bestDist > barMs * 1.05) return -1;
     return best;
   },
 
