@@ -367,12 +367,6 @@ async function fetchFearGreed() {
 async function scanRedBarDesk() {
   const rbCfg = CONFIG.rangeEma || {};
   const instruments = (rbCfg.instruments || []).filter((i) => i.feed === 'binanceSpot');
-  const actionableKinds = new Set([
-    'trade1_departure',
-    'trade2_confirmed',
-    'session_sweep',
-    'pivot_reversal',
-  ]);
   for (const inst of instruments) {
     try {
       const [bars30m, bars1h] = await Promise.all([
@@ -388,14 +382,15 @@ async function scanRedBarDesk() {
       if (!readout) continue;
       const side = readout.trend === 'bullish' ? 'LONG' : readout.trend === 'bearish' ? 'SHORT' : 'WAIT';
       const setupKind = readout.setupKind || 'wait';
-      const alertKey = `${side}|${setupKind}|${readout.currentDay || ''}`;
+      const actionState = readout.actionState || 'wait';
+      const alertKey = `${side}|${setupKind}|${readout.asOfDay || ''}`;
       const alreadyAlerted = lastAlerted[`RB_${inst.id}`] === alertKey;
 
       console.log(
-        `[RedBarBot] ${inst.id} (${inst.symbol}): ${side} | setup=${setupKind} | price=${readout.price} | stop=${readout.invalidation} | book=${readout.bookZone} | RR=${readout.rr != null ? readout.rr.toFixed(2) : '—'}`
+        `[RedBarBot] ${inst.id} (${inst.symbol}): state=${actionState.toUpperCase()} (${side}) | setup=${setupKind} | price=${readout.price} | stop=${readout.invalidation} (${readout.invalidationReason || '—'}) | book=${readout.bookZone} | RR=${readout.rr != null ? readout.rr.toFixed(2) : '—'}`
       );
 
-      if ((side === 'LONG' || side === 'SHORT') && actionableKinds.has(setupKind) && (readout.rr || 0) >= 1.45) {
+      if (actionState === 'enter' && (side === 'LONG' || side === 'SHORT')) {
         if (!alreadyAlerted) {
           const dec = inst.priceDecimals ?? 2;
           const fmt = (n) => (n != null && Number.isFinite(n) ? Number(n).toFixed(dec) : '—');

@@ -104,7 +104,7 @@ function summarize(label, trades) {
  */
 function isActionableEntry(o, curBar, prevBar) {
   if (!o || !curBar || !prevBar) return false;
-  if (o.trend !== 'bullish' && o.trend !== 'bearish') return false;
+  if (o.actionState !== 'enter') return false;
   if (o.invalidation == null || o.bookZone == null || !(o.rr >= 1.5)) return false;
 
   const isBull = o.trend === 'bullish';
@@ -114,7 +114,7 @@ function isActionableEntry(o, curBar, prevBar) {
   if (!dirCandle) return false;
 
   const sk = o.setupKind;
-  if (sk === 'trade2_confirmed') return true;
+  if (sk === 'trade2_confirmed' || sk === 'session_sweep') return true;
 
   if (sk === 'trade1_departure') {
     const red = o.firstRed1h;
@@ -266,7 +266,7 @@ function runSimulation(bars30, bars1h, cfg, { maxHoldBars = 24, beTriggerR = 0.8
     const h2 = summarize('Second Half (Out-of-Sample)', trades.slice(mid));
 
     console.log('\n--- By Setup Type ---');
-    for (const kind of ['trade1_departure', 'trade2_confirmed']) {
+    for (const kind of ['trade1_departure', 'trade2_confirmed', 'session_sweep']) {
       const sub = trades.filter((t) => t.setupKind === kind);
       if (sub.length) summarize(kind, sub);
     }
@@ -290,8 +290,14 @@ function runSimulation(bars30, bars1h, cfg, { maxHoldBars = 24, beTriggerR = 0.8
       price: readout.price,
       trend: readout.trend,
       setupKind: readout.setupKind,
+      actionState: readout.actionState,
+      actionReason: readout.actionReason,
       invalidation: readout.invalidation,
+      invalidationReason: readout.invalidationReason,
+      stopStructural: readout.stopStructural,
       bookZone: readout.bookZone,
+      bookReason: readout.bookReason,
+      firstMagnet: readout.firstMagnet,
       rr: readout.rr,
       sizing: readout.sizing,
       narrative: readout.narrative,

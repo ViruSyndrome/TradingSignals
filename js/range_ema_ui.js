@@ -378,7 +378,7 @@ const RangeEmaUI = {
       ? `First obstacle: ${o.firstMagnet.reason} at ${this._fmt(o.firstMagnet.price)} (${o.firstMagnet.rr.toFixed(1)}R) — move stop to Breakeven at +0.8R.`
       : 'Trade management: move stop to Breakeven (+0.10% fee cover) once price reaches +0.8R.';
 
-    if (o.phase === 'first_candle' || o.phase === 'inside_or') {
+    if ((o.phase === 'first_candle' || o.phase === 'inside_or') && o.setupKind !== 'session_sweep') {
       const fibHi = o.currentBand?.high ?? o.refs?.orHigh;
       const fibLo = o.currentBand?.low ?? o.refs?.orLow;
       return {
@@ -398,57 +398,29 @@ const RangeEmaUI = {
       };
     }
 
-    // Trade 2: revisit of first 1H red (Sagar: often 2–3h later)
-    if (red.id === 'trade2_revisit') {
-      const side = o.trend === 'bullish' ? 'LONG' : o.trend === 'bearish' ? 'SHORT' : 'WAIT';
-      const cls = side === 'LONG' ? 'long' : side === 'SHORT' ? 'short' : 'wait';
-      const readTag = red.revisitRead === 'reject_bull'
-        ? 'Bullish rejection confirmed'
-        : red.revisitRead === 'reject_bear'
-          ? 'Bearish rejection confirmed'
-          : red.revisitRead === 'reverse_bull'
-            ? 'Bullish reclaim / flip confirmed'
-            : red.revisitRead === 'reverse_bear'
-              ? 'Bearish breakdown / flip confirmed'
-              : 'Testing pivot — watch reject vs reverse';
-      return {
-        side,
-        cls,
-        title: side === 'WAIT' ? 'Trade 2 · Watch 1H Red Revisit' : `Trade 2 · Futures ${side} (${readTag})`,
-        subtitle: `Price revisiting 1H first-red pivot (${red.hoursSince != null ? red.hoursSince.toFixed(1) : '—'}h after mark)${emaNote}.`,
-        steps: [
-          `${pivotStep} ${red.detail || ''}`,
-          side !== 'WAIT'
-            ? `Structural Stop (${o.invalidationReason || 'swing'}): ${this._fmt(o.invalidation)}${stopPctStr} · Book Target (${o.bookReason || 'liquidity'}): ${this._fmt(o.bookZone)}${targetPctStr} · R:R ${rrStr}.`
-            : `Prior-day H/L liquidity magnets: ${this._fmt(pdh)} / ${this._fmt(pdl)}.`,
-          ...(side !== 'WAIT' ? [magnetObstacleStep] : []),
-          ...(liqStep ? [liqStep] : clockStep ? [clockStep] : []),
-          side !== 'WAIT' ? `${hint}.` : 'Wait for the candle to close rejecting or flipping the 1H first-red bar.',
-        ],
-        entry: side === 'WAIT' ? null : o.price,
-        stop: side === 'WAIT' ? null : o.invalidation,
-        exit: side === 'WAIT' ? null : o.bookZone,
-        rr: side === 'WAIT' ? null : o.rr,
-      };
-    }
+    const biasDir = o.trend === 'bullish' ? 'LONG' : o.trend === 'bearish' ? 'SHORT' : null;
+    const isActionable = o.actionState === 'enter' && (biasDir === 'LONG' || biasDir === 'SHORT');
+    const stopTag = o.invalidationReason || (biasDir === 'LONG' ? 'swing low' : 'swing high');
+    const stopWarn = o.stopStructural === false
+      ? ` ⚠️ Stop is a ${stopTag} (not a tight local swing — watch size).`
+      : '';
+    const bookTag = o.bookReason || 'liquidity magnet';
 
-    if (o.trend === 'bullish') {
-      const kindTitle = o.setupKind === 'session_sweep'
-        ? `Session Sweep Reversal · Futures LONG`
-        : o.setupKind === 'trade1_departure' || red.id === 'trade1_away'
-          ? 'Trade 1 · Futures LONG (1H Red Departure)'
-          : o.setupKind === 'fib_pullback'
-            ? 'Fib 0.44–0.56 Pullback · Futures LONG'
-            : 'Trend Bias · Futures LONG';
+    // 1. Actionable setups ONLY: Trade 1 fresh departure, Trade 2 decisive candle, or Session Sweep
+    if (isActionable) {
+      const setupLabel = o.setupKind === 'session_sweep'
+        ? `Session Sweep Reversal · Futures ${biasDir}`
+        : o.setupKind === 'trade2_confirmed'
+          ? `Trade 2 Confirmed · Futures ${biasDir} (${red.revisitRead ? red.revisitRead.replace('_', ' ') : '1H red revisit'})`
+          : `Trade 1 Departure · Futures ${biasDir} (Left 1H Red)`;
       return {
-        side: 'LONG',
-        cls: 'long',
-        title: kindTitle,
-        subtitle: `Bullish above mark-window Fibs${emaNote}${sweep ? ` · ${sweep.label}` : ''}.`,
+        side: biasDir,
+        cls: biasDir === 'LONG' ? 'long' : 'short',
+        title: setupLabel,
+        subtitle: `Actionable setup · ${o.actionReason || 'Fresh trigger + structural stop + ≥1.5R magnet'}${emaNote}.`,
         steps: [
-          `${hint}: Futures LONG near ${this._fmt(o.price)}.`,
-          `Structural Stop (${o.invalidationReason || 'swing low'}): ${this._fmt(o.invalidation)}${stopPctStr} (never inside the fib box).`,
-          `Book Target (${o.bookReason || 'PDH / liquidity'}): ${this._fmt(o.bookZone)}${targetPctStr} · R:R ${rrStr}.`,
+          `${hint}: Enter Futures ${biasDir} near ${this._fmt(o.price)}.`,
+          `Structural Stop (${stopTag}): ${this._fmt(o.invalidation)}${stopPctStr} · Book Target (${bookTag}): ${this._fmt(o.bookZone)}${targetPctStr} · R:R ${rrStr}.${stopWarn}`,
           magnetObstacleStep,
           pivotStep,
           ...(liqStep ? [liqStep] : clockStep ? [clockStep] : []),
@@ -460,24 +432,23 @@ const RangeEmaUI = {
       };
     }
 
-    if (o.trend === 'bearish') {
-      const kindTitle = o.setupKind === 'session_sweep'
-        ? `Session Sweep Reversal · Futures SHORT`
-        : o.setupKind === 'trade1_departure' || red.id === 'trade1_away'
-          ? 'Trade 1 · Futures SHORT (1H Red Departure)'
-          : o.setupKind === 'fib_pullback'
-            ? 'Fib 0.44–0.56 Pullback · Futures SHORT'
-            : 'Trend Bias · Futures SHORT';
+    // 2. Directional Bias / Watch ONLY (not an entry trigger yet — do not FOMO mid-trend)
+    if (biasDir) {
+      const watchTitle = o.setupKind === 'trade2_watch'
+        ? `Trade 2 Watch · Testing 1H Red Pivot (${biasDir} Bias)`
+        : o.setupKind === 'fib_pullback'
+          ? `Bias: ${biasDir} · In Fib Pullback (Watch for Trigger)`
+          : o.setupKind === 'pivot_reversal'
+            ? `Bias Conflict · Crossed 1H Red vs Fibs (Stay Flat / Watch)`
+            : `Bias: ${biasDir} · Mid-Trend (Wait for Trade 2 Revisit or Sweep)`;
       return {
-        side: 'SHORT',
-        cls: 'short',
-        title: kindTitle,
-        subtitle: `Bearish below mark-window Fibs${emaNote}${sweep ? ` · ${sweep.label}` : ''}.`,
+        side: 'WATCH',
+        cls: 'wait',
+        title: watchTitle,
+        subtitle: `${o.actionReason || 'Bias only — wait for a fresh Trade 1, Trade 2 revisit, or session sweep before entering'}${emaNote}.`,
         steps: [
-          `${hint}: Futures SHORT near ${this._fmt(o.price)}.`,
-          `Structural Stop (${o.invalidationReason || 'swing high'}): ${this._fmt(o.invalidation)}${stopPctStr} (never inside the fib box).`,
-          `Book Target (${o.bookReason || 'PDL / liquidity'}): ${this._fmt(o.bookZone)}${targetPctStr} · R:R ${rrStr}.`,
-          magnetObstacleStep,
+          `Do NOT enter mid-air: directional bias is ${biasDir}, but there is no fresh Trade 1 departure, decisive Trade 2 candle, or session sweep on this bar.`,
+          `Reference levels if a trigger prints — Stop (${stopTag}): ${this._fmt(o.invalidation)}${stopPctStr} · Magnet (${bookTag}): ${this._fmt(o.bookZone)}${targetPctStr} (${rrStr}).${stopWarn}`,
           pivotStep,
           ...(liqStep ? [liqStep] : clockStep ? [clockStep] : []),
         ],
@@ -848,8 +819,8 @@ const RangeEmaUI = {
       </div>
 
       <p class="range-desk-footnote">
-        Futures Desk · Green = LONG · Red = SHORT · Grey = WAIT.
-        Trade 1 = leave 1H first red · Trade 2 = 2–3h revisit · Move stop to BE at +0.8R · Book at ≥1.5R liquidity magnet.
+        Futures Desk · Green = Actionable LONG · Red = Actionable SHORT · Grey = WATCH / WAIT (bias only — do not chase mid-trend).
+        Only Trade 1 departure, decisive Trade 2 revisit, or Session Sweep trigger an entry.
       </p>
     `;
   },
