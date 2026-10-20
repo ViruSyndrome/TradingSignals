@@ -1571,15 +1571,16 @@ const RangeEmaUI = {
     // Axis only shows live trade levels + 1H RED at entry moments.
     const levelTags = [];
     const priceNow = Number(o.price);
-    const pushTag = (name, value, color, bg, { priority = false } = {}) => {
+    const pushTag = (name, value, color, bg, { priority = false, rank = 2 } = {}) => {
       if (value == null || !Number.isFinite(Number(value))) return;
       const v = Number(value);
+      const r = priority ? 1 : rank;
       const hit = levelTags.findIndex((t) => this._nearPrice(t.value, v, 2));
       if (hit >= 0) {
-        if (priority) levelTags[hit] = { name, value: v, color, bg };
+        if (priority || r < (levelTags[hit].rank ?? 2)) levelTags[hit] = { name, value: v, color, bg, rank: r };
         return;
       }
-      levelTags.push({ name, value: v, color, bg });
+      levelTags.push({ name, value: v, color, bg, rank: r });
     };
     const ahead = (level, dir) => {
       if (level == null || !Number.isFinite(priceNow)) return false;
@@ -1600,18 +1601,18 @@ const RangeEmaUI = {
     //    - Stop-side 15m Previous Swing (SWG LO for bull / SWG HI for bear)
     //    - Current session's hunted liquidity pool (Pre-London: 1H RED + PDH/PDL; London: nearest Asia H/L;
     //      US Open: nearest London H/L; After US: nearest NY H/L or PDH/PDL).
-    const pickNearer = (hiName, hiVal, loName, loVal, color, bg) => {
+    const pickNearer = (hiName, hiVal, loName, loVal, color, bg, rank = 2) => {
       const hOk = hiVal != null && Number.isFinite(Number(hiVal));
       const lOk = loVal != null && Number.isFinite(Number(loVal));
       if (hOk && lOk) {
         const dHi = Math.abs(Number(hiVal) - priceNow);
         const dLo = Math.abs(Number(loVal) - priceNow);
-        if (dHi <= dLo) pushTag(hiName, hiVal, color, bg);
-        else pushTag(loName, loVal, color, bg);
+        if (dHi <= dLo) pushTag(hiName, hiVal, color, bg, { rank });
+        else pushTag(loName, loVal, color, bg, { rank });
       } else if (hOk) {
-        pushTag(hiName, hiVal, color, bg);
+        pushTag(hiName, hiVal, color, bg, { rank });
       } else if (lOk) {
-        pushTag(loName, loVal, color, bg);
+        pushTag(loName, loVal, color, bg, { rank });
       }
     };
 
@@ -1639,34 +1640,34 @@ const RangeEmaUI = {
         pickNearer('SWG HI', o.refs?.prevSwingHigh, 'SWG LO', o.refs?.prevSwingLow, '#fb923c', 'rgba(55, 28, 10, 0.88)');
       }
 
-      // 2. Session-specific liquidity pool for the current clock window
+      // 2. Session-specific liquidity pool for the current clock window (rank 2 = hunted pool, rank 3 = PDH/PDL)
       if (clockId === 'pre_london') {
         if (o.firstRed1h?.high != null) {
-          pushTag('1H RED', o.firstRed1h.high, '#f43f5e', 'rgba(60, 10, 20, 0.94)');
+          pushTag('1H RED', o.firstRed1h.high, '#f43f5e', 'rgba(60, 10, 20, 0.94)', { rank: 2 });
         }
-        pickNearer('PDH', o.refs?.priorDayHigh, 'PDL', o.refs?.priorDayLow, '#fbbf24', 'rgba(55, 40, 10, 0.90)');
+        pickNearer('PDH', o.refs?.priorDayHigh, 'PDL', o.refs?.priorDayLow, '#fbbf24', 'rgba(55, 40, 10, 0.90)', 3);
       } else if (clockId === 'london') {
         // London hunts Asia High / Low
-        pickNearer('ASIA HI', o.refs?.asiaHigh, 'ASIA LO', o.refs?.asiaLow, '#818cf8', 'rgba(25, 25, 60, 0.88)');
-        pickNearer('PDH', o.refs?.priorDayHigh, 'PDL', o.refs?.priorDayLow, '#fbbf24', 'rgba(55, 40, 10, 0.90)');
+        pickNearer('ASIA HI', o.refs?.asiaHigh, 'ASIA LO', o.refs?.asiaLow, '#818cf8', 'rgba(25, 25, 60, 0.88)', 2);
+        pickNearer('PDH', o.refs?.priorDayHigh, 'PDL', o.refs?.priorDayLow, '#fbbf24', 'rgba(55, 40, 10, 0.90)', 3);
       } else if (clockId === 'us_open') {
         // US Open hunts London High / Low (and untouched Asia)
-        pickNearer('LON HI', o.refs?.londonHigh, 'LON LO', o.refs?.londonLow, '#f472b6', 'rgba(55, 18, 42, 0.88)');
+        pickNearer('LON HI', o.refs?.londonHigh, 'LON LO', o.refs?.londonLow, '#f472b6', 'rgba(55, 18, 42, 0.88)', 2);
         if (o.playbook?.asiaUntouched) {
-          pickNearer('ASIA HI', o.refs?.asiaHigh, 'ASIA LO', o.refs?.asiaLow, '#818cf8', 'rgba(25, 25, 60, 0.88)');
+          pickNearer('ASIA HI', o.refs?.asiaHigh, 'ASIA LO', o.refs?.asiaLow, '#818cf8', 'rgba(25, 25, 60, 0.88)', 2);
         } else {
-          pickNearer('PDH', o.refs?.priorDayHigh, 'PDL', o.refs?.priorDayLow, '#fbbf24', 'rgba(55, 40, 10, 0.90)');
+          pickNearer('PDH', o.refs?.priorDayHigh, 'PDL', o.refs?.priorDayLow, '#fbbf24', 'rgba(55, 40, 10, 0.90)', 3);
         }
       } else {
         // After US open: NY session H/L + nearest Prior Day H/L magnet
-        pickNearer('NY HI', o.refs?.nyHigh, 'NY LO', o.refs?.nyLow, '#cbd5e1', 'rgba(30, 41, 59, 0.88)');
-        pickNearer('PDH', o.refs?.priorDayHigh, 'PDL', o.refs?.priorDayLow, '#fbbf24', 'rgba(55, 40, 10, 0.90)');
+        pickNearer('NY HI', o.refs?.nyHigh, 'NY LO', o.refs?.nyLow, '#cbd5e1', 'rgba(30, 41, 59, 0.88)', 2);
+        pickNearer('PDH', o.refs?.priorDayHigh, 'PDL', o.refs?.priorDayLow, '#fbbf24', 'rgba(55, 40, 10, 0.90)', 3);
       }
     }
 
-    // Hard cap: keep at most 3 Y-axis tags (closest to current price) so the right gutter never crowds
+    // Hard cap: keep at most 3 Y-axis tags, preserving fixed priority rank (1=STOP/SWG/1H RED, 2=hunted pool, 3=PDH/PDL) before distance
     if (levelTags.length > 3) {
-      levelTags.sort((a, b) => Math.abs(a.value - priceNow) - Math.abs(b.value - priceNow));
+      levelTags.sort((a, b) => ((a.rank ?? 2) - (b.rank ?? 2)) || (Math.abs(a.value - priceNow) - Math.abs(b.value - priceNow)));
       levelTags.length = 3;
     }
 
