@@ -3345,9 +3345,10 @@ html.is-phone .rb-chart-box,
 html.is-phone body.redbar-only .rb-chart-box {
   height: min(42vh, 300px) !important;
   min-height: 220px !important;
-  touch-action: pan-y pinch-zoom !important;
+  /* pan-y only — pinch-zoom steals vertical page scroll on phones */
+  touch-action: pan-y !important;
 }
-html.is-phone #redBarChart { touch-action: pan-y pinch-zoom !important; }
+html.is-phone #redBarChart { touch-action: pan-y !important; }
 
 /*
  * Phones (incl. landscape where width > 768): document scroll, not nested

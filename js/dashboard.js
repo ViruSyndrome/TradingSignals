@@ -4115,10 +4115,14 @@ const Dashboard = {
 document.addEventListener('DOMContentLoaded', () => {
   Dashboard.init();
 
-  // Browser SPA Anti-Scroll Bug Fix:
-  // Prevent Chrome from aggressively scrolling the overflow:hidden body or main-content
-  // when navigating back to the tab with a focused element off-screen.
+  // Desktop SPA anti-scroll: Chrome can jump the overflow:hidden shell when a
+  // focused element is off-screen. On phones (html.is-phone / redbar desk) the
+  // page MUST document-scroll — never pin window.scrollY to 0.
+  const phoneScrollMode = () =>
+    document.documentElement.classList.contains('is-phone')
+    || document.body.classList.contains('redbar-only');
   window.addEventListener('scroll', () => {
+    if (phoneScrollMode()) return;
     if (window.scrollY > 0 || window.scrollX > 0) window.scrollTo(0, 0);
   }, { passive: true });
 
@@ -4148,6 +4152,7 @@ document.addEventListener('DOMContentLoaded', () => {
   const mainContent = document.querySelector('.main-content');
   if (mainContent) {
     mainContent.addEventListener('scroll', function() {
+      if (phoneScrollMode()) return;
       if (this.scrollTop > 0) this.scrollTop = 0;
       if (this.scrollLeft > 0) this.scrollLeft = 0;
     }, { passive: true });

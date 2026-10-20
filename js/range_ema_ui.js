@@ -1604,7 +1604,8 @@ const RangeEmaUI = {
             },
             zoom: {
               wheel: { enabled: !compact, speed: 0.12 },
-              pinch: { enabled: true },
+              // Phone: no pinch — it fights page scroll; use +/- buttons instead
+              pinch: { enabled: !compact },
               drag: {
                 enabled: !compact,
                 backgroundColor: 'rgba(124, 106, 245, 0.18)',
