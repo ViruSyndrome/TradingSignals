@@ -439,8 +439,9 @@ const API = {
   },
 
   _yahooRange(interval, limit) {
-    const n = limit || 500;
-    if (interval === '5m') return n > 500 ? '60d' : '30d';
+    // Keep 5m payloads small — 30d/60d via CORS proxies hangs the Nifty desk spinner.
+    if (interval === '5m') return '7d';
+    if (interval === '15m') return '30d';
     if (interval === '30m' || interval === '1h' || interval === '60m') return '60d';
     if (interval === '1d') return '2y';
     return '60d';
@@ -448,27 +449,38 @@ const API = {
 
   /**
    * Yahoo Finance chart OHLC (Nifty ^NSEI, etc.) → Binance-shaped kline rows.
-   * Tries direct fetch, then allorigins CORS proxy.
+   * Tries direct fetch, then light CORS proxies (small ranges only).
    */
   async getYahooOHLC(symbol, interval = '30m', limitOverride) {
-    const limit = limitOverride || 500;
     const yInt = this._yahooInterval(interval);
+    // Cap 5m so we never pull thousands of bars through a proxy
+    let limit = limitOverride || 500;
+    if (yInt === '5m') limit = Math.min(limit, 400);
     const range = this._yahooRange(yInt, limit);
     const key = `yahoo_hist_${symbol}_${yInt}_${range}_${limit}`;
     const cached = this._get(key);
     if (cached) return cached;
 
-    const chartPath = `https://query1.finance.yahoo.com/v8/finance/chart/${encodeURIComponent(symbol)}?interval=${yInt}&range=${range}&includePrePost=false`;
+    const chartQs = `interval=${yInt}&range=${range}&includePrePost=false`;
+    const hosts = [
+      `https://query1.finance.yahoo.com/v8/finance/chart/${encodeURIComponent(symbol)}?${chartQs}`,
+      `https://query2.finance.yahoo.com/v8/finance/chart/${encodeURIComponent(symbol)}?${chartQs}`,
+    ];
     const urls = [
-      chartPath,
-      `https://api.allorigins.win/raw?url=${encodeURIComponent(chartPath)}`,
+      ...hosts,
+      ...hosts.map((u) => `https://corsproxy.io/?${encodeURIComponent(u)}`),
+      ...hosts.map((u) => `https://api.allorigins.win/raw?url=${encodeURIComponent(u)}`),
     ];
     let lastErr;
     for (const url of urls) {
       try {
-        const data = await this._fetch(url, 20000, 1);
+        // Short timeout — fail over instead of spinning for 20s×retries
+        const data = await this._fetch(url, 10000, 0);
         const result = data?.chart?.result?.[0];
-        if (!result) throw new Error('Empty Yahoo chart');
+        if (!result) {
+          const yErr = data?.chart?.error?.description || data?.chart?.error?.code;
+          throw new Error(yErr || 'Empty Yahoo chart');
+        }
         const ts = result.timestamp || [];
         const q = result.indicators?.quote?.[0] || {};
         const rows = [];
@@ -481,12 +493,12 @@ const API = {
           if (![o, h, l, c].every(Number.isFinite)) continue;
           rows.push([ts[i] * 1000, o, h, l, c, v || 0]);
         }
-        if (rows.length < 20) throw new Error('Not enough Yahoo bars');
+        if (rows.length < 20) throw new Error(`Not enough Yahoo bars (${rows.length})`);
         const sliced = rows.length > limit ? rows.slice(-limit) : rows;
         return this._set(key, sliced, CONFIG.refresh.cacheMs);
       } catch (e) {
         lastErr = e;
-        console.warn(`[API] Yahoo OHLC failed (${symbol}):`, e.message);
+        console.warn(`[API] Yahoo OHLC failed (${symbol} ${yInt}):`, e.message);
       }
     }
     throw lastErr || new Error(`Yahoo OHLC failed for ${symbol}`);

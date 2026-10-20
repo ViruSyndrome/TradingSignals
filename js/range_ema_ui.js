@@ -247,7 +247,9 @@ const RangeEmaUI = {
     return { cross, emaFast: emaF[i], emaSlow: emaS[i], emaF, emaS };
   },
 
-  _ohlcLimit(tf, c) {
+  _ohlcLimit(tf, c, instrument) {
+    const instMap = instrument?.ohlcLimit || {};
+    if (instMap[tf] != null) return instMap[tf];
     const map = c.ohlcLimit || {};
     return map[tf] || 1000;
   },
@@ -257,7 +259,7 @@ const RangeEmaUI = {
       ? { id: inst, symbol: inst, feed: 'binanceSpot', dayMode: c.dayMode || 'utc' }
       : (inst || this.activeInstrument());
     const tf = this.activeTf();
-    const lim = this._ohlcLimit(tf, c);
+    const lim = this._ohlcLimit(tf, c, instrument);
     let raw;
     try {
       raw = typeof API.getDeskOHLC === 'function'
