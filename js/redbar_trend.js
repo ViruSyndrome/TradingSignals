@@ -1192,7 +1192,7 @@ const RedBarTrend = {
     // trend_bias → session_continuation so the desk can ENTER instead of only WATCH.
     // Covers days where price never revisits the 1H pivot and never tags Asia/London H/L.
     if (
-      setupKind === 'trend_bias'
+      (setupKind === 'trend_bias' || setupKind === 'fib_pullback')
       && (clock.id === 'london' || clock.id === 'us_open')
       && ((trend === 'bearish' && redSetup.leftBelow) || (trend === 'bullish' && redSetup.leftAbove))
     ) {

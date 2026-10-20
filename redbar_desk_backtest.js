@@ -130,7 +130,7 @@ function isActionableEntry(o, curBar, prevBar, emaFast, emaSlow) {
   if (!dirCandle) return false;
 
   const sk = o.setupKind;
-  if (sk === 'trade2_confirmed' || sk === 'session_sweep') return true;
+  if (sk === 'trade2_confirmed' || sk === 'session_sweep' || sk === 'session_continuation') return true;
 
   if (sk === 'trade1_departure') {
     const red = o.firstRed1h;
@@ -316,7 +316,7 @@ function runSimulation(bars30, bars1h, cfg, { maxHoldBars = 36 } = {}) {
     const h2 = summarize('Second Half (Out-of-Sample)', trades.slice(mid));
 
     console.log('\n--- By Setup Type ---');
-    for (const kind of ['trade1_departure', 'trade2_confirmed', 'session_sweep']) {
+    for (const kind of ['trade1_departure', 'trade2_confirmed', 'session_sweep', 'session_continuation']) {
       const sub = trades.filter((t) => t.setupKind === kind);
       if (sub.length) summarize(kind, sub);
     }
