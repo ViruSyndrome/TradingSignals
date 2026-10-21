@@ -878,6 +878,7 @@ const RangeEmaUI = {
         ${(o.refs?.prevSwingHigh != null || o.refs?.prevSwingLow != null)
           ? `<span class="range-chip">15m Prev Swing H/L: ${this._fmt(o.refs.prevSwingHigh)} / ${this._fmt(o.refs.prevSwingLow)}</span>`
           : ''}
+        ${o.cpr ? `<span class="range-chip">🎯 Dr. Dev CPR: ${this._fmt(o.cpr.pivot)} (Range ${this._fmt(o.cpr.bc)}–${this._fmt(o.cpr.tc)})</span>` : ''}
         ${o.refs?.priorDayHigh != null
           ? `<span class="range-chip">Prev Day (PDH/PDL): ${this._fmt(o.refs.priorDayHigh)} / ${this._fmt(o.refs.priorDayLow)}</span>`
           : ''}

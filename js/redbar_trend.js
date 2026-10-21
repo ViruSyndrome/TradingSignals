@@ -562,12 +562,47 @@ const RedBarTrend = {
       nextBrickLevel,
       barsSinceFlip,
       barsSinceBrick,
-      freshBrick: barsSinceBrick === 0 && bricksInRun <= 2,
+      freshBrick: barsSinceBrick <= 1 && bricksInRun <= 3,
       overextendedBar,
     };
   },
 
   /** Full calendar-day H/L in dayMode (Sagar book magnets = prior day H/L). */
+  /**
+   * Dr. Dev's CPR (Central Pivot Range) from prior day's high/low/close:
+   * Pivot = (H + L + C) / 3
+   * Bottom Central (BC) = (H + L) / 2
+   * Top Central (TC) = (Pivot - BC) + Pivot
+   */
+  computeCpr(bars, asOfDay, dayMode = 'ist') {
+    if (!bars || !bars.length || !asOfDay) return null;
+    const days = [...new Set(bars.map((b) => this.dayKey(b.t, dayMode)))].sort();
+    const curIdx = days.indexOf(asOfDay);
+    const priorDayKey = curIdx > 0 ? days[curIdx - 1] : null;
+    if (!priorDayKey) return null;
+    let h = null, l = null, c = null;
+    for (const b of bars) {
+      if (this.dayKey(b.t, dayMode) !== priorDayKey) continue;
+      h = h == null ? b.h : Math.max(h, b.h);
+      l = l == null ? b.l : Math.min(l, b.l);
+      c = b.c;
+    }
+    if (h == null || l == null || c == null) return null;
+    const pivot = (h + l + c) / 3;
+    const bc = (h + l) / 2;
+    const tc = (pivot - bc) + pivot;
+    return {
+      day: priorDayKey,
+      pivot,
+      bc: Math.min(bc, tc),
+      tc: Math.max(bc, tc),
+      range: Math.abs(tc - bc),
+      high: h,
+      low: l,
+      close: c,
+    };
+  },
+
   calendarDayHl(bars, day, dayMode = 'ist') {
     if (!bars || !day) return null;
     let high = null;
@@ -1304,6 +1339,7 @@ const RedBarTrend = {
     }
 
     const renko = this.computeRenko833(slice, istDay, dayMode);
+    const cpr = this.computeCpr(bars, istDay, dayMode);
 
     // London / US: if the morning first-red side is still intact, the current bar
     // confirms the fib-break bias AND prints a fresh 1st/2nd 8.33% Daily ATR Renko brick
@@ -1380,6 +1416,7 @@ const RedBarTrend = {
       stopStructural: levels.stopStructural,
       invalidationReason: levels.invalidationReason,
       renko,
+      cpr,
     });
 
     const sizing = (actionState === 'enter' && invalidation != null && bookZone != null)
