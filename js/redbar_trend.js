@@ -465,12 +465,9 @@ const RedBarTrend = {
   },
 
   /**
-   * Dr. Dev's 8.33% Daily ATR (Daily Range / 12) Renko Brick & SuperTrend engine.
-   * Adapts brick size to each instrument's 7-day average daily range (BTC, NIFTY, XAU).
-   */
-  /**
-   * Builds an array of discrete Renko bricks from a sequence of candlestick bars.
-   * Each brick has: { t, o, c, dir, index }
+   * Builds discrete Renko bricks from candlestick closes.
+   * Single source of truth for the gate chip and Renko View chart.
+   * Each brick: { t, o, c, dir, barIdx } — bull: o=bot c=top; bear: o=top c=bot.
    */
   buildRenkoSeries(bars, brickSize) {
     if (!bars || !bars.length || !brickSize || brickSize <= 0) return [];
@@ -479,62 +476,46 @@ const RedBarTrend = {
     let dir = 0;
     const bricks = [];
 
+    const pushUp = (t, barIdx, n) => {
+      for (let j = 0; j < n; j++) {
+        curBot = curTop;
+        curTop += brickSize;
+        bricks.push({ t, o: curBot, c: curTop, dir: 1, barIdx });
+      }
+      dir = 1;
+    };
+    const pushDown = (t, barIdx, n) => {
+      for (let j = 0; j < n; j++) {
+        curTop = curBot;
+        curBot -= brickSize;
+        bricks.push({ t, o: curTop, c: curBot, dir: -1, barIdx });
+      }
+      dir = -1;
+    };
+
     for (let i = 1; i < bars.length; i++) {
       const c = bars[i].c;
       const t = bars[i].t;
       if (dir === 0) {
-        if (c >= curTop + brickSize) {
-          dir = 1;
-          bricks.push({ t, o: curBot, c: curTop, dir: 1, barIdx: i });
-        } else if (c <= curBot - brickSize) {
-          dir = -1;
-          bricks.push({ t, o: curTop, c: curBot, dir: -1, barIdx: i });
-        }
+        if (c >= curTop + brickSize) pushUp(t, i, Math.floor((c - curTop) / brickSize));
+        else if (c <= curBot - brickSize) pushDown(t, i, Math.floor((curBot - c) / brickSize));
       } else if (dir === 1) {
-        if (c >= curTop + brickSize) {
-          const n = Math.floor((c - curTop) / brickSize);
-          for (let j = 0; j < n; j++) {
-            curBot = curTop;
-            curTop += brickSize;
-            bricks.push({ t, o: curBot, c: curTop, dir: 1, barIdx: i });
-          }
-        } else if (c <= curBot - brickSize) {
-          const n = Math.floor((curBot - c) / brickSize);
-          dir = -1;
-          curTop = curBot;
-          curBot -= brickSize;
-          bricks.push({ t, o: curTop, c: curBot, dir: -1, barIdx: i });
-          for (let j = 1; j < n; j++) {
-            curTop = curBot;
-            curBot -= brickSize;
-            bricks.push({ t, o: curTop, c: curBot, dir: -1, barIdx: i });
-          }
-        }
+        if (c >= curTop + brickSize) pushUp(t, i, Math.floor((c - curTop) / brickSize));
+        else if (c <= curBot - brickSize) pushDown(t, i, Math.floor((curBot - c) / brickSize));
       } else if (dir === -1) {
-        if (c <= curBot - brickSize) {
-          const n = Math.floor((curBot - c) / brickSize);
-          for (let j = 0; j < n; j++) {
-            curTop = curBot;
-            curBot -= brickSize;
-            bricks.push({ t, o: curTop, c: curBot, dir: -1, barIdx: i });
-          }
-        } else if (c >= curTop + brickSize) {
-          const n = Math.floor((c - curTop) / brickSize);
-          dir = 1;
-          curBot = curTop;
-          curTop += brickSize;
-          bricks.push({ t, o: curBot, c: curTop, dir: 1, barIdx: i });
-          for (let j = 1; j < n; j++) {
-            curBot = curTop;
-            curTop += brickSize;
-            bricks.push({ t, o: curBot, c: curTop, dir: 1, barIdx: i });
-          }
-        }
+        if (c <= curBot - brickSize) pushDown(t, i, Math.floor((curBot - c) / brickSize));
+        else if (c >= curTop + brickSize) pushUp(t, i, Math.floor((c - curTop) / brickSize));
       }
     }
     return bricks;
   },
 
+  /**
+   * Dr. Dev 8.33% Daily ATR Renko state (ADR/12 brick).
+   * Derives direction / run / freshness from buildRenkoSeries so the gate and
+   * Renko View never disagree. Fresh = brick printed on this or prior bar AND
+   * current run length ≤ 3 (enter the start of a run, not mid-air chop).
+   */
   computeRenko833(slice, asOfDay, dayMode = 'ist') {
     if (!Array.isArray(slice) || !slice.length) return null;
     const dailyBands = this.buildDailyBands(slice, 30, dayMode);
@@ -546,67 +527,27 @@ const RedBarTrend = {
       : lastPrice * 0.022;
     const brickSize = Math.max(lastPrice * 0.0005, dailyAtr / 12);
 
-    const startIdx = Math.max(0, slice.length - 160);
-    let brickTop = Math.round(slice[startIdx].c / brickSize) * brickSize;
-    let brickBot = brickTop - brickSize;
-    let dir = 0; // 1 = bull, -1 = bear
+    const bricks = this.buildRenkoSeries(slice, brickSize);
+    let dir = 0;
     let bricksInRun = 0;
-    let flippedBarIdx = startIdx;
-    let newBrickBarIdx = startIdx;
+    let brickTop = Math.round(lastPrice / brickSize) * brickSize;
+    let brickBot = brickTop - brickSize;
+    let flippedBarIdx = 0;
+    let newBrickBarIdx = 0;
 
-    for (let k = startIdx + 1; k < slice.length; k++) {
-      const c = slice[k].c;
-      if (dir === 0) {
-        if (c >= brickTop + brickSize) {
-          const n = Math.floor((c - brickTop) / brickSize);
-          brickTop += n * brickSize;
-          brickBot = brickTop - brickSize;
-          dir = 1;
-          bricksInRun = n;
-          flippedBarIdx = k;
-          newBrickBarIdx = k;
-        } else if (c <= brickBot - brickSize) {
-          const n = Math.floor((brickBot - c) / brickSize);
-          brickBot -= n * brickSize;
-          brickTop = brickBot + brickSize;
-          dir = -1;
-          bricksInRun = n;
-          flippedBarIdx = k;
-          newBrickBarIdx = k;
-        }
-      } else if (dir === 1) {
-        if (c >= brickTop + brickSize) {
-          const n = Math.floor((c - brickTop) / brickSize);
-          brickTop += n * brickSize;
-          brickBot = brickTop - brickSize;
-          bricksInRun += n;
-          newBrickBarIdx = k;
-        } else if (c <= brickBot - brickSize) {
-          const n = Math.floor((brickBot - c) / brickSize);
-          brickBot -= n * brickSize;
-          brickTop = brickBot + brickSize;
-          dir = -1;
-          bricksInRun = n;
-          flippedBarIdx = k;
-          newBrickBarIdx = k;
-        }
-      } else if (dir === -1) {
-        if (c <= brickBot - brickSize) {
-          const n = Math.floor((brickBot - c) / brickSize);
-          brickBot -= n * brickSize;
-          brickTop = brickBot + brickSize;
-          bricksInRun += n;
-          newBrickBarIdx = k;
-        } else if (c >= brickTop + brickSize) {
-          const n = Math.floor((c - brickTop) / brickSize);
-          brickTop += n * brickSize;
-          brickBot = brickTop - brickSize;
-          dir = 1;
-          bricksInRun = n;
-          flippedBarIdx = k;
-          newBrickBarIdx = k;
-        }
+    if (bricks.length) {
+      const last = bricks[bricks.length - 1];
+      dir = last.dir;
+      brickTop = Math.max(last.o, last.c);
+      brickBot = Math.min(last.o, last.c);
+      newBrickBarIdx = last.barIdx;
+      let run = 0;
+      for (let i = bricks.length - 1; i >= 0; i--) {
+        if (bricks[i].dir !== dir) break;
+        run++;
       }
+      bricksInRun = run;
+      flippedBarIdx = bricks[bricks.length - run].barIdx;
     }
 
     const flipLevel = dir === 1 ? brickBot - brickSize : dir === -1 ? brickTop + brickSize : lastPrice;
@@ -629,14 +570,15 @@ const RedBarTrend = {
       nextBrickLevel,
       barsSinceFlip,
       barsSinceBrick,
-      freshBrick: barsSinceBrick <= 1 && bricksInRun <= 3,
+      // Allow the brick bar or the next candle; only first 3 bricks of a run are "fresh"
+      freshBrick: bricks.length > 0 && barsSinceBrick <= 1 && bricksInRun <= 3,
       overextendedBar,
+      brickCount: bricks.length,
     };
   },
 
-  /** Full calendar-day H/L in dayMode (Sagar book magnets = prior day H/L). */
   /**
-   * Dr. Dev's CPR (Central Pivot Range) from prior day's high/low/close:
+   * Dr. Dev CPR (Central Pivot Range) from prior day's high/low/close:
    * Pivot = (H + L + C) / 3
    * Bottom Central (BC) = (H + L) / 2
    * Top Central (TC) = (Pivot - BC) + Pivot
@@ -670,6 +612,7 @@ const RedBarTrend = {
     };
   },
 
+  /** Full calendar-day H/L in dayMode (Sagar book magnets = prior day H/L). */
   calendarDayHl(bars, day, dayMode = 'ist') {
     if (!bars || !day) return null;
     let high = null;
@@ -986,6 +929,7 @@ const RedBarTrend = {
     swingLow,
     red,
     sweep,
+    cpr = null,
     minRR = 1.5,
   }) {
     if (trend !== 'bullish' && trend !== 'bearish') {
@@ -1104,6 +1048,9 @@ const RedBarTrend = {
     pushMag(londonHl?.low, 'london_low');
     pushMag(asiaHl?.high, 'asia_high');
     pushMag(asiaHl?.low, 'asia_low');
+    pushMag(cpr?.tc, 'cpr_tc');
+    pushMag(cpr?.pivot, 'cpr_pivot');
+    pushMag(cpr?.bc, 'cpr_bc');
     pushMag(swingHigh, 'swing_high');
     pushMag(swingLow, 'swing_low');
     pushMag(red?.high, 'red_high');
@@ -1408,10 +1355,8 @@ const RedBarTrend = {
     const renko = this.computeRenko833(slice, istDay, dayMode);
     const cpr = this.computeCpr(bars, istDay, dayMode);
 
-    // London / US: if the morning first-red side is still intact, the current bar
-    // confirms the fib-break bias AND prints a fresh 1st/2nd 8.33% Daily ATR Renko brick
-    // (Dr. Dev rule: capture the start of the brick run, never mid-air chop after 3+ bricks),
-    // promote trend_bias / fib_pullback → session_continuation.
+    // London / US: morning first-red side intact + confirming candle + fresh Renko brick
+    // (run ≤ 3, printed this/prior bar) → promote trend_bias / fib_pullback → session_continuation.
     if (
       (setupKind === 'trend_bias' || setupKind === 'fib_pullback')
       && (clock.id === 'london' || clock.id === 'us_open')
@@ -1448,6 +1393,9 @@ const RedBarTrend = {
       nyLow: nyHl ? nyHl.low : null,
       firstRed1hHigh: firstRed1h ? firstRed1h.high : null,
       firstRed1hLow: firstRed1h ? firstRed1h.low : null,
+      cprPivot: cpr ? cpr.pivot : null,
+      cprBc: cpr ? cpr.bc : null,
+      cprTc: cpr ? cpr.tc : null,
     };
 
     const levels = this._resolveStopAndBook({
@@ -1467,6 +1415,7 @@ const RedBarTrend = {
       swingLow,
       red,
       sweep,
+      cpr,
       minRR: 1.5,
     });
 
@@ -1476,6 +1425,7 @@ const RedBarTrend = {
     // Entry gate: only fresh Trade 1, decisive Trade 2, or a session sweep are "enter now".
     // Everything else directional (trend_bias, fib_pullback, pivot_reversal, trade2_watch)
     // is BIAS / WATCH — useful context, never an entry signal.
+    // CPR is a book magnet only (not an entry filter) to avoid stacking more WATCH reasons.
     const { state: actionState, reason: actionReason } = this.entryGate({
       trend,
       setupKind,
@@ -1483,7 +1433,6 @@ const RedBarTrend = {
       stopStructural: levels.stopStructural,
       invalidationReason: levels.invalidationReason,
       renko,
-      cpr,
     });
 
     const sizing = (actionState === 'enter' && invalidation != null && bookZone != null)
@@ -1494,6 +1443,7 @@ const RedBarTrend = {
       clock,
       redSetup,
       renko,
+      cpr,
       priorDay,
       asiaHl,
       londonHl,
@@ -1536,6 +1486,7 @@ const RedBarTrend = {
       lastRedBar: red,
       firstRed1h,
       renko,
+      cpr,
       playbook,
       activeBands: active.slice(-8),
       // Last N prior session magnets (day H/L/M or 02:30 IST fibs)

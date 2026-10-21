@@ -900,7 +900,7 @@ const RangeEmaUI = {
         ${(o.refs?.prevSwingHigh != null || o.refs?.prevSwingLow != null)
           ? `<span class="range-chip">15m Prev Swing H/L: ${this._fmt(o.refs.prevSwingHigh)} / ${this._fmt(o.refs.prevSwingLow)}</span>`
           : ''}
-        ${o.cpr ? `<span class="range-chip">🎯 Dr. Dev CPR: ${this._fmt(o.cpr.pivot)} (Range ${this._fmt(o.cpr.bc)}–${this._fmt(o.cpr.tc)})</span>` : ''}
+        ${(o.cpr || o.playbook?.cpr) ? `<span class="range-chip">Dr. Dev CPR: ${this._fmt((o.cpr || o.playbook.cpr).pivot)} (BC ${this._fmt((o.cpr || o.playbook.cpr).bc)} · TC ${this._fmt((o.cpr || o.playbook.cpr).tc)})</span>` : ''}
         ${o.refs?.priorDayHigh != null
           ? `<span class="range-chip">Prev Day (PDH/PDL): ${this._fmt(o.refs.priorDayHigh)} / ${this._fmt(o.refs.priorDayLow)}</span>`
           : ''}
@@ -1176,10 +1176,9 @@ const RangeEmaUI = {
 
         ctx.save();
         const isRenko = chart.$rbChartMode === 'renko';
-        const renkoSeries = chart.$rbRenkoSeries;
 
         if (isRenko) {
-          // Render pure Dr. Dev Renko Bricks without wicks all the way to the right edge
+          // Bars are already buildRenkoSeries bricks (same engine as the gate)
           for (let i = 0; i < n; i++) {
             const b = bars[i];
             const x = xScale.getPixelForValue(i);
@@ -1482,35 +1481,43 @@ const RangeEmaUI = {
     let emaF;
     let emaS;
 
+    // Renko View uses the same buildRenkoSeries + brickSize as the ENTER gate chip
     if (isRenkoMode && typeof RedBarTrend !== 'undefined' && RedBarTrend.buildRenkoSeries) {
       const bSize = o.renko?.brickSize || (row.bars[row.bars.length - 1].c * 0.0018);
       const allBricks = RedBarTrend.buildRenkoSeries(row.bars, bSize);
-      const showN = Math.min(want, allBricks.length);
-      const renkoSlice = allBricks.slice(-showN);
-      bars = renkoSlice.map((b) => ({
-        t: b.t,
-        o: b.o,
-        h: Math.max(b.o, b.c),
-        l: Math.min(b.o, b.c),
-        c: b.c,
-        dir: b.dir,
-      }));
-      // Calculate EMAs on Renko brick closes
-      const renkoCloses = allBricks.map((b) => b.c);
-      const kF = 2 / ((c.emaFast || 10) + 1);
-      const kS = 2 / ((c.emaSlow || 30) + 1);
-      const fullEmaF = [];
-      const fullEmaS = [];
-      let ef = renkoCloses[0];
-      let es = renkoCloses[0];
-      for (let i = 0; i < renkoCloses.length; i++) {
-        ef = renkoCloses[i] * kF + ef * (1 - kF);
-        es = renkoCloses[i] * kS + es * (1 - kS);
-        fullEmaF.push(ef);
-        fullEmaS.push(es);
+      const showN = Math.min(want, Math.max(1, allBricks.length));
+      const renkoSlice = allBricks.length ? allBricks.slice(-showN) : [];
+      if (!renkoSlice.length) {
+        // Fall back to candles if no bricks printed yet
+        const offset = Math.max(0, row.bars.length - want);
+        bars = row.bars.slice(offset);
+        emaF = (row.ema.emaF || []).slice(offset);
+        emaS = (row.ema.emaS || []).slice(offset);
+      } else {
+        bars = renkoSlice.map((b) => ({
+          t: b.t,
+          o: b.o,
+          h: Math.max(b.o, b.c),
+          l: Math.min(b.o, b.c),
+          c: b.c,
+          dir: b.dir,
+        }));
+        const renkoCloses = allBricks.map((b) => b.c);
+        const kF = 2 / ((c.emaFast || 10) + 1);
+        const kS = 2 / ((c.emaSlow || 30) + 1);
+        const fullEmaF = [];
+        const fullEmaS = [];
+        let ef = renkoCloses[0];
+        let es = renkoCloses[0];
+        for (let i = 0; i < renkoCloses.length; i++) {
+          ef = renkoCloses[i] * kF + ef * (1 - kF);
+          es = renkoCloses[i] * kS + es * (1 - kS);
+          fullEmaF.push(ef);
+          fullEmaS.push(es);
+        }
+        emaF = fullEmaF.slice(-showN);
+        emaS = fullEmaS.slice(-showN);
       }
-      emaF = fullEmaF.slice(-showN);
-      emaS = fullEmaS.slice(-showN);
     } else {
       const showN = Math.min(want, row.bars.length);
       const offset = row.bars.length - showN;
