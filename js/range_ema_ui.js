@@ -1178,23 +1178,22 @@ const RangeEmaUI = {
         const isRenko = chart.$rbChartMode === 'renko';
         const renkoSeries = chart.$rbRenkoSeries;
 
-        if (isRenko && renkoSeries && renkoSeries.length) {
-          // Render pure Dr. Dev Renko Bricks without wicks
+        if (isRenko) {
+          // Render pure Dr. Dev Renko Bricks without wicks all the way to the right edge
           for (let i = 0; i < n; i++) {
-            const brick = renkoSeries[i];
-            if (!brick) continue;
+            const b = bars[i];
             const x = xScale.getPixelForValue(i);
             if (!Number.isFinite(x)) continue;
-            const yO = yScale.getPixelForValue(brick.o);
-            const yC = yScale.getPixelForValue(brick.c);
-            const isUp = brick.dir === 1;
+            const yO = yScale.getPixelForValue(b.o);
+            const yC = yScale.getPixelForValue(b.c);
+            const isUp = b.dir === 1 || b.c >= b.o;
             const color = isUp ? '#22c55e' : '#ef4444';
             const top = Math.min(yO, yC);
-            const h = Math.max(3, Math.abs(yC - yO));
+            const h = Math.max(4, Math.abs(yC - yO));
 
             ctx.fillStyle = color;
             ctx.fillRect(x - bodyW / 2, top, bodyW, h);
-            ctx.strokeStyle = 'rgba(255, 255, 255, 0.45)';
+            ctx.strokeStyle = 'rgba(255, 255, 255, 0.55)';
             ctx.lineWidth = 1;
             ctx.strokeRect(x - bodyW / 2, top, bodyW, h);
           }
@@ -1477,12 +1476,49 @@ const RangeEmaUI = {
     const wantMobile = (c.chartBarsMobile && c.chartBarsMobile[tf])
       || ({ '5m': 96, '15m': 80, '30m': 72, '1h': 56 }[tf] || 80);
     const want = compact ? wantMobile : wantDesktop;
-    const showN = Math.min(want, row.bars.length);
-    const bars = row.bars.slice(-showN);
-    const offset = row.bars.length - showN;
     const o = row.readout;
-    const emaF = (row.ema.emaF || []).slice(offset);
-    const emaS = (row.ema.emaS || []).slice(offset);
+    const isRenkoMode = this.state.chartMode === 'renko';
+    let bars;
+    let emaF;
+    let emaS;
+
+    if (isRenkoMode && typeof RedBarTrend !== 'undefined' && RedBarTrend.buildRenkoSeries) {
+      const bSize = o.renko?.brickSize || (row.bars[row.bars.length - 1].c * 0.0018);
+      const allBricks = RedBarTrend.buildRenkoSeries(row.bars, bSize);
+      const showN = Math.min(want, allBricks.length);
+      const renkoSlice = allBricks.slice(-showN);
+      bars = renkoSlice.map((b) => ({
+        t: b.t,
+        o: b.o,
+        h: Math.max(b.o, b.c),
+        l: Math.min(b.o, b.c),
+        c: b.c,
+        dir: b.dir,
+      }));
+      // Calculate EMAs on Renko brick closes
+      const renkoCloses = allBricks.map((b) => b.c);
+      const kF = 2 / ((c.emaFast || 10) + 1);
+      const kS = 2 / ((c.emaSlow || 30) + 1);
+      const fullEmaF = [];
+      const fullEmaS = [];
+      let ef = renkoCloses[0];
+      let es = renkoCloses[0];
+      for (let i = 0; i < renkoCloses.length; i++) {
+        ef = renkoCloses[i] * kF + ef * (1 - kF);
+        es = renkoCloses[i] * kS + es * (1 - kS);
+        fullEmaF.push(ef);
+        fullEmaS.push(es);
+      }
+      emaF = fullEmaF.slice(-showN);
+      emaS = fullEmaS.slice(-showN);
+    } else {
+      const showN = Math.min(want, row.bars.length);
+      const offset = row.bars.length - showN;
+      bars = row.bars.slice(-showN);
+      emaF = (row.ema.emaF || []).slice(offset);
+      emaS = (row.ema.emaS || []).slice(offset);
+    }
+
     const n = bars.length;
     const times = bars.map((b) => b.t);
 
