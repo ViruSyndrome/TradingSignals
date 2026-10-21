@@ -839,6 +839,9 @@ const RangeEmaUI = {
 
       <div class="range-chips">
         <span class="range-chip">Fib bias: ${o.orBias}</span>
+        ${o.renko
+          ? `<span class="range-chip ${o.renko.dir === 1 ? 'pos' : o.renko.dir === -1 ? 'neg' : ''}">8.33% ATR Brick: ${this._fmt(o.renko.brickSize)} (${o.renko.brickPct.toFixed(2)}%) · Renko ${o.renko.dir === 1 ? 'BULL' : o.renko.dir === -1 ? 'BEAR' : 'FLAT'} (#${o.renko.bricksInRun}) · Flip ${this._fmt(o.renko.flipLevel)}</span>`
+          : ''}
         ${o.playbook?.clock
           ? `<span class="range-chip">${o.playbook.clock.label}</span>`
           : ''}

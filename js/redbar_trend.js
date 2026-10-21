@@ -464,6 +464,109 @@ const RedBarTrend = {
     return null;
   },
 
+  /**
+   * Dr. Dev's 8.33% Daily ATR (Daily Range / 12) Renko Brick & SuperTrend engine.
+   * Adapts brick size to each instrument's 7-day average daily range (BTC, NIFTY, XAU).
+   */
+  computeRenko833(slice, asOfDay, dayMode = 'ist') {
+    if (!Array.isArray(slice) || !slice.length) return null;
+    const dailyBands = this.buildDailyBands(slice, 30, dayMode);
+    const priors = dailyBands.filter((b) => b.day < asOfDay && b.high > b.low).slice(-7);
+    const lastBar = slice[slice.length - 1];
+    const lastPrice = lastBar.c;
+    const dailyAtr = priors.length
+      ? priors.reduce((s, b) => s + (b.high - b.low), 0) / priors.length
+      : lastPrice * 0.022;
+    const brickSize = Math.max(lastPrice * 0.0005, dailyAtr / 12);
+
+    const startIdx = Math.max(0, slice.length - 160);
+    let brickTop = Math.round(slice[startIdx].c / brickSize) * brickSize;
+    let brickBot = brickTop - brickSize;
+    let dir = 0; // 1 = bull, -1 = bear
+    let bricksInRun = 0;
+    let flippedBarIdx = startIdx;
+    let newBrickBarIdx = startIdx;
+
+    for (let k = startIdx + 1; k < slice.length; k++) {
+      const c = slice[k].c;
+      if (dir === 0) {
+        if (c >= brickTop + brickSize) {
+          const n = Math.floor((c - brickTop) / brickSize);
+          brickTop += n * brickSize;
+          brickBot = brickTop - brickSize;
+          dir = 1;
+          bricksInRun = n;
+          flippedBarIdx = k;
+          newBrickBarIdx = k;
+        } else if (c <= brickBot - brickSize) {
+          const n = Math.floor((brickBot - c) / brickSize);
+          brickBot -= n * brickSize;
+          brickTop = brickBot + brickSize;
+          dir = -1;
+          bricksInRun = n;
+          flippedBarIdx = k;
+          newBrickBarIdx = k;
+        }
+      } else if (dir === 1) {
+        if (c >= brickTop + brickSize) {
+          const n = Math.floor((c - brickTop) / brickSize);
+          brickTop += n * brickSize;
+          brickBot = brickTop - brickSize;
+          bricksInRun += n;
+          newBrickBarIdx = k;
+        } else if (c <= brickBot - brickSize) {
+          const n = Math.floor((brickBot - c) / brickSize);
+          brickBot -= n * brickSize;
+          brickTop = brickBot + brickSize;
+          dir = -1;
+          bricksInRun = n;
+          flippedBarIdx = k;
+          newBrickBarIdx = k;
+        }
+      } else if (dir === -1) {
+        if (c <= brickBot - brickSize) {
+          const n = Math.floor((brickBot - c) / brickSize);
+          brickBot -= n * brickSize;
+          brickTop = brickBot + brickSize;
+          bricksInRun += n;
+          newBrickBarIdx = k;
+        } else if (c >= brickTop + brickSize) {
+          const n = Math.floor((c - brickTop) / brickSize);
+          brickTop += n * brickSize;
+          brickBot = brickTop - brickSize;
+          dir = 1;
+          bricksInRun = n;
+          flippedBarIdx = k;
+          newBrickBarIdx = k;
+        }
+      }
+    }
+
+    const flipLevel = dir === 1 ? brickBot - brickSize : dir === -1 ? brickTop + brickSize : lastPrice;
+    const nextBrickLevel = dir === 1 ? brickTop + brickSize : dir === -1 ? brickBot - brickSize : lastPrice;
+    const barsSinceFlip = slice.length - 1 - flippedBarIdx;
+    const barsSinceBrick = slice.length - 1 - newBrickBarIdx;
+    const curBody = Math.abs(lastBar.c - lastBar.o);
+    const overextendedBar = curBody > brickSize * 1.6;
+
+    return {
+      dailyAtr,
+      brickSize,
+      brickPct: (brickSize / lastPrice) * 100,
+      dir,
+      trend: dir === 1 ? 'bullish' : dir === -1 ? 'bearish' : 'neutral',
+      brickTop,
+      brickBot,
+      bricksInRun,
+      flipLevel,
+      nextBrickLevel,
+      barsSinceFlip,
+      barsSinceBrick,
+      freshBrick: barsSinceBrick === 0 && bricksInRun <= 2,
+      overextendedBar,
+    };
+  },
+
   /** Full calendar-day H/L in dayMode (Sagar book magnets = prior day H/L). */
   calendarDayHl(bars, day, dayMode = 'ist') {
     if (!bars || !day) return null;
@@ -1187,10 +1290,12 @@ const RedBarTrend = {
       setupKind = 'session_sweep';
     }
 
-    // London / US: if the morning first-red side is still intact and the current bar
-    // confirms the fib-break bias (decisive body + close beating prior), promote
-    // trend_bias → session_continuation so the desk can ENTER instead of only WATCH.
-    // Covers days where price never revisits the 1H pivot and never tags Asia/London H/L.
+    const renko = this.computeRenko833(slice, istDay, dayMode);
+
+    // London / US: if the morning first-red side is still intact, the current bar
+    // confirms the fib-break bias AND prints a fresh 1st/2nd 8.33% Daily ATR Renko brick
+    // (Dr. Dev rule: capture the start of the brick run, never mid-air chop after 3+ bricks),
+    // promote trend_bias / fib_pullback → session_continuation.
     if (
       (setupKind === 'trend_bias' || setupKind === 'fib_pullback')
       && (clock.id === 'london' || clock.id === 'us_open')
@@ -1200,7 +1305,10 @@ const RedBarTrend = {
       const prevBar = bars[i - 1];
       const rng = cur.h - cur.l;
       const body = Math.abs(cur.c - cur.o);
-      const confirms = rng > 0 && (body / rng) >= 0.18 && prevBar && (
+      const renkoFreshAgree = renko
+        && renko.freshBrick
+        && ((trend === 'bullish' && renko.dir === 1) || (trend === 'bearish' && renko.dir === -1));
+      const confirms = rng > 0 && (body / rng) >= 0.18 && prevBar && renkoFreshAgree && (
         (trend === 'bearish' && cur.c < cur.o && cur.c < prevBar.c)
         || (trend === 'bullish' && cur.c > cur.o && cur.c > prevBar.c)
       );
@@ -1258,6 +1366,7 @@ const RedBarTrend = {
       rr: levels.rr,
       stopStructural: levels.stopStructural,
       invalidationReason: levels.invalidationReason,
+      renko,
     });
 
     const sizing = (actionState === 'enter' && invalidation != null && bookZone != null)
@@ -1267,6 +1376,7 @@ const RedBarTrend = {
     const playbook = {
       clock,
       redSetup,
+      renko,
       priorDay,
       asiaHl,
       londonHl,
@@ -1308,6 +1418,7 @@ const RedBarTrend = {
       openingRange: or,
       lastRedBar: red,
       firstRed1h,
+      renko,
       playbook,
       activeBands: active.slice(-8),
       // Last N prior session magnets (day H/L/M or 02:30 IST fibs)
@@ -1363,18 +1474,24 @@ const RedBarTrend = {
    * Single source of truth for "enter now" vs "watch" vs "wait".
    * Used by the desk UI, the Telegram bot and the walk-forward backtest.
    */
-  entryGate({ trend, setupKind, rr, stopStructural, invalidationReason }) {
+  entryGate({ trend, setupKind, rr, stopStructural, invalidationReason, renko }) {
     if (trend !== 'bullish' && trend !== 'bearish') {
       return { state: 'wait', reason: 'No directional setup.' };
     }
     if (!this.ACTIONABLE_SETUPS.includes(setupKind)) {
       const why = {
-        trend_bias: 'Fib-break bias only — wait for a confirming London/US candle, Trade 2, or sweep.',
-        fib_pullback: 'Pullback into a prior fib band — wait for a Trade 1/2 trigger.',
+        trend_bias: 'Fib-break bias only — wait for a fresh 8.33% ATR Renko brick, Trade 2 revisit, or sweep.',
+        fib_pullback: 'Pullback into a prior fib band — wait for a Trade 1/2 or fresh 8.33% ATR brick trigger.',
         pivot_reversal: 'Price crossed the 1H red against the fib bias — conflicting, wait.',
         trade2_watch: 'At the 1H red revisit, but the candle is not decisive yet — watch the close.',
       }[setupKind] || 'Bias only — not an entry.';
       return { state: 'watch', reason: why };
+    }
+    if (renko && renko.overextendedBar && setupKind !== 'session_sweep') {
+      return {
+        state: 'watch',
+        reason: `Candle spiked >1.6× Renko brick ($${renko.brickSize.toFixed(0)}) in one bar — wait for pullback instead of chasing the spike.`,
+      };
     }
     if (!(rr >= 1.0)) {
       return { state: 'watch', reason: `Setup present but R:R ${rr != null ? rr.toFixed(2) : '—'} < 1.0.` };
@@ -1382,7 +1499,7 @@ const RedBarTrend = {
     if (!stopStructural) {
       return { state: 'watch', reason: `Setup present but no real swing fits the stop window (${invalidationReason}).` };
     }
-    return { state: 'enter', reason: 'Fresh trigger · Stop set · 50% TP at 1:1 + trail 50% till EMA 10/30 cross.' };
+    return { state: 'enter', reason: 'Fresh trigger · 8.33% ATR Brick OK · 50% TP at 1:1 + trail 50% till EMA 10/30 cross.' };
   },
 
   _liquidityTip(clock, asiaHl, londonHl, asiaUntouched, sweep) {
