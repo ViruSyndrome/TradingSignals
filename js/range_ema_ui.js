@@ -698,7 +698,7 @@ const RangeEmaUI = {
       const elLev = document.getElementById('rbSzLev');
       const elLiq = document.getElementById('rbSzLiq');
       const sym = (row?.instrument?.id || 'BTC').replace(/USDT$/i, '');
-      if (elRisk) elRisk.textContent = `$${sz.riskUsd.toFixed(2)} (50%@1:1 +$${(sz.tp1HalfNetUsd || 0).toFixed(2)})`;
+      if (elRisk) elRisk.textContent = `-${sz.riskUsd.toFixed(2)} → +${sz.netProfitUsd.toFixed(2)} (1:1 half +${(sz.tp1HalfNetUsd || 0).toFixed(2)})`;
       if (elNotional) elNotional.textContent = `$${sz.notionalUsd.toFixed(0)} · ${sz.qty.toFixed(3)} ${sym}`;
       if (elLev) elLev.textContent = `${sz.recLeverage}× iso (max ${sz.maxSafeLeverage}×)`;
       if (elLiq) elLiq.textContent = this._fmt(sz.liqPrice);
@@ -768,7 +768,7 @@ const RangeEmaUI = {
               </label>
             </div>
             <div class="rb-futures-metrics">
-              <div><span>1R Risk / 50% @ 1:1</span><strong id="rbSzRisk">$${sz.riskUsd.toFixed(2)} (50%@1:1 +$${(sz.tp1HalfNetUsd || 0).toFixed(2)})</strong></div>
+              <div><span>1R Risk / Net Profit</span><strong id="rbSzRisk">-${sz.riskUsd.toFixed(2)} → +${sz.netProfitUsd.toFixed(2)} (1:1 half +${(sz.tp1HalfNetUsd || 0).toFixed(2)})</strong></div>
               <div><span>Futures Size</span><strong id="rbSzNotional">$${sz.notionalUsd.toFixed(0)} · ${sz.qty.toFixed(3)} ${sym}</strong></div>
               <div><span>Safe Leverage</span><strong id="rbSzLev">${sz.recLeverage}× iso (max ${sz.maxSafeLeverage}×)</strong></div>
               <div><span>Est. Liq Price</span><strong id="rbSzLiq" class="neg-text">${this._fmt(sz.liqPrice)}</strong></div>
