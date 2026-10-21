@@ -377,7 +377,16 @@ const RedBarTrend = {
       const hit = this.findMarkWindowRange(bars, asOfDay, window);
       if (!hit) return null;
       const lastT = bars.length ? bars[bars.length - 1].t : 0;
-      const locked = lastT >= hit.t1;
+      // zonedClockToUtc can sit a few–dozen seconds AFTER true HH:MM, so a bar that
+      // opens exactly at endHour:endMinute (e.g. 03:30 IST) would never lock if we
+      // required lastT >= hit.t1. Lock when the last bar's clock is at/past the end
+      // minute, or wall-clock is past t1 (with the same ~90s slack used for opens).
+      const tz = window.timeZone || 'Asia/Kolkata';
+      const zLast = this.zonedHms(lastT, tz);
+      const endMins = (window.endHour || 0) * 60 + (window.endMinute || 0);
+      const lastMins = zLast.hour * 60 + zLast.minute;
+      const asOfTs = cfg.asOfTs != null ? cfg.asOfTs : Date.now();
+      const locked = lastMins >= endMins || asOfTs >= hit.t1 - 90 * 1000 || lastT >= hit.t1;
       return {
         high: hit.high,
         low: hit.low,
