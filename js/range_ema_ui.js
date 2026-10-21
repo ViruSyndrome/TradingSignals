@@ -785,12 +785,28 @@ const RangeEmaUI = {
         <div class="rb-action-body">
           <div class="rb-action-title">${a.title}</div>
           <div class="rb-action-sub">${a.subtitle || ''}</div>
-          ${o.renko
-            ? `<div class="range-chips" style="margin: 0 0 8px;">
-                <span class="range-chip ${o.renko.dir === 1 ? 'pos' : o.renko.dir === -1 ? 'neg' : ''}">8.33% ATR Brick: ${this._fmt(o.renko.brickSize)} (${o.renko.brickPct.toFixed(2)}%) · Renko ${o.renko.dir === 1 ? 'BULL' : o.renko.dir === -1 ? 'BEAR' : 'FLAT'} (#${o.renko.bricksInRun}${o.renko.freshBrick ? ' · FRESH' : ' · wait fresh brick'}) · Flip ${this._fmt(o.renko.flipLevel)}</span>
-                ${o.playbook?.clock ? `<span class="range-chip">${o.playbook.clock.label}</span>` : ''}
-              </div>`
-            : ''}
+          ${(() => {
+            const tfStr = this.activeTf() || '15m';
+            const tfMins = tfStr === '5m' ? 5 : tfStr === '30m' ? 30 : tfStr === '1h' ? 60 : 15;
+            const nowMs = Date.now();
+            const barMs = tfMins * 60000;
+            const remSec = Math.max(1, Math.ceil((barMs - (nowMs % barMs)) / 1000));
+            const remM = Math.floor(remSec / 60);
+            const remS = remSec % 60;
+            const nextBarStr = `Next ${tfStr} bar close in ${remM}m ${String(remS).padStart(2, '0')}s`;
+            const liveClk = (typeof RedBarTrend !== 'undefined' && RedBarTrend.istClockPhase) ? RedBarTrend.istClockPhase(nowMs) : o.playbook?.clock;
+            const trigParts = [];
+            if (a.side === 'WATCH' || a.side === 'WAIT') {
+              if (o.renko?.nextBrickLevel != null) trigParts.push(`Fresh Brick @ ${this._fmt(o.renko.nextBrickLevel)}`);
+              if (o.firstRed1h) trigParts.push(`1H Red Zone ${this._fmt(o.firstRed1h.low)}–${this._fmt(o.firstRed1h.high)}`);
+            }
+            return `<div class="range-chips" style="margin: 0 0 8px;">
+              ${o.renko ? `<span class="range-chip ${o.renko.dir === 1 ? 'pos' : o.renko.dir === -1 ? 'neg' : ''}">8.33% ATR Brick: ${this._fmt(o.renko.brickSize)} (${o.renko.brickPct.toFixed(2)}%) · Renko ${o.renko.dir === 1 ? 'BULL' : o.renko.dir === -1 ? 'BEAR' : 'FLAT'} (#${o.renko.bricksInRun}${o.renko.freshBrick ? ' · FRESH' : ' · wait fresh brick'}) · Flip ${this._fmt(o.renko.flipLevel)}</span>` : ''}
+              <span class="range-chip">⏱️ ${nextBarStr}</span>
+              ${liveClk?.nextWindow ? `<span class="range-chip">🕒 ${liveClk.nextWindow}</span>` : liveClk?.label ? `<span class="range-chip">🕒 ${liveClk.label}</span>` : ''}
+              ${trigParts.length ? `<span class="range-chip">🎯 Auto-Trigger Watch: ${trigParts.join(' · ')}</span>` : ''}
+            </div>`;
+          })()}
           <ul class="rb-action-steps">${steps}</ul>
           <div class="rb-action-levels">
             <div><span>Entry Lean</span><strong>${this._fmt(a.entry)}</strong><small class="rb-level-sub">15m Execution</small></div>

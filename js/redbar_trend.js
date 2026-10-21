@@ -623,30 +623,43 @@ const RedBarTrend = {
   istClockPhase(ts) {
     const z = this.zonedHms(ts || Date.now(), 'Asia/Kolkata');
     const mins = z.hour * 60 + z.minute;
+    const fmtWait = (m) => {
+      const h = Math.floor(m / 60);
+      const r = m % 60;
+      return h > 0 ? `${h}h ${r}m` : `${r}m`;
+    };
     if (mins < 12 * 60 + 30) {
+      const rem = (12 * 60 + 30) - mins;
       return {
         id: 'pre_london',
         label: 'Pre-London',
+        nextWindow: `London Open (12:30 PM IST) in ${fmtWait(rem)}`,
         tip: 'Until ~12:30 IST, BTC often keeps the morning direction.',
       };
     }
     if (mins < 16 * 60 + 30) {
+      const rem = (16 * 60 + 30) - mins;
       return {
         id: 'london',
-        label: 'London',
+        label: 'London Active (12:30–4:30 PM)',
+        nextWindow: `US Open (4:30 PM IST) in ${fmtWait(rem)}`,
         tip: 'London usually sweeps Asia high or low, then reverses.',
       };
     }
     if (mins < 19 * 60) {
+      const rem = (19 * 60) - mins;
       return {
         id: 'us_open',
-        label: 'US open',
+        label: 'US Open Active (4:30–7:00 PM)',
+        nextWindow: `US Heavy Window · ${fmtWait(rem)} left (till 7:00 PM IST)`,
         tip: 'US hunts London H/L (Asia if untouched). Heavy window ~4:30–7:00 IST — use 1m when it zooms.',
       };
     }
+    const remToLondon = (24 * 60 - mins) + (12 * 60 + 30);
     return {
       id: 'late',
-      label: 'After US open',
+      label: 'After US Open (Late Session)',
+      nextWindow: `Next Prime Session: London (12:30 PM IST) in ${fmtWait(remToLondon)}`,
       tip: 'Pivot stays the first 1H red; watch prior-day H/L as book magnets.',
     };
   },
