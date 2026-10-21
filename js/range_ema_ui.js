@@ -15,6 +15,7 @@ const RangeEmaUI = {
     updatedAt: null,
     error: null,
     tf: null,
+    chartMode: 'candles', // 'candles' | 'renko'
     instrumentId: null,
     loading: false,
     capital: 1000,
@@ -820,6 +821,10 @@ const RangeEmaUI = {
 
       <div class="rb-chart-wrap glass">
         <div class="rb-chart-toolbar">
+          <div class="rb-chart-mode-group" role="group" aria-label="Chart style" style="display:flex;gap:4px;margin-right:8px;">
+            <button type="button" class="rb-tf-btn${this.state.chartMode !== 'renko' ? ' active' : ''}" data-rb-chart-mode="candles" title="Standard Candlesticks">🕯️ Candles</button>
+            <button type="button" class="rb-tf-btn${this.state.chartMode === 'renko' ? ' active' : ''}" data-rb-chart-mode="renko" title="Dr. Dev 8.33% ATR Renko Bricks">🧱 Renko View</button>
+          </div>
           <div class="rb-tf-group" role="group" aria-label="Chart timeframe">
             ${(c.timeframes || ['5m', '15m', '30m', '1h']).map((t) =>
               `<button type="button" class="rb-tf-btn${t === this.activeTf() ? ' active' : ''}" data-rb-tf="${t}">${t}</button>`
@@ -1153,28 +1158,53 @@ const RangeEmaUI = {
         const bodyW = Math.max(2, Math.min(slot * 0.62, 14));
 
         ctx.save();
-        for (let i = 0; i < n; i++) {
-          const b = bars[i];
-          const x = xScale.getPixelForValue(i);
-          if (!Number.isFinite(x)) continue;
-          const yO = yScale.getPixelForValue(b.o);
-          const yC = yScale.getPixelForValue(b.c);
-          const yH = yScale.getPixelForValue(b.h);
-          const yL = yScale.getPixelForValue(b.l);
-          const up = b.c >= b.o;
-          const color = up ? '#22c55e' : '#ef4444';
+        const isRenkoMode = chart.$rbChartMode === 'renko';
+        const renkoSeries = chart.$rbRenkoSeries || [];
 
-          ctx.strokeStyle = color;
-          ctx.lineWidth = 1.25;
-          ctx.beginPath();
-          ctx.moveTo(x, yH);
-          ctx.lineTo(x, yL);
-          ctx.stroke();
+        if (isRenkoMode && renkoSeries.length) {
+          // Render pure Dr. Dev Renko Bricks without wicks
+          for (let i = 0; i < n; i++) {
+            const brick = renkoSeries[i];
+            if (!brick) continue;
+            const x = xScale.getPixelForValue(i);
+            if (!Number.isFinite(x)) continue;
+            const yO = yScale.getPixelForValue(brick.o);
+            const yC = yScale.getPixelForValue(brick.c);
+            const color = brick.dir === 1 ? '#22c55e' : '#ef4444';
+            const top = Math.min(yO, yC);
+            const h = Math.max(2, Math.abs(yC - yO));
+            
+            // Clean solid brick with subtle border
+            ctx.fillStyle = color;
+            ctx.fillRect(x - bodyW / 2, top, bodyW, h);
+            ctx.strokeStyle = 'rgba(255, 255, 255, 0.4)';
+            ctx.lineWidth = 1;
+            ctx.strokeRect(x - bodyW / 2, top, bodyW, h);
+          }
+        } else {
+          for (let i = 0; i < n; i++) {
+            const b = bars[i];
+            const x = xScale.getPixelForValue(i);
+            if (!Number.isFinite(x)) continue;
+            const yO = yScale.getPixelForValue(b.o);
+            const yC = yScale.getPixelForValue(b.c);
+            const yH = yScale.getPixelForValue(b.h);
+            const yL = yScale.getPixelForValue(b.l);
+            const up = b.c >= b.o;
+            const color = up ? '#22c55e' : '#ef4444';
 
-          const top = Math.min(yO, yC);
-          const h = Math.max(1, Math.abs(yC - yO));
-          ctx.fillStyle = color;
-          ctx.fillRect(x - bodyW / 2, top, bodyW, h);
+            ctx.strokeStyle = color;
+            ctx.lineWidth = 1.25;
+            ctx.beginPath();
+            ctx.moveTo(x, yH);
+            ctx.lineTo(x, yL);
+            ctx.stroke();
+
+            const top = Math.min(yO, yC);
+            const h = Math.max(1, Math.abs(yC - yO));
+            ctx.fillStyle = color;
+            ctx.fillRect(x - bodyW / 2, top, bodyW, h);
+          }
         }
         ctx.restore();
       },

@@ -468,6 +468,73 @@ const RedBarTrend = {
    * Dr. Dev's 8.33% Daily ATR (Daily Range / 12) Renko Brick & SuperTrend engine.
    * Adapts brick size to each instrument's 7-day average daily range (BTC, NIFTY, XAU).
    */
+  /**
+   * Builds an array of discrete Renko bricks from a sequence of candlestick bars.
+   * Each brick has: { t, o, c, dir, index }
+   */
+  buildRenkoSeries(bars, brickSize) {
+    if (!bars || !bars.length || !brickSize || brickSize <= 0) return [];
+    let curTop = Math.round(bars[0].c / brickSize) * brickSize;
+    let curBot = curTop - brickSize;
+    let dir = 0;
+    const bricks = [];
+
+    for (let i = 1; i < bars.length; i++) {
+      const c = bars[i].c;
+      const t = bars[i].t;
+      if (dir === 0) {
+        if (c >= curTop + brickSize) {
+          dir = 1;
+          bricks.push({ t, o: curBot, c: curTop, dir: 1, barIdx: i });
+        } else if (c <= curBot - brickSize) {
+          dir = -1;
+          bricks.push({ t, o: curTop, c: curBot, dir: -1, barIdx: i });
+        }
+      } else if (dir === 1) {
+        if (c >= curTop + brickSize) {
+          const n = Math.floor((c - curTop) / brickSize);
+          for (let j = 0; j < n; j++) {
+            curBot = curTop;
+            curTop += brickSize;
+            bricks.push({ t, o: curBot, c: curTop, dir: 1, barIdx: i });
+          }
+        } else if (c <= curBot - brickSize) {
+          const n = Math.floor((curBot - c) / brickSize);
+          dir = -1;
+          curTop = curBot;
+          curBot -= brickSize;
+          bricks.push({ t, o: curTop, c: curBot, dir: -1, barIdx: i });
+          for (let j = 1; j < n; j++) {
+            curTop = curBot;
+            curBot -= brickSize;
+            bricks.push({ t, o: curTop, c: curBot, dir: -1, barIdx: i });
+          }
+        }
+      } else if (dir === -1) {
+        if (c <= curBot - brickSize) {
+          const n = Math.floor((curBot - c) / brickSize);
+          for (let j = 0; j < n; j++) {
+            curTop = curBot;
+            curBot -= brickSize;
+            bricks.push({ t, o: curTop, c: curBot, dir: -1, barIdx: i });
+          }
+        } else if (c >= curTop + brickSize) {
+          const n = Math.floor((c - curTop) / brickSize);
+          dir = 1;
+          curBot = curTop;
+          curTop += brickSize;
+          bricks.push({ t, o: curBot, c: curTop, dir: 1, barIdx: i });
+          for (let j = 1; j < n; j++) {
+            curBot = curTop;
+            curTop += brickSize;
+            bricks.push({ t, o: curBot, c: curTop, dir: 1, barIdx: i });
+          }
+        }
+      }
+    }
+    return bricks;
+  },
+
   computeRenko833(slice, asOfDay, dayMode = 'ist') {
     if (!Array.isArray(slice) || !slice.length) return null;
     const dailyBands = this.buildDailyBands(slice, 30, dayMode);
