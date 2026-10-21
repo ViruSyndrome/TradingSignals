@@ -1191,8 +1191,19 @@ const Dashboard = {
     
     if (hamburger && sidebar && overlay) {
       hamburger.addEventListener('click', () => {
-        sidebar.classList.add('open');
-        overlay.classList.add('active');
+        const isMobileDrawer =
+          window.innerWidth <= 1180 ||
+          document.documentElement.classList.contains('is-phone');
+        if (isMobileDrawer) {
+          const willOpen = !sidebar.classList.contains('open');
+          sidebar.classList.toggle('open', willOpen);
+          overlay.classList.toggle('active', willOpen);
+        } else {
+          sidebar.classList.toggle('collapsed');
+          setTimeout(() => {
+            try { window.dispatchEvent(new Event('resize')); } catch (_) {}
+          }, 320);
+        }
       });
       overlay.addEventListener('click', () => {
         sidebar.classList.remove('open');
