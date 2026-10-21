@@ -99,6 +99,20 @@ const RangeEmaUI = {
     return allowed.includes(tf) ? tf : allowed[0];
   },
 
+  setChartMode(mode) {
+    if (this.state.chartMode === mode) return;
+    this.state.chartMode = mode;
+    try { localStorage.setItem('trendrunner_rb_chart_mode', mode); } catch (_) {}
+    const row = (this.state.rows || [])[0];
+    if (row && !row.error) {
+      this.destroyChart();
+      this._paintChart(row, this.cfg());
+    }
+    document.querySelectorAll('[data-rb-chart-mode]').forEach(b => {
+      b.classList.toggle('active', b.getAttribute('data-rb-chart-mode') === mode);
+    });
+  },
+
   setTf(tf) {
     const c = this.cfg();
     const inst = this.activeInstrument() || {};
@@ -647,6 +661,9 @@ const RangeEmaUI = {
     document.querySelectorAll('[data-rb-inst]').forEach((btn) => {
       btn.addEventListener('click', () => this.setInstrument(btn.getAttribute('data-rb-inst')));
     });
+    document.querySelectorAll('[data-rb-chart-mode]').forEach((btn) => {
+      btn.addEventListener('click', () => this.setChartMode(btn.getAttribute('data-rb-chart-mode')));
+    });
     document.querySelectorAll('[data-rb-tf]').forEach((btn) => {
       btn.addEventListener('click', () => this.setTf(btn.getAttribute('data-rb-tf')));
     });
@@ -1155,13 +1172,13 @@ const RangeEmaUI = {
         const slot = n > 1
           ? Math.abs(xScale.getPixelForValue(1) - xScale.getPixelForValue(0))
           : 8;
-        const bodyW = Math.max(2, Math.min(slot * 0.62, 14));
+        const bodyW = Math.max(3, Math.min(slot * 0.72, 16));
 
         ctx.save();
-        const isRenkoMode = chart.$rbChartMode === 'renko';
-        const renkoSeries = chart.$rbRenkoSeries || [];
+        const isRenko = chart.$rbChartMode === 'renko';
+        const renkoSeries = chart.$rbRenkoSeries;
 
-        if (isRenkoMode && renkoSeries.length) {
+        if (isRenko && renkoSeries && renkoSeries.length) {
           // Render pure Dr. Dev Renko Bricks without wicks
           for (let i = 0; i < n; i++) {
             const brick = renkoSeries[i];
@@ -1170,14 +1187,14 @@ const RangeEmaUI = {
             if (!Number.isFinite(x)) continue;
             const yO = yScale.getPixelForValue(brick.o);
             const yC = yScale.getPixelForValue(brick.c);
-            const color = brick.dir === 1 ? '#22c55e' : '#ef4444';
+            const isUp = brick.dir === 1;
+            const color = isUp ? '#22c55e' : '#ef4444';
             const top = Math.min(yO, yC);
-            const h = Math.max(2, Math.abs(yC - yO));
-            
-            // Clean solid brick with subtle border
+            const h = Math.max(3, Math.abs(yC - yO));
+
             ctx.fillStyle = color;
             ctx.fillRect(x - bodyW / 2, top, bodyW, h);
-            ctx.strokeStyle = 'rgba(255, 255, 255, 0.4)';
+            ctx.strokeStyle = 'rgba(255, 255, 255, 0.45)';
             ctx.lineWidth = 1;
             ctx.strokeRect(x - bodyW / 2, top, bodyW, h);
           }
@@ -1211,12 +1228,6 @@ const RangeEmaUI = {
     };
   },
 
-  /**
-   * Magnets:
-   * - dayHl: box over that calendar day (legacy)
-   * - sessionFib: Fib 0/0.44/0.5/0.56/1 on mark-window H/L, extend right
-   *   (orange 0–0.44, green 0.44–0.56, grey 0.56–1 — matches TV)
-   */
   _isFibStyle(rowOrStyle) {
     const s = typeof rowOrStyle === 'string'
       ? rowOrStyle
@@ -1894,6 +1905,14 @@ const RangeEmaUI = {
       },
     });
     this._chart.$rbBars = bars;
+    this._chart.$rbChartMode = this.state.chartMode || 'candles';
+    if (this._chart.$rbChartMode === 'renko' && typeof RedBarTrend !== 'undefined' && RedBarTrend.buildRenkoSeries) {
+      const bSize = o.renko?.brickSize || (closes[closes.length - 1] * 0.0018);
+      const allBricks = RedBarTrend.buildRenkoSeries(row.bars, bSize);
+      this._chart.$rbRenkoSeries = allBricks.slice(-bars.length);
+    } else {
+      this._chart.$rbRenkoSeries = null;
+    }
     this._chart.$rbTimes = times;
     this._chart.$rbSessionMarks = sessionMarks;
     this._chart.$rbDayBands = compact && dayBands.length > 5
