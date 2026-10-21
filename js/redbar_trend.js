@@ -735,8 +735,10 @@ const RedBarTrend = {
     const nearLow = (Math.abs(price - firstRed.low) / firstRed.low) * 100 <= touchPct;
     const inside = price <= firstRed.high && price >= firstRed.low;
     const near = nearHigh || nearLow || inside;
-    const leftAbove = price > firstRed.high && !nearHigh;
-    const leftBelow = price < firstRed.low && !nearLow;
+    // Departure is strict: any print beyond the 1H red high/low counts as left.
+    // (Old touchPct dead-zone kept BTC "at pivot" for ~0.15% / ~$127 after a clean break.)
+    const leftAbove = price > firstRed.high;
+    const leftBelow = price < firstRed.low;
 
     // Check recent bars after firstRed formed to see if price already left the pivot earlier
     let hadLeftAbove = false;
@@ -1364,11 +1366,12 @@ const RedBarTrend = {
     const renko = this.computeRenko833(slice, istDay, dayMode);
     const cpr = this.computeCpr(bars, istDay, dayMode);
 
-    // London / US: morning first-red side intact + confirming candle + fresh Renko brick
+    // Pre-London / London / US: Fib-break bias + confirming candle + fresh Renko brick
     // (run ≤ 3, printed this/prior bar) → promote trend_bias / fib_pullback → session_continuation.
+    // Pre-London included so Asia morning Fib breaks are not stuck on WATCH until 12:30.
     if (
       (setupKind === 'trend_bias' || setupKind === 'fib_pullback')
-      && (clock.id === 'london' || clock.id === 'us_open')
+      && (clock.id === 'pre_london' || clock.id === 'london' || clock.id === 'us_open')
       && ((trend === 'bearish' && redSetup.leftBelow) || (trend === 'bullish' && redSetup.leftAbove))
     ) {
       const cur = bars[i];
