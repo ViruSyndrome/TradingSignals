@@ -867,7 +867,7 @@ const RangeEmaUI = {
           <span class="lg sess-london rb-lg-desk">London H/L</span>
           <span class="lg sess-ny rb-lg-desk">NY H/L</span>
         </div>
-        <p class="rb-zoom-hint">Pinch to zoom · drag to pan · Fit resets</p>
+        <p class="rb-zoom-hint">${this.isPhoneLayout() ? 'Pinch to zoom · ◀ ▶ to scrub · Fit resets' : 'Pinch / wheel to zoom · drag to pan · Fit resets'}</p>
         <div class="rb-chart-box">
           <canvas id="redBarChart" aria-label="Red Bar chart"></canvas>
         </div>
@@ -1858,9 +1858,8 @@ const RangeEmaUI = {
               x: { min: 'original', max: 'original', minRange: 12 },
               y: { min: 'original', max: 'original', minRange: Math.max(barSpan * 0.06, 30) },
             },
-            // Sideways pan is the primary scrub when zoomed in (also works on touch)
+            // Desktop: drag-pan. Phone: pinch to zoom; use ◀ ▶ for scrub (keeps page scroll).
             pan: {
-              // On phones, prefer page scroll; use ◀ ▶ buttons to scrub
               enabled: !compact,
               mode: 'x',
               threshold: 6,
@@ -1868,8 +1867,7 @@ const RangeEmaUI = {
             },
             zoom: {
               wheel: { enabled: !compact, speed: 0.12 },
-              // Phone: no pinch — it fights page scroll; use +/- buttons instead
-              pinch: { enabled: !compact },
+              pinch: { enabled: true },
               drag: {
                 enabled: !compact,
                 backgroundColor: 'rgba(124, 106, 245, 0.18)',

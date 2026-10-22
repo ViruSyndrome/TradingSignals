@@ -3224,10 +3224,14 @@ body.redbar-only .site-footer-copyright {
   position: relative;
   height: min(52vh, 420px);
   width: 100%;
-  /* Allow vertical page scroll; pinch-zoom still works for the chart */
+  /* pan-y = page scroll with one finger; pinch-zoom = chart zoom with two */
   touch-action: pan-y pinch-zoom;
 }
-#redBarChart { touch-action: pan-y pinch-zoom; }
+#redBarChart {
+  touch-action: pan-y pinch-zoom;
+  /* Help Hammer/Chart zoom receive multi-touch on iOS */
+  -ms-touch-action: pan-y pinch-zoom;
+}
 .rb-meta-row { margin-bottom: 10px; }
 /* Phone chart/layout — also via max-device-width (Chrome desktop-site) */
 @media (max-width: 768px), (max-device-width: 900px) {
