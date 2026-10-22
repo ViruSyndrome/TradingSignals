@@ -1518,8 +1518,9 @@ const RedBarTrend = {
       if (confirms) setupKind = 'session_continuation';
     }
 
-    // Prior Fib / day magnet reaction scalp (TV-style level tags mid-run).
-    // Fires even when Renko is mid-run so the desk helps with "it hit my Fib" trades.
+    // Prior Fib / day magnet reaction (TV-style level tags mid-run).
+    // Only promote to ENTER when the reaction AGREES with Fib bias (orBias) —
+    // counter-trend bounces stay WATCH so the desk does not flip LONG/SHORT every 15m.
     let magnetReaction = null;
     if (
       phase !== 'first_candle'
@@ -1530,8 +1531,20 @@ const RedBarTrend = {
     ) {
       magnetReaction = this.detectMagnetReaction(bars, i, priorMagnets, 0.25);
       if (magnetReaction) {
-        trend = magnetReaction.side;
-        setupKind = 'magnet_reaction';
+        const agreesBias = (orBias === 'bear' && magnetReaction.side === 'bearish')
+          || (orBias === 'bull' && magnetReaction.side === 'bullish');
+        const agreesRenko = renko && (
+          (magnetReaction.side === 'bearish' && renko.dir === -1)
+          || (magnetReaction.side === 'bullish' && renko.dir === 1)
+        );
+        if (agreesBias || agreesRenko) {
+          // With-trend magnet tag — actionable scalp in the existing direction
+          trend = magnetReaction.side;
+          setupKind = 'magnet_reaction';
+        } else if (setupKind === 'trend_bias' || setupKind === 'fib_pullback' || setupKind === 'wait') {
+          // Counter-trend bounce — surface as watch only; keep Fib bias trend
+          setupKind = 'magnet_bounce_watch';
+        }
       }
     }
 
@@ -1710,8 +1723,9 @@ const RedBarTrend = {
     }
     if (!this.ACTIONABLE_SETUPS.includes(setupKind)) {
       const why = {
-        trend_bias: 'Fib-break bias only — wait for a fresh Renko brick, prior Fib magnet reaction, Trade 2, or sweep.',
-        fib_pullback: 'Near prior Fibs — watch magnet tag for a reaction scalp, or a fresh Renko / Trade 1/2 trigger.',
+        trend_bias: 'Fib-break bias only — wait for a fresh Renko brick, with-trend magnet tag, Trade 2, or sweep.',
+        fib_pullback: 'Near prior Fibs — watch a with-trend magnet tag, fresh Renko, or Trade 1/2.',
+        magnet_bounce_watch: 'Counter-trend bounce off a Fib magnet — scalp only if you fade; desk bias unchanged until Renko flips.',
         pivot_reversal: 'Price crossed the 1H red against the fib bias — conflicting, wait.',
         trade2_watch: 'At the 1H red revisit, but the candle is not decisive yet — watch the close.',
       }[setupKind] || 'Bias only — not an entry.';
