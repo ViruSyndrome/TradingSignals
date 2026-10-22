@@ -86,7 +86,7 @@
     if ('serviceWorker' in navigator) {
       window.addEventListener('load', () => {
         const hadController = Boolean(navigator.serviceWorker.controller);
-        navigator.serviceWorker.register('./service-worker.js?v=7.29', { updateViaCache: 'none' })
+        navigator.serviceWorker.register('./service-worker.js?v=7.30', { updateViaCache: 'none' })
           .then(reg => {
             reg.update().catch(() => {});
             navigator.serviceWorker.addEventListener('controllerchange', () => {
@@ -616,9 +616,9 @@
   <script src="js/config.js?v=7.12" defer></script>
   <script src="js/api.js?v=6.95" defer></script>
   <script src="js/indicators.js?v=6.60" defer></script>
-  <script src="js/redbar_trend.js?v=1.24" defer></script>
+  <script src="js/redbar_trend.js?v=1.25" defer></script>
   <script src="js/range_ema_engine.js?v=1.1" defer></script>
-  <script src="js/range_ema_ui.js?v=1.54" defer></script>
+  <script src="js/range_ema_ui.js?v=1.55" defer></script>
   <script src="js/signals.js?v=6.70" defer></script>
   <script src="js/charts.js?v=6.60" defer></script>
   

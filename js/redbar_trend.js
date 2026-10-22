@@ -331,6 +331,132 @@ const RedBarTrend = {
   },
 
   /**
+   * Prior-day Fib / day-range magnets with labels (the levels traders mark on TV).
+   * Includes mark-window session fibs AND full calendar-day range fibs (0 / 0.236 /
+   * 0.382 / 0.5 / 0.618 / 0.786 / 1) so TV "Fib on the 9th" style levels are visible.
+   */
+  collectPriorMagnets(bands, asOfDay, bars = null, dayMode = 'ist') {
+    const out = [];
+    const seen = new Set();
+    const push = (price, day, label, tag) => {
+      if (price == null || !Number.isFinite(price)) return;
+      const key = `${day}|${price.toFixed(1)}`;
+      if (seen.has(key)) return;
+      seen.add(key);
+      out.push({ price, day, label, tag });
+    };
+
+    const priors = this.priorBands(bands, asOfDay);
+    for (const b of priors) {
+      const dayShort = String(b.day || '').slice(5); // MM-DD
+      if (b.style === 'sessionFib' || b.style === 'istFib0230') {
+        for (const [v, name] of [
+          [b.f1, 'Sess Fib 1'], [b.f56, 'Sess Fib 0.56'], [b.f50, 'Sess Fib 0.50'],
+          [b.f44, 'Sess Fib 0.44'], [b.f0, 'Sess Fib 0'],
+        ]) push(v, b.day, `${dayShort} ${name}`, 'prior_fib');
+      } else {
+        for (const [v, name] of [[b.high, 'High'], [b.mid, 'Mid'], [b.low, 'Low']]) {
+          push(v, b.day, `${dayShort} ${name}`, 'prior_day');
+        }
+      }
+    }
+
+    // Full calendar-day H/L fibs (last ~14 prior days) — matches common TV drawings
+    if (Array.isArray(bars) && bars.length && asOfDay) {
+      const dayFibs = [0, 0.236, 0.382, 0.5, 0.618, 0.786, 1];
+      const dayNames = { 0: 'Day Fib 0', 0.236: 'Day Fib 0.236', 0.382: 'Day Fib 0.382', 0.5: 'Day Fib 0.50', 0.618: 'Day Fib 0.618', 0.786: 'Day Fib 0.786', 1: 'Day Fib 1' };
+      for (let d = 1; d <= 14; d++) {
+        const day = this.shiftDay(asOfDay, -d);
+        const hl = this.calendarDayHl(bars, day, dayMode);
+        if (!hl || !(hl.high > hl.low)) continue;
+        const dayShort = String(day).slice(5);
+        for (const lvl of dayFibs) {
+          const px = this.fibPrice(hl.high, hl.low, lvl);
+          push(px, day, `${dayShort} ${dayNames[lvl]}`, 'day_fib');
+        }
+      }
+    }
+    return out;
+  },
+
+  nearestMagnets(magnets, price) {
+    let below = null;
+    let above = null;
+    for (const m of magnets || []) {
+      if (m.price < price && (!below || m.price > below.price)) below = m;
+      if (m.price > price && (!above || m.price < above.price)) above = m;
+    }
+    return { below, above };
+  },
+
+  /**
+   * Reaction scalp at a prior Fib/day magnet: wick tags the level, close rejects
+   * back through it with a decisive body. Helps the desk catch the TV "level hit"
+   * trades that pure Renko-fresh continuation misses mid-run.
+   * Scans magnets near the wick (not only nearest-to-close) so deeper Fibs like
+   * Oct-9 0.236 still qualify when tagged intrabar.
+   */
+  detectMagnetReaction(bars, i, magnets, touchPct = 0.25) {
+    if (!bars || i < 1 || !Array.isArray(magnets) || !magnets.length) return null;
+    const cur = bars[i];
+    const prev = bars[i - 1];
+    const rng = cur.h - cur.l;
+    if (!(rng > 0)) return null;
+    const body = Math.abs(cur.c - cur.o);
+    if (body / rng < 0.18) return null;
+    const band = touchPct / 100;
+
+    // Prefer the magnet closest to the wick extreme among those tagged this bar
+    let bestLong = null;
+    let bestShort = null;
+    for (const m of magnets) {
+      const px = m.price;
+      if (!(px > 0)) continue;
+      const taggedLow = cur.l <= px * (1 + band) && cur.h >= px * (1 - band);
+      const taggedHigh = cur.h >= px * (1 - band) && cur.l <= px * (1 + band);
+      // Long: tag as support, close back above, green, beats prior
+      if (taggedLow && cur.c > px && cur.c > cur.o && cur.c > prev.c) {
+        const dist = Math.abs(cur.l - px);
+        if (!bestLong || dist < bestLong.dist) bestLong = { magnet: m, dist };
+      }
+      // Short: tag as resistance, close back below, red, beats prior
+      if (taggedHigh && cur.c < px && cur.c < cur.o && cur.c < prev.c) {
+        const dist = Math.abs(cur.h - px);
+        if (!bestShort || dist < bestShort.dist) bestShort = { magnet: m, dist };
+      }
+    }
+    // If both somehow qualify, pick the tighter wick tag
+    if (bestLong && bestShort) {
+      return bestLong.dist <= bestShort.dist
+        ? {
+          side: 'bullish',
+          magnet: bestLong.magnet,
+          label: `Magnet reaction LONG @ ${bestLong.magnet.label} (${bestLong.magnet.price.toFixed?.(0) ?? bestLong.magnet.price})`,
+        }
+        : {
+          side: 'bearish',
+          magnet: bestShort.magnet,
+          label: `Magnet reaction SHORT @ ${bestShort.magnet.label} (${bestShort.magnet.price.toFixed?.(0) ?? bestShort.magnet.price})`,
+        };
+    }
+    if (bestLong) {
+      return {
+        side: 'bullish',
+        magnet: bestLong.magnet,
+        label: `Magnet reaction LONG @ ${bestLong.magnet.label} (${bestLong.magnet.price.toFixed?.(0) ?? bestLong.magnet.price})`,
+      };
+    }
+    if (bestShort) {
+      return {
+        side: 'bearish',
+        magnet: bestShort.magnet,
+        label: `Magnet reaction SHORT @ ${bestShort.magnet.label} (${bestShort.magnet.price.toFixed?.(0) ?? bestShort.magnet.price})`,
+      };
+    }
+    return null;
+  },
+
+  /**
    * Swing high/low on the working TF (TV-style prior peaks).
    * - swingHigh / swingLow: most recent completed swing above/below price (previous high/low).
    * - nearHigh / nearLow: closest-in-price swing (may be a minor nearer peak).
@@ -1365,6 +1491,10 @@ const RedBarTrend = {
 
     const renko = this.computeRenko833(slice, istDay, dayMode);
     const cpr = this.computeCpr(bars, istDay, dayMode);
+    // Prefer 1H history for calendar-day Fib magnets (15m feed is capped ~10 days).
+    const magnetBars = Array.isArray(c.bars1h) && c.bars1h.length ? c.bars1h : slice;
+    const priorMagnets = this.collectPriorMagnets(bands, asOfDay, magnetBars, dayMode);
+    const { below: magnetBelow, above: magnetAbove } = this.nearestMagnets(priorMagnets, price);
 
     // Pre-London / London / US: Fib-break bias + confirming candle + fresh Renko brick
     // (run ≤ 3, printed this/prior bar) → promote trend_bias / fib_pullback → session_continuation.
@@ -1386,6 +1516,23 @@ const RedBarTrend = {
         || (trend === 'bullish' && cur.c > cur.o && cur.c > prevBar.c)
       );
       if (confirms) setupKind = 'session_continuation';
+    }
+
+    // Prior Fib / day magnet reaction scalp (TV-style level tags mid-run).
+    // Fires even when Renko is mid-run so the desk helps with "it hit my Fib" trades.
+    let magnetReaction = null;
+    if (
+      phase !== 'first_candle'
+      && setupKind !== 'trade1_departure'
+      && setupKind !== 'trade2_confirmed'
+      && setupKind !== 'session_sweep'
+      && setupKind !== 'session_continuation'
+    ) {
+      magnetReaction = this.detectMagnetReaction(bars, i, priorMagnets, 0.25);
+      if (magnetReaction) {
+        trend = magnetReaction.side;
+        setupKind = 'magnet_reaction';
+      }
     }
 
     const refs = {
@@ -1463,6 +1610,9 @@ const RedBarTrend = {
       asiaUntouched,
       sweep,
       setupKind,
+      magnetBelow,
+      magnetAbove,
+      magnetReaction,
       tp1: levels.tp1,
       tp3: levels.tp3,
       firstMagnet: levels.firstMagnet,
@@ -1548,7 +1698,7 @@ const RedBarTrend = {
   },
 
   /** Setup kinds that may be traded immediately (everything else is bias / watch). */
-  ACTIONABLE_SETUPS: ['trade1_departure', 'trade2_confirmed', 'session_sweep', 'session_continuation'],
+  ACTIONABLE_SETUPS: ['trade1_departure', 'trade2_confirmed', 'session_sweep', 'session_continuation', 'magnet_reaction'],
 
   /**
    * Single source of truth for "enter now" vs "watch" vs "wait".
@@ -1560,8 +1710,8 @@ const RedBarTrend = {
     }
     if (!this.ACTIONABLE_SETUPS.includes(setupKind)) {
       const why = {
-        trend_bias: 'Fib-break bias only — wait for a fresh 8.33% ATR Renko brick, Trade 2 revisit, or sweep.',
-        fib_pullback: 'Pullback into a prior fib band — wait for a Trade 1/2 or fresh 8.33% ATR brick trigger.',
+        trend_bias: 'Fib-break bias only — wait for a fresh Renko brick, prior Fib magnet reaction, Trade 2, or sweep.',
+        fib_pullback: 'Near prior Fibs — watch magnet tag for a reaction scalp, or a fresh Renko / Trade 1/2 trigger.',
         pivot_reversal: 'Price crossed the 1H red against the fib bias — conflicting, wait.',
         trade2_watch: 'At the 1H red revisit, but the candle is not decisive yet — watch the close.',
       }[setupKind] || 'Bias only — not an entry.';

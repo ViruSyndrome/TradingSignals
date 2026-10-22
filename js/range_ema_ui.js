@@ -343,12 +343,14 @@ const RangeEmaUI = {
 
     // Sagar pivot: first CLOSED 1H red AFTER the calendar day’s first candle
     // (never the open bar itself). Calendar IST day — not mark-window session day.
+    // Keep 1H bars for prior calendar-day Fib magnets (15m history is only ~10d on Binance).
     let firstRed1h = null;
+    let bars1h = null;
     try {
       const raw1h = typeof API.getDeskOHLC === 'function'
-        ? await API.getDeskOHLC(instrument, '1h', 180)
-        : await API.getCryptoOHLC(instrument.symbol, '1h', 180);
-      const bars1h = this._klinesToBars(raw1h);
+        ? await API.getDeskOHLC(instrument, '1h', 400)
+        : await API.getCryptoOHLC(instrument.symbol, '1h', 400);
+      bars1h = this._klinesToBars(raw1h);
       if (bars1h.length >= 24) {
         const lastT = bars30[bars30.length - 1].t;
         const calDay = RedBarTrend.dayKey(lastT, readCfg.dayMode || 'ist');
@@ -362,7 +364,7 @@ const RangeEmaUI = {
       console.warn('[RangeEmaUI] 1H first-red fetch failed:', e.message || e);
     }
 
-    const readout = RedBarTrend.read(bars30, { ...readCfg, firstRed1h });
+    const readout = RedBarTrend.read(bars30, { ...readCfg, firstRed1h, bars1h });
     if (readout) {
       readout.firstRed1h = firstRed1h;
       if (readout.refs) {
@@ -459,11 +461,13 @@ const RangeEmaUI = {
     if (isActionable) {
       const setupLabel = o.setupKind === 'session_sweep'
         ? `Session Sweep Reversal · Futures ${biasDir}`
-        : o.setupKind === 'session_continuation'
-          ? `Session Continuation · Futures ${biasDir} (London/US bias confirm)`
-          : o.setupKind === 'trade2_confirmed'
-            ? `Trade 2 Confirmed · Futures ${biasDir} (${red.revisitRead ? red.revisitRead.replace('_', ' ') : '1H red revisit'})`
-            : `Trade 1 Departure · Futures ${biasDir} (Left 1H Red)`;
+        : o.setupKind === 'magnet_reaction'
+          ? `Fib Magnet Reaction · Futures ${biasDir} (${o.playbook?.magnetReaction?.magnet?.label || 'prior Fib'})`
+          : o.setupKind === 'session_continuation'
+            ? `Session Continuation · Futures ${biasDir} (bias + fresh Renko)`
+            : o.setupKind === 'trade2_confirmed'
+              ? `Trade 2 Confirmed · Futures ${biasDir} (${red.revisitRead ? red.revisitRead.replace('_', ' ') : '1H red revisit'})`
+              : `Trade 1 Departure · Futures ${biasDir} (Left 1H Red)`;
       return {
         side: biasDir,
         cls: biasDir === 'LONG' ? 'long' : 'short',
@@ -487,21 +491,27 @@ const RangeEmaUI = {
 
     // 2. Directional Bias / Watch ONLY (not an entry trigger yet — do not FOMO mid-trend)
     if (biasDir) {
+      const magDown = o.playbook?.magnetBelow;
+      const magUp = o.playbook?.magnetAbove;
+      const magStep = (magDown || magUp)
+        ? `Prior Fib magnets: ${magDown ? `↓ ${magDown.label} ${this._fmt(magDown.price)}` : ''}${magDown && magUp ? ' · ' : ''}${magUp ? `↑ ${magUp.label} ${this._fmt(magUp.price)}` : ''} — scalp a rejection wick, or bank a runner here.`
+        : null;
       const watchTitle = o.setupKind === 'trade2_watch'
         ? `Trade 2 Watch · Testing 1H Red Pivot (${biasDir} Bias)`
         : o.setupKind === 'fib_pullback'
-          ? `Bias: ${biasDir} · In Fib Pullback (Watch for Trigger)`
+          ? `Bias: ${biasDir} · Near Prior Fibs (Watch Magnet Tag)`
           : o.setupKind === 'pivot_reversal'
             ? `Bias Conflict · Crossed 1H Red vs Fibs (Stay Flat / Watch)`
-            : `Bias: ${biasDir} · Mid-Trend (Wait for Trade 2 Revisit or Sweep)`;
+            : `Bias: ${biasDir} · Mid-Trend (Magnet / Fresh Brick / Sweep)`
       return {
         side: 'WATCH',
         cls: 'wait',
         title: watchTitle,
-        subtitle: `${o.actionReason || 'Bias only — wait for a fresh Trade 1, Trade 2 revisit, or session sweep before entering'}${emaNote}.`,
+        subtitle: `${o.actionReason || 'Bias only — wait for magnet reaction, fresh Renko, Trade 1/2, or sweep'}${emaNote}.`,
         steps: [
-          `Do NOT enter mid-air: directional bias is ${biasDir}, but there is no fresh Trade 1 departure, decisive Trade 2 candle, or session sweep on this bar.`,
-          `Reference levels if a trigger prints — 1️⃣ Stop (${stopTag} on 15m): ${this._fmt(o.invalidation)}${stopPctStr} · 2️⃣ 50% TP (1:1): ${tp1Str}${oneRPctStr} · 3️⃣ Runner Trail: EMA 10/30 cross (Magnet ${this._fmt(o.bookZone)} · ${rrStr}).${stopWarn}`,
+          `Directional bias is ${biasDir}. ENTER needs a magnet rejection scalp, fresh Renko brick, Trade 1/2, or session sweep — not mid-air chase.`,
+          ...(magStep ? [magStep] : []),
+          `Reference if a trigger prints — 1️⃣ Stop (${stopTag} on 15m): ${this._fmt(o.invalidation)}${stopPctStr} · 2️⃣ 50% TP (1:1): ${tp1Str}${oneRPctStr} · 3️⃣ Runner Trail: EMA 10/30 cross (Magnet ${this._fmt(o.bookZone)} · ${rrStr}).${stopWarn}`,
           pivotStep,
           ...(liqStep ? [liqStep] : clockStep ? [clockStep] : []),
         ],
@@ -815,6 +825,11 @@ const RangeEmaUI = {
             const liveClk = (typeof RedBarTrend !== 'undefined' && RedBarTrend.istClockPhase) ? RedBarTrend.istClockPhase(nowMs) : o.playbook?.clock;
             const trigParts = [];
             if (a.side === 'WATCH' || a.side === 'WAIT') {
+              if (o.playbook?.magnetBelow) {
+                trigParts.push(`Fib Magnet ↓ ${o.playbook.magnetBelow.label} @ ${this._fmt(o.playbook.magnetBelow.price)}`);
+              } else if (o.playbook?.magnetAbove) {
+                trigParts.push(`Fib Magnet ↑ ${o.playbook.magnetAbove.label} @ ${this._fmt(o.playbook.magnetAbove.price)}`);
+              }
               if (o.renko?.nextBrickLevel != null) trigParts.push(`Fresh Brick @ ${this._fmt(o.renko.nextBrickLevel)}`);
               if (o.firstRed1h) trigParts.push(`1H Red Zone ${this._fmt(o.firstRed1h.low)}–${this._fmt(o.firstRed1h.high)}`);
             }
