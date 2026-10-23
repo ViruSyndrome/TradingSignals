@@ -498,13 +498,15 @@ const RangeEmaUI = {
         : null;
       const watchTitle = o.setupKind === 'trade2_watch'
         ? `Trade 2 Watch · Testing 1H Red Pivot (${biasDir} Bias)`
-        : o.setupKind === 'magnet_bounce_watch'
-          ? `Bias: ${biasDir} · Counter-trend Fib Bounce (Watch — not a flip)`
-          : o.setupKind === 'fib_pullback'
-            ? `Bias: ${biasDir} · Near Prior Fibs (Watch Magnet Tag)`
-            : o.setupKind === 'pivot_reversal'
-              ? `Bias Conflict · Crossed 1H Red vs Fibs (Stay Flat / Watch)`
-              : `Bias: ${biasDir} · Mid-Trend (Magnet / Fresh Brick / Sweep)`
+        : o.setupKind === 'magnet_reaction'
+          ? `Bias: ${biasDir} · Fib Magnet Tag (Watch — not auto-ENTER)`
+          : o.setupKind === 'magnet_bounce_watch'
+            ? `Bias: ${biasDir} · Counter-trend Fib Bounce (Watch — not a flip)`
+            : o.setupKind === 'fib_pullback'
+              ? `Bias: ${biasDir} · Near Prior Fibs (Watch Magnet Tag)`
+              : o.setupKind === 'pivot_reversal'
+                ? `Bias Conflict · Crossed 1H Red vs Fibs (Stay Flat / Watch)`
+                : `Bias: ${biasDir} · Mid-Trend (Trade 1/2 / Sweep / Continuation)`
       return {
         side: 'WATCH',
         cls: 'wait',

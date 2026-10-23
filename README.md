@@ -16,18 +16,19 @@ Educational only — the app does **not** place trades automatically.
 | **Red Bar Desk** | Primary screen (`CONFIG.ui.redBarOnly = true`) |
 | **`js/redbar_trend.js`** | 4-pillar engine: mark-window Fibs, 1H first-red Trade 1/Trade 2, session sweeps, `≥1.5R` liquidity magnet ladder, and `futuresSizing()` |
 | **`js/range_ema_ui.js`** | Interactive multi-instrument chart (`5m / 15m / 30m / 1h`), LONG/SHORT/WAIT action plan, and inline Futures Sizing strip |
-| **`redbar_desk_backtest.js`** | Walk-forward 30m + 1H Futures CLI backtester (0.08% round-trip fees, `+0.8R → BE` lock, `≥1.5R` targets) |
+| **`redbar_desk_backtest.js`** | Walk-forward **15m** + 1H Futures CLI (0.08% RT fees, by-setup / by-session / first-45m London·US reports) |
 | **Risk Calculator (`#riskSection`)** | Full Futures LONG & SHORT position size, isolated leverage, and liquidation price calculator |
 
 ## Walk-Forward Backtest CLI
 
 ```bash
-# Run 4,000-bar (83-day) 30m + 1H walk-forward backtest + live BTC/XAU readout
-node redbar_desk_backtest.js --live
-
-# Compare naive box-breakout vs Trade 1 + Trade 2 + Sweep + 0.8R BE lock
-node redbar_desk_backtest.js --compare
+# Run ~4000-bar 15m walk-forward (setup + London/US open reports) + optional live readout
+node redbar_desk_backtest.js BTCUSDT 4000
+node redbar_desk_backtest.js BTCUSDT 4000 --live
 ```
+
+Live ENTER setups (after Oct 2026 tune): **Trade 1**, **Trade 2**, **session sweep** only.  
+`magnet_reaction` / `session_continuation` stay WATCH (backtest bleed). First 45m of London/US blocks continuation/magnet re-enable.
 
 ## Disclaimer
 

@@ -1594,10 +1594,8 @@ const RedBarTrend = {
     const invalidation = levels.invalidation;
     const bookZone = levels.bookZone;
 
-    // Entry gate: only fresh Trade 1, decisive Trade 2, or a session sweep are "enter now".
-    // Everything else directional (trend_bias, fib_pullback, pivot_reversal, trade2_watch)
-    // is BIAS / WATCH — useful context, never an entry signal.
-    // CPR is a book magnet only (not an entry filter) to avoid stacking more WATCH reasons.
+    // Entry gate: Trade 1 / Trade 2 / sweep / (non-quiet) session_continuation only.
+    // magnet_reaction is WATCH context after walk-forward bleed; CPR is magnet-only.
     const { state: actionState, reason: actionReason } = this.entryGate({
       trend,
       setupKind,
@@ -1605,6 +1603,8 @@ const RedBarTrend = {
       stopStructural: levels.stopStructural,
       invalidationReason: levels.invalidationReason,
       renko,
+      clock,
+      asOfTs: bars[i].t,
     });
 
     const sizing = (actionState === 'enter' && invalidation != null && bookZone != null)
@@ -1710,26 +1710,52 @@ const RedBarTrend = {
     return this.readAt(bars, bars.length - 1, cfg);
   },
 
-  /** Setup kinds that may be traded immediately (everything else is bias / watch). */
-  ACTIONABLE_SETUPS: ['trade1_departure', 'trade2_confirmed', 'session_sweep', 'session_continuation', 'magnet_reaction'],
+  /**
+   * Setup kinds that may be traded immediately.
+   * Demoted after 15m walk-forward (BTC ~42d): magnet_reaction ≈−8.9%, session_continuation ≈−2.0%.
+   * Core Sagar path kept: Trade 1, Trade 2, session sweep.
+   */
+  ACTIONABLE_SETUPS: ['trade1_departure', 'trade2_confirmed', 'session_sweep'],
+
+  /** True in the first `quietMins` of London (12:30 IST) or US (16:30 IST). */
+  _inSessionQuietWindow(asOfTs, quietMins = 45) {
+    if (asOfTs == null) return false;
+    const z = this.zonedHms(asOfTs, 'Asia/Kolkata');
+    const mins = z.hour * 60 + z.minute;
+    if (mins >= 12 * 60 + 30 && mins < 12 * 60 + 30 + quietMins) return true; // London open
+    if (mins >= 16 * 60 + 30 && mins < 16 * 60 + 30 + quietMins) return true; // US open
+    return false;
+  },
 
   /**
    * Single source of truth for "enter now" vs "watch" vs "wait".
    * Used by the desk UI, the Telegram bot and the walk-forward backtest.
    */
-  entryGate({ trend, setupKind, rr, stopStructural, invalidationReason, renko }) {
+  entryGate({ trend, setupKind, rr, stopStructural, invalidationReason, renko, clock, asOfTs }) {
     if (trend !== 'bullish' && trend !== 'bearish') {
       return { state: 'wait', reason: 'No directional setup.' };
     }
     if (!this.ACTIONABLE_SETUPS.includes(setupKind)) {
       const why = {
-        trend_bias: 'Fib-break bias only — wait for a fresh Renko brick, with-trend magnet tag, Trade 2, or sweep.',
-        fib_pullback: 'Near prior Fibs — watch a with-trend magnet tag, fresh Renko, or Trade 1/2.',
+        trend_bias: 'Fib-break bias only — wait for Trade 1 departure, Trade 2 revisit, or session sweep.',
+        fib_pullback: 'Near prior Fibs — magnet is a target/watch, not an auto-ENTER.',
+        session_continuation: 'Session bias confirm — watch only after backtest bleed; prefer Trade 1/2 or sweep.',
+        magnet_reaction: 'Fib magnet tagged — shown for context; auto-ENTER disabled after backtest bleed.',
         magnet_bounce_watch: 'Counter-trend bounce off a Fib magnet — scalp only if you fade; desk bias unchanged until Renko flips.',
         pivot_reversal: 'Price crossed the 1H red against the fib bias — conflicting, wait.',
         trade2_watch: 'At the 1H red revisit, but the candle is not decisive yet — watch the close.',
       }[setupKind] || 'Bias only — not an entry.';
       return { state: 'watch', reason: why };
+    }
+    // Quiet window retained for any future re-enable of continuation/magnet ENTER.
+    if (
+      (setupKind === 'session_continuation' || setupKind === 'magnet_reaction')
+      && this._inSessionQuietWindow(asOfTs, 45)
+    ) {
+      return {
+        state: 'watch',
+        reason: 'London/US first 45m quiet window — wait for the open hunt to settle.',
+      };
     }
     if (renko && renko.overextendedBar && setupKind !== 'session_sweep') {
       return {
@@ -1743,7 +1769,7 @@ const RedBarTrend = {
     if (!stopStructural) {
       return { state: 'watch', reason: `Setup present but no real swing fits the stop window (${invalidationReason}).` };
     }
-    return { state: 'enter', reason: 'Fresh trigger · 8.33% ATR Brick OK · 50% TP at 1:1 + trail 50% till EMA 10/30 cross.' };
+    return { state: 'enter', reason: 'Fresh trigger · Stop set · 50% TP at 1:1 + trail 50% till EMA 10/30 cross.' };
   },
 
   _liquidityTip(clock, asiaHl, londonHl, asiaUntouched, sweep) {
