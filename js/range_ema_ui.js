@@ -211,7 +211,7 @@ const RangeEmaUI = {
       }
       DeskAlerts.setEnabled(true);
       this.state.alertsOn = true;
-      this._showDeskToast('ENTER alerts on — phone/OS banner when a Trade 1/2/sweep fires');
+      this._showDeskToast('Red Bar ENTER alerts on — Trade 1 / Trade 2 / sweep only');
     } else {
       DeskAlerts.setEnabled(false);
       this.state.alertsOn = false;
@@ -534,22 +534,18 @@ const RangeEmaUI = {
       : '';
     const bookTag = o.bookReason || 'liquidity magnet';
 
-    // 1. Actionable setups ONLY: Trade 1 fresh departure, Trade 2 decisive candle, or Session Sweep
+    // 1. Red Bar ENTER only: Trade 1 / Trade 2 / Session Sweep
     if (isActionable) {
       const setupLabel = o.setupKind === 'session_sweep'
-        ? `Session Sweep Reversal · Futures ${biasDir}`
-        : o.setupKind === 'magnet_reaction'
-          ? `Fib Magnet Reaction · Futures ${biasDir} (${o.playbook?.magnetReaction?.magnet?.label || 'prior Fib'})`
-          : o.setupKind === 'session_continuation'
-            ? `Session Continuation · Futures ${biasDir} (bias + fresh Renko)`
-            : o.setupKind === 'trade2_confirmed'
-              ? `Trade 2 Confirmed · Futures ${biasDir} (${red.revisitRead ? red.revisitRead.replace('_', ' ') : '1H red revisit'})`
-              : `Trade 1 Departure · Futures ${biasDir} (Left 1H Red)`;
+        ? `Red Bar · Session Sweep · Futures ${biasDir}`
+        : o.setupKind === 'trade2_confirmed'
+          ? `Red Bar · Trade 2 · Futures ${biasDir} (${red.revisitRead ? red.revisitRead.replace('_', ' ') : '1H red revisit'})`
+          : `Red Bar · Trade 1 · Futures ${biasDir} (Left 1H Red)`;
       return {
         side: biasDir,
         cls: biasDir === 'LONG' ? 'long' : 'short',
         title: setupLabel,
-        subtitle: `Actionable setup · ${o.actionReason || '15m Swing Stop set · 50% TP at 1:1 + trail 50% till EMA 10/30 cross'}${emaNote}.`,
+        subtitle: `Red Bar ENTER · ${o.actionReason || '15m Swing Stop · 50% TP at 1:1 + trail 50% till EMA 10/30 cross'}${emaNote}.`,
         steps: [
           `${hint}: Enter Futures ${biasDir} near ${this._fmt(o.price)}.`,
           `1️⃣ Stop-Loss First (${stopTag} on 15m): ${this._fmt(o.invalidation)}${stopPctStr}.${stopWarn}`,
@@ -571,28 +567,24 @@ const RangeEmaUI = {
       const magDown = o.playbook?.magnetBelow;
       const magUp = o.playbook?.magnetAbove;
       const magStep = (magDown || magUp)
-        ? `Prior Fib magnets: ${magDown ? `↓ ${magDown.label} ${this._fmt(magDown.price)}` : ''}${magDown && magUp ? ' · ' : ''}${magUp ? `↑ ${magUp.label} ${this._fmt(magUp.price)}` : ''} — scalp a rejection wick, or bank a runner here.`
+        ? `Fib levels (context): ${magDown ? `↓ ${magDown.label} ${this._fmt(magDown.price)}` : ''}${magDown && magUp ? ' · ' : ''}${magUp ? `↑ ${magUp.label} ${this._fmt(magUp.price)}` : ''} — not an ENTER by themselves.`
         : null;
       const watchTitle = o.setupKind === 'trade2_watch'
-        ? `Trade 2 Watch · Testing 1H Red Pivot (${biasDir} Bias)`
-        : o.setupKind === 'magnet_reaction'
-          ? `Bias: ${biasDir} · Fib Magnet Tag (Watch — not auto-ENTER)`
-          : o.setupKind === 'magnet_bounce_watch'
-            ? `Bias: ${biasDir} · Counter-trend Fib Bounce (Watch — not a flip)`
-            : o.setupKind === 'fib_pullback'
-              ? `Bias: ${biasDir} · Near Prior Fibs (Watch Magnet Tag)`
-              : o.setupKind === 'pivot_reversal'
-                ? `Bias Conflict · Crossed 1H Red vs Fibs (Stay Flat / Watch)`
-                : `Bias: ${biasDir} · Mid-Trend (Trade 1/2 / Sweep / Continuation)`
+        ? `Red Bar Watch · Testing 1H Red Pivot (${biasDir})`
+        : o.setupKind === 'fib_pullback'
+          ? `Red Bar Bias: ${biasDir} · Near mark-window Fibs`
+          : o.setupKind === 'pivot_reversal'
+            ? `Bias Conflict · Crossed 1H Red vs Fibs (Stay Flat)`
+            : `Red Bar Bias: ${biasDir} · Waiting Trade 1 / Trade 2 / Sweep`;
       return {
         side: 'WATCH',
         cls: 'wait',
         title: watchTitle,
-        subtitle: `${o.actionReason || 'Bias only — wait for magnet reaction, fresh Renko, Trade 1/2, or sweep'}${emaNote}.`,
+        subtitle: `${o.actionReason || 'Bias only — ENTER needs Trade 1 departure, Trade 2 revisit, or session sweep'}${emaNote}.`,
         steps: [
-          `Directional bias is ${biasDir}. ENTER needs a magnet rejection scalp, fresh Renko brick, Trade 1/2, or session sweep — not mid-air chase.`,
+          `Following Red Bar only. Bias is ${biasDir}. Do not chase mid-trend — wait for Trade 1 / Trade 2 / sweep.`,
           ...(magStep ? [magStep] : []),
-          `Reference if a trigger prints — 1️⃣ Stop (${stopTag} on 15m): ${this._fmt(o.invalidation)}${stopPctStr} · 2️⃣ 50% TP (1:1): ${tp1Str}${oneRPctStr} · 3️⃣ Runner Trail: EMA 10/30 cross (Magnet ${this._fmt(o.bookZone)} · ${rrStr}).${stopWarn}`,
+          `If a Red Bar trigger prints — 1️⃣ Stop (${stopTag} on 15m): ${this._fmt(o.invalidation)}${stopPctStr} · 2️⃣ 50% TP (1:1): ${tp1Str}${oneRPctStr} · 3️⃣ Runner Trail: EMA 10/30 cross (Stretch ${this._fmt(o.bookZone)} · ${rrStr}).${stopWarn}`,
           pivotStep,
           ...(liqStep ? [liqStep] : clockStep ? [clockStep] : []),
         ],
@@ -739,7 +731,7 @@ const RangeEmaUI = {
       <div class="section-heading">
         <h1>🟥 Red Bar Desk</h1>
         <p class="section-sub">
-          ${inst.label} on <strong>${tf}</strong>: session fibs · 1H first-red pivot · prior-day H/L · session clock.
+          ${inst.label} on <strong>${tf}</strong>: Red Bar only (Trade 1 / Trade 2 / sweep) · mark-window fibs drawn · 1H first-red · session clock.
           <span class="range-desk-meta">${inst.tradeHint || ''} · Updated ${when}${this.state.loading ? ' · refreshing…' : ''}</span>
         </p>
       </div>
@@ -912,19 +904,18 @@ const RangeEmaUI = {
             const liveClk = (typeof RedBarTrend !== 'undefined' && RedBarTrend.istClockPhase) ? RedBarTrend.istClockPhase(nowMs) : o.playbook?.clock;
             const trigParts = [];
             if (a.side === 'WATCH' || a.side === 'WAIT') {
-              if (o.playbook?.magnetBelow) {
-                trigParts.push(`Fib Magnet ↓ ${o.playbook.magnetBelow.label} @ ${this._fmt(o.playbook.magnetBelow.price)}`);
-              } else if (o.playbook?.magnetAbove) {
-                trigParts.push(`Fib Magnet ↑ ${o.playbook.magnetAbove.label} @ ${this._fmt(o.playbook.magnetAbove.price)}`);
-              }
-              if (o.renko?.nextBrickLevel != null) trigParts.push(`Fresh Brick @ ${this._fmt(o.renko.nextBrickLevel)}`);
               if (o.firstRed1h) trigParts.push(`1H Red Zone ${this._fmt(o.firstRed1h.low)}–${this._fmt(o.firstRed1h.high)}`);
+              if (o.playbook?.magnetBelow) {
+                trigParts.push(`Fib ↓ ${o.playbook.magnetBelow.label} @ ${this._fmt(o.playbook.magnetBelow.price)}`);
+              } else if (o.playbook?.magnetAbove) {
+                trigParts.push(`Fib ↑ ${o.playbook.magnetAbove.label} @ ${this._fmt(o.playbook.magnetAbove.price)}`);
+              }
             }
             return `<div class="range-chips" style="margin: 0 0 8px;">
-              ${o.renko ? `<span class="range-chip ${o.renko.dir === 1 ? 'pos' : o.renko.dir === -1 ? 'neg' : ''}">8.33% ATR Brick: ${this._fmt(o.renko.brickSize)} (${o.renko.brickPct.toFixed(2)}%) · Renko ${o.renko.dir === 1 ? 'BULL' : o.renko.dir === -1 ? 'BEAR' : 'FLAT'} (#${o.renko.bricksInRun}${o.renko.freshBrick ? ' · FRESH' : ' · wait fresh brick'}) · Flip ${this._fmt(o.renko.flipLevel)}</span>` : ''}
+              <span class="range-chip">Red Bar only</span>
               <span class="range-chip">⏱️ ${nextBarStr}</span>
               ${liveClk?.nextWindow ? `<span class="range-chip">🕒 ${liveClk.nextWindow}</span>` : liveClk?.label ? `<span class="range-chip">🕒 ${liveClk.label}</span>` : ''}
-              ${trigParts.length ? `<span class="range-chip">🎯 Auto-Trigger Watch: ${trigParts.join(' · ')}</span>` : ''}
+              ${trigParts.length ? `<span class="range-chip">🎯 Waiting: ${trigParts.join(' · ')}</span>` : ''}
             </div>`;
           })()}
           <ul class="rb-action-steps">${steps}</ul>
@@ -942,7 +933,7 @@ const RangeEmaUI = {
         <div class="rb-chart-toolbar">
           <div class="rb-chart-mode-group" role="group" aria-label="Chart style" style="display:flex;gap:4px;margin-right:8px;">
             <button type="button" class="rb-tf-btn${this.state.chartMode !== 'renko' ? ' active' : ''}" data-rb-chart-mode="candles" title="Standard Candlesticks">🕯️ Candles</button>
-            <button type="button" class="rb-tf-btn${this.state.chartMode === 'renko' ? ' active' : ''}" data-rb-chart-mode="renko" title="Dr. Dev 8.33% ATR Renko Bricks">🧱 Renko View</button>
+            <button type="button" class="rb-tf-btn${this.state.chartMode === 'renko' ? ' active' : ''}" data-rb-chart-mode="renko" title="Optional chart view only — not a Red Bar signal">🧱 Renko View</button>
           </div>
           <div class="rb-tf-group" role="group" aria-label="Chart timeframe">
             ${(c.timeframes || ['5m', '15m', '30m', '1h']).map((t) =>
@@ -984,10 +975,8 @@ const RangeEmaUI = {
       </div>
 
       <div class="range-chips">
+        <span class="range-chip">Following: Red Bar</span>
         <span class="range-chip">Fib bias: ${o.orBias}</span>
-        ${o.renko
-          ? `<span class="range-chip ${o.renko.dir === 1 ? 'pos' : o.renko.dir === -1 ? 'neg' : ''}">8.33% ATR Brick: ${this._fmt(o.renko.brickSize)} (${o.renko.brickPct.toFixed(2)}%) · Renko ${o.renko.dir === 1 ? 'BULL' : o.renko.dir === -1 ? 'BEAR' : 'FLAT'} (#${o.renko.bricksInRun}) · Flip ${this._fmt(o.renko.flipLevel)}</span>`
-          : ''}
         ${o.playbook?.clock
           ? `<span class="range-chip">${o.playbook.clock.label}</span>`
           : ''}
@@ -997,8 +986,7 @@ const RangeEmaUI = {
         ${o.playbook?.sweep
           ? `<span class="range-chip pos">${o.playbook.sweep.label}</span>`
           : ''}
-        <span class="range-chip">EMA: ${String((r.ema && r.ema.cross) || '').replace(/_/g, ' ')}</span>
-        <span class="range-chip ${r.emaAgree === 'agrees' ? 'pos' : r.emaAgree === 'disagrees' ? 'neg' : ''}">EMA ${r.emaAgree}</span>
+        <span class="range-chip" title="Exit management only — not an entry strategy">EMA trail: ${String((r.ema && r.ema.cross) || '').replace(/_/g, ' ')} · ${r.emaAgree}</span>
         ${(o.refs?.prevSwingHigh != null || o.refs?.prevSwingLow != null)
           ? `<span class="range-chip">15m Prev Swing H/L: ${this._fmt(o.refs.prevSwingHigh)} / ${this._fmt(o.refs.prevSwingLow)}</span>`
           : ''}
@@ -1583,7 +1571,7 @@ const RangeEmaUI = {
     let emaF;
     let emaS;
 
-    // Renko View uses the same buildRenkoSeries + brickSize as the ENTER gate chip
+    // Renko View is chart-only (not a strategy); brick size still used as spike ruler in entryGate
     if (isRenkoMode && typeof RedBarTrend !== 'undefined' && RedBarTrend.buildRenkoSeries) {
       const bSize = o.renko?.brickSize || (row.bars[row.bars.length - 1].c * 0.0018);
       const allBricks = RedBarTrend.buildRenkoSeries(row.bars, bSize);

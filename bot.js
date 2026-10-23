@@ -504,7 +504,10 @@ async function scanRedBarDesk() {
         `[RedBarBot] ${inst.id} (${inst.symbol}): state=${actionState.toUpperCase()} (${side}) | setup=${setupKind} | price=${readout.price} | stop=${readout.invalidation} (${readout.invalidationReason || '—'}) | book=${readout.bookZone} | RR=${readout.rr != null ? readout.rr.toFixed(2) : '—'}`
       );
 
-      if (actionState === 'enter' && (side === 'LONG' || side === 'SHORT')) {
+      const actionable = Array.isArray(RedBarTrend.ACTIONABLE_SETUPS)
+        && RedBarTrend.ACTIONABLE_SETUPS.includes(setupKind);
+      // Telegram: Red Bar ENTER only (Trade 1 / Trade 2 / session sweep)
+      if (actionState === 'enter' && actionable && (side === 'LONG' || side === 'SHORT')) {
         if (!alreadyAlerted) {
           const dec = inst.priceDecimals ?? 2;
           const fmt = (n) => (n != null && Number.isFinite(n) ? Number(n).toFixed(dec) : '—');
@@ -520,8 +523,8 @@ async function scanRedBarDesk() {
           const emoji = side === 'LONG' ? '🟢' : '🔴';
           const setupLabel = readout.playbook?.redSetup?.label || setupKind;
           const subject = `Red Bar ${side}: ${inst.label} · ${setupLabel}`;
-          // Quiet Telegram: short ENTER-only card (no watch spam, no essay)
-          const htmlMsg = `${emoji} <b>${inst.label} ${side}</b> · ${setupLabel}
+          // Quiet Telegram: Red Bar ENTER only (Trade 1 / 2 / sweep)
+          const htmlMsg = `${emoji} <b>Red Bar ${inst.label} ${side}</b> · ${setupLabel}
 Entry <b>$${fmt(readout.price)}</b> · Stop <b>$${fmt(readout.invalidation)}</b> · 1:1 <b>$${fmt(readout.tp1)}</b>${sz ? ` · ${sz.recLeverage}×` : ''}
 <a href="${deskUrl}">Desk</a> · <a href="${futLink}">Futures</a>`;
           const plainMsg = [

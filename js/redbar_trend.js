@@ -1489,63 +1489,24 @@ const RedBarTrend = {
       setupKind = 'session_sweep';
     }
 
+    // Renko / CPR / prior Fibs = chart context only. Not separate strategies.
+    // Do NOT promote session_continuation or magnet_reaction into setupKind —
+    // those playbooks are incomplete / OOS-weak and stay unwired until taught.
     const renko = this.computeRenko833(slice, istDay, dayMode);
     const cpr = this.computeCpr(bars, istDay, dayMode);
-    // Prefer 1H history for calendar-day Fib magnets (15m feed is capped ~10 days).
     const magnetBars = Array.isArray(c.bars1h) && c.bars1h.length ? c.bars1h : slice;
     const priorMagnets = this.collectPriorMagnets(bands, asOfDay, magnetBars, dayMode);
     const { below: magnetBelow, above: magnetAbove } = this.nearestMagnets(priorMagnets, price);
 
-    // Pre-London / London / US: Fib-break bias + confirming candle + fresh Renko brick
-    // (run ≤ 3, printed this/prior bar) → promote trend_bias / fib_pullback → session_continuation.
-    // Pre-London included so Asia morning Fib breaks are not stuck on WATCH until 12:30.
-    if (
-      (setupKind === 'trend_bias' || setupKind === 'fib_pullback')
-      && (clock.id === 'pre_london' || clock.id === 'london' || clock.id === 'us_open')
-      && ((trend === 'bearish' && redSetup.leftBelow) || (trend === 'bullish' && redSetup.leftAbove))
-    ) {
-      const cur = bars[i];
-      const prevBar = bars[i - 1];
-      const rng = cur.h - cur.l;
-      const body = Math.abs(cur.c - cur.o);
-      const renkoFreshAgree = renko
-        && renko.freshBrick
-        && ((trend === 'bullish' && renko.dir === 1) || (trend === 'bearish' && renko.dir === -1));
-      const confirms = rng > 0 && (body / rng) >= 0.18 && prevBar && renkoFreshAgree && (
-        (trend === 'bearish' && cur.c < cur.o && cur.c < prevBar.c)
-        || (trend === 'bullish' && cur.c > cur.o && cur.c > prevBar.c)
-      );
-      if (confirms) setupKind = 'session_continuation';
-    }
-
-    // Prior Fib / day magnet reaction (TV-style level tags mid-run).
-    // Only promote to ENTER when the reaction AGREES with Fib bias (orBias) —
-    // counter-trend bounces stay WATCH so the desk does not flip LONG/SHORT every 15m.
+    // Annotate nearest magnet touch for the chart; never flip Red Bar setup/trend.
     let magnetReaction = null;
     if (
       phase !== 'first_candle'
       && setupKind !== 'trade1_departure'
       && setupKind !== 'trade2_confirmed'
       && setupKind !== 'session_sweep'
-      && setupKind !== 'session_continuation'
     ) {
       magnetReaction = this.detectMagnetReaction(bars, i, priorMagnets, 0.25);
-      if (magnetReaction) {
-        const agreesBias = (orBias === 'bear' && magnetReaction.side === 'bearish')
-          || (orBias === 'bull' && magnetReaction.side === 'bullish');
-        const agreesRenko = renko && (
-          (magnetReaction.side === 'bearish' && renko.dir === -1)
-          || (magnetReaction.side === 'bullish' && renko.dir === 1)
-        );
-        if (agreesBias || agreesRenko) {
-          // With-trend magnet tag — actionable scalp in the existing direction
-          trend = magnetReaction.side;
-          setupKind = 'magnet_reaction';
-        } else if (setupKind === 'trend_bias' || setupKind === 'fib_pullback' || setupKind === 'wait') {
-          // Counter-trend bounce — surface as watch only; keep Fib bias trend
-          setupKind = 'magnet_bounce_watch';
-        }
-      }
     }
 
     const refs = {
@@ -1594,8 +1555,7 @@ const RedBarTrend = {
     const invalidation = levels.invalidation;
     const bookZone = levels.bookZone;
 
-    // Entry gate: Trade 1 / Trade 2 / sweep / (non-quiet) session_continuation only.
-    // magnet_reaction is WATCH context after walk-forward bleed; CPR is magnet-only.
+    // Entry gate: Red Bar only — Trade 1 / Trade 2 / session sweep.
     const { state: actionState, reason: actionReason } = this.entryGate({
       trend,
       setupKind,
@@ -1711,9 +1671,8 @@ const RedBarTrend = {
   },
 
   /**
-   * Setup kinds that may be traded immediately.
-   * Demoted after 15m walk-forward (BTC ~42d): magnet_reaction ≈−8.9%, session_continuation ≈−2.0%.
-   * Core Sagar path kept: Trade 1, Trade 2, session sweep.
+   * Red Bar only — setups that may ENTER.
+   * Continuation / magnet / Renko / EMA are not strategies on this desk until taught.
    */
   ACTIONABLE_SETUPS: ['trade1_departure', 'trade2_confirmed', 'session_sweep'],
 
@@ -1737,30 +1696,21 @@ const RedBarTrend = {
     }
     if (!this.ACTIONABLE_SETUPS.includes(setupKind)) {
       const why = {
-        trend_bias: 'Fib-break bias only — wait for Trade 1 departure, Trade 2 revisit, or session sweep.',
-        fib_pullback: 'Near prior Fibs — magnet is a target/watch, not an auto-ENTER.',
-        session_continuation: 'Session bias confirm — watch only after backtest bleed; prefer Trade 1/2 or sweep.',
-        magnet_reaction: 'Fib magnet tagged — shown for context; auto-ENTER disabled after backtest bleed.',
-        magnet_bounce_watch: 'Counter-trend bounce off a Fib magnet — scalp only if you fade; desk bias unchanged until Renko flips.',
-        pivot_reversal: 'Price crossed the 1H red against the fib bias — conflicting, wait.',
+        trend_bias: 'Red Bar bias only — wait for Trade 1 departure, Trade 2 revisit, or session sweep.',
+        fib_pullback: 'Near mark-window Fibs (context) — wait for Trade 1 / Trade 2 / sweep.',
+        session_continuation: 'Continuation is not active — Red Bar only (Trade 1 / 2 / sweep).',
+        magnet_reaction: 'Fib magnet is chart context — not a Red Bar ENTER.',
+        magnet_bounce_watch: 'Fib bounce is chart context — not a Red Bar ENTER.',
+        pivot_reversal: 'Price crossed the 1H red against Fib bias — conflicting, wait.',
         trade2_watch: 'At the 1H red revisit, but the candle is not decisive yet — watch the close.',
-      }[setupKind] || 'Bias only — not an entry.';
+      }[setupKind] || 'Red Bar: wait for Trade 1 / Trade 2 / session sweep.';
       return { state: 'watch', reason: why };
     }
-    // Quiet window retained for any future re-enable of continuation/magnet ENTER.
-    if (
-      (setupKind === 'session_continuation' || setupKind === 'magnet_reaction')
-      && this._inSessionQuietWindow(asOfTs, 45)
-    ) {
-      return {
-        state: 'watch',
-        reason: 'London/US first 45m quiet window — wait for the open hunt to settle.',
-      };
-    }
+    // Spike filter uses Renko brick size as a volatility ruler only (not a Renko strategy).
     if (renko && renko.overextendedBar && setupKind !== 'session_sweep') {
       return {
         state: 'watch',
-        reason: `Candle spiked >1.6× Renko brick ($${renko.brickSize.toFixed(0)}) in one bar — wait for pullback instead of chasing the spike.`,
+        reason: `Candle spiked >1.6× brick ruler ($${renko.brickSize.toFixed(0)}) in one bar — wait for pullback instead of chasing.`,
       };
     }
     if (!(rr >= 1.0)) {

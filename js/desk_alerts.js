@@ -62,6 +62,9 @@ const DeskAlerts = {
     return out;
   },
 
+  /** Red Bar ENTER setups only — ignore anything else. */
+  ACTIONABLE: ['trade1_departure', 'trade2_confirmed', 'session_sweep'],
+
   /**
    * Fire once per instrument+side+setup+day when action flips to ENTER.
    * @param {{ instrumentId: string, label: string, symbol: string, side: string, setupKind: string, title: string, price: number|string, stop: number|string, dayKey: string }} payload
@@ -71,6 +74,11 @@ const DeskAlerts = {
     if (typeof Notification === 'undefined') return false;
     if (Notification.permission !== 'granted') return false;
     if (!payload || (payload.side !== 'LONG' && payload.side !== 'SHORT')) return false;
+    const kind = payload.setupKind || '';
+    const ok = (typeof RedBarTrend !== 'undefined' && Array.isArray(RedBarTrend.ACTIONABLE_SETUPS))
+      ? RedBarTrend.ACTIONABLE_SETUPS.includes(kind)
+      : this.ACTIONABLE.includes(kind);
+    if (!ok) return false;
 
     const key = `RB_${payload.instrumentId}|${payload.side}|${payload.setupKind}|${payload.dayKey || ''}`;
     let map = this._prune(this._sentMap());
