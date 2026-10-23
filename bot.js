@@ -83,12 +83,20 @@ if (token && chatId) {
     bot.on('error', error => {
       console.error(`[Telegram] Bot error: ${error.message}`);
     });
-    console.log("📱 Telegram bot initialized with polling.");
+    console.log('📱 Telegram bot initialized with polling.');
   } else {
-    console.log("📱 Telegram bot initialized for outbound alerts only.");
+    console.log('📱 Telegram bot initialized for outbound alerts only (sendMessage).');
   }
+  // Boot ping so you know Render worker + chat id are alive (once per process start)
+  bot.sendMessage(
+    chatId,
+    '🟥 Red Bar bot online — will ping this chat on Trade 1 / Trade 2 / session-sweep ENTER only.',
+    { disable_notification: true }
+  ).then(() => console.log('[Telegram] Boot ping sent')).catch((err) => {
+    console.error('[Telegram] Boot ping FAILED — check TELEGRAM_BOT_TOKEN / TELEGRAM_CHAT_ID:', err.message);
+  });
 } else {
-  console.log("⚠️ Telegram keys missing from .env. Running in Twitter-only/Headless mode.");
+  console.log('⚠️ Telegram keys missing (TELEGRAM_BOT_TOKEN / TELEGRAM_CHAT_ID). PWA alerts still work; Telegram will not.');
 }
 
 // --- Portfolio Management ---
@@ -449,38 +457,63 @@ async function deliverRedBarAlert({ subject, htmlMsg, plainMsg, clickUrl }) {
   const hasTg = Boolean(bot && chatId);
   if (!hasEmail && !hasNtfy && !hasTg) {
     console.warn(
-      '[RedBarBot] ENTER fired but no alert channel configured. Set RESEND_API_KEY+ALERT_EMAIL and/or NTFY_TOPIC (see .env.example).'
+      '[RedBarBot] ENTER fired but Telegram not configured (TELEGRAM_BOT_TOKEN + TELEGRAM_CHAT_ID on Render).'
     );
     return false;
   }
-  const tasks = [];
+  let anyOk = false;
   if (hasTg) {
-    tasks.push(
-      bot.sendMessage(chatId, htmlMsg, { parse_mode: 'HTML', disable_web_page_preview: true })
-        .then(() => console.log('[RedBarBot] Telegram sent'))
-        .catch((err) => console.error('[RedBarBot] Telegram send failed:', err.message))
-    );
+    try {
+      await bot.sendMessage(chatId, htmlMsg, { parse_mode: 'HTML', disable_web_page_preview: true });
+      console.log('[RedBarBot] Telegram sent');
+      anyOk = true;
+    } catch (err) {
+      console.error('[RedBarBot] Telegram send failed:', err.message);
+    }
   }
   if (hasEmail) {
-    tasks.push(sendAlertEmail({ subject, html: htmlMsg.replace(/\n/g, '<br>'), text: plainMsg }));
+    anyOk = (await sendAlertEmail({ subject, html: htmlMsg.replace(/\n/g, '<br>'), text: plainMsg })) || anyOk;
   }
   if (hasNtfy) {
-    tasks.push(sendNtfy({ title: subject, body: plainMsg, clickUrl }));
+    anyOk = (await sendNtfy({ title: subject, body: plainMsg, clickUrl })) || anyOk;
   }
-  await Promise.allSettled(tasks);
-  return true;
+  return anyOk;
+}
+
+async function _deskBars(inst, interval, limit) {
+  if (inst.feed === 'yahoo') {
+    return API.getYahooOHLC(inst.symbol, interval, limit);
+  }
+  if (inst.feed === 'binanceFutures') {
+    try {
+      return await API.getFuturesOHLC(inst.symbol, interval, limit);
+    } catch (e) {
+      if (inst.fallbackSymbol) return API.getBinanceKlines(inst.fallbackSymbol, interval, limit);
+      throw e;
+    }
+  }
+  return API.getBinanceKlines(inst.symbol, interval, limit);
 }
 
 async function scanRedBarDesk() {
   const rbCfg = CONFIG.rangeEma || {};
-  const instruments = (rbCfg.instruments || []).filter((i) => i.feed === 'binanceSpot');
+  // All desk instruments (BTC spot, XAU futures, Nifty yahoo) — not spot-only
+  const instruments = Array.isArray(rbCfg.instruments) ? rbCfg.instruments : [];
   for (const inst of instruments) {
     try {
       const workTf = rbCfg.workingTf || '15m';
-      const [barsWork, bars1h] = await Promise.all([
-        API.getBinanceKlines(inst.symbol, workTf, 500),
-        API.getBinanceKlines(inst.symbol, '1h', 220),
+      const rawPair = await Promise.all([
+        _deskBars(inst, workTf, 500),
+        _deskBars(inst, '1h', 220),
       ]);
+      const toBars = (raw) => {
+        if (!raw || !raw.length) return [];
+        if (raw[0] && typeof raw[0].t === 'number') return raw;
+        // Binance-shaped [t,o,h,l,c,v]
+        return raw.map((k) => ({ t: +k[0], o: +k[1], h: +k[2], l: +k[3], c: +k[4] }));
+      };
+      const barsWork = toBars(rawPair[0]);
+      const bars1h = toBars(rawPair[1]);
       if (!barsWork || barsWork.length < 40) continue;
       const lastT = barsWork[barsWork.length - 1].t;
       const calDay = RedBarTrend.dayKey(lastT, inst.dayMode || rbCfg.dayMode || 'ist');
