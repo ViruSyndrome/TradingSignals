@@ -364,6 +364,113 @@ async function fetchFearGreed() {
   } catch { return undefined; }
 }
 
+function stripHtml(html) {
+  return String(html || '')
+    .replace(/<br\s*\/?>/gi, '\n')
+    .replace(/<\/p>/gi, '\n')
+    .replace(/<[^>]+>/g, '')
+    .replace(/&amp;/g, '&')
+    .replace(/&lt;/g, '<')
+    .replace(/&gt;/g, '>')
+    .replace(/&nbsp;/g, ' ')
+    .trim();
+}
+
+/** Email (Resend) — set RESEND_API_KEY + ALERT_EMAIL. No Telegram required. */
+async function sendAlertEmail({ subject, html, text }) {
+  const apiKey = envTrim('RESEND_API_KEY');
+  const to = envTrim('ALERT_EMAIL');
+  if (!apiKey || !to) return false;
+  const from = envTrim('ALERT_EMAIL_FROM') || 'TrendRunner <onboarding@resend.dev>';
+  try {
+    const res = await fetch('https://api.resend.com/emails', {
+      method: 'POST',
+      headers: {
+        Authorization: `Bearer ${apiKey}`,
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({
+        from,
+        to: [to],
+        subject,
+        html,
+        text: text || stripHtml(html),
+      }),
+    });
+    if (!res.ok) {
+      const body = await res.text().catch(() => '');
+      console.error(`[AlertEmail] Resend ${res.status}: ${body.slice(0, 300)}`);
+      return false;
+    }
+    console.log(`[AlertEmail] Sent to ${to}: ${subject}`);
+    return true;
+  } catch (e) {
+    console.error('[AlertEmail] Failed:', e.message);
+    return false;
+  }
+}
+
+/**
+ * Phone push without Telegram — ntfy.sh (or self-hosted).
+ * Set NTFY_TOPIC (e.g. trendrunner-vinod-secret) and optionally NTFY_URL / NTFY_TOKEN.
+ */
+async function sendNtfy({ title, body, clickUrl }) {
+  const topic = envTrim('NTFY_TOPIC');
+  if (!topic) return false;
+  const base = (envTrim('NTFY_URL') || 'https://ntfy.sh').replace(/\/$/, '');
+  const url = `${base}/${encodeURIComponent(topic)}`;
+  const headers = {
+    Title: title || 'TrendRunner ENTER',
+    Priority: 'high',
+    Tags: 'chart_with_upwards_trend,rotating_light',
+    'Content-Type': 'text/plain; charset=utf-8',
+  };
+  const token = envTrim('NTFY_TOKEN');
+  if (token) headers.Authorization = `Bearer ${token}`;
+  if (clickUrl) headers.Click = clickUrl;
+  try {
+    const res = await fetch(url, { method: 'POST', headers, body: body || title });
+    if (!res.ok) {
+      const t = await res.text().catch(() => '');
+      console.error(`[ntfy] ${res.status}: ${t.slice(0, 200)}`);
+      return false;
+    }
+    console.log(`[ntfy] Pushed: ${title}`);
+    return true;
+  } catch (e) {
+    console.error('[ntfy] Failed:', e.message);
+    return false;
+  }
+}
+
+async function deliverRedBarAlert({ subject, htmlMsg, plainMsg, clickUrl }) {
+  const hasEmail = Boolean(envTrim('RESEND_API_KEY') && envTrim('ALERT_EMAIL'));
+  const hasNtfy = Boolean(envTrim('NTFY_TOPIC'));
+  const hasTg = Boolean(bot && chatId);
+  if (!hasEmail && !hasNtfy && !hasTg) {
+    console.warn(
+      '[RedBarBot] ENTER fired but no alert channel configured. Set RESEND_API_KEY+ALERT_EMAIL and/or NTFY_TOPIC (see .env.example).'
+    );
+    return false;
+  }
+  const tasks = [];
+  if (hasTg) {
+    tasks.push(
+      bot.sendMessage(chatId, htmlMsg, { parse_mode: 'HTML', disable_web_page_preview: true })
+        .then(() => console.log('[RedBarBot] Telegram sent'))
+        .catch((err) => console.error('[RedBarBot] Telegram send failed:', err.message))
+    );
+  }
+  if (hasEmail) {
+    tasks.push(sendAlertEmail({ subject, html: htmlMsg.replace(/\n/g, '<br>'), text: plainMsg }));
+  }
+  if (hasNtfy) {
+    tasks.push(sendNtfy({ title: subject, body: plainMsg, clickUrl }));
+  }
+  await Promise.allSettled(tasks);
+  return true;
+}
+
 async function scanRedBarDesk() {
   const rbCfg = CONFIG.rangeEma || {};
   const instruments = (rbCfg.instruments || []).filter((i) => i.feed === 'binanceSpot');
@@ -384,6 +491,7 @@ async function scanRedBarDesk() {
         ...rbCfg,
         ...inst,
         firstRed1h,
+        bars1h,
       });
       if (!readout) continue;
       const side = readout.trend === 'bullish' ? 'LONG' : readout.trend === 'bearish' ? 'SHORT' : 'WAIT';
@@ -407,25 +515,33 @@ async function scanRedBarDesk() {
             capital: 1000,
             riskPct: 1,
           });
+          const deskUrl = envTrim('DESK_URL') || 'https://trendrunner.app';
           const futLink = `https://www.binance.com/en/futures/${inst.symbol}?ref=TRENDRUNNER`;
           const emoji = side === 'LONG' ? '🟢' : '🔴';
-          const msg = `${emoji} <b>RED BAR FUTURES ${side}: ${inst.label} (${inst.symbol})</b>
-Setup: <b>${readout.playbook?.redSetup?.label || setupKind}</b> (${readout.playbook?.clock?.label || 'Session'})
-Entry Lean (15m): <b>$${fmt(readout.price)}</b>
-🛑 1. Stop-Loss (${readout.invalidationReason || '15m prev swing'}): <b>$${fmt(readout.invalidation)}</b> (-${(readout.stopPct || 0).toFixed(2)}%)
-✅ 2. 50% TP (1:1): <b>$${fmt(readout.tp1)}</b> (+${(readout.stopPct || 0).toFixed(2)}% · Bank 50% &amp; move SL to BE)
-📈 3. 50% Runner: <b>Trail till EMA 10/30 cross</b> (Stretch $${fmt(readout.bookZone)} · 1:${(readout.rr || 0).toFixed(2)} R:R)${sz ? `\n⚡ Safe Iso Leverage: <b>${sz.recLeverage}×</b> (max ${sz.maxSafeLeverage}× · Est. Liq $${fmt(sz.liqPrice)})` : ''}
+          const setupLabel = readout.playbook?.redSetup?.label || setupKind;
+          const subject = `Red Bar ${side}: ${inst.label} · ${setupLabel}`;
+          // Quiet Telegram: short ENTER-only card (no watch spam, no essay)
+          const htmlMsg = `${emoji} <b>${inst.label} ${side}</b> · ${setupLabel}
+Entry <b>$${fmt(readout.price)}</b> · Stop <b>$${fmt(readout.invalidation)}</b> · 1:1 <b>$${fmt(readout.tp1)}</b>${sz ? ` · ${sz.recLeverage}×` : ''}
+<a href="${deskUrl}">Desk</a> · <a href="${futLink}">Futures</a>`;
+          const plainMsg = [
+            `${inst.label} ${side} · ${setupLabel}`,
+            `Entry $${fmt(readout.price)} · Stop $${fmt(readout.invalidation)} · 1:1 $${fmt(readout.tp1)}`,
+            deskUrl,
+          ].join('\n');
 
-🔗 <a href="${futLink}">Trade ${inst.symbol} Perp on Binance Futures</a> · <a href="https://trendrunner.app">Open Red Bar Desk</a>`;
-
-          if (bot && chatId) {
-            bot.sendMessage(chatId, msg, { parse_mode: 'HTML', disable_web_page_preview: true })
-              .catch((err) => console.error('[RedBarBot] Telegram send failed:', err.message));
+          const delivered = await deliverRedBarAlert({
+            subject,
+            htmlMsg,
+            plainMsg,
+            clickUrl: deskUrl,
+          });
+          if (delivered) {
+            lastAlerted[`RB_${inst.id}`] = alertKey;
+            saveAlertState(lastAlerted);
           }
-          lastAlerted[`RB_${inst.id}`] = alertKey;
-          saveAlertState(lastAlerted);
         }
-      } else if (side === 'WAIT') {
+      } else if (actionState !== 'enter') {
         delete lastAlerted[`RB_${inst.id}`];
         saveAlertState(lastAlerted);
       }
@@ -741,8 +857,12 @@ If you sell, reply /sell ${asset.symbol}`;
   }
 }
 
-// Scan every 1 hour (3600000 ms)
-setInterval(scanMarket, 3600000);
+// Red Bar ENTER needs ~1–2m cadence; legacy multi-coin scan stays hourly.
+const REDBAR_SCAN_MS = Number(process.env.REDBAR_SCAN_MS) || 120000;
+const LEGACY_SCAN_MS = 3600000;
+const scanEveryMs = CONFIG.ui?.redBarOnly ? REDBAR_SCAN_MS : LEGACY_SCAN_MS;
+setInterval(scanMarket, scanEveryMs);
+console.log(`[Bot] Scan interval ${scanEveryMs / 1000}s (redBarOnly=${Boolean(CONFIG.ui?.redBarOnly)})`);
 
 // Delay first scan so Render restarts do not immediately re-trigger a Binance 418 ban
 setTimeout(scanMarket, 20000);

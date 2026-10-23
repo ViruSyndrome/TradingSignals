@@ -20,6 +20,7 @@ const RangeEmaUI = {
     loading: false,
     capital: 1000,
     riskPct: 1,
+    alertsOn: true,
   },
 
   cfg() {
@@ -181,6 +182,9 @@ const RangeEmaUI = {
       if (Number.isFinite(savedCap) && savedCap > 0) this.state.capital = savedCap;
       const savedRisk = Number(localStorage.getItem('trendrunner_rb_risk_pct'));
       if (Number.isFinite(savedRisk) && savedRisk > 0 && savedRisk <= 25) this.state.riskPct = savedRisk;
+      if (typeof DeskAlerts !== 'undefined') {
+        this.state.alertsOn = DeskAlerts.enabled();
+      }
     } catch (_) {}
     // Paint shell immediately so we never sit on the static "Loading…" HTML
     this.state.loading = true;
@@ -190,11 +194,77 @@ const RangeEmaUI = {
     this._timer = setInterval(() => this.refresh(), 60 * 1000);
   },
 
+  async _toggleAlerts() {
+    if (typeof DeskAlerts === 'undefined') {
+      this._showDeskToast('Alerts module missing — hard refresh');
+      return;
+    }
+    if (!this.state.alertsOn) {
+      const perm = await DeskAlerts.requestPermission();
+      if (perm === 'denied' || perm === 'unsupported') {
+        this._showDeskToast(
+          perm === 'unsupported'
+            ? 'This browser does not support notifications'
+            : 'Notifications blocked — enable them in browser site settings'
+        );
+        return;
+      }
+      DeskAlerts.setEnabled(true);
+      this.state.alertsOn = true;
+      this._showDeskToast('ENTER alerts on — phone/OS banner when a Trade 1/2/sweep fires');
+    } else {
+      DeskAlerts.setEnabled(false);
+      this.state.alertsOn = false;
+      this._showDeskToast('ENTER alerts off');
+    }
+    this.render();
+  },
+
+  _showDeskToast(msg) {
+    if (typeof Dashboard !== 'undefined' && Dashboard._showToast) {
+      Dashboard._showToast(msg, 'info');
+      return;
+    }
+    try { console.info('[DeskAlerts]', msg); } catch (_) {}
+  },
+
+  _notifyIfEnter(row) {
+    if (typeof DeskAlerts === 'undefined' || !row || row.error) return;
+    const a = row.action;
+    const o = row.readout;
+    const inst = row.instrument || this.activeInstrument() || {};
+    const isEnter = a?.side === 'LONG' || a?.side === 'SHORT';
+    const actionable = o?.actionState === 'enter' && isEnter;
+    if (!actionable) {
+      DeskAlerts.clearInstrument(inst.id || inst.symbol);
+      return;
+    }
+    const fmt = (n) => {
+      if (n == null || !Number.isFinite(Number(n))) return null;
+      const d = inst.priceDecimals ?? 2;
+      return Number(n).toFixed(d);
+    };
+    DeskAlerts.maybeNotifyEnter({
+      instrumentId: inst.id || inst.symbol,
+      label: inst.label || inst.symbol,
+      symbol: inst.symbol,
+      side: a.side,
+      setupKind: o.setupKind || 'enter',
+      title: a.title || o.setupKind,
+      price: fmt(a.entry ?? o.price),
+      stop: fmt(o.invalidation),
+      dayKey: o.asOfDay || '',
+    });
+  },
+
   _friendlyErr(e) {
     const name = e?.name || '';
     const msg = e?.message || String(e || 'Unknown error');
     if (name === 'AbortError' || /abort/i.test(msg) || /timed?\s*out/i.test(msg)) {
-      return 'Feed timed out — retrying… tap the tab again if it stays blank';
+      return 'Feed timed out — hard-refresh once, then tap Nifty again';
+    }
+    if (/failed to fetch|networkerror|load failed/i.test(msg)) {
+      return 'Nifty network blocked — hard-refresh (or clear site data) so the new Yahoo proxy loads';
     }
     return msg;
   },
@@ -221,27 +291,30 @@ const RangeEmaUI = {
     ]);
 
     try {
-      const flaky = (err) => /abort|timed?\s*out|failed to fetch|network|load failed/i.test(String(err || ''));
-      // Hard ceiling so a hung Yahoo/CORS proxy can never leave the desk blank forever
-      let row = await withTimeout(this._buildRow(inst, c), 22000, `${inst?.label || 'Desk'} feed`);
+      const flaky = (err) => /abort|timed?\s*out|failed to fetch|network|load failed|unreachable/i.test(String(err || ''));
+      // Yahoo hops through Supabase — give Nifty more headroom than Binance
+      const ceiling = inst?.feed === 'yahoo' ? 45000 : 22000;
+      const retryMs = inst?.feed === 'yahoo' ? 35000 : 18000;
+      let row = await withTimeout(this._buildRow(inst, c), ceiling, `${inst?.label || 'Desk'} feed`);
       for (let attempt = 0; attempt < 1; attempt++) {
         if (gen !== this._refreshGen) return;
         if (!row?.error || !flaky(row.error)) break;
         await new Promise((r) => setTimeout(r, 500));
         if (gen !== this._refreshGen) return;
-        row = await withTimeout(this._buildRow(inst, c), 18000, `${inst?.label || 'Desk'} retry`);
+        row = await withTimeout(this._buildRow(inst, c), retryMs, `${inst?.label || 'Desk'} retry`);
       }
       if (gen !== this._refreshGen) return;
-      // If Yahoo 5m failed, fall back to 30m once so the desk recovers
+      // If Yahoo 5m failed, fall back to 15m once so the desk recovers
       if (row?.error && inst?.feed === 'yahoo' && this.activeTf() === '5m') {
-        this.state.tf = '30m';
-        try { localStorage.setItem('trendrunner_rb_tf', '30m'); } catch (_) {}
-        row = await withTimeout(this._buildRow(inst, c), 18000, 'Nifty 30m fallback');
+        this.state.tf = '15m';
+        try { localStorage.setItem('trendrunner_rb_tf_v2', '15m'); } catch (_) {}
+        row = await withTimeout(this._buildRow(inst, c), retryMs, 'Nifty 15m fallback');
       }
       if (gen !== this._refreshGen) return;
       this.state.rows = [row];
       this.state.updatedAt = Date.now();
       this.state.error = row?.error || null;
+      this._notifyIfEnter(row);
     } catch (e) {
       if (gen !== this._refreshGen) return;
       this.state.error = this._friendlyErr(e);
@@ -306,11 +379,19 @@ const RangeEmaUI = {
       : (inst || this.activeInstrument());
     const tf = this.activeTf();
     const lim = this._ohlcLimit(tf, c, instrument);
+    const lim1h = this._ohlcLimit('1h', c, instrument);
     let raw;
+    let raw1h = null;
     try {
-      raw = typeof API.getDeskOHLC === 'function'
-        ? await API.getDeskOHLC(instrument, tf, lim)
-        : await API.getCryptoOHLC(instrument.symbol, tf, lim);
+      const get = (iv, n) => (typeof API.getDeskOHLC === 'function'
+        ? API.getDeskOHLC(instrument, iv, n)
+        : API.getCryptoOHLC(instrument.symbol, iv, n));
+      // Parallel work-TF + 1H so Nifty (Yahoo proxy) does not stack two serial 18s waits
+      const pair = await Promise.allSettled([get(tf, lim), get('1h', lim1h)]);
+      if (pair[0].status !== 'fulfilled') throw pair[0].reason;
+      raw = pair[0].value;
+      if (pair[1].status === 'fulfilled') raw1h = pair[1].value;
+      else console.warn('[RangeEmaUI] 1H first-red fetch failed:', pair[1].reason?.message || pair[1].reason);
     } catch (e) {
       return {
         symbol: instrument.symbol,
@@ -343,13 +424,9 @@ const RangeEmaUI = {
 
     // Sagar pivot: first CLOSED 1H red AFTER the calendar day’s first candle
     // (never the open bar itself). Calendar IST day — not mark-window session day.
-    // Keep 1H bars for prior calendar-day Fib magnets (15m history is only ~10d on Binance).
     let firstRed1h = null;
     let bars1h = null;
     try {
-      const raw1h = typeof API.getDeskOHLC === 'function'
-        ? await API.getDeskOHLC(instrument, '1h', 400)
-        : await API.getCryptoOHLC(instrument.symbol, '1h', 400);
       bars1h = this._klinesToBars(raw1h);
       if (bars1h.length >= 24) {
         const lastT = bars30[bars30.length - 1].t;
@@ -361,7 +438,7 @@ const RangeEmaUI = {
         });
       }
     } catch (e) {
-      console.warn('[RangeEmaUI] 1H first-red fetch failed:', e.message || e);
+      console.warn('[RangeEmaUI] 1H first-red parse failed:', e.message || e);
     }
 
     const readout = RedBarTrend.read(bars30, { ...readCfg, firstRed1h, bars1h });
@@ -580,11 +657,14 @@ const RangeEmaUI = {
 
   _tabsHtml(inst) {
     const loading = !!this.state.loading;
-    return this.instruments().map((x) => {
+    const instBtns = this.instruments().map((x) => {
       const active = x.id === inst.id;
       const cls = `rb-inst-btn${active ? ' active' : ''}${active && loading ? ' is-loading' : ''}`;
       return `<button type="button" class="${cls}" data-rb-inst="${x.id}"${loading && active ? ' aria-busy="true"' : ''}>${x.label}${active && loading ? ' …' : ''}</button>`;
     }).join('');
+    const alertsOn = this.state.alertsOn !== false;
+    const alertBtn = `<button type="button" class="rb-inst-btn rb-alert-btn${alertsOn ? ' active' : ''}" id="rbAlertsToggle" title="OS/app banner on ENTER. Server email/ntfy when the tab is closed." aria-pressed="${alertsOn ? 'true' : 'false'}">${alertsOn ? 'Alerts ON' : 'Alerts OFF'}</button>`;
+    return instBtns + alertBtn;
   },
 
   render() {
@@ -672,6 +752,9 @@ const RangeEmaUI = {
   },
 
   _bindChartControls() {
+    document.getElementById('rbAlertsToggle')?.addEventListener('click', () => {
+      this._toggleAlerts();
+    });
     document.querySelectorAll('[data-rb-inst]').forEach((btn) => {
       btn.addEventListener('click', () => this.setInstrument(btn.getAttribute('data-rb-inst')));
     });

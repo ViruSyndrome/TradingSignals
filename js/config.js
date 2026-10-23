@@ -194,6 +194,14 @@ const CONFIG = {
   },
   // Signal thresholds are defined in signals.js LEVELS object.
 
+  // ─── Market data proxies (browser cannot hit Yahoo directly — no CORS) ─────
+  market: {
+    // Supabase edge function — public Nifty/^NSEI chart proxy
+    yahooProxyUrl: 'https://ogoljnujatnlttrpjpxr.supabase.co/functions/v1/yahoo-chart',
+    // Optional Render bot base (also serves /api/yahoo/chart if deployed)
+    proxyBaseUrl: '',
+  },
+
   // ─── Owner click-to-trade (Render bot; keys never in browser) ──────────────
   trade: {
     // Public Render URL of bot.js (no trailing slash). Override in localStorage trade_bot_url.

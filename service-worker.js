@@ -1,7 +1,27 @@
-const CACHE_NAME = 'trendrunner-cache-v164';
+const CACHE_NAME = 'trendrunner-cache-v167';
 
 self.addEventListener('message', event => {
   if (event.data?.type === 'SKIP_WAITING') self.skipWaiting();
+});
+
+// Red Bar ENTER banners (from desk or future Web Push)
+self.addEventListener('notificationclick', event => {
+  event.notification.close();
+  const targetUrl = './index.html';
+  event.waitUntil(
+    self.clients.matchAll({ type: 'window', includeUncontrolled: true }).then(clientList => {
+      for (const client of clientList) {
+        if ('focus' in client) {
+          client.focus();
+          try {
+            client.postMessage({ type: 'RB_ALERT_OPEN', data: event.notification.data || {} });
+          } catch (_) {}
+          return;
+        }
+      }
+      if (self.clients.openWindow) return self.clients.openWindow(targetUrl);
+    })
+  );
 });
 const urlsToCache = [
   './',

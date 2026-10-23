@@ -2963,6 +2963,15 @@ body.redbar-only .site-footer-copyright {
   border-color: rgba(124, 106, 245, 0.65);
   color: #f8fafc;
 }
+.rb-alert-btn {
+  margin-left: auto;
+  letter-spacing: 0.02em;
+}
+.rb-alert-btn.active {
+  background: rgba(34, 197, 94, 0.22);
+  border-color: rgba(34, 197, 94, 0.55);
+  color: #ecfdf5;
+}
 .rb-inst-btn.is-loading {
   opacity: 0.85;
 }
