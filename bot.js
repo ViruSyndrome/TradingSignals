@@ -480,6 +480,20 @@ async function deliverRedBarAlert({ subject, htmlMsg, plainMsg, clickUrl }) {
   return anyOk;
 }
 
+function _withTimeout(promise, ms, label) {
+  return Promise.race([
+    promise,
+    new Promise((_, rej) => setTimeout(() => rej(new Error(`${label} timed out after ${ms}ms`)), ms)),
+  ]);
+}
+
+function _escHtml(s) {
+  return String(s ?? '')
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;');
+}
+
 async function _deskBars(inst, interval, limit) {
   if (inst.feed === 'yahoo') {
     return API.getYahooOHLC(inst.symbol, interval, limit);
@@ -495,92 +509,105 @@ async function _deskBars(inst, interval, limit) {
   return API.getBinanceKlines(inst.symbol, interval, limit);
 }
 
-async function scanRedBarDesk() {
-  const rbCfg = CONFIG.rangeEma || {};
-  // All desk instruments (BTC spot, XAU futures, Nifty yahoo) — not spot-only
-  const instruments = Array.isArray(rbCfg.instruments) ? rbCfg.instruments : [];
-  for (const inst of instruments) {
-    try {
-      const workTf = rbCfg.workingTf || '15m';
-      const rawPair = await Promise.all([
-        _deskBars(inst, workTf, 500),
-        _deskBars(inst, '1h', 220),
-      ]);
-      const toBars = (raw) => {
-        if (!raw || !raw.length) return [];
-        if (raw[0] && typeof raw[0].t === 'number') return raw;
-        // Binance-shaped [t,o,h,l,c,v]
-        return raw.map((k) => ({ t: +k[0], o: +k[1], h: +k[2], l: +k[3], c: +k[4] }));
-      };
-      const barsWork = toBars(rawPair[0]);
-      const bars1h = toBars(rawPair[1]);
-      if (!barsWork || barsWork.length < 40) continue;
-      const lastT = barsWork[barsWork.length - 1].t;
-      const calDay = RedBarTrend.dayKey(lastT, inst.dayMode || rbCfg.dayMode || 'ist');
-      const firstRed1h = bars1h && bars1h.length >= 24
-        ? RedBarTrend.firstRedBarOfSession(bars1h, calDay, { ...rbCfg, ...inst, asOfTs: lastT, barMs: 3600000 })
-        : null;
-      const readout = RedBarTrend.readAt(barsWork, barsWork.length - 1, {
-        ...rbCfg,
-        ...inst,
-        firstRed1h,
-        bars1h,
-      });
-      if (!readout) continue;
-      const side = readout.trend === 'bullish' ? 'LONG' : readout.trend === 'bearish' ? 'SHORT' : 'WAIT';
-      const setupKind = readout.setupKind || 'wait';
-      const actionState = readout.actionState || 'wait';
-      const alertKey = `${side}|${setupKind}|${readout.asOfDay || ''}`;
-      const alreadyAlerted = lastAlerted[`RB_${inst.id}`] === alertKey;
+async function _scanOneRedBarInstrument(inst, rbCfg) {
+  const workTf = rbCfg.workingTf || '15m';
+  const rawPair = await _withTimeout(
+    Promise.all([
+      _deskBars(inst, workTf, 500),
+      _deskBars(inst, '1h', 220),
+    ]),
+    25000,
+    `${inst.id} OHLC`
+  );
+  const toBars = (raw) => {
+    if (!raw || !raw.length) return [];
+    if (raw[0] && typeof raw[0].t === 'number') return raw;
+    return raw.map((k) => ({ t: +k[0], o: +k[1], h: +k[2], l: +k[3], c: +k[4] }));
+  };
+  const barsWork = toBars(rawPair[0]);
+  const bars1h = toBars(rawPair[1]);
+  if (!barsWork || barsWork.length < 40) {
+    console.warn(`[RedBarBot] ${inst.id}: not enough bars (${barsWork?.length || 0})`);
+    return;
+  }
+  const lastT = barsWork[barsWork.length - 1].t;
+  const calDay = RedBarTrend.dayKey(lastT, inst.dayMode || rbCfg.dayMode || 'ist');
+  const firstRed1h = bars1h && bars1h.length >= 24
+    ? RedBarTrend.firstRedBarOfSession(bars1h, calDay, { ...rbCfg, ...inst, asOfTs: lastT, barMs: 3600000 })
+    : null;
+  const readout = RedBarTrend.readAt(barsWork, barsWork.length - 1, {
+    ...rbCfg,
+    ...inst,
+    firstRed1h,
+    bars1h,
+  });
+  if (!readout) return;
+  const side = readout.trend === 'bullish' ? 'LONG' : readout.trend === 'bearish' ? 'SHORT' : 'WAIT';
+  const setupKind = readout.setupKind || 'wait';
+  const actionState = readout.actionState || 'wait';
+  const alertKey = `${side}|${setupKind}|${readout.asOfDay || ''}`;
+  const alreadyAlerted = lastAlerted[`RB_${inst.id}`] === alertKey;
 
-      console.log(
-        `[RedBarBot] ${inst.id} (${inst.symbol}): state=${actionState.toUpperCase()} (${side}) | setup=${setupKind} | price=${readout.price} | stop=${readout.invalidation} (${readout.invalidationReason || '—'}) | book=${readout.bookZone} | RR=${readout.rr != null ? readout.rr.toFixed(2) : '—'}`
-      );
+  console.log(
+    `[RedBarBot] ${inst.id} (${inst.symbol}): state=${actionState.toUpperCase()} (${side}) | setup=${setupKind} | price=${readout.price} | stop=${readout.invalidation} (${readout.invalidationReason || '—'}) | book=${readout.bookZone} | RR=${readout.rr != null ? readout.rr.toFixed(2) : '—'}`
+  );
 
-      const actionable = Array.isArray(RedBarTrend.ACTIONABLE_SETUPS)
-        && RedBarTrend.ACTIONABLE_SETUPS.includes(setupKind);
-      // Telegram: Red Bar ENTER only (Trade 1 / Trade 2 / session sweep)
-      if (actionState === 'enter' && actionable && (side === 'LONG' || side === 'SHORT')) {
-        if (!alreadyAlerted) {
-          const dec = inst.priceDecimals ?? 2;
-          const fmt = (n) => (n != null && Number.isFinite(n) ? Number(n).toFixed(dec) : '—');
-          const sz = readout.sizing || RedBarTrend.futuresSizing({
-            entry: readout.price,
-            stop: readout.invalidation,
-            exit: readout.bookZone,
-            capital: 1000,
-            riskPct: 1,
-          });
-          const deskUrl = envTrim('DESK_URL') || 'https://trendrunner.app';
-          const futLink = `https://www.binance.com/en/futures/${inst.symbol}?ref=TRENDRUNNER`;
-          const emoji = side === 'LONG' ? '🟢' : '🔴';
-          const setupLabel = readout.playbook?.redSetup?.label || setupKind;
-          const subject = `Red Bar ${side}: ${inst.label} · ${setupLabel}`;
-          // Quiet Telegram: Red Bar ENTER only (Trade 1 / 2 / sweep)
-          const htmlMsg = `${emoji} <b>Red Bar ${inst.label} ${side}</b> · ${setupLabel}
+  const actionable = Array.isArray(RedBarTrend.ACTIONABLE_SETUPS)
+    && RedBarTrend.ACTIONABLE_SETUPS.includes(setupKind);
+  if (actionState === 'enter' && actionable && (side === 'LONG' || side === 'SHORT')) {
+    if (alreadyAlerted) {
+      console.log(`[RedBarBot] ${inst.id}: ENTER already telegram'd for ${alertKey} — skip`);
+      return;
+    }
+    const dec = inst.priceDecimals ?? 2;
+    const fmt = (n) => (n != null && Number.isFinite(n) ? Number(n).toFixed(dec) : '—');
+    const sz = readout.sizing || RedBarTrend.futuresSizing({
+      entry: readout.price,
+      stop: readout.invalidation,
+      exit: readout.bookZone,
+      capital: 1000,
+      riskPct: 1,
+    });
+    const deskUrl = envTrim('DESK_URL') || 'https://trendrunner.app';
+    const futLink = `https://www.binance.com/en/futures/${inst.symbol}?ref=TRENDRUNNER`;
+    const emoji = side === 'LONG' ? '🟢' : '🔴';
+    const setupLabel = readout.playbook?.redSetup?.label || setupKind;
+    const subject = `Red Bar ${side}: ${inst.label} · ${setupLabel}`;
+    const htmlMsg = `${emoji} <b>Red Bar ${_escHtml(inst.label)} ${side}</b> · ${_escHtml(setupLabel)} (${_escHtml(setupKind)})
 Entry <b>$${fmt(readout.price)}</b> · Stop <b>$${fmt(readout.invalidation)}</b> · 1:1 <b>$${fmt(readout.tp1)}</b>${sz ? ` · ${sz.recLeverage}×` : ''}
 <a href="${deskUrl}">Desk</a> · <a href="${futLink}">Futures</a>`;
-          const plainMsg = [
-            `${inst.label} ${side} · ${setupLabel}`,
-            `Entry $${fmt(readout.price)} · Stop $${fmt(readout.invalidation)} · 1:1 $${fmt(readout.tp1)}`,
-            deskUrl,
-          ].join('\n');
+    const plainMsg = [
+      `${inst.label} ${side} · ${setupLabel}`,
+      `Entry $${fmt(readout.price)} · Stop $${fmt(readout.invalidation)} · 1:1 $${fmt(readout.tp1)}`,
+      deskUrl,
+    ].join('\n');
 
-          const delivered = await deliverRedBarAlert({
-            subject,
-            htmlMsg,
-            plainMsg,
-            clickUrl: deskUrl,
-          });
-          if (delivered) {
-            lastAlerted[`RB_${inst.id}`] = alertKey;
-            saveAlertState(lastAlerted);
-          }
-        }
-      } else if (actionState !== 'enter') {
-        delete lastAlerted[`RB_${inst.id}`];
-        saveAlertState(lastAlerted);
-      }
+    const delivered = await deliverRedBarAlert({
+      subject,
+      htmlMsg,
+      plainMsg,
+      clickUrl: deskUrl,
+    });
+    if (delivered) {
+      lastAlerted[`RB_${inst.id}`] = alertKey;
+      saveAlertState(lastAlerted);
+    } else {
+      console.error(`[RedBarBot] ${inst.id}: ENTER seen but Telegram delivery failed — will retry next scan`);
+    }
+  } else if (actionState !== 'enter') {
+    delete lastAlerted[`RB_${inst.id}`];
+    saveAlertState(lastAlerted);
+  }
+}
+
+async function scanRedBarDesk() {
+  const rbCfg = CONFIG.rangeEma || {};
+  const instruments = Array.isArray(rbCfg.instruments) ? rbCfg.instruments.slice() : [];
+  // BTC first so a slow Nifty/Yahoo hop cannot delay the main alert
+  instruments.sort((a, b) => (a.id === 'BTC' ? -1 : b.id === 'BTC' ? 1 : 0));
+  for (const inst of instruments) {
+    try {
+      await _scanOneRedBarInstrument(inst, rbCfg);
     } catch (e) {
       console.warn(`[RedBarBot] Failed scanning ${inst.id}:`, e.message);
     }
@@ -596,7 +623,10 @@ async function scanMarket() {
   if (CONFIG.ui?.redBarOnly) {
     console.log('Scanning Red Bar Futures Desk instruments...');
     try {
-      await scanRedBarDesk();
+      // Hard ceiling: never leave scanInProgress stuck if a feed hangs
+      await _withTimeout(scanRedBarDesk(), 90000, 'Red Bar desk scan');
+    } catch (e) {
+      console.error('[RedBarBot] Scan aborted:', e.message);
     } finally {
       scanInProgress = false;
       console.log('Red Bar scan complete.');

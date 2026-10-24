@@ -1,0 +1,29 @@
+# Wakes the Render bot so overnight Red Bar ENTER Telegram pings are not missed.
+# Free Render sleeps without inbound HTTP — this is not a deploy.
+#
+# One-time setup: GitHub repo → Settings → Secrets → Actions
+#   RENDER_HEALTH_URL = https://YOUR-SERVICE.onrender.com/health
+name: Render keep-alive
+
+on:
+  schedule:
+    # Every 5 minutes (GitHub may drift a few minutes)
+    - cron: '*/5 * * * *'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  ping:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Ping Render /health
+        env:
+          URL: ${{ secrets.RENDER_HEALTH_URL }}
+        run: |
+          if [ -z "$URL" ]; then
+            echo "Missing secret RENDER_HEALTH_URL — skip (set it once in repo Actions secrets)."
+            exit 0
+          fi
+          curl -fsS --max-time 30 "$URL" || echo "Ping failed (service may be cold-starting)"
