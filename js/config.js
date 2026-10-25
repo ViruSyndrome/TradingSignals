@@ -204,15 +204,13 @@ const CONFIG = {
 
   // ─── Alerts relay (desk → Render → Telegram). Same host as trade bot. ──────
   alerts: {
-    // e.g. https://tradingsignals-xxxx.onrender.com — or set Settings → Bot URL once
-    botBaseUrl: '',
+    botBaseUrl: 'https://tradingsignals-bjya.onrender.com',
   },
 
   // ─── Owner click-to-trade (Render bot; keys never in browser) ──────────────
   trade: {
     // Public Render URL (no trailing slash). Also used for Telegram ENTER relay.
-    // Override in Settings / localStorage trade_bot_url.
-    botBaseUrl: '',
+    botBaseUrl: 'https://tradingsignals-bjya.onrender.com',
     defaultQuoteUsdt: 50,
   },
 

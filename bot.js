@@ -1007,13 +1007,74 @@ if (!process.env.BOT_WORKER_ONLY) {
       res.setHeader('Vary', 'Origin');
     }
     res.setHeader('Access-Control-Allow-Methods', 'GET,POST,OPTIONS');
-    res.setHeader('Access-Control-Allow-Headers', 'Content-Type, X-TrendRunner-Trade-Secret');
+    res.setHeader('Access-Control-Allow-Headers', 'Content-Type, X-TrendRunner-Trade-Secret, X-TrendRunner-Alert-Secret');
     if (req.method === 'OPTIONS') return res.sendStatus(204);
     next();
   });
 
   app.get('/', (req, res) => res.send('Bot is running.'));
-  app.get('/health', (req, res) => res.status(200).json({ status: 'ok' }));
+  app.get('/health', (req, res) => res.status(200).json({
+    status: 'ok',
+    alerts: Boolean(token && chatId),
+    relay: true,
+  }));
+
+  // Desk → Telegram when PWA sees ENTER (brief Trade 1/2 must not wait for scan)
+  const relaySeen = new Map();
+  const RELAY_TTL_MS = 4 * 60 * 60 * 1000;
+  const escHtmlRelay = (s) => String(s ?? '')
+    .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+  app.post('/api/alerts/redbar', async (req, res) => {
+    if (!bot || !chatId) {
+      return res.status(503).json({ ok: false, error: 'Telegram not configured' });
+    }
+    const alertSecret = (process.env.ALERT_RELAY_SECRET || '').trim();
+    if (alertSecret) {
+      const got = req.headers['x-trendrunner-alert-secret'] || req.body?.secret || '';
+      if (got !== alertSecret) {
+        return res.status(401).json({ ok: false, error: 'Unauthorized' });
+      }
+    }
+    const body = req.body || {};
+    const side = String(body.side || '').toUpperCase();
+    const setupKind = String(body.setupKind || '');
+    const instrumentId = String(body.instrumentId || body.label || 'BTC');
+    const dayKey = String(body.dayKey || '');
+    const actionable = Array.isArray(RedBarTrend.ACTIONABLE_SETUPS)
+      ? RedBarTrend.ACTIONABLE_SETUPS
+      : ['trade1_departure', 'trade2_confirmed', 'session_sweep'];
+    if (side !== 'LONG' && side !== 'SHORT') {
+      return res.status(400).json({ ok: false, error: 'bad side' });
+    }
+    if (!actionable.includes(setupKind)) {
+      return res.status(400).json({ ok: false, error: 'not actionable' });
+    }
+    const alertKey = `RB_${instrumentId}|${side}|${setupKind}|${dayKey}`;
+    const now = Date.now();
+    for (const [k, t] of relaySeen) {
+      if (now - t > RELAY_TTL_MS) relaySeen.delete(k);
+    }
+    if (relaySeen.has(alertKey)) {
+      return res.json({ ok: true, deduped: true });
+    }
+    const label = body.label || instrumentId;
+    const emoji = side === 'LONG' ? '🟢' : '🔴';
+    const title = body.title || setupKind;
+    const deskUrl = envTrim('DESK_URL') || 'https://trendrunner.app';
+    const text =
+      `${emoji} <b>Red Bar ${escHtmlRelay(label)} ${side}</b> · ${escHtmlRelay(title)} (${escHtmlRelay(setupKind)})\n` +
+      `Entry <b>$${escHtmlRelay(body.price ?? '—')}</b> · Stop <b>$${escHtmlRelay(body.stop ?? '—')}</b> · 1:1 <b>$${escHtmlRelay(body.tp1 ?? '—')}</b>\n` +
+      `<a href="${deskUrl}">Desk</a>`;
+    try {
+      await bot.sendMessage(chatId, text, { parse_mode: 'HTML', disable_web_page_preview: true });
+      relaySeen.set(alertKey, now);
+      console.log(`[AlertRelay] Telegram sent ${alertKey}`);
+      return res.json({ ok: true });
+    } catch (e) {
+      console.error('[AlertRelay] Telegram failed:', e.message);
+      return res.status(502).json({ ok: false, error: e.message });
+    }
+  });
 
   const TRADE_SECRET = tradeEnv('TRADE_API_SECRET');
   const TRADE_MAX_USDT = Math.max(5, Number(tradeEnv('TRADE_MAX_USDT', '50')) || 50);
