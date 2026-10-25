@@ -81,14 +81,15 @@ const DeskAlerts = {
   async relayTelegram(payload) {
     const base = this._botBaseUrl();
     if (!base) {
-      console.warn('[DeskAlerts] No bot URL — set Settings → Bot URL (your Render https://….onrender.com) for Telegram relay');
+      console.warn('[DeskAlerts] No bot URL — Settings → paste your Render URL (https://….onrender.com) or Telegram will not get desk ENTERs');
+      try {
+        if (typeof Dashboard !== 'undefined' && Dashboard._showToast) {
+          Dashboard._showToast('Telegram needs Bot URL in Settings (Render link)', 'warning');
+        }
+      } catch (_) {}
       return false;
     }
     const headers = { 'Content-Type': 'application/json' };
-    try {
-      const secret = localStorage.getItem('trade_api_secret') || '';
-      if (secret) headers['X-TrendRunner-Alert-Secret'] = secret;
-    } catch (_) {}
     try {
       const res = await fetch(`${base}/api/alerts/redbar`, {
         method: 'POST',
@@ -99,6 +100,11 @@ const DeskAlerts = {
       const data = await res.json().catch(() => ({}));
       if (!res.ok) {
         console.warn('[DeskAlerts] Telegram relay failed:', res.status, data.error || '');
+        try {
+          if (typeof Dashboard !== 'undefined' && Dashboard._showToast) {
+            Dashboard._showToast(`Telegram relay failed (${res.status})`, 'warning');
+          }
+        } catch (_) {}
         return false;
       }
       if (data.deduped) console.info('[DeskAlerts] Telegram already sent for this setup');
@@ -106,6 +112,11 @@ const DeskAlerts = {
       return true;
     } catch (e) {
       console.warn('[DeskAlerts] Telegram relay error:', e.message || e);
+      try {
+        if (typeof Dashboard !== 'undefined' && Dashboard._showToast) {
+          Dashboard._showToast('Telegram relay unreachable — is Render awake?', 'warning');
+        }
+      } catch (_) {}
       return false;
     }
   },

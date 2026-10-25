@@ -55,7 +55,9 @@ app.post('/api/alerts/redbar', async (req, res) => {
     return res.status(503).json({ ok: false, error: 'Telegram not configured on Render' });
   }
 
-  const secret = (process.env.ALERT_RELAY_SECRET || process.env.TRADE_API_SECRET || '').trim();
+  // Only ALERT_RELAY_SECRET gates this route — do NOT reuse TRADE_API_SECRET
+  // (that blocked Telegram when the desk had no trade secret saved).
+  const secret = (process.env.ALERT_RELAY_SECRET || '').trim();
   if (secret) {
     const got = req.headers['x-trendrunner-alert-secret'] || req.body?.secret || '';
     if (got !== secret) {
