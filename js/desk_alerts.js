@@ -2,13 +2,14 @@
 
 /**
  * Red Bar Desk — PWA banner + Telegram relay on ENTER.
- * PWA and Telegram use separate dedupe keys so a desktop-only ping can still
- * retry Telegram on the next refresh.
+ * PWA / Telegram use separate dedupe keys.
  */
 const DeskAlerts = {
   STORAGE_KEY: 'trendrunner_rb_alerts',
   SENT_KEY: 'trendrunner_rb_alert_sent',
   TTL_MS: 4 * 60 * 60 * 1000,
+  // Hardcoded so Telegram works even if Settings / config cache is wrong
+  DEFAULT_BOT_URL: 'https://tradingsignals-bjya.onrender.com',
 
   enabled() {
     try {
@@ -38,6 +39,19 @@ const DeskAlerts = {
     } catch (_) {
       return Notification.permission;
     }
+  },
+
+  /** Call once on desk boot — writes Bot URL into localStorage so Settings is not required. */
+  ensureBotUrl() {
+    const url = this._botBaseUrl();
+    if (!url) return '';
+    try {
+      const cur = localStorage.getItem('trade_bot_url');
+      if (!cur || !String(cur).trim()) {
+        localStorage.setItem('trade_bot_url', url);
+      }
+    } catch (_) {}
+    return url;
   },
 
   _sentMap() {
@@ -70,35 +84,55 @@ const DeskAlerts = {
       if (ls && String(ls).trim()) return String(ls).trim().replace(/\/$/, '');
     } catch (_) {}
     if (typeof CONFIG !== 'undefined') {
-      const u = CONFIG.alerts?.botBaseUrl || CONFIG.trade?.botBaseUrl || CONFIG.market?.proxyBaseUrl || '';
-      if (u) return String(u).replace(/\/$/, '');
+      const u = CONFIG.alerts?.botBaseUrl || CONFIG.trade?.botBaseUrl || '';
+      if (u && String(u).trim()) return String(u).trim().replace(/\/$/, '');
     }
-    return '';
+    return this.DEFAULT_BOT_URL;
+  },
+
+  _toast(msg, type) {
+    try {
+      if (typeof Dashboard !== 'undefined' && Dashboard._showToast) {
+        Dashboard._showToast(msg, type || 'info');
+      }
+    } catch (_) {}
   },
 
   async relayTelegram(payload) {
     const base = this._botBaseUrl();
     if (!base) {
-      console.warn('[DeskAlerts] No bot URL for Telegram relay');
+      this._toast('Telegram: no Bot URL', 'warning');
       return false;
     }
+    const ctrl = typeof AbortController !== 'undefined' ? new AbortController() : null;
+    const timer = ctrl ? setTimeout(() => ctrl.abort(), 45000) : null; // Render cold start
     try {
       const res = await fetch(`${base}/api/alerts/redbar`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(payload),
         cache: 'no-store',
+        signal: ctrl?.signal,
       });
       const data = await res.json().catch(() => ({}));
       if (!res.ok) {
         console.warn('[DeskAlerts] Telegram relay failed:', res.status, data.error || '');
+        this._toast(`Telegram failed (${res.status})`, 'warning');
         return false;
       }
-      console.info(data.deduped ? '[DeskAlerts] Telegram deduped' : '[DeskAlerts] Telegram relay OK');
+      if (data.deduped) {
+        console.info('[DeskAlerts] Telegram already delivered for this setup');
+      } else {
+        console.info('[DeskAlerts] Telegram relay OK');
+        this._toast('Telegram ENTER sent', 'success');
+      }
       return true;
     } catch (e) {
       console.warn('[DeskAlerts] Telegram relay error:', e.message || e);
+      this._toast('Telegram unreachable — Render may be waking', 'warning');
       return false;
+    } finally {
+      if (timer) clearTimeout(timer);
     }
   },
 
@@ -110,6 +144,8 @@ const DeskAlerts = {
       ? RedBarTrend.ACTIONABLE_SETUPS.includes(kind)
       : this.ACTIONABLE.includes(kind);
     if (!ok) return false;
+
+    this.ensureBotUrl();
 
     const baseKey = `RB_${payload.instrumentId}|${payload.side}|${payload.setupKind}|${payload.dayKey || ''}`;
     const pwaKey = baseKey;
@@ -150,9 +186,10 @@ const DeskAlerts = {
         this._saveSent(map);
       } catch (e) {
         console.warn('[DeskAlerts] PWA notify failed', e);
+        map[pwaKey] = Date.now();
+        this._saveSent(map);
       }
     } else if (!pwaDone) {
-      // No PWA permission — still mark so we don't loop; Telegram can proceed
       map[pwaKey] = Date.now();
       this._saveSent(map);
     }
@@ -164,6 +201,7 @@ const DeskAlerts = {
         map[tgKey] = Date.now();
         this._saveSent(map);
       }
+      // If send failed (cold start), leave tgKey unset so next refresh retries
     }
     return true;
   },

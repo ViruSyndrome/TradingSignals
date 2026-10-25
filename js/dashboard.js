@@ -60,11 +60,19 @@ const Dashboard = {
   },
 
   _tradeBotUrl() {
+    const fallback = 'https://tradingsignals-bjya.onrender.com';
     try {
       const local = localStorage.getItem(this.TRADE_BOT_URL_KEY);
       if (local && local.trim()) return local.trim().replace(/\/$/, '');
     } catch (_) {}
-    return String(CONFIG.trade?.botBaseUrl || '').replace(/\/$/, '');
+    const fromCfg = String(CONFIG.trade?.botBaseUrl || CONFIG.alerts?.botBaseUrl || '').replace(/\/$/, '');
+    const url = fromCfg || fallback;
+    try {
+      if (url && !localStorage.getItem(this.TRADE_BOT_URL_KEY)) {
+        localStorage.setItem(this.TRADE_BOT_URL_KEY, url);
+      }
+    } catch (_) {}
+    return url;
   },
 
   _tradeSecret() {

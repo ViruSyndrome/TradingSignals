@@ -184,6 +184,7 @@ const RangeEmaUI = {
       if (Number.isFinite(savedRisk) && savedRisk > 0 && savedRisk <= 25) this.state.riskPct = savedRisk;
       if (typeof DeskAlerts !== 'undefined') {
         this.state.alertsOn = DeskAlerts.enabled();
+        DeskAlerts.ensureBotUrl();
       }
     } catch (_) {}
     // Paint shell immediately so we never sit on the static "Loading…" HTML
@@ -244,7 +245,8 @@ const RangeEmaUI = {
       const d = inst.priceDecimals ?? 2;
       return Number(n).toFixed(d);
     };
-    DeskAlerts.maybeNotifyEnter({
+    // Await so Telegram relay finishes (Render cold start can take ~30s)
+    Promise.resolve(DeskAlerts.maybeNotifyEnter({
       instrumentId: inst.id || inst.symbol,
       label: inst.label || inst.symbol,
       symbol: inst.symbol,
@@ -255,7 +257,7 @@ const RangeEmaUI = {
       stop: fmt(o.invalidation),
       tp1: fmt(o.tp1),
       dayKey: o.asOfDay || '',
-    });
+    })).catch((e) => console.warn('[RangeEmaUI] notify failed', e));
   },
 
   _friendlyErr(e) {

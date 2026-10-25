@@ -86,7 +86,7 @@
     if ('serviceWorker' in navigator) {
       window.addEventListener('load', () => {
         const hadController = Boolean(navigator.serviceWorker.controller);
-        navigator.serviceWorker.register('./service-worker.js?v=7.38', { updateViaCache: 'none' })
+        navigator.serviceWorker.register('./service-worker.js?v=7.39', { updateViaCache: 'none' })
           .then(reg => {
             reg.update().catch(() => {});
             navigator.serviceWorker.addEventListener('controllerchange', () => {
@@ -618,15 +618,15 @@
   <script src="js/indicators.js?v=6.60" defer></script>
   <script src="js/redbar_trend.js?v=1.28" defer></script>
   <script src="js/range_ema_engine.js?v=1.1" defer></script>
-  <script src="js/desk_alerts.js?v=1.5" defer></script>
-  <script src="js/range_ema_ui.js?v=1.62" defer></script>
+  <script src="js/desk_alerts.js?v=1.6" defer></script>
+  <script src="js/range_ema_ui.js?v=1.63" defer></script>
   <script src="js/signals.js?v=6.70" defer></script>
   <script src="js/charts.js?v=6.60" defer></script>
   
   <script src="js/scanner.js?v=6.60" defer></script>
   <script src="js/backtest_ui.js?v=6.60" defer></script>
   <script src="js/auth.js?v=6.70" defer></script>
-    <script src="js/dashboard.js?v=6.82" defer></script>
+    <script src="js/dashboard.js?v=6.83" defer></script>
   <script>
     // If signals.js didn't expose the right version, cached old code is running — force reload.
     if (typeof Signals === 'undefined' || Signals._version !== window.__APP_VERSION__) {
