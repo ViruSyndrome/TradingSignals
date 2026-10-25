@@ -236,17 +236,25 @@ const RangeEmaUI = {
     const inst = row.instrument || this.activeInstrument() || {};
     const isEnter = a?.side === 'LONG' || a?.side === 'SHORT';
     const actionable = o?.actionState === 'enter' && isEnter;
+
+    // WATCH / bias is NOT an ENTER — do not Telegram.
+    // But keep retrying the last real ENTER for a few minutes (brief Trade 2
+    // windows + Render cold start used to miss Telegram after flip back to WATCH).
     if (!actionable) {
-      DeskAlerts.clearInstrument(inst.id || inst.symbol);
+      const pending = this._pendingEnterAlert;
+      if (pending && Date.now() - (pending.queuedAt || 0) < 10 * 60 * 1000) {
+        Promise.resolve(DeskAlerts.maybeNotifyEnter(pending))
+          .catch((e) => console.warn('[RangeEmaUI] pending TG retry failed', e));
+      }
       return;
     }
+
     const fmt = (n) => {
       if (n == null || !Number.isFinite(Number(n))) return null;
       const d = inst.priceDecimals ?? 2;
       return Number(n).toFixed(d);
     };
-    // Await so Telegram relay finishes (Render cold start can take ~30s)
-    Promise.resolve(DeskAlerts.maybeNotifyEnter({
+    const payload = {
       instrumentId: inst.id || inst.symbol,
       label: inst.label || inst.symbol,
       symbol: inst.symbol,
@@ -257,7 +265,11 @@ const RangeEmaUI = {
       stop: fmt(o.invalidation),
       tp1: fmt(o.tp1),
       dayKey: o.asOfDay || '',
-    })).catch((e) => console.warn('[RangeEmaUI] notify failed', e));
+      queuedAt: Date.now(),
+    };
+    this._pendingEnterAlert = payload;
+    Promise.resolve(DeskAlerts.maybeNotifyEnter(payload))
+      .catch((e) => console.warn('[RangeEmaUI] notify failed', e));
   },
 
   _friendlyErr(e) {
@@ -585,9 +597,9 @@ const RangeEmaUI = {
         ? `Fib levels (context): ${magDown ? `↓ ${magDown.label} ${this._fmt(magDown.price)}` : ''}${magDown && magUp ? ' · ' : ''}${magUp ? `↑ ${magUp.label} ${this._fmt(magUp.price)}` : ''} — not an ENTER by themselves.`
         : null;
       const watchTitle = o.setupKind === 'trade2_watch'
-        ? `Red Bar Watch · Testing 1H Red Pivot (${biasDir})`
+        ? `Red Bar Watch · Testing 1H Red Pivot (${biasDir}) — not ENTER yet`
         : o.setupKind === 'fib_pullback'
-          ? `Red Bar Bias: ${biasDir} · Near mark-window Fibs`
+          ? `Red Bar Bias: ${biasDir} · Near mark-window Fibs — not ENTER`
           : o.setupKind === 'pivot_reversal'
             ? `Bias Conflict · Crossed 1H Red vs Fibs (Stay Flat)`
             : `Red Bar Bias: ${biasDir} · Waiting Trade 1 / Trade 2 / Sweep`;
@@ -595,9 +607,9 @@ const RangeEmaUI = {
         side: 'WATCH',
         cls: 'wait',
         title: watchTitle,
-        subtitle: `${o.actionReason || 'Bias only — ENTER needs Trade 1 departure, Trade 2 revisit, or session sweep'}${emaNote}.`,
+        subtitle: `${o.actionReason || 'Bias only — no Telegram until Trade 1 / Trade 2 confirmed / session sweep'}${emaNote}.`,
         steps: [
-          `Following Red Bar only. Bias is ${biasDir}. Do not chase mid-trend — wait for Trade 1 / Trade 2 / sweep.`,
+          `WATCH ≠ signal. Bias is ${biasDir}. Telegram only fires on ENTER (Trade 1 departure, Trade 2 confirmed, or session sweep).`,
           ...(magStep ? [magStep] : []),
           `If a Red Bar trigger prints — 1️⃣ Stop (${stopTag} on 15m): ${this._fmt(o.invalidation)}${stopPctStr} · 2️⃣ 50% TP (1:1): ${tp1Str}${oneRPctStr} · 3️⃣ Runner Trail: EMA 10/30 cross (Stretch ${this._fmt(o.bookZone)} · ${rrStr}).${stopWarn}`,
           pivotStep,
