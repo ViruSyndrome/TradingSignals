@@ -65,14 +65,57 @@ const DeskAlerts = {
   /** Red Bar ENTER setups only — ignore anything else. */
   ACTIONABLE: ['trade1_departure', 'trade2_confirmed', 'session_sweep'],
 
+  _botBaseUrl() {
+    try {
+      const ls = localStorage.getItem('trade_bot_url');
+      if (ls) return String(ls).replace(/\/$/, '');
+    } catch (_) {}
+    if (typeof CONFIG !== 'undefined') {
+      const u = CONFIG.alerts?.botBaseUrl || CONFIG.trade?.botBaseUrl || CONFIG.market?.proxyBaseUrl || '';
+      if (u) return String(u).replace(/\/$/, '');
+    }
+    return '';
+  },
+
+  /** Push ENTER to Render so Telegram matches the desk (not WhatsApp — we only support Telegram). */
+  async relayTelegram(payload) {
+    const base = this._botBaseUrl();
+    if (!base) {
+      console.warn('[DeskAlerts] No bot URL — set Settings → Bot URL (your Render https://….onrender.com) for Telegram relay');
+      return false;
+    }
+    const headers = { 'Content-Type': 'application/json' };
+    try {
+      const secret = localStorage.getItem('trade_api_secret') || '';
+      if (secret) headers['X-TrendRunner-Alert-Secret'] = secret;
+    } catch (_) {}
+    try {
+      const res = await fetch(`${base}/api/alerts/redbar`, {
+        method: 'POST',
+        headers,
+        body: JSON.stringify(payload),
+        cache: 'no-store',
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        console.warn('[DeskAlerts] Telegram relay failed:', res.status, data.error || '');
+        return false;
+      }
+      if (data.deduped) console.info('[DeskAlerts] Telegram already sent for this setup');
+      else console.info('[DeskAlerts] Telegram relay OK');
+      return true;
+    } catch (e) {
+      console.warn('[DeskAlerts] Telegram relay error:', e.message || e);
+      return false;
+    }
+  },
+
   /**
    * Fire once per instrument+side+setup+day when action flips to ENTER.
-   * @param {{ instrumentId: string, label: string, symbol: string, side: string, setupKind: string, title: string, price: number|string, stop: number|string, dayKey: string }} payload
+   * PWA banner (if permitted) + Telegram relay to Render.
    */
   async maybeNotifyEnter(payload) {
     if (!this.enabled()) return false;
-    if (typeof Notification === 'undefined') return false;
-    if (Notification.permission !== 'granted') return false;
     if (!payload || (payload.side !== 'LONG' && payload.side !== 'SHORT')) return false;
     const kind = payload.setupKind || '';
     const ok = (typeof RedBarTrend !== 'undefined' && Array.isArray(RedBarTrend.ACTIONABLE_SETUPS))
@@ -84,6 +127,10 @@ const DeskAlerts = {
     let map = this._prune(this._sentMap());
     if (map[key]) return false;
 
+    // Mark first so parallel refresh cannot double-fire
+    map[key] = Date.now();
+    this._saveSent(map);
+
     const title = `${payload.side} · ${payload.label || payload.symbol}`;
     const body = [
       payload.title || payload.setupKind,
@@ -91,34 +138,34 @@ const DeskAlerts = {
       payload.stop != null ? `Stop ${payload.stop}` : null,
     ].filter(Boolean).join(' · ');
 
-    const opts = {
-      body,
-      icon: new URL('icon-192.png', window.location.href).href,
-      badge: new URL('icon-192.png', window.location.href).href,
-      tag: `trendrunner-rb-${payload.instrumentId}-${payload.side}`,
-      renotify: true,
-      requireInteraction: true,
-      data: { section: 'dashboardSection', instrumentId: payload.instrumentId },
-    };
-
-    try {
-      if (navigator.serviceWorker?.ready) {
-        const reg = await navigator.serviceWorker.ready;
-        await reg.showNotification(title, opts);
-      } else {
-        const n = new Notification(title, opts);
-        n.onclick = () => {
-          try { window.focus(); } catch (_) {}
-          n.close();
-        };
+    if (typeof Notification !== 'undefined' && Notification.permission === 'granted') {
+      const opts = {
+        body,
+        icon: new URL('icon-192.png', window.location.href).href,
+        badge: new URL('icon-192.png', window.location.href).href,
+        tag: `trendrunner-rb-${payload.instrumentId}-${payload.side}`,
+        renotify: true,
+        requireInteraction: true,
+        data: { section: 'dashboardSection', instrumentId: payload.instrumentId },
+      };
+      try {
+        if (navigator.serviceWorker?.ready) {
+          const reg = await navigator.serviceWorker.ready;
+          await reg.showNotification(title, opts);
+        } else {
+          const n = new Notification(title, opts);
+          n.onclick = () => {
+            try { window.focus(); } catch (_) {}
+            n.close();
+          };
+        }
+      } catch (e) {
+        console.warn('[DeskAlerts] PWA notify failed', e);
       }
-    } catch (e) {
-      console.warn('[DeskAlerts] notify failed', e);
-      return false;
     }
 
-    map[key] = Date.now();
-    this._saveSent(map);
+    // Always attempt Telegram when desk sees ENTER (even if PWA permission denied)
+    await this.relayTelegram(payload);
     return true;
   },
 

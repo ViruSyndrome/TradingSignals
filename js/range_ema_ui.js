@@ -253,6 +253,7 @@ const RangeEmaUI = {
       title: a.title || o.setupKind,
       price: fmt(a.entry ?? o.price),
       stop: fmt(o.invalidation),
+      tp1: fmt(o.tp1),
       dayKey: o.asOfDay || '',
     });
   },
@@ -291,17 +292,29 @@ const RangeEmaUI = {
     ]);
 
     try {
-      const flaky = (err) => /abort|timed?\s*out|failed to fetch|network|load failed|unreachable/i.test(String(err || ''));
+      const flaky = (err) => /abort|timed?\s*out|failed to fetch|network|load failed|unreachable|not enough|empty klines|short history/i.test(String(err || ''));
       // Yahoo hops through Supabase — give Nifty more headroom than Binance
-      const ceiling = inst?.feed === 'yahoo' ? 45000 : 22000;
-      const retryMs = inst?.feed === 'yahoo' ? 35000 : 18000;
+      const ceiling = inst?.feed === 'yahoo' ? 45000 : 28000;
+      const retryMs = inst?.feed === 'yahoo' ? 35000 : 22000;
       let row = await withTimeout(this._buildRow(inst, c), ceiling, `${inst?.label || 'Desk'} feed`);
-      for (let attempt = 0; attempt < 1; attempt++) {
+      for (let attempt = 0; attempt < 2; attempt++) {
         if (gen !== this._refreshGen) return;
         if (!row?.error || !flaky(row.error)) break;
-        await new Promise((r) => setTimeout(r, 500));
+        try {
+          if (typeof API !== 'undefined') {
+            API.clearBinanceBan?.();
+            API.clearMarketCache?.();
+          }
+        } catch (_) {}
+        await new Promise((r) => setTimeout(r, 400));
         if (gen !== this._refreshGen) return;
-        row = await withTimeout(this._buildRow(inst, c), retryMs, `${inst?.label || 'Desk'} retry`);
+        row = await withTimeout(
+          (typeof API !== 'undefined' && API.withBypassCache)
+            ? API.withBypassCache(() => this._buildRow(inst, c))
+            : this._buildRow(inst, c),
+          retryMs,
+          `${inst?.label || 'Desk'} retry`
+        );
       }
       if (gen !== this._refreshGen) return;
       // If Yahoo 5m failed, fall back to 15m once so the desk recovers
@@ -405,7 +418,7 @@ const RangeEmaUI = {
       return {
         symbol: instrument.symbol,
         instrument,
-        error: `Not enough ${tf} data for ${instrument.label || instrument.symbol}`,
+        error: `Not enough ${tf} data for ${instrument.label || instrument.symbol} (${bars30.length} bars) — retrying feed…`,
         tf,
       };
     }

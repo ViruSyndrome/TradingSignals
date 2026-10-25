@@ -924,7 +924,8 @@ If you sell, reply /sell ${asset.symbol}`;
 }
 
 // Red Bar ENTER needs ~1–2m cadence; legacy multi-coin scan stays hourly.
-const REDBAR_SCAN_MS = Number(process.env.REDBAR_SCAN_MS) || 120000;
+// Match desk refresh (~60s) so worker scan is a backup if the open-tab relay misses
+const REDBAR_SCAN_MS = Number(process.env.REDBAR_SCAN_MS) || 60000;
 const LEGACY_SCAN_MS = 3600000;
 const scanEveryMs = CONFIG.ui?.redBarOnly ? REDBAR_SCAN_MS : LEGACY_SCAN_MS;
 setInterval(scanMarket, scanEveryMs);

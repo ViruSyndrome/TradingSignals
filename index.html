@@ -86,7 +86,7 @@
     if ('serviceWorker' in navigator) {
       window.addEventListener('load', () => {
         const hadController = Boolean(navigator.serviceWorker.controller);
-        navigator.serviceWorker.register('./service-worker.js?v=7.36', { updateViaCache: 'none' })
+        navigator.serviceWorker.register('./service-worker.js?v=7.38', { updateViaCache: 'none' })
           .then(reg => {
             reg.update().catch(() => {});
             navigator.serviceWorker.addEventListener('controllerchange', () => {
@@ -613,13 +613,13 @@
       // Nuke bloated caches that are causing QuotaExceededError (Removed to allow instant paint)
     } catch(e) {}
   </script>
-  <script src="js/config.js?v=7.13" defer></script>
-  <script src="js/api.js?v=6.97" defer></script>
+  <script src="js/config.js?v=7.14" defer></script>
+  <script src="js/api.js?v=6.98" defer></script>
   <script src="js/indicators.js?v=6.60" defer></script>
   <script src="js/redbar_trend.js?v=1.28" defer></script>
   <script src="js/range_ema_engine.js?v=1.1" defer></script>
-  <script src="js/desk_alerts.js?v=1.1" defer></script>
-  <script src="js/range_ema_ui.js?v=1.60" defer></script>
+  <script src="js/desk_alerts.js?v=1.2" defer></script>
+  <script src="js/range_ema_ui.js?v=1.62" defer></script>
   <script src="js/signals.js?v=6.70" defer></script>
   <script src="js/charts.js?v=6.60" defer></script>
   
@@ -740,10 +740,11 @@
         <p class="settings-intro">Account sync uses Sign In. Watch &amp; Holdings sync across devices; Signal Log stays on this device. Owner click-trade talks to your Render bot — keys stay on the server.</p>
         <div id="accountSyncStatus" class="settings-sync-status" style="margin-bottom:16px;padding:12px 14px;border-radius:8px;background:rgba(0,0,0,0.25);border:1px solid var(--glass-border);font-size:13px;line-height:1.45;color:var(--text-muted);">Not signed in — Watch &amp; Holdings stay on this device only.</div>
         <div class="trade-settings trade-settings-in-modal" id="tradeSettings">
-          <div class="trade-settings-title">Owner click-trade</div>
-          <label class="trade-settings-label">Bot URL
-            <input type="url" id="tradeBotUrl" class="trade-settings-input" placeholder="https://your-bot.onrender.com" autocomplete="off">
+          <div class="trade-settings-title">Bot URL (Telegram ENTER relay + optional trade)</div>
+          <label class="trade-settings-label">Render bot URL
+            <input type="url" id="tradeBotUrl" class="trade-settings-input" placeholder="https://your-service.onrender.com" autocomplete="off">
           </label>
+          <p class="trade-settings-hint">Required for Telegram when the desk fires ENTER (not WhatsApp). Copy from Render → your service URL.</p>
           <label class="trade-settings-label">Trade secret
             <input type="password" id="tradeApiSecret" class="trade-settings-input" placeholder="TRADE_API_SECRET" autocomplete="off">
           </label>
