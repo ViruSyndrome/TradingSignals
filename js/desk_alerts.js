@@ -1,18 +1,19 @@
 'use strict';
 
 /**
- * Red Bar Desk — local OS / PWA notifications for ENTER only.
- * Server email / ntfy cover the case when the tab is fully closed.
+ * Red Bar Desk — PWA banner + Telegram relay on ENTER.
+ * PWA and Telegram use separate dedupe keys so a desktop-only ping can still
+ * retry Telegram on the next refresh.
  */
 const DeskAlerts = {
   STORAGE_KEY: 'trendrunner_rb_alerts',
   SENT_KEY: 'trendrunner_rb_alert_sent',
-  TTL_MS: 4 * 60 * 60 * 1000, // 4h per setup key
+  TTL_MS: 4 * 60 * 60 * 1000,
 
   enabled() {
     try {
       const v = localStorage.getItem(this.STORAGE_KEY);
-      if (v == null) return true; // default on once permission granted
+      if (v == null) return true;
       return v === '1' || v === 'true';
     } catch (_) {
       return false;
@@ -33,8 +34,7 @@ const DeskAlerts = {
     if (Notification.permission === 'granted') return 'granted';
     if (Notification.permission === 'denied') return 'denied';
     try {
-      const p = await Notification.requestPermission();
-      return p;
+      return await Notification.requestPermission();
     } catch (_) {
       return Notification.permission;
     }
@@ -62,13 +62,12 @@ const DeskAlerts = {
     return out;
   },
 
-  /** Red Bar ENTER setups only — ignore anything else. */
   ACTIONABLE: ['trade1_departure', 'trade2_confirmed', 'session_sweep'],
 
   _botBaseUrl() {
     try {
       const ls = localStorage.getItem('trade_bot_url');
-      if (ls) return String(ls).replace(/\/$/, '');
+      if (ls && String(ls).trim()) return String(ls).trim().replace(/\/$/, '');
     } catch (_) {}
     if (typeof CONFIG !== 'undefined') {
       const u = CONFIG.alerts?.botBaseUrl || CONFIG.trade?.botBaseUrl || CONFIG.market?.proxyBaseUrl || '';
@@ -77,54 +76,32 @@ const DeskAlerts = {
     return '';
   },
 
-  /** Push ENTER to Render so Telegram matches the desk (not WhatsApp — we only support Telegram). */
   async relayTelegram(payload) {
     const base = this._botBaseUrl();
     if (!base) {
-      console.warn('[DeskAlerts] No bot URL — Settings → paste your Render URL (https://….onrender.com) or Telegram will not get desk ENTERs');
-      try {
-        if (typeof Dashboard !== 'undefined' && Dashboard._showToast) {
-          Dashboard._showToast('Telegram needs Bot URL in Settings (Render link)', 'warning');
-        }
-      } catch (_) {}
+      console.warn('[DeskAlerts] No bot URL for Telegram relay');
       return false;
     }
-    const headers = { 'Content-Type': 'application/json' };
     try {
       const res = await fetch(`${base}/api/alerts/redbar`, {
         method: 'POST',
-        headers,
+        headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(payload),
         cache: 'no-store',
       });
       const data = await res.json().catch(() => ({}));
       if (!res.ok) {
         console.warn('[DeskAlerts] Telegram relay failed:', res.status, data.error || '');
-        try {
-          if (typeof Dashboard !== 'undefined' && Dashboard._showToast) {
-            Dashboard._showToast(`Telegram relay failed (${res.status})`, 'warning');
-          }
-        } catch (_) {}
         return false;
       }
-      if (data.deduped) console.info('[DeskAlerts] Telegram already sent for this setup');
-      else console.info('[DeskAlerts] Telegram relay OK');
+      console.info(data.deduped ? '[DeskAlerts] Telegram deduped' : '[DeskAlerts] Telegram relay OK');
       return true;
     } catch (e) {
       console.warn('[DeskAlerts] Telegram relay error:', e.message || e);
-      try {
-        if (typeof Dashboard !== 'undefined' && Dashboard._showToast) {
-          Dashboard._showToast('Telegram relay unreachable — is Render awake?', 'warning');
-        }
-      } catch (_) {}
       return false;
     }
   },
 
-  /**
-   * Fire once per instrument+side+setup+day when action flips to ENTER.
-   * PWA banner (if permitted) + Telegram relay to Render.
-   */
   async maybeNotifyEnter(payload) {
     if (!this.enabled()) return false;
     if (!payload || (payload.side !== 'LONG' && payload.side !== 'SHORT')) return false;
@@ -134,22 +111,21 @@ const DeskAlerts = {
       : this.ACTIONABLE.includes(kind);
     if (!ok) return false;
 
-    const key = `RB_${payload.instrumentId}|${payload.side}|${payload.setupKind}|${payload.dayKey || ''}`;
+    const baseKey = `RB_${payload.instrumentId}|${payload.side}|${payload.setupKind}|${payload.dayKey || ''}`;
+    const pwaKey = baseKey;
+    const tgKey = `TG_${baseKey}`;
     let map = this._prune(this._sentMap());
-    if (map[key]) return false;
+    const pwaDone = Boolean(map[pwaKey]);
+    const tgDone = Boolean(map[tgKey]);
+    if (pwaDone && tgDone) return false;
 
-    // Mark first so parallel refresh cannot double-fire
-    map[key] = Date.now();
-    this._saveSent(map);
-
-    const title = `${payload.side} · ${payload.label || payload.symbol}`;
-    const body = [
-      payload.title || payload.setupKind,
-      payload.price != null ? `Entry ~ ${payload.price}` : null,
-      payload.stop != null ? `Stop ${payload.stop}` : null,
-    ].filter(Boolean).join(' · ');
-
-    if (typeof Notification !== 'undefined' && Notification.permission === 'granted') {
+    if (!pwaDone && typeof Notification !== 'undefined' && Notification.permission === 'granted') {
+      const title = `${payload.side} · ${payload.label || payload.symbol}`;
+      const body = [
+        payload.title || payload.setupKind,
+        payload.price != null ? `Entry ~ ${payload.price}` : null,
+        payload.stop != null ? `Stop ${payload.stop}` : null,
+      ].filter(Boolean).join(' · ');
       const opts = {
         body,
         icon: new URL('icon-192.png', window.location.href).href,
@@ -170,24 +146,35 @@ const DeskAlerts = {
             n.close();
           };
         }
+        map[pwaKey] = Date.now();
+        this._saveSent(map);
       } catch (e) {
         console.warn('[DeskAlerts] PWA notify failed', e);
       }
+    } else if (!pwaDone) {
+      // No PWA permission — still mark so we don't loop; Telegram can proceed
+      map[pwaKey] = Date.now();
+      this._saveSent(map);
     }
 
-    // Always attempt Telegram when desk sees ENTER (even if PWA permission denied)
-    await this.relayTelegram(payload);
+    if (!tgDone) {
+      const sent = await this.relayTelegram(payload);
+      if (sent) {
+        map = this._prune(this._sentMap());
+        map[tgKey] = Date.now();
+        this._saveSent(map);
+      }
+    }
     return true;
   },
 
-  /** Clear dedupe when desk leaves ENTER so a fresh setup can alert again. */
   clearInstrument(instrumentId) {
     if (!instrumentId) return;
-    const prefix = `RB_${instrumentId}|`;
+    const prefixes = [`RB_${instrumentId}|`, `TG_RB_${instrumentId}|`];
     const map = this._sentMap();
     let changed = false;
     for (const k of Object.keys(map)) {
-      if (k.startsWith(prefix)) {
+      if (prefixes.some((p) => k.startsWith(p))) {
         delete map[k];
         changed = true;
       }
