@@ -87,14 +87,30 @@ if (token && chatId) {
   } else {
     console.log('📱 Telegram bot initialized for outbound alerts only (sendMessage).');
   }
-  // Boot ping so you know Render worker + chat id are alive (once per process start)
-  bot.sendMessage(
-    chatId,
-    '🟥 Red Bar bot online — will ping this chat on Trade 1 / Trade 2 / session-sweep ENTER only.',
-    { disable_notification: true }
-  ).then(() => console.log('[Telegram] Boot ping sent')).catch((err) => {
-    console.error('[Telegram] Boot ping FAILED — check TELEGRAM_BOT_TOKEN / TELEGRAM_CHAT_ID:', err.message);
-  });
+  // Boot ping at most once per 6h so Render redeploys / free-tier wakeups don't spam the chat.
+  // Real ENTER alerts are separate (scan + desk relay).
+  const BOOT_PING_FILE = 'telegram_boot_ping.json';
+  let allowBootPing = true;
+  try {
+    if (fs.existsSync(BOOT_PING_FILE)) {
+      const prev = JSON.parse(fs.readFileSync(BOOT_PING_FILE, 'utf8'));
+      if (prev?.at && Date.now() - Number(prev.at) < 6 * 60 * 60 * 1000) allowBootPing = false;
+    }
+  } catch (_) {}
+  if (allowBootPing) {
+    bot.sendMessage(
+      chatId,
+      '🟥 Red Bar bot online — ENTER alerts only (Trade 1 / 2 / sweep). Quiet restarts will not re-ping for 6h.',
+      { disable_notification: true }
+    ).then(() => {
+      try { fs.writeFileSync(BOOT_PING_FILE, JSON.stringify({ at: Date.now() })); } catch (_) {}
+      console.log('[Telegram] Boot ping sent');
+    }).catch((err) => {
+      console.error('[Telegram] Boot ping FAILED — check TELEGRAM_BOT_TOKEN / TELEGRAM_CHAT_ID:', err.message);
+    });
+  } else {
+    console.log('[Telegram] Boot ping skipped (already sent within 6h)');
+  }
 } else {
   console.log('⚠️ Telegram keys missing (TELEGRAM_BOT_TOKEN / TELEGRAM_CHAT_ID). PWA alerts still work; Telegram will not.');
 }
