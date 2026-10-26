@@ -80,7 +80,7 @@ const CONFIG = {
   // Sagar playbook: mark-window fibs + 1H first-red pivot (trade 1 / revisit trade 2)
   // + prior-day H/L book + Asia→London→US liquidity clock (js/redbar_trend.js).
   // EMA 10/30 is a SEPARATE overlay on the desk — not the trend engine.
-  // Tabs: BTC (Binance spot), NIFTY (Yahoo ^NSEI), XAU (Binance futures / PAXG fallback).
+  // Tabs: BTC, NIFTY, XAU, NG (Natural Gas — provisional until Sagar confirms Fib window / Dhan MCX feed).
   rangeEma: {
     enabled: true,
     workingTf: '15m',
@@ -167,6 +167,34 @@ const CONFIG = {
           { id: 'asia', label: 'Asia', timeZone: 'Asia/Tokyo', open: [9, 0], close: [15, 0], color: '#818cf8' },
           { id: 'london', label: 'London', timeZone: 'Europe/London', open: [8, 0], close: [16, 30], color: '#f472b6' },
           { id: 'ny', label: 'US', timeZone: 'America/New_York', open: [9, 30], close: [16, 0], color: '#cbd5e1' },
+        ],
+      },
+      {
+        // Natural Gas — same Red Bar pillars as BTC/XAU.
+        // MCX session is ~09:00–23:30/23:55 IST (not true 23h); chart feed is Yahoo NG=F until Dhan MCX.
+        // Mark window PROVISIONAL = BTC (02:30–03:30 IST) until Sagar confirms.
+        id: 'NG',
+        label: 'NG',
+        symbol: 'NG=F',
+        feed: 'yahoo',
+        dayMode: 'ist',
+        bandStyle: 'sessionFib',
+        markWindow: {
+          timeZone: 'Asia/Kolkata',
+          startHour: 2, startMinute: 30,
+          endHour: 3, endMinute: 30,
+        },
+        markLabel: '02:30–03:30 IST (provisional)',
+        fibLevels: [0, 0.44, 0.5, 0.56, 1],
+        priceDecimals: 3,
+        timeframes: ['5m', '15m', '30m', '1h'],
+        ohlcLimit: { '5m': 360, '15m': 500, '30m': 500, '1h': 400 },
+        tradeHint: 'Dhan / MCX NATURALGAS · desk chart Yahoo NG=F · Fib provisional (=BTC) until Sagar confirms',
+        showSessionMarkers: true,
+        sessions: [
+          { id: 'mcx_day', label: 'MCX day', timeZone: 'Asia/Kolkata', open: [9, 0], close: [17, 0], color: '#818cf8' },
+          { id: 'mcx_eve', label: 'MCX eve', timeZone: 'Asia/Kolkata', open: [17, 0], close: [23, 30], color: '#f472b6' },
+          { id: 'us', label: 'US', timeZone: 'America/New_York', open: [9, 0], close: [14, 30], color: '#cbd5e1' },
         ],
       },
     ],

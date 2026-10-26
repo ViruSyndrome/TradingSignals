@@ -4,12 +4,18 @@
  * redbar_trend.js — Red Bar / session-mark TREND indicator (course-style, no paid tool)
  *
  * Sagar desk playbook (what we predict from):
- *  1. Magnets = Fib 0/0.44/0.5/0.56/1 on each mark window
- *     (BTC 02:30–03:30, XAU 01:30–02:30, Nifty 15:15–15:45 IST).
- *  2. Pivot = first 1H red of the session day (trade 1 leave / trade 2 revisit).
- *  3. Stop = prior swing; book = prior calendar-day H/L (then swing / fib).
+ *  1. Magnets / targets = Fib 0/0.44/0.5/0.56/1 on each mark window
+ *     (BTC 02:30–03:30, XAU 01:30–02:30, Nifty 15:15–15:45 IST) — targets only.
+ *  2. Timeframe ladder: D→H4→H1→M15→M5→M1. Desk pair = H1 direction/structure → M5 entry.
+ *  3. Pivot = first 1H red: mark HIGH/LOW (liquidity) + median + Fib 44/50/56 on that 1H bar.
+ *     Trade 1 = leave the bar. Trade 2 = HTF level → LTF entry:
+ *       - Sweep 1H high (liquidity) → 5m close back BELOW high → SHORT (sells only)
+ *       - Sweep 1H low → 5m close back ABOVE low → LONG (buys only)
+ *       - Median confluence on that 5m close (above/below).
+ *     ENTER only when SL locks to a 5m swing; 50% @ 1:1 → BE → trail 1:2 → TP 1:3.
+ *     Telegram fires on that ENTER (desk relay + worker scan) so you need not stare.
  *  4. Clock: pre-London continuation → London hunts Asia H/L → US hunts London
- *     (and Asia if untouched); US open often needs 1m for the “zoom” entry.
+ *     (and Asia if untouched).
  *
  * EMA is NOT part of this indicator. Overlay it separately if you want.
  *
@@ -832,7 +838,7 @@ const RedBarTrend = {
         id: 'us_open',
         label: 'US Open Active (4:30–7:00 PM)',
         nextWindow: `US Heavy Window · ${fmtWait(rem)} left (till 7:00 PM IST)`,
-        tip: 'US hunts London H/L (Asia if untouched). Heavy window ~4:30–7:00 IST — use 1m when it zooms.',
+        tip: 'US hunts London H/L (Asia if untouched). Heavy window ~4:30–7:00 IST.',
       };
     }
     const remToLondon = (24 * 60 - mins) + (12 * 60 + 30);
@@ -845,34 +851,174 @@ const RedBarTrend = {
   },
 
   /**
-   * First-red trade setup: trade 1 (leave the bar) / trade 2 (2–3h revisit).
-   * Inspects recent bars to distinguish a fresh Trade 1 break, a Trade 2 revisit
-   * rejection/reversal, or an overextended late move.
+   * Median + Fib 44/50/56 marked on the first 1H red candle high→low (not on 5m).
+   * Median = Fib 50 = midpoint of that 1H bar.
    */
-  firstRedSetup(price, firstRed, asOfTs, touchPct = 0.15, slice = null) {
+  firstRedFibs(firstRed) {
+    if (!firstRed || firstRed.high == null || firstRed.low == null) return null;
+    const high = firstRed.high;
+    const low = firstRed.low;
+    if (!(high > low)) return null;
+    const f44 = this.fibPrice(high, low, 0.44);
+    const f50 = this.fibPrice(high, low, 0.5);
+    const f56 = this.fibPrice(high, low, 0.56);
+    return {
+      high,
+      low,
+      f0: high,
+      f44,
+      f50,
+      f56,
+      f1: low,
+      median: f50,
+    };
+  },
+
+  /**
+   * Trade 2 on 5m (HTF→LTF ladder: 1H structure → 5m entry).
+   * Reel + Sagar:
+   *  - Sweep 1H HIGH (liquidity) then 5m CLOSE BELOW high → SHORT (sells only)
+   *  - Sweep 1H LOW then 5m CLOSE ABOVE low → LONG (buys only)
+   *  - Same-bar wick sweep + close-through counts (rejection candle).
+   *  - Median confluence on the trigger close for ENTER (strong).
+   * Without a sweep: close vs median alone = WATCH (not strong).
+   */
+  _trade2Confirm5m(bars5m, firstRed, fibs, asOfTs, touchPct = 0.15) {
+    if (!Array.isArray(bars5m) || !bars5m.length || !firstRed || !fibs) return null;
+    const median = fibs.median;
+    const hi = firstRed.high;
+    const lo = firstRed.low;
+    const barMs = 5 * 60 * 1000;
+    const lookMs = 3 * 3600 * 1000;
+    const closed = [];
+    for (let i = 0; i < bars5m.length; i++) {
+      const b = bars5m[i];
+      if (b.t <= firstRed.t) continue;
+      if (asOfTs != null && b.t + barMs > asOfTs) continue;
+      if (asOfTs != null && (asOfTs - b.t) > lookMs) continue;
+      closed.push(b);
+    }
+    if (!closed.length) return null;
+
+    // Newest closed bars first — require sweep on the trigger bar or earlier
+    for (let i = closed.length - 1; i >= 0; i--) {
+      const trig = closed[i];
+      if (asOfTs != null && (asOfTs - trig.t) > 60 * 60 * 1000) break; // fresh trigger only
+
+      let sweepHi = trig.h > hi ? trig.h : null;
+      let sweepLo = trig.l < lo ? trig.l : null;
+      for (let j = 0; j < i; j++) {
+        if (closed[j].h > hi) sweepHi = sweepHi == null ? closed[j].h : Math.max(sweepHi, closed[j].h);
+        if (closed[j].l < lo) sweepLo = sweepLo == null ? closed[j].l : Math.min(sweepLo, closed[j].l);
+      }
+
+      // SHORT: swept high, closed back below high (reel: CLOSED BELOW)
+      const shortTrig = sweepHi != null && trig.c < hi;
+      // LONG: swept low, closed back above low
+      const longTrig = sweepLo != null && trig.c > lo;
+
+      if (shortTrig && !longTrig) {
+        const medOk = trig.c < median;
+        return {
+          side: 'bearish',
+          read: 'liq_sweep_high',
+          bar: trig,
+          strong: medOk,
+          sweepExtreme: sweepHi,
+          level: hi,
+          sellsOnly: true,
+          medianOk: medOk,
+        };
+      }
+      if (longTrig && !shortTrig) {
+        const medOk = trig.c > median;
+        return {
+          side: 'bullish',
+          read: 'liq_sweep_low',
+          bar: trig,
+          strong: medOk,
+          sweepExtreme: sweepLo,
+          level: lo,
+          buysOnly: true,
+          medianOk: medOk,
+        };
+      }
+      // Both possible (rare): prefer the side that closed through relative to median
+      if (shortTrig && longTrig) {
+        if (trig.c < median) {
+          return {
+            side: 'bearish',
+            read: 'liq_sweep_high',
+            bar: trig,
+            strong: true,
+            sweepExtreme: sweepHi,
+            level: hi,
+            sellsOnly: true,
+            medianOk: true,
+          };
+        }
+        if (trig.c > median) {
+          return {
+            side: 'bullish',
+            read: 'liq_sweep_low',
+            bar: trig,
+            strong: true,
+            sweepExtreme: sweepLo,
+            level: lo,
+            buysOnly: true,
+            medianOk: true,
+          };
+        }
+      }
+    }
+
+    // No liquidity close-through — median in zone = WATCH
+    const tol = (touchPct / 100) * firstRed.high;
+    const zoneHi = Math.max(hi, fibs.f44) + tol;
+    const zoneLo = Math.min(lo, fibs.f56) - tol;
+    for (let i = closed.length - 1; i >= 0; i--) {
+      const b = closed[i];
+      if (!(b.l <= zoneHi && b.h >= zoneLo)) continue;
+      if (b.c > median) {
+        return { side: 'bullish', read: 'median_watch', bar: b, strong: false, sweepExtreme: null, medianOk: true };
+      }
+      if (b.c < median) {
+        return { side: 'bearish', read: 'median_watch', bar: b, strong: false, sweepExtreme: null, medianOk: true };
+      }
+      return { side: null, read: 'at_median', bar: b, strong: false, sweepExtreme: null };
+    }
+    return null;
+  },
+
+  /**
+   * First-red: Trade 1 (leave) / Trade 2 (1H liquidity → 5m close-through).
+   * Trade 2 anytime after first red (incl. Asia / within ~5m).
+   */
+  firstRedSetup(price, firstRed, asOfTs, touchPct = 0.15, slice = null, bars5m = null) {
     if (!firstRed || price == null) {
       return { id: 'no_red', label: 'No 1H first red yet', near: false, hoursSince: null };
     }
     const hoursSince = asOfTs != null && firstRed.t != null
       ? (asOfTs - firstRed.t) / 3600000
       : null;
-    const pivotMid = (firstRed.high + firstRed.low) / 2;
+    const fibs = this.firstRedFibs(firstRed);
+    const pivotMid = fibs ? fibs.median : (firstRed.high + firstRed.low) / 2;
     const nearHigh = (Math.abs(price - firstRed.high) / firstRed.high) * 100 <= touchPct;
     const nearLow = (Math.abs(price - firstRed.low) / firstRed.low) * 100 <= touchPct;
     const inside = price <= firstRed.high && price >= firstRed.low;
-    const near = nearHigh || nearLow || inside;
-    // Departure is strict: any print beyond the 1H red high/low counts as left.
-    // (Old touchPct dead-zone kept BTC "at pivot" for ~0.15% / ~$127 after a clean break.)
+    const nearFibBand = !!(fibs && price <= fibs.f44 * (1 + touchPct / 100) && price >= fibs.f56 * (1 - touchPct / 100));
+    const near = nearHigh || nearLow || inside || nearFibBand;
     const leftAbove = price > firstRed.high;
     const leftBelow = price < firstRed.low;
 
-    // Check recent bars after firstRed formed to see if price already left the pivot earlier
     let hadLeftAbove = false;
     let hadLeftBelow = false;
+    let sweptHigh5 = false;
+    let sweptLow5 = false;
     let curBar = null;
     if (Array.isArray(slice) && slice.length) {
       curBar = slice[slice.length - 1];
-      const startLook = Math.max(0, slice.length - 14);
+      const startLook = Math.max(0, slice.length - 48);
       for (let k = startLook; k < slice.length - 1; k++) {
         const b = slice[k];
         if (b.t <= firstRed.t) continue;
@@ -880,60 +1026,67 @@ const RedBarTrend = {
         if (b.c < firstRed.low * (1 - touchPct / 100)) hadLeftBelow = true;
       }
     }
-
-    // Did the current bar wick into the 1H first-red zone?
-    const tol = ( touchPct / 100 ) * firstRed.high;
-    const barTouchedPivot = curBar
-      ? (curBar.l <= firstRed.high + tol && curBar.h >= firstRed.low - tol)
-      : near;
-
-    // Sagar: Price often revisits the first-red 1.5–6.5h later (London); keep the
-    // window open through US (~16h) so afternoon/US retests of the same pivot still qualify.
-    const revisitWindow = (near || (barTouchedPivot && (hadLeftAbove || hadLeftBelow)))
-      && hoursSince != null && hoursSince >= 1.5 && hoursSince <= 16;
-
-    // At revisit: classify reject (continue morning bias) vs reverse (flip through pivot)
-    let revisitRead = null;
-    let revisitSide = null;
-    // A single 30m touch false-positives easily. "Strong" = decisive candle: body ≥ 45% of its
-    // range and close in the outer 40% of the range in the trade direction. Weak reads are
-    // surfaced as Trade 2 WATCH (human confirms the candle), never as an entry.
-    let revisitStrong = false;
-    if (revisitWindow && curBar) {
-      if (hadLeftAbove && curBar.l <= firstRed.high + tol && curBar.c >= pivotMid && curBar.c >= curBar.o) {
-        revisitRead = 'reject_bull';
-        revisitSide = 'bullish';
-      } else if (hadLeftBelow && curBar.h >= firstRed.low - tol && curBar.c <= pivotMid && curBar.c <= curBar.o) {
-        revisitRead = 'reject_bear';
-        revisitSide = 'bearish';
-      } else if (hadLeftAbove && curBar.c < firstRed.low && curBar.c < curBar.o) {
-        revisitRead = 'reverse_bear';
-        revisitSide = 'bearish';
-      } else if (hadLeftBelow && curBar.c > firstRed.high && curBar.c > curBar.o) {
-        revisitRead = 'reverse_bull';
-        revisitSide = 'bullish';
-      }
-      if (revisitSide) {
-        const rng = curBar.h - curBar.l;
-        const body = Math.abs(curBar.c - curBar.o);
-        const prevBar = slice && slice.length >= 2 ? slice[slice.length - 2] : null;
-        const beatPrev = !prevBar || (revisitSide === 'bullish' ? curBar.c > prevBar.c : curBar.c < prevBar.c);
-        // Reject flat doji touches on a single 30m bar: require real body (>=18% of bar range) and close beating prior bar
-        revisitStrong = rng > 0 && (body / rng) >= 0.18 && beatPrev;
+    if (Array.isArray(bars5m) && bars5m.length) {
+      for (let k = Math.max(0, bars5m.length - 80); k < bars5m.length; k++) {
+        const b = bars5m[k];
+        if (b.t <= firstRed.t) continue;
+        if (asOfTs != null && b.t >= asOfTs) continue;
+        if (b.c > firstRed.high) hadLeftAbove = true;
+        if (b.c < firstRed.low) hadLeftBelow = true;
+        if (b.h > firstRed.high) sweptHigh5 = true;
+        if (b.l < firstRed.low) sweptLow5 = true;
       }
     }
 
-    // Distance from pivot in % — used to avoid chasing Trade 1 hours after the move happened
+    const tol = (touchPct / 100) * firstRed.high;
+    const zoneHi = fibs ? Math.max(firstRed.high, fibs.f44) + tol : firstRed.high + tol;
+    const zoneLo = fibs ? Math.min(firstRed.low, fibs.f56) - tol : firstRed.low - tol;
+    const barTouchedPivot = curBar
+      ? (curBar.l <= zoneHi && curBar.h >= zoneLo)
+      : near;
+
+    const leftThen = hadLeftAbove || hadLeftBelow;
+    // Active when revisiting zone OR after a 5m liquidity sweep of 1H H/L
+    const revisitWindow = (near || barTouchedPivot || sweptHigh5 || sweptLow5 || (near && leftThen))
+      && hoursSince != null && hoursSince >= (5 / 60) && hoursSince <= 20;
+
+    let revisitRead = null;
+    let revisitSide = null;
+    let revisitStrong = false;
+    let sweepExtreme = null;
+    let sellsOnly = false;
+    let buysOnly = false;
+    const conf5 = revisitWindow
+      ? this._trade2Confirm5m(bars5m, firstRed, fibs, asOfTs, touchPct)
+      : null;
+    if (revisitWindow && conf5 && conf5.side) {
+      revisitSide = conf5.side;
+      revisitRead = conf5.read;
+      revisitStrong = !!conf5.strong;
+      sweepExtreme = conf5.sweepExtreme ?? null;
+      sellsOnly = !!conf5.sellsOnly;
+      buysOnly = !!conf5.buysOnly;
+    } else if (revisitWindow && curBar) {
+      if ((leftThen || sweptHigh5 || sweptLow5) && curBar.l <= zoneHi && curBar.h >= zoneLo) {
+        if (curBar.c > pivotMid) {
+          revisitRead = 'median_watch';
+          revisitSide = 'bullish';
+        } else if (curBar.c < pivotMid) {
+          revisitRead = 'median_watch';
+          revisitSide = 'bearish';
+        }
+        revisitStrong = false;
+      }
+    }
+
     const distFromPivotPct = leftAbove
       ? ((price - firstRed.high) / firstRed.high) * 100
       : leftBelow
         ? ((firstRed.low - price) / firstRed.low) * 100
         : 0;
-    // Short freshness window (≤2 bars since leaving the 1H first-red range) so Trade 1
-    // only fires on the actual departure, then transitions to WATCH (trend_bias).
     let justDeparted = false;
     if ((leftAbove || leftBelow) && Array.isArray(slice) && slice.length >= 2) {
-      const lookBars = slice.slice(-3, -1); // 1–2 bars immediately before current bar
+      const lookBars = slice.slice(-3, -1);
       justDeparted = leftAbove
         ? lookBars.some((b) => b.c <= firstRed.high + tol)
         : lookBars.some((b) => b.c >= firstRed.low - tol);
@@ -944,24 +1097,28 @@ const RedBarTrend = {
       && distFromPivotPct <= 1.0;
 
     let id = 'marked';
-    let label = '1H first red marked';
+    let label = '1H first red marked (H/L liquidity + median)';
     if (revisitWindow) {
       id = 'trade2_revisit';
-      label = revisitRead === 'reject_bull'
-        ? 'Trade 2 · 1H red rejected (LONG continuation)'
-        : revisitRead === 'reject_bear'
-          ? 'Trade 2 · 1H red rejected (SHORT continuation)'
-          : revisitRead === 'reverse_bear'
-            ? 'Trade 2 · 1H red broke down (SHORT flip)'
-            : revisitRead === 'reverse_bull'
-              ? 'Trade 2 · 1H red reclaimed (LONG flip)'
-              : 'Trade 2 · revisit of 1H first red';
+      label = revisitRead === 'liq_sweep_high'
+        ? (revisitStrong
+          ? 'Trade 2 · 1H high swept → 5m closed below (SHORT)'
+          : 'Trade 2 · 1H high swept — wait 5m close below high & median')
+        : revisitRead === 'liq_sweep_low'
+          ? (revisitStrong
+            ? 'Trade 2 · 1H low swept → 5m closed above (LONG)'
+            : 'Trade 2 · 1H low swept — wait 5m close above low & median')
+          : revisitRead === 'median_watch'
+            ? (revisitSide === 'bullish'
+              ? 'Trade 2 WATCH · 5m above median — need liquidity sweep of 1H low'
+              : 'Trade 2 WATCH · 5m below median — need liquidity sweep of 1H high')
+            : 'Trade 2 · H1→M5 — wait sweep of 1H H/L then close back through';
     } else if (leftAbove || leftBelow) {
       id = 'trade1_away';
       label = leftAbove ? 'Trade 1 · left above first red' : 'Trade 1 · left below first red';
     } else if (near) {
       id = 'at_pivot';
-      label = 'At 1H first-red pivot';
+      label = 'At 1H first-red (mark HIGH/LOW liquidity + median)';
     }
     return {
       id,
@@ -979,6 +1136,12 @@ const RedBarTrend = {
       pivotHigh: firstRed.high,
       pivotLow: firstRed.low,
       pivotMid,
+      fibs,
+      sweepExtreme,
+      sellsOnly,
+      buysOnly,
+      sweptHigh5,
+      sweptLow5,
     };
   },
 
@@ -1068,6 +1231,13 @@ const RedBarTrend = {
     sweep,
     cpr = null,
     minRR = 1.5,
+    preferSwingStop = false,
+    /** Trade 2: fixed 1:1 / 1:2 / 1:3 ladder (book = 1:3) */
+    rrLadder = false,
+    /** Trade 2 beginner SL: 5m swing H/L (Sagar: stay on 5m until ready for 15m) */
+    bars5m = null,
+    /** Trade 2 liquidity-sweep wick extreme (beyond 1H high/low) */
+    sweepExtreme = null,
   }) {
     if (trend !== 'bullish' && trend !== 'bearish') {
       return {
@@ -1075,6 +1245,7 @@ const RedBarTrend = {
         invalidationReason: null,
         stopStructural: false,
         tp1: null,
+        tp2: null,
         tp3: null,
         bookZone: null,
         firstMagnet: null,
@@ -1086,9 +1257,24 @@ const RedBarTrend = {
       };
     }
 
-    const recentBars = Array.isArray(slice) ? slice.slice(-10) : [];
-    const localLow = recentBars.length ? Math.min(...recentBars.map((b) => b.l)) : null;
-    const localHigh = recentBars.length ? Math.max(...recentBars.map((b) => b.h)) : null;
+    const workRecent = Array.isArray(slice) ? slice.slice(-10) : [];
+    let localLow = workRecent.length ? Math.min(...workRecent.map((b) => b.l)) : null;
+    let localHigh = workRecent.length ? Math.max(...workRecent.map((b) => b.h)) : null;
+    let swingStopTagLow = 'prev swing low';
+    let swingStopTagHigh = 'prev swing high';
+    // Trade 2: lock SL to 5m swing (not working-TF / 15m yet)
+    if (preferSwingStop && Array.isArray(bars5m) && bars5m.length >= 10) {
+      const i5 = bars5m.length - 1;
+      const sw5 = this.nearestSwings(bars5m, i5, 2);
+      const recent5 = bars5m.slice(-24); // ~2h of 5m structure
+      const min5 = Math.min(...recent5.map((b) => b.l));
+      const max5 = Math.max(...recent5.map((b) => b.h));
+      // Prefer nearest completed 5m swing; fall back to recent 5m extreme
+      localLow = (sw5.nearLow != null ? sw5.nearLow : sw5.swingLow) ?? min5;
+      localHigh = (sw5.nearHigh != null ? sw5.nearHigh : sw5.swingHigh) ?? max5;
+      swingStopTagLow = '5m swing low';
+      swingStopTagHigh = '5m swing high';
+    }
     const prevSwingLow = localLow;
     const prevSwingHigh = localHigh;
     const minStopDist = price * 0.0028; // 0.28% minimum stop floor (avoids micro noise stops)
@@ -1104,31 +1290,56 @@ const RedBarTrend = {
       ? `1.5% cap — real ${tag} is ${((rawDist / price) * 100).toFixed(2)}% away`
       : `0.28% floor — ${tag} too close`);
     if (trend === 'bullish') {
-      const candidates = [
-        sweep?.side === 'bullish' && sweep.wickExtreme != null ? { v: sweep.wickExtreme - pad, tag: 'sweep wick' } : null,
-        firstRed1h?.low != null && firstRed1h.low < price ? { v: firstRed1h.low - pad, tag: '1H red low' } : null,
-        localLow != null && localLow < price ? { v: localLow - pad, tag: 'prev swing low' } : null,
-        or?.low != null && or.low < price ? { v: or.low - pad, tag: 'Fib 1 edge' } : null,
-        support != null && support < price ? { v: support - pad, tag: 'prior fib support' } : null,
-        swingLow != null && swingLow < price ? { v: swingLow, tag: 'pivot swing low' } : null,
-      ].filter((x) => x && Number.isFinite(x.v) && x.v < price);
+      // Trade 2 (Sagar): prefer recent swing low for SL; mark-window Fibs are targets only.
+      const rawCands = preferSwingStop
+        ? [
+          // Public USD-M winners: prefer 5m swing over sweep wick / 1H red (wick-only bled)
+          localLow != null && localLow < price ? { v: localLow - pad, tag: swingStopTagLow } : null,
+          sweepExtreme != null && sweepExtreme < price ? { v: sweepExtreme - pad, tag: '5m sweep wick (1H low)' } : null,
+          sweep?.side === 'bullish' && sweep.wickExtreme != null ? { v: sweep.wickExtreme - pad, tag: 'session sweep wick' } : null,
+          firstRed1h?.low != null && firstRed1h.low < price ? { v: firstRed1h.low - pad, tag: '1H red low' } : null,
+          support != null && support < price ? { v: support - pad, tag: 'prior fib support' } : null,
+        ]
+        : [
+          sweep?.side === 'bullish' && sweep.wickExtreme != null ? { v: sweep.wickExtreme - pad, tag: 'sweep wick' } : null,
+          firstRed1h?.low != null && firstRed1h.low < price ? { v: firstRed1h.low - pad, tag: '1H red low' } : null,
+          localLow != null && localLow < price ? { v: localLow - pad, tag: 'prev swing low' } : null,
+          or?.low != null && or.low < price ? { v: or.low - pad, tag: 'Fib 1 edge' } : null,
+          support != null && support < price ? { v: support - pad, tag: 'prior fib support' } : null,
+          swingLow != null && swingLow < price ? { v: swingLow, tag: 'pivot swing low' } : null,
+        ];
+      const candidates = rawCands.filter((x) => x && Number.isFinite(x.v) && x.v < price);
 
       // Pick the tightest structural stop that is at least minStopDist away and at most maxStopDist away
       const valid = candidates
         .filter((x) => (price - x.v) >= minStopDist && (price - x.v) <= maxStopDist)
         .sort((a, b) => b.v - a.v); // closest to price first
-      if (valid.length) {
+      // Winning formula: lock to 5m swing whenever it exists (clamp into 0.28–1.5% if needed)
+      // so ENTER + Telegram can fire — do not fall through to 1H red / fib (those bled OOS).
+      const swingCands = preferSwingStop
+        ? candidates.filter((x) => /5m swing/i.test(x.tag)).sort((a, b) => b.v - a.v)
+        : [];
+      const swingInWindow = swingCands.filter((x) => (price - x.v) >= minStopDist && (price - x.v) <= maxStopDist);
+      const pickLong = swingInWindow[0] || null;
+      if (pickLong) {
+        invalidation = pickLong.v;
+        invalidationReason = pickLong.tag;
+        stopStructural = true;
+      } else if (swingCands[0]) {
+        const rawDist = price - swingCands[0].v;
+        invalidation = price - Math.min(maxStopDist, Math.max(minStopDist, rawDist));
+        invalidationReason = capReason(rawDist, swingCands[0].tag);
+        stopStructural = true; // real 5m structure — floor/cap must not block Telegram ENTER
+      } else if (valid[0]) {
         invalidation = valid[0].v;
         invalidationReason = valid[0].tag;
         stopStructural = true;
       } else {
-        const anyBelow = candidates.sort((a, b) => b.v - a.v)[0];
+        const anyBelow = candidates.slice().sort((a, b) => b.v - a.v)[0];
         if (anyBelow) {
           const rawDist = price - anyBelow.v;
           invalidation = price - Math.min(maxStopDist, Math.max(minStopDist, rawDist));
           invalidationReason = capReason(rawDist, anyBelow.tag);
-          // If structure was closer than 0.28%, flooring to 0.28% places the stop safely behind structure.
-          // Only when rawDist > maxStopDist (1.5%) is the stop capped in mid-air before real structure.
           stopStructural = rawDist <= maxStopDist;
         } else {
           invalidation = price - price * 0.0065;
@@ -1137,24 +1348,47 @@ const RedBarTrend = {
         }
       }
     } else {
-      const candidates = [
-        sweep?.side === 'bearish' && sweep.wickExtreme != null ? { v: sweep.wickExtreme + pad, tag: 'sweep wick' } : null,
-        firstRed1h?.high != null && firstRed1h.high > price ? { v: firstRed1h.high + pad, tag: '1H red high' } : null,
-        localHigh != null && localHigh > price ? { v: localHigh + pad, tag: 'prev swing high' } : null,
-        or?.high != null && or.high > price ? { v: or.high + pad, tag: 'Fib 0 edge' } : null,
-        resist != null && resist > price ? { v: resist + pad, tag: 'prior fib resistance' } : null,
-        swingHigh != null && swingHigh > price ? { v: swingHigh, tag: 'pivot swing high' } : null,
-      ].filter((x) => x && Number.isFinite(x.v) && x.v > price);
+      const rawCands = preferSwingStop
+        ? [
+          localHigh != null && localHigh > price ? { v: localHigh + pad, tag: swingStopTagHigh } : null,
+          sweepExtreme != null && sweepExtreme > price ? { v: sweepExtreme + pad, tag: '5m sweep wick (1H high)' } : null,
+          sweep?.side === 'bearish' && sweep.wickExtreme != null ? { v: sweep.wickExtreme + pad, tag: 'session sweep wick' } : null,
+          firstRed1h?.high != null && firstRed1h.high > price ? { v: firstRed1h.high + pad, tag: '1H red high' } : null,
+          resist != null && resist > price ? { v: resist + pad, tag: 'prior fib resistance' } : null,
+        ]
+        : [
+          sweep?.side === 'bearish' && sweep.wickExtreme != null ? { v: sweep.wickExtreme + pad, tag: 'sweep wick' } : null,
+          firstRed1h?.high != null && firstRed1h.high > price ? { v: firstRed1h.high + pad, tag: '1H red high' } : null,
+          localHigh != null && localHigh > price ? { v: localHigh + pad, tag: 'prev swing high' } : null,
+          or?.high != null && or.high > price ? { v: or.high + pad, tag: 'Fib 0 edge' } : null,
+          resist != null && resist > price ? { v: resist + pad, tag: 'prior fib resistance' } : null,
+          swingHigh != null && swingHigh > price ? { v: swingHigh, tag: 'pivot swing high' } : null,
+        ];
+      const candidates = rawCands.filter((x) => x && Number.isFinite(x.v) && x.v > price);
 
       const valid = candidates
         .filter((x) => (x.v - price) >= minStopDist && (x.v - price) <= maxStopDist)
         .sort((a, b) => a.v - b.v); // closest to price first
-      if (valid.length) {
+      const swingCandsShort = preferSwingStop
+        ? candidates.filter((x) => /5m swing/i.test(x.tag)).sort((a, b) => a.v - b.v)
+        : [];
+      const swingInWindowShort = swingCandsShort.filter((x) => (x.v - price) >= minStopDist && (x.v - price) <= maxStopDist);
+      const pickShort = swingInWindowShort[0] || null;
+      if (pickShort) {
+        invalidation = pickShort.v;
+        invalidationReason = pickShort.tag;
+        stopStructural = true;
+      } else if (swingCandsShort[0]) {
+        const rawDist = swingCandsShort[0].v - price;
+        invalidation = price + Math.min(maxStopDist, Math.max(minStopDist, rawDist));
+        invalidationReason = capReason(rawDist, swingCandsShort[0].tag);
+        stopStructural = true;
+      } else if (valid[0]) {
         invalidation = valid[0].v;
         invalidationReason = valid[0].tag;
         stopStructural = true;
       } else {
-        const anyAbove = candidates.sort((a, b) => a.v - b.v)[0];
+        const anyAbove = candidates.slice().sort((a, b) => a.v - b.v)[0];
         if (anyAbove) {
           const rawDist = anyAbove.v - price;
           invalidation = price + Math.min(maxStopDist, Math.max(minStopDist, rawDist));
@@ -1251,12 +1485,19 @@ const RedBarTrend = {
       }
     }
 
-    // Sagar rule:
-    // 1) Decide Stop-Loss first (invalidation, distance = 1R = risk)
-    // 2) 1:1 reward is your 50% TP (tp1), then move stop to BE
-    // 3) Trail the remaining 50% until EMA 10/30 cross over (with liquidity magnet / 1:3 as stretch cap)
+    // Sagar manage (Trade 2 ladder when rrLadder):
+    // 1) Stop = recent swing (1R)
+    // 2) 50% TP at 1:1 → move SL to breakeven
+    // 3) Trail at 1:2, take profit at 1:3
+    // Otherwise: 1:1 partial + magnet/stretch book (Trade 1 / sweep)
     const tp1 = trend === 'bullish' ? price + risk : price - risk;
+    const tp2 = trend === 'bullish' ? price + risk * 2.0 : price - risk * 2.0;
     const tp3 = trend === 'bullish' ? price + risk * 3.0 : price - risk * 3.0;
+    if (rrLadder) {
+      bookZone = tp3;
+      bookReason = 'rr_1_3';
+      firstMagnet = { val: tp2, tag: 'rr_1_2_trail' };
+    }
     const reward = Math.abs(bookZone - price);
     const stopPct = (risk / price) * 100;
     const targetPct = (reward / price) * 100;
@@ -1278,15 +1519,17 @@ const RedBarTrend = {
       prevSwingHigh,
       prevSwingLow,
       tp1,
+      tp2,
       tp3,
       bookZone,
       firstMagnet: firstMagnetOut,
       bookReason,
       // false when no real magnet sat ≥1.5R away and we fell back to a synthetic 1.8R target
-      bookIsMagnet: bookReason !== 'r_target_1.8R',
+      bookIsMagnet: bookReason !== 'r_target_1.8R' && bookReason !== 'rr_1_3',
       stopPct,
       targetPct,
       rr,
+      rrLadder: !!rrLadder,
     };
   },
 
@@ -1419,12 +1662,16 @@ const RedBarTrend = {
     }
 
     const firstRed1h = c.firstRed1h || null;
+    const firstRedFibs = this.firstRedFibs(firstRed1h);
+    const bars5m = Array.isArray(c.bars5m) && c.bars5m.length ? c.bars5m : null;
     const dayMode = c.dayMode || 'ist';
     const istDay = this.zonedDay(bars[i].t, 'Asia/Kolkata');
     const priorDayStr = this.shiftDay(istDay, -1);
     const priorDay = this.calendarDayHl(slice, priorDayStr, dayMode);
     const clock = this.istClockPhase(bars[i].t);
-    const redSetup = this.firstRedSetup(price, firstRed1h, bars[i].t, c.touchPct ?? 0.15, slice);
+    const redSetup = this.firstRedSetup(
+      price, firstRed1h, bars[i].t, c.touchPct ?? 0.15, slice, bars5m,
+    );
 
     const sessions = Array.isArray(c.sessions) ? c.sessions : [];
     const asiaSess = sessions.find((s) => (s.id || '').toLowerCase() === 'asia')
@@ -1440,53 +1687,50 @@ const RedBarTrend = {
     const sweep = this.detectSessionSweep(slice, clock, asiaHl, londonHl, firstRed1h);
 
     // Composite trend & setup classification (Sagar playbook):
-    // 1. Mark-window forming or trapped inside Fib 0..1 box -> neutral (WAIT)
-    // 2. Trade 2 revisit with confirmed rejection/reversal -> primary revisit setup
-    // 3. Session liquidity sweep (London sweeps Asia H/L or US sweeps London H/L, aligned with 1H red) -> reversal setup
-    // 4. Fib break + 1H first-red departure agreement -> Trade 1 or trend bias
+    // 1. Mark window still forming -> WAIT
+    // 2. Trade 1 fresh departure WINS over Trade 2 (leave ≠ retest)
+    // 3. Trade 2 revisit (H1 liquidity → 5m close-through)
+    // 4. Session liquidity sweep
+    // 5. Inside Fib box (no Trade 1/2/sweep) -> WAIT
+    // 6. Fib break bias / pullback
     let trend = 'neutral';
     let setupKind = 'wait';
-    if (phase !== 'first_candle' && phase !== 'inside_or') {
-      if (redSetup.revisitSide) {
-        trend = redSetup.revisitSide;
-        setupKind = redSetup.revisitStrong ? 'trade2_confirmed' : 'trade2_watch';
-      } else if (sweep) {
-        trend = sweep.side;
-        setupKind = 'session_sweep';
-      } else if (orBias === 'bull') {
-        // Do not call LONG if price broke down below today's 1H first-red low
-        if (firstRed1h && redSetup.leftBelow) {
-          trend = 'bearish';
-          setupKind = 'pivot_reversal';
-        } else {
-          trend = 'bullish';
-          setupKind = redSetup.trade1Fresh
-            ? 'trade1_departure'
-            : redSetup.revisitWindow
-              ? 'trade2_watch'
-              : active.length
-                ? 'fib_pullback'
-                : 'trend_bias';
-        }
-      } else if (orBias === 'bear') {
-        if (firstRed1h && redSetup.leftAbove) {
-          trend = 'bullish';
-          setupKind = 'pivot_reversal';
-        } else {
-          trend = 'bearish';
-          setupKind = redSetup.trade1Fresh
-            ? 'trade1_departure'
-            : redSetup.revisitWindow
-              ? 'trade2_watch'
-              : active.length
-                ? 'fib_pullback'
-                : 'trend_bias';
-        }
-      }
-    } else if (phase === 'inside_or' && sweep) {
-      // Edge sweep of session high/low at box boundary
+    if (phase === 'first_candle') {
+      trend = 'neutral';
+      setupKind = 'wait';
+    } else if (redSetup.trade1Fresh && (redSetup.leftAbove || redSetup.leftBelow)) {
+      // Fresh leave of 1H first-red — do not steal into Trade 2 sweep window
+      trend = redSetup.leftAbove ? 'bullish' : 'bearish';
+      setupKind = 'trade1_departure';
+    } else if (redSetup.revisitSide) {
+      trend = redSetup.revisitSide;
+      setupKind = redSetup.revisitStrong ? 'trade2_confirmed' : 'trade2_watch';
+    } else if (redSetup.revisitWindow) {
+      trend = orBias === 'bull' ? 'bullish' : orBias === 'bear' ? 'bearish' : 'neutral';
+      setupKind = 'trade2_watch';
+      if (trend === 'neutral') trend = redSetup.leftAbove ? 'bullish' : redSetup.leftBelow ? 'bearish' : 'neutral';
+    } else if (sweep) {
       trend = sweep.side;
       setupKind = 'session_sweep';
+    } else if (phase === 'inside_or') {
+      trend = 'neutral';
+      setupKind = 'wait';
+    } else if (orBias === 'bull') {
+      if (firstRed1h && redSetup.leftBelow) {
+        trend = 'bearish';
+        setupKind = 'pivot_reversal';
+      } else {
+        trend = 'bullish';
+        setupKind = active.length ? 'fib_pullback' : 'trend_bias';
+      }
+    } else if (orBias === 'bear') {
+      if (firstRed1h && redSetup.leftAbove) {
+        trend = 'bullish';
+        setupKind = 'pivot_reversal';
+      } else {
+        trend = 'bearish';
+        setupKind = active.length ? 'fib_pullback' : 'trend_bias';
+      }
     }
 
     // Renko / CPR / prior Fibs = chart context only. Not separate strategies.
@@ -1526,11 +1770,21 @@ const RedBarTrend = {
       nyLow: nyHl ? nyHl.low : null,
       firstRed1hHigh: firstRed1h ? firstRed1h.high : null,
       firstRed1hLow: firstRed1h ? firstRed1h.low : null,
+      firstRedF44: firstRedFibs ? firstRedFibs.f44 : null,
+      firstRedF50: firstRedFibs ? firstRedFibs.f50 : null,
+      firstRedF56: firstRedFibs ? firstRedFibs.f56 : null,
+      firstRedMedian: firstRedFibs ? firstRedFibs.median : null,
       cprPivot: cpr ? cpr.pivot : null,
       cprBc: cpr ? cpr.bc : null,
       cprTc: cpr ? cpr.tc : null,
     };
 
+    const isTrade2 = setupKind === 'trade2_confirmed' || setupKind === 'trade2_watch';
+    // Public USD-M study: ENTERs with a real 5m swing stop were the only robust winners.
+    // Prefer 5m structure for Trade 1 / Trade 2 / sweep — not only Trade 2.
+    const preferSwingStop = isTrade2
+      || setupKind === 'trade1_departure'
+      || setupKind === 'session_sweep';
     const levels = this._resolveStopAndBook({
       trend,
       price,
@@ -1549,7 +1803,11 @@ const RedBarTrend = {
       red,
       sweep,
       cpr,
-      minRR: 1.5,
+      minRR: isTrade2 ? 1.0 : 1.5,
+      preferSwingStop,
+      rrLadder: isTrade2,
+      bars5m,
+      sweepExtreme: redSetup.sweepExtreme ?? null,
     });
 
     const invalidation = levels.invalidation;
@@ -1562,6 +1820,7 @@ const RedBarTrend = {
       rr: levels.rr,
       stopStructural: levels.stopStructural,
       invalidationReason: levels.invalidationReason,
+      stopPct: levels.stopPct,
       renko,
       clock,
       asOfTs: bars[i].t,
@@ -1587,7 +1846,9 @@ const RedBarTrend = {
       magnetAbove,
       magnetReaction,
       tp1: levels.tp1,
+      tp2: levels.tp2,
       tp3: levels.tp3,
+      rrLadder: levels.rrLadder,
       firstMagnet: levels.firstMagnet,
       bookReason: levels.bookReason,
       rr: levels.rr,
@@ -1620,6 +1881,7 @@ const RedBarTrend = {
       openingRange: or,
       lastRedBar: red,
       firstRed1h,
+      firstRedFibs,
       renko,
       cpr,
       playbook,
@@ -1649,12 +1911,15 @@ const RedBarTrend = {
         swingLow,
         prevSwingHigh: levels.prevSwingHigh ?? swingHigh,
         prevSwingLow: levels.prevSwingLow ?? swingLow,
+        swingStopTf: preferSwingStop ? '5m' : null,
       },
       invalidation,
       invalidationReason: levels.invalidationReason,
       stopStructural: levels.stopStructural,
       tp1: levels.tp1,
+      tp2: levels.tp2,
       tp3: levels.tp3,
+      rrLadder: levels.rrLadder,
       bookZone,
       firstMagnet: levels.firstMagnet,
       bookReason: levels.bookReason,
@@ -1690,7 +1955,7 @@ const RedBarTrend = {
    * Single source of truth for "enter now" vs "watch" vs "wait".
    * Used by the desk UI, the Telegram bot and the walk-forward backtest.
    */
-  entryGate({ trend, setupKind, rr, stopStructural, invalidationReason, renko, clock, asOfTs }) {
+  entryGate({ trend, setupKind, rr, stopStructural, invalidationReason, stopPct, renko, clock, asOfTs }) {
     if (trend !== 'bullish' && trend !== 'bearish') {
       return { state: 'wait', reason: 'No directional setup.' };
     }
@@ -1702,7 +1967,7 @@ const RedBarTrend = {
         magnet_reaction: 'Fib magnet is chart context — not a Red Bar ENTER.',
         magnet_bounce_watch: 'Fib bounce is chart context — not a Red Bar ENTER.',
         pivot_reversal: 'Price crossed the 1H red against Fib bias — conflicting, wait.',
-        trade2_watch: 'At the 1H red revisit, but the candle is not decisive yet — watch the close.',
+        trade2_watch: 'H1→M5 Trade 2: wait for 1H high/low liquidity sweep, then 5m close back through that level (median confluence).',
       }[setupKind] || 'Red Bar: wait for Trade 1 / Trade 2 / session sweep.';
       return { state: 'watch', reason: why };
     }
@@ -1719,7 +1984,34 @@ const RedBarTrend = {
     if (!stopStructural) {
       return { state: 'watch', reason: `Setup present but no real swing fits the stop window (${invalidationReason}).` };
     }
-    return { state: 'enter', reason: 'Fresh trigger · Stop set · 50% TP at 1:1 + trail 50% till EMA 10/30 cross.' };
+    // Winning formula (public BTCUSDT USD-M Oct24–Sep26): only 5m-swing SL book
+    // stayed green train+OOS (n=274, WR≈61%). 1H red / fib / wick-only stops bled.
+    if (!/5m swing/i.test(String(invalidationReason || ''))) {
+      return {
+        state: 'watch',
+        reason: `Setup present but SL is ${invalidationReason || 'not a 5m swing'} — wait until stop locks to a 5m swing (quality ENTER).`,
+      };
+    }
+    // Loser DNA (same public book): late-session ENTERs bled (n=141, sum≈−8%);
+    // skipping late lifted train+OOS (+9% / +14%, total +23% vs +15% baseline).
+    if (clock && clock.id === 'late') {
+      return {
+        state: 'watch',
+        reason: 'Setup present but IST late session — stand aside (loser cluster on public USD-M). Wait for next day’s pre-London / London.',
+      };
+    }
+    // Wide stops (>1%) were rare (~3% of book) but toxic (WR≈24%, sum≈−14%).
+    // Soft gate only — keeps ~97% of ENTERs; mid-band filters that cut frequency are not applied.
+    if (stopPct != null && Number.isFinite(stopPct) && stopPct > 1.0) {
+      return {
+        state: 'watch',
+        reason: `Setup present but stop is ${stopPct.toFixed(2)}% (>1%) — stand aside until a tighter 5m swing fits.`,
+      };
+    }
+    const trailBit = setupKind === 'trade2_confirmed'
+      ? 'H1→M5 sweep+close-through · SL 5m swing · 50% @ 1:1 → BE → trail 1:2 → TP 1:3'
+      : 'SL 5m swing · 50% TP at 1:1 → trail runner (stretch target)';
+    return { state: 'enter', reason: `Fresh trigger · ${trailBit}.` };
   },
 
   _liquidityTip(clock, asiaHl, londonHl, asiaUntouched, sweep) {
@@ -1741,7 +2033,7 @@ const RedBarTrend = {
     const clockBit = playbook?.clock?.tip ? ` ${playbook.clock.tip}` : '';
     const sweepBit = playbook?.sweep ? ` ${playbook.sweep.label}.` : '';
     const redBit = playbook?.redSetup?.id === 'trade2_revisit'
-      ? ` ${playbook.redSetup.label} — watch reject vs reverse.`
+      ? ` ${playbook.redSetup.label}.`
       : playbook?.redSetup?.id === 'trade1_away'
         ? ' Price has left the 1H first red — Trade 1 style: structural stop, book toward liquidity magnet.'
         : '';
@@ -1749,8 +2041,11 @@ const RedBarTrend = {
     if (phase === 'first_candle') {
       return 'Mark window still forming — record high/low only; do not trade until it locks.';
     }
+    if (playbook?.setupKind === 'trade2_confirmed' || playbook?.setupKind === 'trade2_watch') {
+      return `Trade 2 at 1H first-red Fibs (44/50/56).${redBit}${clockBit}`;
+    }
     if (phase === 'inside_or' && !playbook?.sweep) {
-      return `Price inside today’s mark-window fib box (sideways / accumulation zone). Wait for a clean break of Fib 0 / Fib 1.${clockBit}`;
+      return `Price inside today’s mark-window fib box — Fibs are targets only. Wait for Trade 1 / Trade 2 / sweep.${clockBit}`;
     }
     if (trend === 'bullish') {
       if (playbook?.sweep) {

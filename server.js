@@ -24,13 +24,111 @@ app.use((req, res, next) => {
     res.setHeader('Vary', 'Origin');
   }
   res.setHeader('Access-Control-Allow-Methods', 'GET,POST,OPTIONS');
-  res.setHeader('Access-Control-Allow-Headers', 'Content-Type, X-TrendRunner-Alert-Secret');
+  res.setHeader('Access-Control-Allow-Headers', 'Content-Type, X-TrendRunner-Alert-Secret, X-TrendRunner-Trade-Secret');
   if (req.method === 'OPTIONS') return res.sendStatus(204);
   next();
 });
 
 app.get('/', (req, res) => res.type('text').send('TrendRunner bot is running.'));
-app.get('/health', (req, res) => res.status(200).json({ status: 'ok', alerts: Boolean(process.env.TELEGRAM_BOT_TOKEN && process.env.TELEGRAM_CHAT_ID) }));
+app.get('/health', (req, res) => res.status(200).json({
+  status: 'ok',
+  alerts: Boolean(process.env.TELEGRAM_BOT_TOKEN && process.env.TELEGRAM_CHAT_ID),
+  autoTrade: String(process.env.REDBAR_AUTO_TRADE || '').toLowerCase() === 'true'
+    && String(process.env.TRADE_ENABLED || '').toLowerCase() === 'true',
+}));
+
+function tradeEnv(key, fallback = '') {
+  const v = process.env[key];
+  return typeof v === 'string' && v.trim() ? v.trim() : fallback;
+}
+
+function requireTradeSecret(req, res) {
+  const secret = tradeEnv('TRADE_API_SECRET');
+  if (!secret) {
+    res.status(503).json({ ok: false, error: 'TRADE_API_SECRET not set on Render' });
+    return false;
+  }
+  const got = req.headers['x-trendrunner-trade-secret'] || req.body?.secret || req.query?.secret || '';
+  if (got !== secret) {
+    res.status(401).json({ ok: false, error: 'Unauthorized' });
+    return false;
+  }
+  return true;
+}
+
+app.get('/api/trade/futures/status', (req, res) => {
+  const keysOk = Boolean(tradeEnv('BINANCE_API_KEY') && tradeEnv('BINANCE_API_SECRET'));
+  const tradeOn = String(process.env.TRADE_ENABLED || '').toLowerCase() === 'true';
+  const autoOn = String(process.env.REDBAR_AUTO_TRADE || '').toLowerCase() === 'true';
+  res.json({
+    ok: true,
+    tradeEnabled: tradeOn && keysOk && Boolean(tradeEnv('TRADE_API_SECRET')),
+    autoTrade: autoOn && tradeOn && keysOk,
+    keysConfigured: keysOk,
+    secretConfigured: Boolean(tradeEnv('TRADE_API_SECRET')),
+    marginUsdt: Number(process.env.REDBAR_TRADE_MARGIN_USDT) || Number(process.env.TRADE_MAX_USDT) || 25,
+    binanceFuturesUrl: 'https://www.binance.com/en/futures/BTCUSDT',
+  });
+});
+
+app.get('/api/trade/futures/positions', async (req, res) => {
+  if (!requireTradeSecret(req, res)) return;
+  try {
+    const { createBinanceFuturesTrade } = require('./js/binance_futures_trade.js');
+    const fut = createBinanceFuturesTrade();
+    const symbol = String(req.query.symbol || 'BTCUSDT').toUpperCase();
+    const positions = (await fut.getPositionRisk(symbol))
+      .filter((p) => Math.abs(parseFloat(p.positionAmt) || 0) > 0);
+    const orders = await fut.getOpenOrders(symbol);
+    res.json({ ok: true, symbol, positions, openOrders: orders });
+  } catch (e) {
+    console.error('[Futures] positions error:', e.message);
+    res.status(500).json({ ok: false, error: e.message });
+  }
+});
+
+let lastFuturesTradeAt = 0;
+app.post('/api/trade/futures/two-leg', async (req, res) => {
+  if (!requireTradeSecret(req, res)) return;
+  if (String(process.env.TRADE_ENABLED || '').toLowerCase() !== 'true') {
+    return res.status(503).json({ ok: false, error: 'TRADE_ENABLED is not true' });
+  }
+  if (!tradeEnv('BINANCE_API_KEY') || !tradeEnv('BINANCE_API_SECRET')) {
+    return res.status(503).json({ ok: false, error: 'Binance API keys missing' });
+  }
+  const now = Date.now();
+  if (now - lastFuturesTradeAt < 8000) {
+    return res.status(429).json({ ok: false, error: 'Rate limit — wait a few seconds' });
+  }
+  const body = req.body || {};
+  const side = String(body.side || '').toUpperCase();
+  const symbol = String(body.symbol || 'BTCUSDT').toUpperCase();
+  const marginUsdt = Math.min(
+    Number(process.env.TRADE_MAX_USDT) || 50,
+    Math.max(5, Number(body.marginUsdt) || Number(process.env.REDBAR_TRADE_MARGIN_USDT) || 25)
+  );
+  try {
+    const { createBinanceFuturesTrade } = require('./js/binance_futures_trade.js');
+    const fut = createBinanceFuturesTrade();
+    lastFuturesTradeAt = now;
+    const result = await fut.openTwoLegDeskTrade({
+      symbol,
+      side,
+      marginUsdt,
+      leverage: Number(body.leverage) || 3,
+      stopPrice: Number(body.stopPrice),
+      tpA: Number(body.tpA),
+      tpB: Number(body.tpB),
+      entryHint: Number(body.entry) || undefined,
+    });
+    console.log(`[Futures] two-leg ${side} ${symbol} ok=${result.ok} qty=${result.qty}`);
+    res.status(result.ok ? 200 : 207).json(result);
+  } catch (e) {
+    lastFuturesTradeAt = 0;
+    console.error('[Futures] two-leg error:', e.message);
+    res.status(500).json({ ok: false, error: e.message, binanceCode: e.binanceCode });
+  }
+});
 
 const ACTIONABLE = new Set(['trade1_departure', 'trade2_confirmed', 'session_sweep']);
 const recentRelay = new Map(); // alertKey -> ts
@@ -94,9 +192,10 @@ app.post('/api/alerts/redbar', async (req, res) => {
   const tp1 = body.tp1 != null ? body.tp1 : '—';
   const deskUrl = (process.env.DESK_URL || 'https://trendrunner.app').replace(/\/$/, '');
   const text =
-    `${emoji} <b>Red Bar ${escHtml(label)} ${side}</b> · ${escHtml(title)} (${escHtml(setupKind)})\n` +
+    `${emoji} <b>ENTER NOW · Red Bar ${escHtml(label)} ${side}</b>\n` +
+    `${escHtml(title)} (${escHtml(setupKind)})\n` +
     `Entry <b>$${escHtml(price)}</b> · Stop <b>$${escHtml(stop)}</b> · 1:1 <b>$${escHtml(tp1)}</b>\n` +
-    `<a href="${deskUrl}">Desk</a>`;
+    `<a href="${deskUrl}">Open desk</a>`;
 
   try {
     const tg = await fetch(`https://api.telegram.org/bot${token}/sendMessage`, {

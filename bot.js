@@ -527,10 +527,12 @@ async function _deskBars(inst, interval, limit) {
 
 async function _scanOneRedBarInstrument(inst, rbCfg) {
   const workTf = rbCfg.workingTf || '15m';
+  const need5m = workTf !== '5m';
   const rawPair = await _withTimeout(
     Promise.all([
       _deskBars(inst, workTf, 500),
       _deskBars(inst, '1h', 220),
+      need5m ? _deskBars(inst, '5m', 500) : Promise.resolve(null),
     ]),
     25000,
     `${inst.id} OHLC`
@@ -542,6 +544,7 @@ async function _scanOneRedBarInstrument(inst, rbCfg) {
   };
   const barsWork = toBars(rawPair[0]);
   const bars1h = toBars(rawPair[1]);
+  const bars5m = need5m ? toBars(rawPair[2]) : barsWork;
   if (!barsWork || barsWork.length < 40) {
     console.warn(`[RedBarBot] ${inst.id}: not enough bars (${barsWork?.length || 0})`);
     return;
@@ -556,6 +559,7 @@ async function _scanOneRedBarInstrument(inst, rbCfg) {
     ...inst,
     firstRed1h,
     bars1h,
+    bars5m: bars5m && bars5m.length ? bars5m : null,
   });
   if (!readout) return;
   const side = readout.trend === 'bullish' ? 'LONG' : readout.trend === 'bearish' ? 'SHORT' : 'WAIT';
@@ -571,6 +575,11 @@ async function _scanOneRedBarInstrument(inst, rbCfg) {
   const actionable = Array.isArray(RedBarTrend.ACTIONABLE_SETUPS)
     && RedBarTrend.ACTIONABLE_SETUPS.includes(setupKind);
   if (actionState === 'enter' && actionable && (side === 'LONG' || side === 'SHORT')) {
+    // Live bot: BTC only (skip Nifty/XAU Telegram + trade noise until those books are proven)
+    if (!_redBarBotInstrumentAllowed(inst)) {
+      console.log(`[RedBarBot] ${inst.id}: ENTER ignored on worker (REDBAR_BOT_INSTRUMENTS) — desk can still show it`);
+      return;
+    }
     if (alreadyAlerted) {
       console.log(`[RedBarBot] ${inst.id}: ENTER already telegram'd for ${alertKey} — skip`);
       return;
@@ -589,11 +598,13 @@ async function _scanOneRedBarInstrument(inst, rbCfg) {
     const emoji = side === 'LONG' ? '🟢' : '🔴';
     const setupLabel = readout.playbook?.redSetup?.label || setupKind;
     const subject = `Red Bar ${side}: ${inst.label} · ${setupLabel}`;
-    const htmlMsg = `${emoji} <b>Red Bar ${_escHtml(inst.label)} ${side}</b> · ${_escHtml(setupLabel)} (${_escHtml(setupKind)})
-Entry <b>$${fmt(readout.price)}</b> · Stop <b>$${fmt(readout.invalidation)}</b> · 1:1 <b>$${fmt(readout.tp1)}</b>${sz ? ` · ${sz.recLeverage}×` : ''}
-<a href="${deskUrl}">Desk</a> · <a href="${futLink}">Futures</a>`;
+    const htmlMsg = `${emoji} <b>ENTER NOW · Red Bar ${_escHtml(inst.label)} ${side}</b>
+${_escHtml(setupLabel)} (${_escHtml(setupKind)})
+Entry <b>$${fmt(readout.price)}</b> · Stop <b>$${fmt(readout.invalidation)}</b> (${_escHtml(readout.invalidationReason || '5m swing')}) · 1:1 <b>$${fmt(readout.tp1)}</b>${sz ? ` · ${sz.recLeverage}×` : ''}
+<a href="${deskUrl}">Open desk</a> · <a href="${futLink}">Futures</a>`;
     const plainMsg = [
-      `${inst.label} ${side} · ${setupLabel}`,
+      `ENTER NOW · ${inst.label} ${side}`,
+      `${setupLabel}`,
       `Entry $${fmt(readout.price)} · Stop $${fmt(readout.invalidation)} · 1:1 $${fmt(readout.tp1)}`,
       deskUrl,
     ].join('\n');
@@ -607,6 +618,13 @@ Entry <b>$${fmt(readout.price)}</b> · Stop <b>$${fmt(readout.invalidation)}</b>
     if (delivered) {
       lastAlerted[`RB_${inst.id}`] = alertKey;
       saveAlertState(lastAlerted);
+      // Set-and-forget futures two-leg (opt-in). Snapshot levels at alert time.
+      await _maybeAutoFuturesTwoLeg({
+        inst,
+        side,
+        readout,
+        alertKey,
+      });
     } else {
       console.error(`[RedBarBot] ${inst.id}: ENTER seen but Telegram delivery failed — will retry next scan`);
     }
@@ -616,6 +634,213 @@ Entry <b>$${fmt(readout.price)}</b> · Stop <b>$${fmt(readout.invalidation)}</b>
   }
 }
 
+const MANAGED_TRADES_FILE = 'managed_futures_trades.json';
+function loadManagedTrades() {
+  try {
+    const rows = JSON.parse(fs.readFileSync(MANAGED_TRADES_FILE, 'utf8'));
+    return Array.isArray(rows) ? rows : [];
+  } catch {
+    return [];
+  }
+}
+function saveManagedTrades(rows) {
+  try {
+    fs.writeFileSync(MANAGED_TRADES_FILE, JSON.stringify(rows, null, 2));
+  } catch (e) {
+    console.warn('[RedBarBot] Could not save managed trades:', e.message);
+  }
+}
+
+/** Bot live path is BTC-only for now (Nifty/XAU alerts & auto-trade off). Override: REDBAR_BOT_INSTRUMENTS=BTC,XAU */
+function _redBarBotInstrumentAllowed(inst) {
+  const raw = envTrim('REDBAR_BOT_INSTRUMENTS') || 'BTC';
+  const allow = raw.split(',').map((s) => s.trim().toUpperCase()).filter(Boolean);
+  const id = String(inst?.id || '').toUpperCase();
+  const sym = String(inst?.symbol || '').toUpperCase();
+  return allow.includes(id) || allow.includes(sym);
+}
+
+/** Only BTCUSDT on Binance USD-M until other symbols are proven. */
+function _canAutoTradeBinanceFutures(inst) {
+  if (!_redBarBotInstrumentAllowed(inst)) return false;
+  const sym = String(inst?.symbol || '').toUpperCase();
+  return sym === 'BTCUSDT';
+}
+
+async function _maybeAutoFuturesTwoLeg({ inst, side, readout, alertKey }) {
+  if (String(process.env.REDBAR_AUTO_TRADE || '').toLowerCase() !== 'true') return;
+  if (String(process.env.TRADE_ENABLED || '').toLowerCase() !== 'true') return;
+  if (!_canAutoTradeBinanceFutures(inst)) {
+    console.log(`[RedBarBot] ${inst.id}: ENTER alert only — ${inst.symbol} is not a Binance USD-M symbol (no auto trade)`);
+    return;
+  }
+  if (!envTrim('BINANCE_API_KEY') || !envTrim('BINANCE_API_SECRET')) {
+    console.warn('[RedBarBot] AUTO_TRADE on but Binance keys missing');
+    return;
+  }
+  if (lastAlerted[`TRADE_${inst.id}`] === alertKey) {
+    console.log(`[RedBarBot] ${inst.id}: futures already opened for ${alertKey}`);
+    return;
+  }
+  const stop = Number(readout.invalidation);
+  const tpA = Number(readout.tp1);
+  const entry = Number(readout.price);
+  const oneR = Math.abs(entry - stop);
+  const tpB = Number(readout.tp3) || (side === 'LONG' ? entry + 3 * oneR : entry - 3 * oneR);
+  if (!(stop > 0 && tpA > 0 && tpB > 0 && entry > 0)) {
+    console.warn('[RedBarBot] AUTO_TRADE skip — incomplete levels');
+    return;
+  }
+  // Sizing: REDBAR_TRADE_CAPITAL_USDT matches the desk risk calculator (default mental model $1000 @ 1%).
+  // Else fixed isolated margin via REDBAR_TRADE_MARGIN_USDT (legacy small-size mode).
+  const capital = Number(process.env.REDBAR_TRADE_CAPITAL_USDT) || 0;
+  const riskPct = Math.max(0.1, Math.min(5, Number(process.env.REDBAR_RISK_PCT) || 1));
+  const sz = readout.sizing || RedBarTrend.futuresSizing({
+    entry, stop, exit: tpB, capital: capital > 0 ? capital : 1000, riskPct,
+  });
+  const leverage = Math.min(10, Math.max(1, Number(sz?.recLeverage) || 3));
+  let marginUsdt;
+  if (capital >= 100 && sz?.marginRequiredUsd > 0) {
+    marginUsdt = Math.max(5, Number(sz.marginRequiredUsd));
+    const capMax = Number(process.env.REDBAR_TRADE_MARGIN_USDT) || Number(process.env.TRADE_MAX_USDT) || 0;
+    if (capMax > 0) marginUsdt = Math.min(marginUsdt, capMax);
+  } else {
+    marginUsdt = Math.max(5, Number(process.env.REDBAR_TRADE_MARGIN_USDT) || Number(process.env.TRADE_MAX_USDT) || 25);
+  }
+  try {
+    const { createBinanceFuturesTrade } = require('./js/binance_futures_trade.js');
+    const fut = createBinanceFuturesTrade();
+    console.log(`[RedBarBot] AUTO_TRADE ${side} ${inst.symbol} margin=$${marginUsdt.toFixed(2)} lev=${leverage}× notional≈$${(marginUsdt * leverage).toFixed(0)}`);
+    const result = await fut.openTwoLegDeskTrade({
+      symbol: inst.symbol,
+      side,
+      marginUsdt,
+      leverage,
+      stopPrice: stop,
+      tpA,
+      tpB,
+      entryHint: entry,
+    });
+    lastAlerted[`TRADE_${inst.id}`] = alertKey;
+    saveAlertState(lastAlerted);
+
+    const fillEntry = Number(result.entry?.avgPrice) || entry;
+    const stopOrderId = result.stopOrder?.orderId || null;
+    const tpAOrderId = result.tpAOrder?.orderId || null;
+    if (result.ok && stopOrderId && tpAOrderId) {
+      const managed = loadManagedTrades().filter((t) => t.symbol !== inst.symbol);
+      managed.push({
+        symbol: inst.symbol,
+        side,
+        alertKey,
+        entry: fillEntry,
+        stopOrderId,
+        tpAOrderId,
+        tpBOrderId: result.tpBOrder?.orderId || null,
+        beMoved: false,
+        openedAt: Date.now(),
+      });
+      saveManagedTrades(managed);
+    }
+
+    const summary = result.ok
+      ? `✅ Auto two-leg ${side} ${inst.symbol}\nQty ${result.qty} · margin $${marginUsdt.toFixed(0)} · ${leverage}× · SL ${result.stopPrice} · TP A ${result.tpA} · TP B ${result.tpB}\n(BE stop moves after 1:1 fill)`
+      : `⚠️ Auto trade partial ${side} ${inst.symbol}\n${(result.warnings || []).join('\n') || result.error}`;
+    console.log('[RedBarBot]', summary.replace(/\n/g, ' | '));
+    if (bot && chatId) {
+      await bot.sendMessage(chatId, summary, { disable_web_page_preview: true }).catch(() => {});
+    }
+  } catch (e) {
+    console.error('[RedBarBot] AUTO_TRADE failed:', e.message);
+    if (bot && chatId) {
+      await bot.sendMessage(
+        chatId,
+        `❌ Auto trade failed ${inst.symbol} ${side}: ${e.message}`,
+        { disable_web_page_preview: true }
+      ).catch(() => {});
+    }
+  }
+}
+
+/** Poll open two-leg trades: when TP A (1:1) fills, move STOP_MARKET to breakeven. */
+async function pollManagedFuturesStops() {
+  if (String(process.env.REDBAR_AUTO_TRADE || '').toLowerCase() !== 'true') return;
+  if (String(process.env.TRADE_ENABLED || '').toLowerCase() !== 'true') return;
+  if (!envTrim('BINANCE_API_KEY') || !envTrim('BINANCE_API_SECRET')) return;
+
+  let rows = loadManagedTrades();
+  if (!rows.length) return;
+
+  const { createBinanceFuturesTrade } = require('./js/binance_futures_trade.js');
+  let fut;
+  try {
+    fut = createBinanceFuturesTrade();
+  } catch {
+    return;
+  }
+
+  const keep = [];
+  for (const t of rows) {
+    try {
+      const positions = await fut.getPositionRisk(t.symbol);
+      const pos = (positions || []).find((p) => String(p.symbol).toUpperCase() === String(t.symbol).toUpperCase());
+      const amt = Math.abs(parseFloat(pos?.positionAmt || 0));
+      if (!(amt > 0)) {
+        console.log(`[RedBarBot] ${t.symbol}: position flat — drop manage book`);
+        continue;
+      }
+      if (t.beMoved) {
+        keep.push(t);
+        continue;
+      }
+      if (!t.tpAOrderId) {
+        keep.push(t);
+        continue;
+      }
+
+      let tpAStatus = null;
+      try {
+        const ord = await fut.getOrder(t.symbol, t.tpAOrderId);
+        tpAStatus = ord?.status || null;
+      } catch (e) {
+        // Order may be gone from history window — treat missing as not filled yet / skip
+        console.warn(`[RedBarBot] ${t.symbol}: TP A order check: ${e.message}`);
+        keep.push(t);
+        continue;
+      }
+
+      if (tpAStatus === 'FILLED') {
+        console.log(`[RedBarBot] ${t.symbol}: TP A filled — moving SL to BE @ ${t.entry}`);
+        const moved = await fut.moveStopToBreakeven({
+          symbol: t.symbol,
+          side: t.side,
+          entryPrice: t.entry,
+          stopOrderId: t.stopOrderId,
+        });
+        t.beMoved = true;
+        t.stopOrderId = moved.stopOrder?.orderId || t.stopOrderId;
+        t.bePrice = moved.bePrice;
+        t.beMovedAt = Date.now();
+        keep.push(t);
+        if (bot && chatId) {
+          await bot.sendMessage(
+            chatId,
+            `🔒 ${t.symbol} ${t.side}: 1:1 hit — SL moved to BE @ ${moved.bePrice}`,
+            { disable_web_page_preview: true }
+          ).catch(() => {});
+        }
+      } else if (tpAStatus === 'CANCELED' || tpAStatus === 'EXPIRED' || tpAStatus === 'REJECTED') {
+        console.log(`[RedBarBot] ${t.symbol}: TP A ${tpAStatus} — stop manage for this leg`);
+      } else {
+        keep.push(t);
+      }
+    } catch (e) {
+      console.warn(`[RedBarBot] manage poll ${t.symbol}:`, e.message);
+      keep.push(t);
+    }
+  }
+  saveManagedTrades(keep);
+}
 async function scanRedBarDesk() {
   const rbCfg = CONFIG.rangeEma || {};
   const instruments = Array.isArray(rbCfg.instruments) ? rbCfg.instruments.slice() : [];
@@ -939,16 +1164,25 @@ If you sell, reply /sell ${asset.symbol}`;
   }
 }
 
-// Red Bar ENTER needs ~1–2m cadence; legacy multi-coin scan stays hourly.
-// Match desk refresh (~60s) so worker scan is a backup if the open-tab relay misses
-const REDBAR_SCAN_MS = Number(process.env.REDBAR_SCAN_MS) || 60000;
+// Red Bar ENTER must reach Telegram without staring at the desk.
+// ~30s worker scan backs up the open-tab relay; brief Trade 1/2 windows need this.
+const REDBAR_SCAN_MS = Number(process.env.REDBAR_SCAN_MS) || 30000;
 const LEGACY_SCAN_MS = 3600000;
 const scanEveryMs = CONFIG.ui?.redBarOnly ? REDBAR_SCAN_MS : LEGACY_SCAN_MS;
 setInterval(scanMarket, scanEveryMs);
 console.log(`[Bot] Scan interval ${scanEveryMs / 1000}s (redBarOnly=${Boolean(CONFIG.ui?.redBarOnly)})`);
 
 // Delay first scan so Render restarts do not immediately re-trigger a Binance 418 ban
-setTimeout(scanMarket, 20000);
+setTimeout(scanMarket, 15000);
+
+// After 1:1 TP fills → move exchange STOP_MARKET to breakeven (complete two-leg manage)
+const MANAGE_POLL_MS = Math.max(10000, Number(process.env.REDBAR_MANAGE_POLL_MS) || 20000);
+setInterval(() => {
+  pollManagedFuturesStops().catch((e) => console.warn('[RedBarBot] manage poll:', e.message));
+}, MANAGE_POLL_MS);
+setTimeout(() => {
+  pollManagedFuturesStops().catch(() => {});
+}, 25000);
 
 // ─── New listing announcements (alert only — never auto-buy) ─────────────────
 const LISTINGS_STATE_FILE = 'listings_seen.json';
@@ -1078,9 +1312,10 @@ if (!process.env.BOT_WORKER_ONLY) {
     const title = body.title || setupKind;
     const deskUrl = envTrim('DESK_URL') || 'https://trendrunner.app';
     const text =
-      `${emoji} <b>Red Bar ${escHtmlRelay(label)} ${side}</b> · ${escHtmlRelay(title)} (${escHtmlRelay(setupKind)})\n` +
+      `${emoji} <b>ENTER NOW · Red Bar ${escHtmlRelay(label)} ${side}</b>\n` +
+      `${escHtmlRelay(title)} (${escHtmlRelay(setupKind)})\n` +
       `Entry <b>$${escHtmlRelay(body.price ?? '—')}</b> · Stop <b>$${escHtmlRelay(body.stop ?? '—')}</b> · 1:1 <b>$${escHtmlRelay(body.tp1 ?? '—')}</b>\n` +
-      `<a href="${deskUrl}">Desk</a>`;
+      `<a href="${deskUrl}">Open desk</a>`;
     try {
       await bot.sendMessage(chatId, text, { parse_mode: 'HTML', disable_web_page_preview: true });
       relaySeen.set(alertKey, now);

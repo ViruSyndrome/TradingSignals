@@ -43,7 +43,7 @@
   <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.4/dist/chart.umd.min.js" defer></script>
   <script src="https://cdn.jsdelivr.net/npm/hammerjs@2.0.8/hammer.min.js" defer></script>
   <script src="https://cdn.jsdelivr.net/npm/chartjs-plugin-zoom@2.2.0/dist/chartjs-plugin-zoom.min.js" defer></script>
-  <link rel="stylesheet" href="styles.css?v=7.18" />
+  <link rel="stylesheet" href="styles.css?v=7.20" />
   <!-- Critical boot overlay (prevents sidebar flash before styles.css applies) -->
   <style>
     html, body { margin: 0; background: #080a14; }
@@ -86,7 +86,7 @@
     if ('serviceWorker' in navigator) {
       window.addEventListener('load', () => {
         const hadController = Boolean(navigator.serviceWorker.controller);
-        navigator.serviceWorker.register('./service-worker.js?v=7.39', { updateViaCache: 'none' })
+        navigator.serviceWorker.register('./service-worker.js?v=7.44', { updateViaCache: 'none' })
           .then(reg => {
             reg.update().catch(() => {});
             navigator.serviceWorker.addEventListener('controllerchange', () => {
@@ -337,7 +337,7 @@
       <div class="section-block">
         <div class="section-heading">
           <h2>📚 Learn — Red Bar Futures Desk</h2>
-          <p class="section-sub">Mark-window Fibs · 1H first-red pivot (Trade 1 &amp; Trade 2) · Asia / London / US liquidity clock · Futures sizing</p>
+          <p class="section-sub">Mark-window Fibs · H1→M5 Trade 1 / Trade 2 · ENTER only with 5m swing SL · Telegram on ENTER · Futures sizing</p>
         </div>
 
         <div class="edu-full-grid">
@@ -355,13 +355,13 @@
 
           <div class="edu-full-card highlight-card">
             <div class="edu-header"><span>🕯️</span><h3>2. The 1H First Red Pivot (Trade 1 &amp; Trade 2)</h3></div>
-            <p>On the 1H chart, skip the day’s opening candle and mark the <strong>first closed 1H red candle</strong> (High &amp; Low). That bar is the session’s master pivot:</p>
+            <p>On the 1H chart, mark the <strong>first closed 1H red candle</strong> of the IST day — HIGH/LOW (liquidity) + median + Fib 44/50/56. Desk ladder is <strong>H1 → M5</strong>:</p>
             <ul>
-              <li><strong>Trade 1 (Morning Departure):</strong> When price breaks and moves away from the 1H first-red bar in the morning, take Trade 1 in that direction.</li>
-              <li><strong>Trade 2 (2–3h Revisit):</strong> Roughly 2–3 hours later (1.5h–6.5h window), price frequently revisits that 1H first-red level.</li>
-              <li><strong>At the Revisit:</strong> Watch whether the candle <strong>rejects</strong> the pivot (continue the morning trend) or <strong>reverses through</strong> it (flip direction for Trade 2).</li>
+              <li><strong>Trade 1 (Departure):</strong> Price leaves the 1H first-red bar — bias in that direction.</li>
+              <li><strong>Trade 2 (Revisit):</strong> Sweep of 1H high or low liquidity, then a <strong>5m close back through</strong> that level (median confluence).</li>
+              <li><strong>ENTER gate:</strong> Telegram / action strip only go <strong>ENTER</strong> when the stop locks to a <strong>5m swing</strong> (quality filter from public USD-M outcomes).</li>
             </ul>
-            <div class="edu-tip">💡 The desk automatically flags <strong>Trade 1 Departure</strong> and <strong>Trade 2 Revisit (Reject vs Reverse)</strong> on the action strip.</div>
+            <div class="edu-tip">💡 Keep <strong>Alerts ON</strong> — you should not stare at the desk. Worker + open-tab relay push Telegram on ENTER (~1–2×/day on average).</div>
           </div>
 
           <div class="edu-full-card highlight-card edu-card-warning">
@@ -375,11 +375,11 @@
           </div>
 
           <div class="edu-full-card highlight-card edu-card-warning">
-            <div class="edu-header"><span>🎯</span><h3>4. 15m Swing Stop, 50% TP at 1:1 &amp; EMA 10/30 Runner Trail</h3></div>
+            <div class="edu-header"><span>🎯</span><h3>4. 5m Swing Stop · 1:1 → BE → 1:2 → 1:3</h3></div>
             <ul>
-              <li><strong>1️⃣ Stop-Loss First (15m Previous Swing H/L):</strong> Switch to the <strong>15-minute chart</strong> and place your Stop-Loss behind the <strong>previous swing low</strong> (LONG) or <strong>previous swing high</strong> (SHORT) — not the distant Previous Day H/L. That stop distance defines <code>1R</code>.</li>
-              <li><strong>2️⃣ 50% Take-Profit at 1:1:</strong> Once price reaches <strong>1:1 reward (<code>+1R</code>)</strong>, close <strong>50% of your position</strong> and move the stop on the remaining 50% to Breakeven.</li>
-              <li><strong>3️⃣ Trail 50% Runner Until EMA 10/30 Cross Over:</strong> Keep trailing the second half until <strong>EMA 10 crosses EMA 30</strong> against your trade, or into marked liquidity (<strong>Asia / London / NY Session H/L</strong> or <strong>Previous Day H/L</strong>; <code>1:3</code> is ideal but rare).</li>
+              <li><strong>1️⃣ Stop = 5m swing:</strong> Beginner SL sits beyond the recent <strong>5m swing low</strong> (LONG) or <strong>5m swing high</strong> (SHORT). That distance is <code>1R</code>. No ENTER (and no Telegram) until this stop is locked.</li>
+              <li><strong>2️⃣ 50% at 1:1 → BE:</strong> Bank half at <code>+1R</code>, move stop to breakeven on the runner.</li>
+              <li><strong>3️⃣ Trail to 1:2, target 1:3:</strong> After 1:2, trail; book remaining into <code>1:3</code> or marked liquidity (Asia / London / NY / prior day H/L). Mark-window Fibs are <strong>targets only</strong>.</li>
             </ul>
           </div>
 
@@ -398,7 +398,8 @@
             <p>EMA 10 / 30 serves both as directional alignment at entry and as the <strong>exit trigger for your 50% runner</strong> after <code>1:1</code> hits:</p>
             <ul>
               <li><strong>Runner Exit:</strong> After banking 50% at <code>1:1</code>, hold the remaining 50% as long as EMA 10 stays stacked with your trade; close when <strong>EMA 10 crosses EMA 30</strong>.</li>
-              <li><strong>Always Mark Key Liquidity:</strong> The desk automatically marks <strong>Asia, London &amp; New York Session H/L</strong>, <strong>Previous Day H/L (PDH/PDL)</strong>, and <strong>15m Previous Swing H/L</strong> right on the chart.</li>
+              <li><strong>Always Mark Key Liquidity:</strong> The desk marks <strong>Asia, London &amp; New York Session H/L</strong>, <strong>Previous Day H/L</strong>, and the <strong>5m swing</strong> used for the stop.</li>
+              <li><strong>EMA is overlay only</strong> on this desk — not the Red Bar ENTER trigger.</li>
             </ul>
           </div>
 
@@ -415,9 +416,10 @@
 
           <div class="edu-full-card">
             <div class="edu-header"><span>🧪</span><h3>8. Walk-Forward Red Bar Backtester</h3></div>
-            <p>To test the exact 30m + 1H Red Bar Futures engine (mark-window Fibs, 1H first-red Trade 1/Trade 2, session sweeps, +0.8R BE lock, and 0.08% futures fees), run:</p>
-            <p><code>node redbar_desk_backtest.js --live</code></p>
-            <div class="edu-tip">💡 Across 83 days of 30m + 1H BTC futures data, the 4-pillar playbook with ≥1.5R targets and +0.8R BE lock achieved a <strong>56.9% win rate</strong> and positive out-of-sample return.</div>
+            <p>Score the live desk rules on public Binance USD-M BTCUSDT (5m entries, 5m-swing ENTER gate, fees):</p>
+            <p><code>node redbar_public_outcomes.js BTCUSDT 2024-10 2026-09</code></p>
+            <p>Or the walk-forward desk sim: <code>node redbar_desk_backtest.js --live</code></p>
+            <div class="edu-tip">💡 On ~2y public perpetual data, the 5m-swing ENTER book ran ~<strong>62% WR</strong> and stayed green train + out-of-sample — vs the unfiltered book which did not.</div>
           </div>
 
         </div>
@@ -479,7 +481,7 @@
       <div class="section-block">
         <div class="section-heading">
           <h2>🧪 Strategy Backtester</h2>
-          <p class="section-sub">For the 30m + 1H Red Bar Futures Playbook (mark-window Fibs + 1H first-red Trade 1/Trade 2 + session sweeps), run <code>node redbar_desk_backtest.js --live</code>. The interactive panel below runs the legacy multi-timeframe candle simulator.</p>
+          <p class="section-sub">Red Bar desk: <code>node redbar_desk_backtest.js --live</code> · public outcomes: <code>node redbar_public_outcomes.js</code>. Panel below is the legacy multi-TF simulator.</p>
         </div>
 
         <div class="backtest-workspace">
@@ -613,13 +615,13 @@
       // Nuke bloated caches that are causing QuotaExceededError (Removed to allow instant paint)
     } catch(e) {}
   </script>
-  <script src="js/config.js?v=7.15" defer></script>
+  <script src="js/config.js?v=7.16" defer></script>
   <script src="js/api.js?v=6.98" defer></script>
   <script src="js/indicators.js?v=6.60" defer></script>
-  <script src="js/redbar_trend.js?v=1.28" defer></script>
+  <script src="js/redbar_trend.js?v=1.38" defer></script>
   <script src="js/range_ema_engine.js?v=1.1" defer></script>
-  <script src="js/desk_alerts.js?v=1.6" defer></script>
-  <script src="js/range_ema_ui.js?v=1.64" defer></script>
+  <script src="js/desk_alerts.js?v=1.7" defer></script>
+  <script src="js/range_ema_ui.js?v=1.75" defer></script>
   <script src="js/signals.js?v=6.70" defer></script>
   <script src="js/charts.js?v=6.60" defer></script>
   
@@ -744,10 +746,11 @@
           <label class="trade-settings-label">Render bot URL
             <input type="url" id="tradeBotUrl" class="trade-settings-input" placeholder="https://your-service.onrender.com" autocomplete="off">
           </label>
-          <p class="trade-settings-hint">Required for Telegram when the desk fires ENTER (not WhatsApp). Copy from Render → your service URL.</p>
+          <p class="trade-settings-hint">Required for Telegram ENTER + “Place two-leg” / Check Binance. Copy from Render → your service URL.</p>
           <label class="trade-settings-label">Trade secret
             <input type="password" id="tradeApiSecret" class="trade-settings-input" placeholder="TRADE_API_SECRET" autocomplete="off">
           </label>
+          <p class="trade-settings-hint">On Render also set: <code>TRADE_ENABLED=true</code>, Binance API keys (Futures enabled), optional <code>REDBAR_AUTO_TRADE=true</code> + <code>REDBAR_TRADE_MARGIN_USDT=25</code> for set-and-forget on each ENTER.</p>
           <button type="button" id="tradeSaveSettingsBtn" class="trade-settings-save">Save</button>
           <div id="tradeStatusHint" class="trade-settings-hint">Not connected</div>
         </div>
