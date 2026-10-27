@@ -1816,7 +1816,7 @@ const RedBarTrend = {
     const invalidation = levels.invalidation;
     const bookZone = levels.bookZone;
 
-    // Entry gate: Red Bar only — Trade 1 / Trade 2 / session sweep.
+    // Entry gate: full DNA pack (see entryGate docstring).
     const { state: actionState, reason: actionReason } = this.entryGate({
       trend,
       setupKind,
@@ -1835,6 +1835,7 @@ const RedBarTrend = {
       entryPrice: price,
       stopPrice: invalidation,
       livePrice: price,
+      revisitRead: redSetup.revisitRead || null,
     });
 
     const sizing = (actionState === 'enter' && invalidation != null && bookZone != null)
@@ -1974,9 +1975,25 @@ const RedBarTrend = {
     return 'SEP–DEC';
   },
 
+  /**
+   * Full DNA ENTER pack (BTC public USD-M 5m-swing book Oct24–Sep26 unless noted).
+   * LIVE must match this list — no partial ports.
+   *
+   * BTC allow → ENTER when ALL pass:
+   *  1. Actionable setup: trade1_departure | trade2_confirmed | session_sweep
+   *  2. RR ≥ 1, structural stop, not Renko-overextended chase
+   *  3. Real 5m-swing SL (reject "% floor / too close" labels)
+   *  4. Clock: skip late only (best PASS +23%). US Open KEPT (n=37, +4% — small but not a loser).
+   *     Pre-London + London + US Open OK; late = WATCH
+   *  5. stopPct ≤ 1%
+   *  6. Skip T2 LONG + liq_sweep_low (PASS +18.9% vs baseline)
+   *  7. Fresh ≤20m from trigger; price not already ≥0.5R into the trade
+   * Nifty extras: T1 only, skip APR–AUG, stopPct ≤ 0.65%
+   */
   entryGate({
     trend, setupKind, rr, stopStructural, invalidationReason, stopPct, renko, clock,
     asOfTs, instrumentId, season, setupTriggerTs, entryPrice, stopPrice, livePrice,
+    revisitRead,
   }) {
     if (trend !== 'bullish' && trend !== 'bearish') {
       return { state: 'wait', reason: 'No directional setup.' };
@@ -1993,7 +2010,6 @@ const RedBarTrend = {
       }[setupKind] || 'Red Bar: wait for Trade 1 / Trade 2 / session sweep.';
       return { state: 'watch', reason: why };
     }
-    // Spike filter uses Renko brick size as a volatility ruler only (not a Renko strategy).
     if (renko && renko.overextendedBar && setupKind !== 'session_sweep') {
       return {
         state: 'watch',
@@ -2006,8 +2022,6 @@ const RedBarTrend = {
     if (!stopStructural) {
       return { state: 'watch', reason: `Setup present but no real swing fits the stop window (${invalidationReason}).` };
     }
-    // Winning formula (public BTCUSDT USD-M Oct24–Sep26): only real 5m-swing SL book
-    // stayed green. Reject "% floor / too close" labels that merely mention "5m swing".
     const stopTag = String(invalidationReason || '');
     const realFiveMinSwing = /5m swing/i.test(stopTag) && !/too close|floor|default|0\.28%|0\.5%/i.test(stopTag);
     if (!realFiveMinSwing) {
@@ -2016,27 +2030,33 @@ const RedBarTrend = {
         reason: `Setup present but SL is ${invalidationReason || 'not a 5m swing'} — wait until stop locks to a real 5m swing (not a % floor).`,
       };
     }
-    // BTC clock DNA (public USD-M 5m-swing book): pre_london + london carry the edge
-    // (PASS n=770, +19% train/OOS). late bled (n=141, −8%). skip late alone is best (+23%);
-    // pre_london|london only (= skip late+us_open) is the clean session allow-list.
-    // Asia morning = pre_london (KEEP). London = KEEP. US Open + late = stand aside.
-    if (clock && clock.id !== 'pre_london' && clock.id !== 'london') {
-      const why = {
-        us_open: 'Outside DNA window — US Open (4:30–7:00 IST). Edge is Pre-London / London only.',
-        late: 'Outside DNA window — late session bled on the 2y book. Wait for next Pre-London / London.',
-      }[clock.id] || `Outside DNA window (${clock.id || 'unknown'}). Auto ENTER only Pre-London / London IST.`;
-      return { state: 'watch', reason: why };
+    // Best clock PASS: skip late only (+23%). Do NOT blank US Open — DNA had n=37 WR~65% sum~+4%.
+    if (clock && clock.id === 'late') {
+      return {
+        state: 'watch',
+        reason: 'IST late session — stand aside (DNA loser cluster n=141, sum≈−8%). Wait for Pre-London / London / US Open.',
+      };
     }
-    // Wide stops (>1%) were rare (~3% of book) but toxic (WR≈24%, sum≈−14%).
-    // Soft gate only — keeps ~97% of ENTERs; mid-band filters that cut frequency are not applied.
     if (stopPct != null && Number.isFinite(stopPct) && stopPct > 1.0) {
       return {
         state: 'watch',
         reason: `Setup present but stop is ${stopPct.toFixed(2)}% (>1%) — stand aside until a tighter 5m swing fits.`,
       };
     }
+    // BTC: skip T2 LONG sweep_low (PASS +18.9% vs keeping them).
+    const inst = String(instrumentId || '').toUpperCase();
+    if (
+      (!inst || inst === 'BTC')
+      && setupKind === 'trade2_confirmed'
+      && trend === 'bullish'
+      && String(revisitRead || '') === 'liq_sweep_low'
+    ) {
+      return {
+        state: 'watch',
+        reason: 'BTC DNA: Trade 2 LONG after 1H low sweep is WATCH only (filter PASS +18.9%). Prefer T1 / T2 SHORT / sweep.',
+      };
+    }
 
-    // Freshness: do not keep LIVE ENTER long after the trigger (chase bait).
     const asOf = asOfTs != null ? Number(asOfTs) : Date.now();
     const trigTs = setupTriggerTs != null ? Number(setupTriggerTs) : null;
     const ENTER_FRESH_MS = 20 * 60 * 1000;
@@ -2046,7 +2066,6 @@ const RedBarTrend = {
         reason: 'ENTER window closed (>20m since trigger bar) — do not chase. Wait for the next Trade 1 / 2 / sweep.',
       };
     }
-    // Already ran: price ≥0.5R into the trade from the signal print → late.
     const ep = Number(entryPrice);
     const sp = Number(stopPrice);
     const lp = Number(livePrice);
@@ -2061,23 +2080,18 @@ const RedBarTrend = {
       }
     }
 
-    // Nifty desk book (2024–2026 real 1m→5m): baseline PASS, but Trade 2 alone fails OOS
-    // (n=325, train +0.15% / oos −0.69%). Trade 1 carries the edge — keep T2 as WATCH only.
-    const inst = String(instrumentId || '').toUpperCase();
     if (inst === 'NIFTY' && setupKind === 'trade2_confirmed') {
       return {
         state: 'watch',
         reason: 'Nifty: Trade 2 confirmed is chart context only (OOS bled on 2y book). Prefer Trade 1 departure ENTER.',
       };
     }
-    // Soft seasonal stand-aside for Nifty APR–AUG (weaker half; T1 + not APR–AUG still PASS).
     if (inst === 'NIFTY' && (season === 'APR–AUG' || (!season && asOfTs != null && this._istSeasonBucket(asOfTs) === 'APR–AUG'))) {
       return {
         state: 'watch',
         reason: 'Nifty: APR–AUG season — stand aside (weaker half on 2y book). Prefer SEP–DEC / JAN–MAR Trade 1.',
       };
     }
-    // Nifty gated book: stopPct>0.65 is rare but 0% WR (n=3) — tighten vs BTC’s 1% soft cap.
     if (inst === 'NIFTY' && stopPct != null && Number.isFinite(stopPct) && stopPct > 0.65) {
       return {
         state: 'watch',
