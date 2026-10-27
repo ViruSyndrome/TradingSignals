@@ -279,7 +279,7 @@ const RangeEmaUI = {
       stop: fmt(o.invalidation),
       tp1: fmt(o.tp1),
       dayKey: o.asOfDay || '',
-      triggerTs: o.playbook?.redSetup?.triggerTs || o.t || Date.now(),
+      triggerTs: o.triggerTs || o.playbook?.redSetup?.triggerTs || o.t || Date.now(),
       queuedAt: Date.now(),
     };
     this._pendingEnterAlert = payload;
@@ -603,6 +603,8 @@ const RangeEmaUI = {
     }
 
     const readCfg = {
+      id: instrument.id,
+      instrumentId: instrument.id,
       lookbackDays: c.lookbackDays || 90,
       touchPct: c.touchPct ?? 0.15,
       dayMode: instrument.dayMode || c.dayMode || 'utc',
@@ -627,7 +629,7 @@ const RangeEmaUI = {
         const calDay = RedBarTrend.dayKey(lastT, readCfg.dayMode || 'ist');
         firstRed1h = RedBarTrend.firstRedBarOfSession(bars1h, calDay, {
           ...readCfg,
-          asOfTs: lastT,
+          asOfTs: Date.now(),
           barMs: firstRedBarMs,
         });
       }

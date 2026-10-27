@@ -422,7 +422,8 @@ function createBinanceFuturesTrade(opts = {}) {
 
     // Flatten opposite / same-side leftovers + cancel SL/TP so Binance allows a new side
     try {
-      result.prep = await clearSymbolForEntry(symbol, { closePosition: true });
+      const closePos = p.closePosition != null ? Boolean(p.closePosition) : true;
+      result.prep = await clearSymbolForEntry(symbol, { closePosition: closePos });
       if (result.prep.length) console.log(`[FuturesTrade] prep ${symbol}:`, result.prep.join('; '));
     } catch (e) {
       throw new Error(`Could not clear open position/orders before entry: ${e.message}`);

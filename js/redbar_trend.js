@@ -894,7 +894,7 @@ const RedBarTrend = {
     for (let i = 0; i < bars5m.length; i++) {
       const b = bars5m[i];
       if (b.t <= firstRed.t) continue;
-      if (asOfTs != null && b.t + barMs > asOfTs) continue;
+      if (asOfTs != null && b.t + barMs - 1500 > asOfTs) continue;
       if (asOfTs != null && (asOfTs - b.t) > lookMs) continue;
       closed.push(b);
     }
@@ -1031,7 +1031,7 @@ const RedBarTrend = {
       for (let k = Math.max(0, bars5m.length - 80); k < bars5m.length; k++) {
         const b = bars5m[k];
         if (b.t <= firstRed.t) continue;
-        if (asOfTs != null && b.t >= asOfTs) continue;
+        if (asOfTs != null && b.t + 5 * 60 * 1000 - 1500 > asOfTs) continue;
         if (b.c > firstRed.high) hadLeftAbove = true;
         if (b.c < firstRed.low) hadLeftBelow = true;
         if (b.h > firstRed.high) sweptHigh5 = true;
@@ -1086,11 +1086,39 @@ const RedBarTrend = {
         ? ((firstRed.low - price) / firstRed.low) * 100
         : 0;
     let justDeparted = false;
+    let departBar = null;
     if ((leftAbove || leftBelow) && Array.isArray(slice) && slice.length >= 2) {
       const lookBars = slice.slice(-3, -1);
-      justDeparted = leftAbove
+      const wasInside = leftAbove
         ? lookBars.some((b) => b.c <= firstRed.high + tol)
         : lookBars.some((b) => b.c >= firstRed.low - tol);
+      if (wasInside) {
+        const cur15 = slice[slice.length - 1];
+        const prev15 = slice[slice.length - 2];
+        const workMs = Math.max(60000, cur15.t - prev15.t);
+        const prevAlreadyOut = leftAbove
+          ? prev15.c > firstRed.high + tol
+          : prev15.c < firstRed.low - tol;
+        const cur15Closed = asOfTs == null || (cur15.t + workMs - 1500 <= asOfTs);
+        let closed5mOut = null;
+        if (Array.isArray(bars5m) && bars5m.length) {
+          const anchorT = prevAlreadyOut ? prev15.t : cur15.t;
+          for (let k = bars5m.length - 1; k >= 0; k--) {
+            const b5 = bars5m[k];
+            if (b5.t < anchorT) break;
+            if (asOfTs != null && b5.t + 5 * 60 * 1000 - 1500 > asOfTs) continue;
+            const out5 = leftAbove ? b5.c > firstRed.high : b5.c < firstRed.low;
+            if (out5) closed5mOut = b5;
+          }
+        }
+        if (prevAlreadyOut) {
+          justDeparted = true;
+          departBar = closed5mOut || prev15;
+        } else if (cur15Closed || closed5mOut) {
+          justDeparted = true;
+          departBar = closed5mOut || cur15;
+        }
+      }
     }
     const trade1Fresh = (leftAbove || leftBelow)
       && justDeparted
@@ -1131,8 +1159,12 @@ const RedBarTrend = {
       revisitSide,
       revisitStrong,
       trade1Fresh,
-      /** 5m bar time of Trade 2 confirm (for ENTER freshness). */
-      triggerTs: (conf5 && conf5.bar && conf5.bar.t) || null,
+      /** Bar time of Trade 2 confirm or Trade 1 departure (for ENTER 20m freshness). */
+      triggerTs: (conf5 && conf5.bar && conf5.bar.t)
+        || (trade1Fresh && departBar ? departBar.t : null),
+      /** Trigger bar close price (anchors 0.5R anti-chase check). */
+      triggerPrice: (conf5 && conf5.bar && conf5.bar.c)
+        || (trade1Fresh && departBar ? departBar.c : null),
       distFromPivotPct,
       leftAbove,
       leftBelow,
@@ -1153,10 +1185,16 @@ const RedBarTrend = {
    * - London sweeps Asia High/Low and reverses.
    * - US sweeps London High/Low (or untouched Asia H/L) and reverses.
    */
-  detectSessionSweep(slice, clock, asiaHl, londonHl, firstRed1h = null) {
+  detectSessionSweep(slice, clock, asiaHl, londonHl, firstRed1h = null, asOfTs = null) {
     if (!Array.isArray(slice) || slice.length < 5 || !clock) return null;
-    const cur = slice[slice.length - 1];
-    const prior3 = slice.slice(-4, -1);
+    const last = slice[slice.length - 1];
+    const workBarMs = slice.length >= 2 ? Math.max(60000, last.t - slice[slice.length - 2].t) : 15 * 60 * 1000;
+    // In live mode, if the tip bar is still forming, evaluate the just-closed bar to avoid unclosed wick fakes
+    const useSlice = (asOfTs != null && last.t + workBarMs - 1500 > asOfTs && slice.length >= 6)
+      ? slice.slice(0, -1)
+      : slice;
+    const cur = useSlice[useSlice.length - 1];
+    const prior3 = useSlice.slice(-4, -1);
     const rng = cur.h - cur.l;
     if (!(rng > 0)) return null;
 
@@ -1175,6 +1213,8 @@ const RedBarTrend = {
           pool: poolName,
           level: pool.high,
           wickExtreme: cur.h,
+          triggerTs: cur.t,
+          triggerPrice: cur.c,
           label: `${clock.label} swept ${poolName} high (${pool.high.toFixed?.(0) ?? pool.high}) & rejected → SHORT`,
         };
       }
@@ -1190,6 +1230,8 @@ const RedBarTrend = {
           pool: poolName,
           level: pool.low,
           wickExtreme: cur.l,
+          triggerTs: cur.t,
+          triggerPrice: cur.c,
           label: `${clock.label} swept ${poolName} low (${pool.low.toFixed?.(0) ?? pool.low}) & reclaimed → LONG`,
         };
       }
@@ -1668,12 +1710,20 @@ const RedBarTrend = {
     const firstRedFibs = this.firstRedFibs(firstRed1h);
     const bars5m = Array.isArray(c.bars5m) && c.bars5m.length ? c.bars5m : null;
     const dayMode = c.dayMode || 'ist';
+    const workBarMs = i > 0
+      ? Math.max(60000, bars[i].t - bars[i - 1].t)
+      : 15 * 60 * 1000;
+    const evalTs = (c.asOfTs != null && Number.isFinite(Number(c.asOfTs)))
+      ? Number(c.asOfTs)
+      : (i === bars.length - 1
+        ? Math.min(Date.now(), bars[i].t + workBarMs)
+        : bars[i].t + workBarMs - 1000);
     const istDay = this.zonedDay(bars[i].t, 'Asia/Kolkata');
     const priorDayStr = this.shiftDay(istDay, -1);
     const priorDay = this.calendarDayHl(slice, priorDayStr, dayMode);
-    const clock = this.istClockPhase(bars[i].t);
+    const clock = this.istClockPhase(evalTs);
     const redSetup = this.firstRedSetup(
-      price, firstRed1h, bars[i].t, c.touchPct ?? 0.15, slice, bars5m,
+      price, firstRed1h, evalTs, c.touchPct ?? 0.15, slice, bars5m,
     );
 
     const sessions = Array.isArray(c.sessions) ? c.sessions : [];
@@ -1687,7 +1737,7 @@ const RedBarTrend = {
     const londonHl = londonSess ? this.sessionHlForIstDay(slice, londonSess, bars[i].t) : null;
     const nyHl = nySess ? this.sessionHlForIstDay(slice, nySess, bars[i].t) : null;
     const asiaUntouched = !!(asiaHl && price < asiaHl.high && price > asiaHl.low);
-    const sweep = this.detectSessionSweep(slice, clock, asiaHl, londonHl, firstRed1h);
+    const sweep = this.detectSessionSweep(slice, clock, asiaHl, londonHl, firstRed1h, evalTs);
 
     // Composite trend & setup classification (Sagar playbook):
     // 1. Mark window still forming -> WAIT
@@ -1816,6 +1866,13 @@ const RedBarTrend = {
     const invalidation = levels.invalidation;
     const bookZone = levels.bookZone;
 
+    const setupTriggerTs = (setupKind === 'session_sweep' && sweep?.triggerTs != null)
+      ? sweep.triggerTs
+      : (redSetup.triggerTs || null);
+    const setupTriggerPrice = (setupKind === 'session_sweep' && sweep?.triggerPrice != null)
+      ? sweep.triggerPrice
+      : (redSetup.triggerPrice != null ? redSetup.triggerPrice : price);
+
     // Entry gate: full DNA pack (see entryGate docstring).
     const { state: actionState, reason: actionReason } = this.entryGate({
       trend,
@@ -1826,13 +1883,11 @@ const RedBarTrend = {
       stopPct: levels.stopPct,
       renko,
       clock,
-      asOfTs: bars[i].t,
+      asOfTs: evalTs,
       instrumentId: c.id || c.instrumentId || null,
-      season: this._istSeasonBucket(bars[i].t),
-      setupTriggerTs: redSetup.triggerTs
-        || (setupKind === 'session_sweep' ? bars[i].t : null)
-        || null,
-      entryPrice: price,
+      season: this._istSeasonBucket(evalTs),
+      setupTriggerTs,
+      entryPrice: setupTriggerPrice,
       stopPrice: invalidation,
       livePrice: price,
       revisitRead: redSetup.revisitRead || null,
@@ -1854,6 +1909,8 @@ const RedBarTrend = {
       asiaUntouched,
       sweep,
       setupKind,
+      triggerTs: setupTriggerTs,
+      triggerPrice: setupTriggerPrice,
       magnetBelow,
       magnetAbove,
       magnetReaction,
@@ -1880,6 +1937,9 @@ const RedBarTrend = {
 
     return {
       t: bars[i].t,
+      evalTs,
+      triggerTs: setupTriggerTs,
+      triggerPrice: setupTriggerPrice,
       price,
       asOfDay,
       trend, // bullish | bearish | neutral  ← directional bias only

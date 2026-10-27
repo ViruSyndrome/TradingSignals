@@ -554,15 +554,17 @@ async function _scanOneRedBarInstrument(inst, rbCfg) {
     return;
   }
   const lastT = barsWork[barsWork.length - 1].t;
+  const nowTs = Date.now();
   const calDay = RedBarTrend.dayKey(lastT, inst.dayMode || rbCfg.dayMode || 'ist');
   const firstRed1h = bars1h && bars1h.length >= firstRedMinBars
     ? RedBarTrend.firstRedBarOfSession(bars1h, calDay, {
-      ...rbCfg, ...inst, asOfTs: lastT, barMs: firstRedBarMs,
+      ...rbCfg, ...inst, asOfTs: nowTs, barMs: firstRedBarMs,
     })
     : null;
   const readout = RedBarTrend.readAt(barsWork, barsWork.length - 1, {
     ...rbCfg,
     ...inst,
+    asOfTs: nowTs,
     firstRed1h,
     bars1h,
     bars5m: bars5m && bars5m.length ? bars5m : null,
@@ -574,7 +576,8 @@ async function _scanOneRedBarInstrument(inst, rbCfg) {
   const dayKey = readout.asOfDay || '';
   // One alert per fresh trigger (20m bucket) × side × setup — allows multiple quality ENTERs/day,
   // blocks the old flicker spam that re-fired the same Trade 2 every scan.
-  const triggerTs = Number(readout.playbook?.redSetup?.triggerTs)
+  const triggerTs = Number(readout.triggerTs)
+    || Number(readout.playbook?.redSetup?.triggerTs)
     || Number(readout.t)
     || Date.now();
   const trigBucket = Math.floor(triggerTs / (20 * 60 * 1000));
@@ -593,6 +596,7 @@ async function _scanOneRedBarInstrument(inst, rbCfg) {
       return;
     }
 
+    let alertOk = alreadyAlerted;
     if (!alreadyAlerted) {
       const dec = inst.priceDecimals ?? 2;
       const fmt = (n) => (n != null && Number.isFinite(n) ? Number(n).toFixed(dec) : '—');
@@ -633,20 +637,22 @@ Entry <b>${pxPrefix}${fmt(readout.price)}</b> · Stop <b>${pxPrefix}${fmt(readou
       });
       if (delivered) {
         _rbAlertMark(inst.id, alertKey);
-        if (_autoSetupAllowed(setupKind)) {
-          await _maybeAutoFuturesTwoLeg({
-            inst,
-            side,
-            readout,
-            alertKey,
-            dayKey,
-          });
-        }
+        alertOk = true;
       } else {
         console.error(`[RedBarBot] ${inst.id}: ENTER seen but Telegram delivery failed — will retry next scan`);
       }
     } else {
       console.log(`[RedBarBot] ${inst.id}: already alerted for ${alertKey} — skip`);
+    }
+
+    if (alertOk && _autoSetupAllowed(setupKind)) {
+      await _maybeAutoFuturesTwoLeg({
+        inst,
+        side,
+        readout,
+        alertKey,
+        dayKey,
+      });
     }
   }
   // Do NOT clear RB keys when leaving ENTER — that re-armed spam on flicker.
@@ -772,6 +778,15 @@ async function _maybeAutoFuturesTwoLeg({ inst, side, readout, alertKey, dayKey }
   try {
     const { createBinanceFuturesTrade } = require('./js/binance_futures_trade.js');
     const fut = createBinanceFuturesTrade();
+    // Ops rule: one open BTC position at a time — never market-close an active runner
+    const positions = await fut.getPositionRisk(inst.symbol);
+    const openPos = (positions || []).find((p) => String(p.symbol).toUpperCase() === String(inst.symbol).toUpperCase());
+    const openAmt = parseFloat(openPos?.positionAmt || 0);
+    if (Math.abs(openAmt) > 0) {
+      const openSide = openAmt > 0 ? 'LONG' : 'SHORT';
+      console.log(`[RedBarBot] ${inst.id}: open ${inst.symbol} ${openSide} (${Math.abs(openAmt)}) already active — skip auto-entry for ${alertKey}`);
+      return;
+    }
     console.log(`[RedBarBot] AUTO_TRADE ${side} ${inst.symbol} margin=$${marginUsdt.toFixed(2)} lev=${leverage}× notional≈$${(marginUsdt * leverage).toFixed(0)}`);
     const result = await fut.openTwoLegDeskTrade({
       symbol: inst.symbol,
@@ -782,6 +797,7 @@ async function _maybeAutoFuturesTwoLeg({ inst, side, readout, alertKey, dayKey }
       tpA,
       tpB,
       entryHint: entry,
+      closePosition: false,
     });
 
     const fillEntry = Number(result.entry?.avgPrice) || entry;
@@ -1391,12 +1407,15 @@ if (!process.env.BOT_WORKER_ONLY) {
     if (!actionable.includes(setupKind)) {
       return res.status(400).json({ ok: false, error: 'not actionable' });
     }
-    const alertKey = `RB_${instrumentId}|${side}|${setupKind}|${dayKey}`;
+    const triggerTs = Number(body.triggerTs) || Date.now();
+    const trigBucket = Math.floor(triggerTs / (20 * 60 * 1000));
+    const scannerKey = `${side}|${setupKind}|${dayKey}|${trigBucket}`;
+    const alertKey = `RB_${instrumentId}|${scannerKey}`;
     const now = Date.now();
     for (const [k, t] of relaySeen) {
       if (now - t > RELAY_TTL_MS) relaySeen.delete(k);
     }
-    if (relaySeen.has(alertKey)) {
+    if (relaySeen.has(alertKey) || _rbAlertSeen(instrumentId, scannerKey)) {
       return res.json({ ok: true, deduped: true });
     }
     const label = body.label || instrumentId;
@@ -1411,6 +1430,7 @@ if (!process.env.BOT_WORKER_ONLY) {
     try {
       await bot.sendMessage(chatId, text, { parse_mode: 'HTML', disable_web_page_preview: true });
       relaySeen.set(alertKey, now);
+      _rbAlertMark(instrumentId, scannerKey);
       console.log(`[AlertRelay] Telegram sent ${alertKey}`);
       return res.json({ ok: true });
     } catch (e) {
