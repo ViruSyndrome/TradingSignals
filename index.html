@@ -86,7 +86,7 @@
     if ('serviceWorker' in navigator) {
       window.addEventListener('load', () => {
         const hadController = Boolean(navigator.serviceWorker.controller);
-        navigator.serviceWorker.register('./service-worker.js?v=7.44', { updateViaCache: 'none' })
+        navigator.serviceWorker.register('./service-worker.js?v=7.45', { updateViaCache: 'none' })
           .then(reg => {
             reg.update().catch(() => {});
             navigator.serviceWorker.addEventListener('controllerchange', () => {
