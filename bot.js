@@ -572,10 +572,14 @@ async function _scanOneRedBarInstrument(inst, rbCfg) {
   const setupKind = readout.setupKind || 'wait';
   const actionState = readout.actionState || 'wait';
   const dayKey = readout.asOfDay || '';
-  // One Telegram + one auto attempt per instrument per IST day (not per side flip).
-  const dayAlertKey = `DAY|${dayKey}`;
-  const alertKey = `${side}|${setupKind}|${dayKey}`;
-  const alreadyAlertedToday = Boolean(dayKey) && lastAlerted[`RB_${inst.id}`] === dayAlertKey;
+  // One alert per fresh trigger (20m bucket) × side × setup — allows multiple quality ENTERs/day,
+  // blocks the old flicker spam that re-fired the same Trade 2 every scan.
+  const triggerTs = Number(readout.playbook?.redSetup?.triggerTs)
+    || Number(readout.t)
+    || Date.now();
+  const trigBucket = Math.floor(triggerTs / (20 * 60 * 1000));
+  const alertKey = `${side}|${setupKind}|${dayKey}|${trigBucket}`;
+  const alreadyAlerted = _rbAlertSeen(inst.id, alertKey);
 
   console.log(
     `[RedBarBot] ${inst.id} (${inst.symbol}): state=${actionState.toUpperCase()} (${side}) | setup=${setupKind} | price=${readout.price} | stop=${readout.invalidation} (${readout.invalidationReason || '—'}) | book=${readout.bookZone} | RR=${readout.rr != null ? readout.rr.toFixed(2) : '—'}`
@@ -589,8 +593,7 @@ async function _scanOneRedBarInstrument(inst, rbCfg) {
       return;
     }
 
-    // Telegram: at most one ping per instrument per IST day (no SHORT↔LONG spam).
-    if (!alreadyAlertedToday) {
+    if (!alreadyAlerted) {
       const dec = inst.priceDecimals ?? 2;
       const fmt = (n) => (n != null && Number.isFinite(n) ? Number(n).toFixed(dec) : '—');
       const sz = readout.sizing || RedBarTrend.futuresSizing({
@@ -608,10 +611,7 @@ async function _scanOneRedBarInstrument(inst, rbCfg) {
       const pxPrefix = isBinance ? '$' : '';
       const emoji = side === 'LONG' ? '🟢' : '🔴';
       const setupLabel = readout.playbook?.redSetup?.label || setupKind;
-      const autoNote = _autoSetupAllowed(setupKind)
-        ? ''
-        : '\nℹ️ Signal only — auto-trade waits for Trade 1 / session sweep';
-      const alertOnlyNote = !isBinance ? '\n⚠️ Alert only — place manually on Dhan (no auto-order)' : autoNote;
+      const alertOnlyNote = !isBinance ? '\n⚠️ Alert only — place manually on Dhan (no auto-order)' : '';
       const subject = `Red Bar ${side}: ${inst.label} · ${setupLabel}`;
       const htmlMsg = `${emoji} <b>ENTER NOW · Red Bar ${_escHtml(inst.label)} ${side}</b>
 ${_escHtml(setupLabel)} (${_escHtml(setupKind)})
@@ -621,7 +621,7 @@ Entry <b>${pxPrefix}${fmt(readout.price)}</b> · Stop <b>${pxPrefix}${fmt(readou
         `ENTER NOW · ${inst.label} ${side}`,
         `${setupLabel}`,
         `Entry ${pxPrefix}${fmt(readout.price)} · Stop ${pxPrefix}${fmt(readout.invalidation)} · 1:1 ${pxPrefix}${fmt(readout.tp1)}`,
-        !isBinance ? 'Alert only — place manually on Dhan' : (_autoSetupAllowed(setupKind) ? null : 'Signal only — auto waits for Trade 1 / sweep'),
+        !isBinance ? 'Alert only — place manually on Dhan' : null,
         deskUrl,
       ].filter(Boolean).join('\n');
 
@@ -632,37 +632,53 @@ Entry <b>${pxPrefix}${fmt(readout.price)}</b> · Stop <b>${pxPrefix}${fmt(readou
         clickUrl: deskUrl,
       });
       if (delivered) {
-        lastAlerted[`RB_${inst.id}`] = dayAlertKey;
-        lastAlerted[`RB_${inst.id}_DETAIL`] = alertKey;
-        saveAlertState(lastAlerted);
+        _rbAlertMark(inst.id, alertKey);
+        if (_autoSetupAllowed(setupKind)) {
+          await _maybeAutoFuturesTwoLeg({
+            inst,
+            side,
+            readout,
+            alertKey,
+            dayKey,
+          });
+        }
       } else {
         console.error(`[RedBarBot] ${inst.id}: ENTER seen but Telegram delivery failed — will retry next scan`);
       }
     } else {
-      console.log(`[RedBarBot] ${inst.id}: already telegram'd today (${dayAlertKey}) — skip TG ${alertKey}`);
-    }
-
-    // Auto: quality setups only (default Trade 1 + sweep). Independent of which signal telegraphed first.
-    if (_autoSetupAllowed(setupKind)) {
-      await _maybeAutoFuturesTwoLeg({
-        inst,
-        side,
-        readout,
-        alertKey,
-        dayKey,
-      });
-    } else {
-      console.log(`[RedBarBot] ${inst.id}: ${setupKind} — alert path only (not in REDBAR_AUTO_SETUPS)`);
+      console.log(`[RedBarBot] ${inst.id}: already alerted for ${alertKey} — skip`);
     }
   }
-  // Do NOT clear RB_* when leaving ENTER — that re-armed spam on flicker/side flips.
+  // Do NOT clear RB keys when leaving ENTER — that re-armed spam on flicker.
 }
 
-/** Setups that may open Binance two-leg. Trade 2 stays signal-only by default (chop / flip risk). */
+/** DNA / researched setups eligible for Binance auto two-leg. */
 function _autoSetupAllowed(setupKind) {
-  const raw = envTrim('REDBAR_AUTO_SETUPS') || 'trade1_departure,session_sweep';
+  const raw = envTrim('REDBAR_AUTO_SETUPS') || 'trade1_departure,trade2_confirmed,session_sweep';
   const allow = raw.split(',').map((s) => s.trim()).filter(Boolean);
   return allow.includes(String(setupKind || ''));
+}
+
+function _rbAlertMap(instId) {
+  const k = `RB_KEYS_${instId}`;
+  if (!lastAlerted[k] || typeof lastAlerted[k] !== 'object') lastAlerted[k] = {};
+  return lastAlerted[k];
+}
+
+function _rbAlertSeen(instId, alertKey) {
+  const map = _rbAlertMap(instId);
+  const now = Date.now();
+  for (const [key, ts] of Object.entries(map)) {
+    if (now - Number(ts) > 36 * 3600 * 1000) delete map[key];
+  }
+  return Boolean(map[alertKey]);
+}
+
+function _rbAlertMark(instId, alertKey) {
+  const map = _rbAlertMap(instId);
+  map[alertKey] = Date.now();
+  lastAlerted[`RB_${instId}_LAST`] = alertKey;
+  saveAlertState(lastAlerted);
 }
 
 const MANAGED_TRADES_FILE = 'managed_futures_trades.json';
@@ -709,14 +725,23 @@ async function _maybeAutoFuturesTwoLeg({ inst, side, readout, alertKey, dayKey }
     console.warn('[RedBarBot] AUTO_TRADE on but Binance keys missing');
     return;
   }
-  const tradeDayKey = `DAY|${dayKey || ''}`;
-  // Hard cap: at most one BTC auto entry per IST day (no LONG↔SHORT flip spam).
-  if (dayKey && lastAlerted[`TRADE_${inst.id}`] === tradeDayKey) {
-    console.log(`[RedBarBot] ${inst.id}: futures already used today's slot (${tradeDayKey}) — skip ${alertKey}`);
+  if (lastAlerted[`TRADE_${inst.id}_DETAIL`] === alertKey) {
+    console.log(`[RedBarBot] ${inst.id}: futures already opened for ${alertKey}`);
     return;
   }
-  if (lastAlerted[`TRADE_${inst.id}`] === alertKey) {
-    console.log(`[RedBarBot] ${inst.id}: futures already opened for ${alertKey}`);
+  // Multiple quality autos/day OK — cap + cooldown so we don't flip-chop the wallet.
+  const maxPerDay = Math.max(1, Math.min(8, Number(process.env.REDBAR_AUTO_MAX_PER_DAY) || 3));
+  const cooldownMs = Math.max(15 * 60 * 1000, Number(process.env.REDBAR_AUTO_COOLDOWN_MS) || 75 * 60 * 1000);
+  const countKey = `TRADE_COUNT_${inst.id}_${dayKey || 'noday'}`;
+  const dayCount = Number(lastAlerted[countKey]) || 0;
+  if (dayCount >= maxPerDay) {
+    console.log(`[RedBarBot] ${inst.id}: auto day cap ${dayCount}/${maxPerDay} — skip ${alertKey}`);
+    return;
+  }
+  const lastTs = Number(lastAlerted[`TRADE_${inst.id}_LAST_TS`]) || 0;
+  if (lastTs && Date.now() - lastTs < cooldownMs) {
+    const mins = Math.ceil((cooldownMs - (Date.now() - lastTs)) / 60000);
+    console.log(`[RedBarBot] ${inst.id}: auto cooldown ${mins}m left — skip ${alertKey}`);
     return;
   }
   const stop = Number(readout.invalidation);
@@ -762,10 +787,11 @@ async function _maybeAutoFuturesTwoLeg({ inst, side, readout, alertKey, dayKey }
     const fillEntry = Number(result.entry?.avgPrice) || entry;
     const stopOrderId = result.stopOrder?.algoId || result.stopOrder?.orderId || null;
     const tpAOrderId = result.tpAOrder?.algoId || result.tpAOrder?.orderId || null;
-    // Only consume the day slot on a real protected fill — failed flips must be retryable.
+    // Only count a protected fill — failed flips must be retryable.
     if (result.ok && stopOrderId) {
-      lastAlerted[`TRADE_${inst.id}`] = dayKey ? tradeDayKey : alertKey;
       lastAlerted[`TRADE_${inst.id}_DETAIL`] = alertKey;
+      lastAlerted[`TRADE_${inst.id}_LAST_TS`] = Date.now();
+      lastAlerted[countKey] = dayCount + 1;
       saveAlertState(lastAlerted);
       const managed = loadManagedTrades().filter((t) => t.symbol !== inst.symbol);
       managed.push({

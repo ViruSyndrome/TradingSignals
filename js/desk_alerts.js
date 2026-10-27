@@ -151,9 +151,11 @@ const DeskAlerts = {
 
     this.ensureBotUrl();
 
-    // One PWA + Telegram ping per instrument per day (not per LONG/SHORT flip).
+    // One ping per fresh trigger bucket (20m) × side × setup — multiple quality ENTERs/day OK.
     const dayPart = payload.dayKey || 'noday';
-    const baseKey = `RB_${payload.instrumentId}|DAY|${dayPart}`;
+    const trig = Number(payload.triggerTs) || Number(payload.queuedAt) || Date.now();
+    const bucket = Math.floor(trig / (20 * 60 * 1000));
+    const baseKey = `RB_${payload.instrumentId}|${payload.side}|${payload.setupKind}|${dayPart}|${bucket}`;
     const pwaKey = baseKey;
     const tgKey = `TG_${baseKey}`;
     let map = this._prune(this._sentMap());

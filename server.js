@@ -239,8 +239,10 @@ app.post('/api/alerts/redbar', async (req, res) => {
     return res.status(400).json({ ok: false, error: 'setupKind not Red Bar actionable' });
   }
 
-  // One desk→Telegram relay per instrument per day (side flips must not spam).
-  const alertKey = `RB_${instrumentId}|DAY|${dayKey || 'noday'}`;
+  // One relay per fresh 20m trigger × side × setup (multiple quality ENTERs/day OK).
+  const trig = Number(body.triggerTs) || Date.now();
+  const bucket = Math.floor(trig / (20 * 60 * 1000));
+  const alertKey = `RB_${instrumentId}|${side}|${setupKind}|${dayKey || 'noday'}|${bucket}`;
   const now = Date.now();
   for (const [k, t] of recentRelay) {
     if (now - t > RELAY_TTL_MS) recentRelay.delete(k);

@@ -279,6 +279,7 @@ const RangeEmaUI = {
       stop: fmt(o.invalidation),
       tp1: fmt(o.tp1),
       dayKey: o.asOfDay || '',
+      triggerTs: o.playbook?.redSetup?.triggerTs || o.t || Date.now(),
       queuedAt: Date.now(),
     };
     this._pendingEnterAlert = payload;
