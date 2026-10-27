@@ -43,7 +43,7 @@
   <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.4/dist/chart.umd.min.js" defer></script>
   <script src="https://cdn.jsdelivr.net/npm/hammerjs@2.0.8/hammer.min.js" defer></script>
   <script src="https://cdn.jsdelivr.net/npm/chartjs-plugin-zoom@2.2.0/dist/chartjs-plugin-zoom.min.js" defer></script>
-  <link rel="stylesheet" href="styles.css?v=7.20" />
+  <link rel="stylesheet" href="styles.css?v=7.21" />
   <!-- Critical boot overlay (prevents sidebar flash before styles.css applies) -->
   <style>
     html, body { margin: 0; background: #080a14; }
@@ -739,18 +739,18 @@
         <button class="modal-close-btn" id="closeSettingsModal" type="button">&times;</button>
       </div>
       <div class="modal-body">
-        <p class="settings-intro">Account sync uses Sign In. Watch &amp; Holdings sync across devices; Signal Log stays on this device. Owner click-trade talks to your Render bot — keys stay on the server.</p>
+        <p class="settings-intro">Account sync uses Sign In. Watch &amp; Holdings sync across devices; Signal Log stays on this device. Owner click-trade talks to your <strong>Oracle</strong> bot — keys stay on the VM.</p>
         <div id="accountSyncStatus" class="settings-sync-status" style="margin-bottom:16px;padding:12px 14px;border-radius:8px;background:rgba(0,0,0,0.25);border:1px solid var(--glass-border);font-size:13px;line-height:1.45;color:var(--text-muted);">Not signed in — Watch &amp; Holdings stay on this device only.</div>
         <div class="trade-settings trade-settings-in-modal" id="tradeSettings">
-          <div class="trade-settings-title">Bot URL (Telegram ENTER relay + optional trade)</div>
-          <label class="trade-settings-label">Render bot URL
-            <input type="url" id="tradeBotUrl" class="trade-settings-input" placeholder="https://your-service.onrender.com" autocomplete="off">
+          <div class="trade-settings-title">Oracle bot URL (Telegram ENTER + Place two-leg)</div>
+          <label class="trade-settings-label">Oracle bot URL
+            <input type="url" id="tradeBotUrl" class="trade-settings-input" placeholder="https://….trycloudflare.com or http://YOUR_ORACLE_IP:3000" autocomplete="off">
           </label>
-          <p class="trade-settings-hint">Required for Telegram ENTER + “Place two-leg” / Check Binance. Copy from Render → your service URL.</p>
+          <p class="trade-settings-hint">Must reach the Oracle VM (Cloudflare tunnel URL, or <code>http://IP:3000</code> once OCI ingress TCP 3000 is open). Not the old Render alert URL.</p>
           <label class="trade-settings-label">Trade secret
-            <input type="password" id="tradeApiSecret" class="trade-settings-input" placeholder="TRADE_API_SECRET" autocomplete="off">
+            <input type="password" id="tradeApiSecret" class="trade-settings-input" placeholder="paste value from Oracle .env TRADE_API_SECRET" autocomplete="off">
           </label>
-          <p class="trade-settings-hint">On Render also set: <code>TRADE_ENABLED=true</code>, Binance API keys (Futures enabled), optional <code>REDBAR_AUTO_TRADE=true</code> + <code>REDBAR_TRADE_MARGIN_USDT=25</code> for set-and-forget on each ENTER.</p>
+          <p class="trade-settings-hint">Same string as <code>TRADE_API_SECRET=…</code> on the Oracle VM <code>~/Trading/.env</code>. On the VM: <code>TRADE_ENABLED=true</code>, Binance Futures keys, <code>REDBAR_AUTO_TRADE=true</code>.</p>
           <button type="button" id="tradeSaveSettingsBtn" class="trade-settings-save">Save</button>
           <div id="tradeStatusHint" class="trade-settings-hint">Not connected</div>
         </div>
