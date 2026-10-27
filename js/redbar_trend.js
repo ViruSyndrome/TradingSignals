@@ -2120,7 +2120,14 @@ const RedBarTrend = {
     const asOf = asOfTs != null ? Number(asOfTs) : Date.now();
     const trigTs = setupTriggerTs != null ? Number(setupTriggerTs) : null;
     const ENTER_FRESH_MS = 20 * 60 * 1000;
-    if (trigTs != null && Number.isFinite(trigTs) && (asOf - trigTs) > ENTER_FRESH_MS) {
+    // Refuse ENTER without a trigger anchor — missing trigTs used to bypass the 20m window (Bug #3).
+    if (trigTs == null || !Number.isFinite(trigTs)) {
+      return {
+        state: 'watch',
+        reason: 'Setup missing trigger timestamp — refuse ENTER until Trade 1 / 2 / sweep is freshly anchored.',
+      };
+    }
+    if ((asOf - trigTs) > ENTER_FRESH_MS) {
       return {
         state: 'watch',
         reason: 'ENTER window closed (>20m since trigger bar) — do not chase. Wait for the next Trade 1 / 2 / sweep.',
@@ -2128,9 +2135,15 @@ const RedBarTrend = {
     }
     const ep = Number(entryPrice);
     const sp = Number(stopPrice);
-    const lp = Number(livePrice);
+    const lp = Number(livePrice != null ? livePrice : entryPrice);
     const R = Math.abs(ep - sp);
-    if (R > 0 && Number.isFinite(ep) && Number.isFinite(lp)) {
+    if (!(R > 0) || !Number.isFinite(ep) || !Number.isFinite(lp)) {
+      return {
+        state: 'watch',
+        reason: 'Setup missing trigger/live price anchors — refuse ENTER (anti-chase Gate 7 needs both).',
+      };
+    }
+    {
       const favR = trend === 'bullish' ? (lp - ep) / R : (ep - lp) / R;
       if (favR >= 0.5) {
         return {
