@@ -2016,15 +2016,16 @@ const RedBarTrend = {
         reason: `Setup present but SL is ${invalidationReason || 'not a 5m swing'} — wait until stop locks to a real 5m swing (not a % floor).`,
       };
     }
-    // Loser DNA: late-session bled. US Open (4:30–7 IST) is the hunt/spike window —
-    // same stand-aside (mechanical Trade 2 often prints into the fake-out).
-    if (clock && (clock.id === 'late' || clock.id === 'us_open')) {
-      return {
-        state: 'watch',
-        reason: clock.id === 'us_open'
-          ? 'US Open window (4:30–7:00 IST) — stand aside. Liquidity hunts / spikes; wait for post-US or next London.'
-          : 'IST late session — stand aside (loser cluster on public USD-M). Wait for next day’s pre-London / London.',
-      };
+    // BTC clock DNA (public USD-M 5m-swing book): pre_london + london carry the edge
+    // (PASS n=770, +19% train/OOS). late bled (n=141, −8%). skip late alone is best (+23%);
+    // pre_london|london only (= skip late+us_open) is the clean session allow-list.
+    // Asia morning = pre_london (KEEP). London = KEEP. US Open + late = stand aside.
+    if (clock && clock.id !== 'pre_london' && clock.id !== 'london') {
+      const why = {
+        us_open: 'Outside DNA window — US Open (4:30–7:00 IST). Edge is Pre-London / London only.',
+        late: 'Outside DNA window — late session bled on the 2y book. Wait for next Pre-London / London.',
+      }[clock.id] || `Outside DNA window (${clock.id || 'unknown'}). Auto ENTER only Pre-London / London IST.`;
+      return { state: 'watch', reason: why };
     }
     // Wide stops (>1%) were rare (~3% of book) but toxic (WR≈24%, sum≈−14%).
     // Soft gate only — keeps ~97% of ENTERs; mid-band filters that cut frequency are not applied.
