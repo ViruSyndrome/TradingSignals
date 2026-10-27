@@ -528,10 +528,17 @@ async function _deskBars(inst, interval, limit) {
 async function _scanOneRedBarInstrument(inst, rbCfg) {
   const workTf = rbCfg.workingTf || '15m';
   const need5m = workTf !== '5m';
+  const firstRedTf = inst.firstRedTf || '1h';
+  const firstRedBarMs = firstRedTf === '30m' ? 30 * 60000
+    : firstRedTf === '15m' ? 15 * 60000
+      : firstRedTf === '5m' ? 5 * 60000
+        : 3600000;
+  const firstRedMinBars = firstRedTf === '30m' ? 48 : 24;
+  const needPivotFetch = workTf !== firstRedTf;
   const rawPair = await _withTimeout(
     Promise.all([
       _deskBars(inst, workTf, 500),
-      _deskBars(inst, '1h', 220),
+      needPivotFetch ? _deskBars(inst, firstRedTf, firstRedTf === '30m' ? 400 : 220) : Promise.resolve(null),
       need5m ? _deskBars(inst, '5m', 500) : Promise.resolve(null),
     ]),
     25000,
@@ -543,7 +550,7 @@ async function _scanOneRedBarInstrument(inst, rbCfg) {
     return raw.map((k) => ({ t: +k[0], o: +k[1], h: +k[2], l: +k[3], c: +k[4] }));
   };
   const barsWork = toBars(rawPair[0]);
-  const bars1h = toBars(rawPair[1]);
+  const bars1h = needPivotFetch ? toBars(rawPair[1]) : barsWork;
   const bars5m = need5m ? toBars(rawPair[2]) : barsWork;
   if (!barsWork || barsWork.length < 40) {
     console.warn(`[RedBarBot] ${inst.id}: not enough bars (${barsWork?.length || 0})`);
@@ -551,8 +558,10 @@ async function _scanOneRedBarInstrument(inst, rbCfg) {
   }
   const lastT = barsWork[barsWork.length - 1].t;
   const calDay = RedBarTrend.dayKey(lastT, inst.dayMode || rbCfg.dayMode || 'ist');
-  const firstRed1h = bars1h && bars1h.length >= 24
-    ? RedBarTrend.firstRedBarOfSession(bars1h, calDay, { ...rbCfg, ...inst, asOfTs: lastT, barMs: 3600000 })
+  const firstRed1h = bars1h && bars1h.length >= firstRedMinBars
+    ? RedBarTrend.firstRedBarOfSession(bars1h, calDay, {
+      ...rbCfg, ...inst, asOfTs: lastT, barMs: firstRedBarMs,
+    })
     : null;
   const readout = RedBarTrend.readAt(barsWork, barsWork.length - 1, {
     ...rbCfg,

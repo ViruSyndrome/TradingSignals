@@ -21,6 +21,10 @@ const RangeEmaUI = {
     capital: 1000,
     riskPct: 1,
     alertsOn: true,
+    /** Frozen levels from first ENTER of this setup (levels drift on refresh — place from snapshot). */
+    enterSnapshot: null,
+    futuresStatus: null,
+    lastBotTrade: null,
   },
 
   cfg() {
@@ -183,8 +187,17 @@ const RangeEmaUI = {
       const savedRisk = Number(localStorage.getItem('trendrunner_rb_risk_pct'));
       if (Number.isFinite(savedRisk) && savedRisk > 0 && savedRisk <= 25) this.state.riskPct = savedRisk;
       if (typeof DeskAlerts !== 'undefined') {
+        // Default ON — users should not have to hunt for Telegram ENTER
+        if (localStorage.getItem(DeskAlerts.STORAGE_KEY) == null) {
+          DeskAlerts.setEnabled(true);
+        }
         this.state.alertsOn = DeskAlerts.enabled();
         DeskAlerts.ensureBotUrl();
+        // Wake Render so the first ENTER does not die on a cold start
+        const botBase = DeskAlerts._botBaseUrl?.() || DeskAlerts.DEFAULT_BOT_URL;
+        if (botBase) {
+          fetch(`${botBase}/health`, { cache: 'no-store' }).catch(() => {});
+        }
       }
     } catch (_) {}
     // Paint shell immediately so we never sit on the static "Loading…" HTML
@@ -192,7 +205,8 @@ const RangeEmaUI = {
     this.render();
     this.refresh();
     clearInterval(this._timer);
-    this._timer = setInterval(() => this.refresh(), 60 * 1000);
+    // 30s desk refresh matches worker scan — open-tab Telegram relay catches brief ENTER
+    this._timer = setInterval(() => this.refresh(), 30 * 1000);
   },
 
   async _toggleAlerts() {
@@ -268,8 +282,112 @@ const RangeEmaUI = {
       queuedAt: Date.now(),
     };
     this._pendingEnterAlert = payload;
+    // Freeze levels for place/bot — live refresh was changing Entry/SL/TP mid-signal
+    const snapKey = `${payload.dayKey}|${payload.side}|${payload.setupKind}`;
+    if (!this.state.enterSnapshot || this.state.enterSnapshot.key !== snapKey) {
+      const entry = Number(a.entry ?? o.price);
+      const stop = Number(o.invalidation);
+      const oneR = Math.abs(entry - stop);
+      const tpA = Number(o.tp1);
+      const tpB = Number(o.tp3) || (a.side === 'LONG' ? entry + 3 * oneR : entry - 3 * oneR);
+      this.state.enterSnapshot = {
+        key: snapKey,
+        at: Date.now(),
+        side: a.side,
+        symbol: inst.symbol || 'BTCUSDT',
+        entry,
+        stop,
+        tpA,
+        tpB,
+        leverage: o.sizing?.recLeverage || 3,
+        setupKind: o.setupKind,
+      };
+    }
     Promise.resolve(DeskAlerts.maybeNotifyEnter(payload))
       .catch((e) => console.warn('[RangeEmaUI] notify failed', e));
+  },
+
+  _tradeBotUrl() {
+    try {
+      const ls = localStorage.getItem('trade_bot_url');
+      if (ls && String(ls).trim()) return String(ls).trim().replace(/\/$/, '');
+    } catch (_) {}
+    if (typeof DeskAlerts !== 'undefined') return DeskAlerts._botBaseUrl?.() || DeskAlerts.DEFAULT_BOT_URL;
+    return 'https://tradingsignals-bjya.onrender.com';
+  },
+
+  _tradeSecret() {
+    try { return localStorage.getItem('trade_api_secret') || ''; } catch (_) { return ''; }
+  },
+
+  async _futuresFetch(path, { method = 'GET', body = null } = {}) {
+    const base = this._tradeBotUrl();
+    const secret = this._tradeSecret();
+    if (!secret) throw new Error('Set Trade secret in Settings (gear) first');
+    const res = await fetch(`${base}${path}`, {
+      method,
+      headers: {
+        'Content-Type': 'application/json',
+        'X-TrendRunner-Trade-Secret': secret,
+      },
+      body: body ? JSON.stringify(body) : undefined,
+      cache: 'no-store',
+    });
+    const data = await res.json().catch(() => ({}));
+    if (!res.ok && res.status !== 207) throw new Error(data.error || `HTTP ${res.status}`);
+    return data;
+  },
+
+  async _placeTwoLegFromSnapshot() {
+    const snap = this.state.enterSnapshot;
+    if (!snap || !(snap.entry > 0)) {
+      this._showDeskToast('No frozen ENTER levels — wait for LIVE ENTER');
+      return;
+    }
+    try {
+      this._showDeskToast('Placing two-leg on Binance Futures…');
+      const st = await this._futuresFetch('/api/trade/futures/status');
+      const marginUsdt = Number(st.marginUsdt) || 25;
+      const result = await this._futuresFetch('/api/trade/futures/two-leg', {
+        method: 'POST',
+        body: {
+          symbol: snap.symbol,
+          side: snap.side,
+          marginUsdt,
+          leverage: snap.leverage || 3,
+          entry: snap.entry,
+          stopPrice: snap.stop,
+          tpA: snap.tpA,
+          tpB: snap.tpB,
+        },
+      });
+      this.state.lastBotTrade = { at: Date.now(), result, snap };
+      if (result.ok) {
+        this._showDeskToast(`Binance: opened ${snap.side} qty ${result.qty} · SL + TP A/B resting`);
+      } else {
+        this._showDeskToast(result.error || result.warnings?.join('; ') || 'Partial — check Binance');
+      }
+      this.render();
+    } catch (e) {
+      this._showDeskToast(e.message || 'Place failed');
+    }
+  },
+
+  async _refreshFuturesPositions() {
+    try {
+      const data = await this._futuresFetch('/api/trade/futures/positions?symbol=BTCUSDT');
+      this.state.futuresStatus = data;
+      const nPos = (data.positions || []).length;
+      const nOrd = (data.openOrders || []).length;
+      this._showDeskToast(
+        nPos || nOrd
+          ? `Binance: ${nPos} open position(s), ${nOrd} open order(s) — see Futures Positions`
+          : 'Binance: no open BTCUSDT futures position'
+      );
+      this.render();
+    } catch (e) {
+      this._showDeskToast(e.message || 'Could not read positions');
+    }
   },
 
   _friendlyErr(e) {
@@ -406,19 +524,43 @@ const RangeEmaUI = {
       : (inst || this.activeInstrument());
     const tf = this.activeTf();
     const lim = this._ohlcLimit(tf, c, instrument);
-    const lim1h = this._ohlcLimit('1h', c, instrument);
+    // Sagar: BTC uses 1H first-red; NG/Crude/metals use 30m (instrument.firstRedTf)
+    const firstRedTf = instrument.firstRedTf || '1h';
+    const firstRedBarMs = firstRedTf === '30m' ? 30 * 60000
+      : firstRedTf === '15m' ? 15 * 60000
+        : firstRedTf === '5m' ? 5 * 60000
+          : 3600000;
+    const firstRedMinBars = firstRedTf === '30m' ? 48 : 24;
+    const firstRedLabel = firstRedTf === '1h' ? '1H' : firstRedTf.toUpperCase();
+    const limPivot = this._ohlcLimit(firstRedTf, c, instrument);
+    const lim5m = this._ohlcLimit('5m', c, instrument);
     let raw;
-    let raw1h = null;
+    let rawPivot = null;
+    let raw5m = null;
     try {
       const get = (iv, n) => (typeof API.getDeskOHLC === 'function'
         ? API.getDeskOHLC(instrument, iv, n)
         : API.getCryptoOHLC(instrument.symbol, iv, n));
-      // Parallel work-TF + 1H so Nifty (Yahoo proxy) does not stack two serial 18s waits
-      const pair = await Promise.allSettled([get(tf, lim), get('1h', lim1h)]);
+      // Parallel work-TF + first-red pivot TF + 5m (Trade 2 confirm vs median)
+      const need5m = tf !== '5m';
+      const needPivotFetch = tf !== firstRedTf;
+      const pair = await Promise.allSettled([
+        get(tf, lim),
+        needPivotFetch ? get(firstRedTf, limPivot) : Promise.resolve(null),
+        need5m ? get('5m', lim5m) : Promise.resolve(null),
+      ]);
       if (pair[0].status !== 'fulfilled') throw pair[0].reason;
       raw = pair[0].value;
-      if (pair[1].status === 'fulfilled') raw1h = pair[1].value;
-      else console.warn('[RangeEmaUI] 1H first-red fetch failed:', pair[1].reason?.message || pair[1].reason);
+      if (needPivotFetch) {
+        if (pair[1].status === 'fulfilled') rawPivot = pair[1].value;
+        else console.warn(`[RangeEmaUI] ${firstRedLabel} first-red fetch failed:`, pair[1].reason?.message || pair[1].reason);
+      } else {
+        rawPivot = raw;
+      }
+      if (need5m) {
+        if (pair[2].status === 'fulfilled') raw5m = pair[2].value;
+        else console.warn('[RangeEmaUI] 5m Trade-2 fetch failed:', pair[2].reason?.message || pair[2].reason);
+      }
     } catch (e) {
       return {
         symbol: instrument.symbol,
@@ -447,30 +589,40 @@ const RangeEmaUI = {
       orAnchor: instrument.orAnchor || c.orAnchor || null,
       fibLevels: instrument.fibLevels || c.fibLevels || [0, 0.44, 0.5, 0.56, 1],
       sessions: instrument.sessions || c.sessions || [],
+      firstRedTf,
+      firstRedLabel,
     };
 
-    // Sagar pivot: first CLOSED 1H red AFTER the calendar day’s first candle
+    // Sagar pivot: first CLOSED red on pivot TF AFTER the calendar day’s first candle
     // (never the open bar itself). Calendar IST day — not mark-window session day.
     let firstRed1h = null;
     let bars1h = null;
     try {
-      bars1h = this._klinesToBars(raw1h);
-      if (bars1h.length >= 24) {
+      bars1h = this._klinesToBars(rawPivot);
+      if (bars1h.length >= firstRedMinBars) {
         const lastT = bars30[bars30.length - 1].t;
         const calDay = RedBarTrend.dayKey(lastT, readCfg.dayMode || 'ist');
         firstRed1h = RedBarTrend.firstRedBarOfSession(bars1h, calDay, {
           ...readCfg,
           asOfTs: lastT,
-          barMs: 3600000,
+          barMs: firstRedBarMs,
         });
       }
     } catch (e) {
-      console.warn('[RangeEmaUI] 1H first-red parse failed:', e.message || e);
+      console.warn(`[RangeEmaUI] ${firstRedLabel} first-red parse failed:`, e.message || e);
     }
 
-    const readout = RedBarTrend.read(bars30, { ...readCfg, firstRed1h, bars1h });
+    const bars5m = tf === '5m' ? bars30 : this._klinesToBars(raw5m);
+    const readout = RedBarTrend.read(bars30, {
+      ...readCfg,
+      firstRed1h,
+      bars1h,
+      bars5m: bars5m && bars5m.length ? bars5m : null,
+    });
     if (readout) {
       readout.firstRed1h = firstRed1h;
+      readout.firstRedTf = firstRedTf;
+      readout.firstRedLabel = firstRedLabel;
       if (readout.refs) {
         readout.refs.firstRed1hHigh = firstRed1h ? firstRed1h.high : null;
         readout.refs.firstRed1hLow = firstRed1h ? firstRed1h.low : null;
@@ -520,29 +672,40 @@ const RangeEmaUI = {
         : '';
     const clockStep = clock.tip ? clock.tip : null;
     const liqStep = pb.liquidityTip && pb.liquidityTip !== clock.tip ? pb.liquidityTip : null;
+    const frFib = o.firstRedFibs || red.fibs || null;
+    const pivL = o.firstRedLabel || (this.activeInstrument()?.firstRedTf === '30m' ? '30M' : '1H');
     const pivotStep = o.firstRed1h
-      ? `Pivot = 1H first red after day open ${this._fmt(o.firstRed1h.high)} / ${this._fmt(o.firstRed1h.low)} (day’s first candle skipped).`
-      : 'Waiting for the first 1H red after the day’s opening candle.';
+      ? (frFib
+        ? `${pivL}→M5 ladder: mark ${pivL} first-red HIGH/LOW (liquidity) ${this._fmt(o.firstRed1h.high)} / ${this._fmt(o.firstRed1h.low)} + median ${this._fmt(frFib.f50)} (Fib 44/56: ${this._fmt(frFib.f44)} / ${this._fmt(frFib.f56)}). Trade 2: sweep H/L → 5m close back through (+ median).`
+        : `${pivL}→M5: mark ${pivL} first-red H/L ${this._fmt(o.firstRed1h.high)} / ${this._fmt(o.firstRed1h.low)} as liquidity, then enter on 5m close-through.`)
+      : `Waiting for the first ${pivL} red — mark that bar’s HIGH/LOW (liquidity) + median, then drop to 5m.`;
     const pdh = o.refs?.priorDayHigh;
     const pdl = o.refs?.priorDayLow;
     const rrStr = o.rr != null ? `1:${o.rr.toFixed(2)}` : '—';
     const stopPctStr = o.stopPct != null ? ` (${o.stopPct.toFixed(2)}%)` : '';
-    const targetPctStr = o.targetPct != null ? ` (+${o.targetPct.toFixed(2)}%)` : '';
     const tp1Str = o.tp1 != null ? this._fmt(o.tp1) : '—';
+    const tp2Str = o.tp2 != null ? this._fmt(o.tp2) : '—';
     const tp3Str = o.tp3 != null ? this._fmt(o.tp3) : '—';
     const oneRPctStr = o.stopPct != null ? ` (+${o.stopPct.toFixed(2)}%)` : '';
-    const sagarExitStep = `2️⃣ 50% TP at 1:1: ${tp1Str}${oneRPctStr} (bank 50% & move stop to Breakeven) · 3️⃣ Trail remaining 50% until EMA 10/30 cross over (Stretch: ${this._fmt(o.bookZone)} / rare 1:3 ${tp3Str}).`;
-
-    if ((o.phase === 'first_candle' || o.phase === 'inside_or') && o.setupKind !== 'session_sweep') {
+    const trade2Live = o.setupKind === 'trade2_confirmed' || o.setupKind === 'trade2_watch';
+    const useLadder = !!(o.rrLadder || trade2Live);
+    const sagarExitStep = useLadder
+      ? `2️⃣ 50% TP at 1:1: ${tp1Str}${oneRPctStr} → move SL to Breakeven · 3️⃣ Trail at 1:2: ${tp2Str} · 4️⃣ Take profit at 1:3: ${tp3Str}.`
+      : `2️⃣ 50% TP at 1:1: ${tp1Str}${oneRPctStr} (bank 50% & SL→BE) · 3️⃣ Runner stretch: ${this._fmt(o.bookZone)} / 1:3 ${tp3Str}.`;
+    if (
+      (o.phase === 'first_candle' || o.phase === 'inside_or')
+      && o.setupKind !== 'session_sweep'
+      && !trade2Live
+    ) {
       const fibHi = o.currentBand?.high ?? o.refs?.orHigh;
       const fibLo = o.currentBand?.low ?? o.refs?.orLow;
       return {
         side: 'WAIT',
         cls: 'wait',
-        title: 'Do not trade yet (Inside Fib Box)',
-        subtitle: 'Inside today’s mark-window fib box (or window still forming). Sideways accumulation zone.',
+        title: o.phase === 'first_candle' ? 'Do not trade yet (Mark window forming)' : 'Inside mark-window Fibs (targets only)',
+        subtitle: 'Mark-window Fibs = targets. Trade 2 = H1→M5: sweep 1H first-red H/L liquidity, then 5m close back through (+ median).',
         steps: [
-          `Fib 0 / Fib 1: ${this._fmt(fibHi)} / ${this._fmt(fibLo)} — wait for a clean break & hold outside the box.`,
+          `Fib 0 / Fib 1: ${this._fmt(fibHi)} / ${this._fmt(fibLo)} — context / targets only.`,
           pivotStep,
           ...(clockStep ? [clockStep] : []),
         ],
@@ -555,27 +718,29 @@ const RangeEmaUI = {
 
     const biasDir = o.trend === 'bullish' ? 'LONG' : o.trend === 'bearish' ? 'SHORT' : null;
     const isActionable = o.actionState === 'enter' && (biasDir === 'LONG' || biasDir === 'SHORT');
-    const stopTag = o.invalidationReason || (biasDir === 'LONG' ? 'swing low' : 'swing high');
+    const stopTag = o.invalidationReason
+      || (trade2Live
+        ? (biasDir === 'LONG' ? '5m swing low' : '5m swing high')
+        : (biasDir === 'LONG' ? 'recent swing low' : 'recent swing high'));
     const stopWarn = o.stopStructural === false
       ? ` ⚠️ Stop is a ${stopTag} (not a tight local swing — watch size).`
       : '';
-    const bookTag = o.bookReason || 'liquidity magnet';
 
     // 1. Red Bar ENTER only: Trade 1 / Trade 2 / Session Sweep
     if (isActionable) {
       const setupLabel = o.setupKind === 'session_sweep'
         ? `Red Bar · Session Sweep · Futures ${biasDir}`
         : o.setupKind === 'trade2_confirmed'
-          ? `Red Bar · Trade 2 · Futures ${biasDir} (${red.revisitRead ? red.revisitRead.replace('_', ' ') : '1H red revisit'})`
+          ? `Red Bar · Trade 2 · Futures ${biasDir} (H1 sweep → M5 close-through)`
           : `Red Bar · Trade 1 · Futures ${biasDir} (Left 1H Red)`;
       return {
         side: biasDir,
         cls: biasDir === 'LONG' ? 'long' : 'short',
         title: setupLabel,
-        subtitle: `Red Bar ENTER · ${o.actionReason || '15m Swing Stop · 50% TP at 1:1 + trail 50% till EMA 10/30 cross'}${emaNote}.`,
+        subtitle: `Red Bar ENTER · ${o.actionReason || (useLadder ? 'H1→M5 · SL 5m swing · 50% @ 1:1 → BE → 1:2 → 1:3' : 'SL 5m swing · 50% @ 1:1 + runner')}${emaNote}.`,
         steps: [
-          `${hint}: Enter Futures ${biasDir} near ${this._fmt(o.price)}.`,
-          `1️⃣ Stop-Loss First (${stopTag} on 15m): ${this._fmt(o.invalidation)}${stopPctStr}.${stopWarn}`,
+          `${hint}: Enter Futures ${biasDir} near ${this._fmt(o.price)}${o.setupKind === 'trade2_confirmed' ? (biasDir === 'SHORT' ? ' (1H high swept → 5m closed below high & median — sells only)' : ' (1H low swept → 5m closed above low & median — buys only)') : ''}.`,
+          `1️⃣ Stop-Loss First (${stopTag}): ${this._fmt(o.invalidation)}${stopPctStr}.${stopWarn}`,
           sagarExitStep,
           pivotStep,
           ...(liqStep ? [liqStep] : clockStep ? [clockStep] : []),
@@ -583,9 +748,11 @@ const RangeEmaUI = {
         entry: o.price,
         stop: o.invalidation,
         tp1: o.tp1,
+        tp2: o.tp2,
         tp3: o.tp3,
         exit: o.bookZone,
         rr: o.rr,
+        rrLadder: useLadder,
       };
     }
 
@@ -594,33 +761,38 @@ const RangeEmaUI = {
       const magDown = o.playbook?.magnetBelow;
       const magUp = o.playbook?.magnetAbove;
       const magStep = (magDown || magUp)
-        ? `Fib levels (context): ${magDown ? `↓ ${magDown.label} ${this._fmt(magDown.price)}` : ''}${magDown && magUp ? ' · ' : ''}${magUp ? `↑ ${magUp.label} ${this._fmt(magUp.price)}` : ''} — not an ENTER by themselves.`
+        ? `Mark-window Fibs (targets only): ${magDown ? `↓ ${magDown.label} ${this._fmt(magDown.price)}` : ''}${magDown && magUp ? ' · ' : ''}${magUp ? `↑ ${magUp.label} ${this._fmt(magUp.price)}` : ''} — not an ENTER.`
         : null;
       const watchTitle = o.setupKind === 'trade2_watch'
-        ? `Red Bar Watch · Testing 1H Red Pivot (${biasDir}) — not ENTER yet`
+        ? `Red Bar Watch · Trade 2 H1→M5 — need sweep of 1H H/L then 5m close-through (${biasDir})`
         : o.setupKind === 'fib_pullback'
-          ? `Red Bar Bias: ${biasDir} · Near mark-window Fibs — not ENTER`
+          ? `Red Bar Bias: ${biasDir} · Near mark-window Fibs (targets) — not ENTER`
           : o.setupKind === 'pivot_reversal'
             ? `Bias Conflict · Crossed 1H Red vs Fibs (Stay Flat)`
             : `Red Bar Bias: ${biasDir} · Waiting Trade 1 / Trade 2 / Sweep`;
+      const watchExit = useLadder
+        ? `If Trade 2 prints — 1️⃣ Stop (${stopTag}): ${this._fmt(o.invalidation)}${stopPctStr} · 2️⃣ 50% @ 1:1 ${tp1Str} → SL→BE · 3️⃣ Trail 1:2 ${tp2Str} · 4️⃣ TP 1:3 ${tp3Str}.${stopWarn}`
+        : `If a Red Bar trigger prints — 1️⃣ Stop (${stopTag}): ${this._fmt(o.invalidation)}${stopPctStr} · 2️⃣ 50% TP (1:1): ${tp1Str}${oneRPctStr} · 3️⃣ Runner (Stretch ${this._fmt(o.bookZone)} · ${rrStr}).${stopWarn}`;
       return {
         side: 'WATCH',
         cls: 'wait',
         title: watchTitle,
-        subtitle: `${o.actionReason || 'Bias only — no Telegram until Trade 1 / Trade 2 confirmed / session sweep'}${emaNote}.`,
+        subtitle: `${o.actionReason || 'Bias only — no Telegram until ENTER (setup + 5m swing SL)'}${emaNote}.`,
         steps: [
-          `WATCH ≠ signal. Bias is ${biasDir}. Telegram only fires on ENTER (Trade 1 departure, Trade 2 confirmed, or session sweep).`,
+          `WATCH ≠ signal. Bias is ${biasDir}. ENTER + Telegram need Trade 1 / Trade 2 / sweep with SL locked to a 5m swing.`,
           ...(magStep ? [magStep] : []),
-          `If a Red Bar trigger prints — 1️⃣ Stop (${stopTag} on 15m): ${this._fmt(o.invalidation)}${stopPctStr} · 2️⃣ 50% TP (1:1): ${tp1Str}${oneRPctStr} · 3️⃣ Runner Trail: EMA 10/30 cross (Stretch ${this._fmt(o.bookZone)} · ${rrStr}).${stopWarn}`,
+          watchExit,
           pivotStep,
           ...(liqStep ? [liqStep] : clockStep ? [clockStep] : []),
         ],
         tp1: o.tp1,
+        tp2: o.tp2,
         tp3: o.tp3,
         entry: o.price,
         stop: o.invalidation,
         exit: o.bookZone,
         rr: o.rr,
+        rrLadder: useLadder,
       };
     }
 
@@ -628,9 +800,9 @@ const RangeEmaUI = {
       side: 'WAIT',
       cls: 'wait',
       title: 'No clear bias · Stay Flat',
-      subtitle: 'Waiting for Fib box break or 1H first-red pivot confirmation.',
+      subtitle: 'Waiting for Trade 1 departure, Trade 2 (5m vs median), or session sweep.',
       steps: [
-        'Watch prior-session fibs; wait for a clean break of today’s Fib 0 / Fib 1.',
+        'Mark-window Fibs = targets. Ladder H1→M5: mark 1H first-red HIGH/LOW + median; Trade 2 = sweep → 5m close back through.',
         pivotStep,
         `Prior-day H/L magnets: ${this._fmt(pdh)} / ${this._fmt(pdl)}.`,
         ...(clockStep ? [clockStep] : []),
@@ -682,7 +854,7 @@ const RangeEmaUI = {
       return `<button type="button" class="${cls}" data-rb-inst="${x.id}"${loading && active ? ' aria-busy="true"' : ''}>${x.label}${active && loading ? ' …' : ''}</button>`;
     }).join('');
     const alertsOn = this.state.alertsOn !== false;
-    const alertBtn = `<button type="button" class="rb-inst-btn rb-alert-btn${alertsOn ? ' active' : ''}" id="rbAlertsToggle" title="OS/app banner on ENTER. Server email/ntfy when the tab is closed." aria-pressed="${alertsOn ? 'true' : 'false'}">${alertsOn ? 'Alerts ON' : 'Alerts OFF'}</button>`;
+    const alertBtn = `<button type="button" class="rb-inst-btn rb-alert-btn${alertsOn ? ' active' : ''}" id="rbAlertsToggle" title="Telegram + banner on Red Bar ENTER. Worker keeps scanning when this tab is closed." aria-pressed="${alertsOn ? 'true' : 'false'}">${alertsOn ? 'Alerts ON' : 'Alerts OFF'}</button>`;
     return instBtns + alertBtn;
   },
 
@@ -758,7 +930,7 @@ const RangeEmaUI = {
       <div class="section-heading">
         <h1>🟥 Red Bar Desk</h1>
         <p class="section-sub">
-          ${inst.label} on <strong>${tf}</strong>: Red Bar only (Trade 1 / Trade 2 / sweep) · mark-window fibs drawn · 1H first-red · session clock.
+          ${inst.label} on <strong>${tf}</strong>: Red Bar · ladder <strong>H1→M5</strong> · 1H first-red H/L liquidity + median · Trade 2 = sweep → 5m close-through · ENTER only with SL on 5m swing · 1:1→BE→1:2→1:3.
           <span class="range-desk-meta">${inst.tradeHint || ''} · Updated ${when}${this.state.loading ? ' · refreshing…' : ''}</span>
         </p>
       </div>
@@ -773,6 +945,12 @@ const RangeEmaUI = {
   _bindChartControls() {
     document.getElementById('rbAlertsToggle')?.addEventListener('click', () => {
       this._toggleAlerts();
+    });
+    document.getElementById('rbPlaceTwoLeg')?.addEventListener('click', () => {
+      this._placeTwoLegFromSnapshot();
+    });
+    document.getElementById('rbCheckBinance')?.addEventListener('click', () => {
+      this._refreshFuturesPositions();
     });
     document.querySelectorAll('[data-rb-inst]').forEach((btn) => {
       btn.addEventListener('click', () => this.setInstrument(btn.getAttribute('data-rb-inst')));
@@ -871,12 +1049,15 @@ const RangeEmaUI = {
     const trendWord = o.trend === 'bullish' ? 'BULLISH' : o.trend === 'bearish' ? 'BEARISH' : 'NEUTRAL';
 
     const steps = (a.steps || []).map((s) => `<li>${s}</li>`).join('');
-    const stopSub = o.stopPct != null ? `<small class="rb-level-sub">-${o.stopPct.toFixed(2)}% (${o.invalidationReason || '15m swing'})</small>` : '';
+    const ladder = !!(a.rrLadder || o.rrLadder || o.setupKind === 'trade2_confirmed' || o.setupKind === 'trade2_watch');
+    const stopSub = o.stopPct != null ? `<small class="rb-level-sub">-${o.stopPct.toFixed(2)}% (${o.invalidationReason || (ladder ? '5m swing' : 'recent swing')})</small>` : '';
     const tp1Sub = o.stopPct != null ? `<small class="rb-level-sub">+${o.stopPct.toFixed(2)}% · Bank 50% &amp; SL→BE</small>` : '';
-    const rrBadge = a.rr != null ? `${a.rr.toFixed(2)}R` : '—';
-    const runnerSub = a.exit != null
-      ? `<small class="rb-level-sub">Magnet ${this._fmt(a.exit)} (${rrBadge}) · 1:3 ${this._fmt(a.tp3 ?? o.tp3)}</small>`
-      : '<small class="rb-level-sub">Trail 50% till EMA 10/30 cross</small>';
+    const tp2Sub = '<small class="rb-level-sub">Trail remaining after 1:1</small>';
+    const runnerSub = ladder
+      ? `<small class="rb-level-sub">Full TP · 3R from swing stop</small>`
+      : (a.exit != null
+        ? `<small class="rb-level-sub">Stretch ${this._fmt(a.exit)} · 1:3 ${this._fmt(a.tp3 ?? o.tp3)}</small>`
+        : '<small class="rb-level-sub">Runner stretch</small>');
 
     let futuresBarHtml = '';
     if (a.side === 'LONG' || a.side === 'SHORT') {
@@ -931,7 +1112,10 @@ const RangeEmaUI = {
             const liveClk = (typeof RedBarTrend !== 'undefined' && RedBarTrend.istClockPhase) ? RedBarTrend.istClockPhase(nowMs) : o.playbook?.clock;
             const trigParts = [];
             if (a.side === 'WATCH' || a.side === 'WAIT') {
-              if (o.firstRed1h) trigParts.push(`1H Red Zone ${this._fmt(o.firstRed1h.low)}–${this._fmt(o.firstRed1h.high)}`);
+              if (o.firstRed1h) {
+                const pl = o.firstRedLabel || '1H';
+                trigParts.push(`${pl} Red Zone ${this._fmt(o.firstRed1h.low)}–${this._fmt(o.firstRed1h.high)}`);
+              }
               if (o.playbook?.magnetBelow) {
                 trigParts.push(`Fib ↓ ${o.playbook.magnetBelow.label} @ ${this._fmt(o.playbook.magnetBelow.price)}`);
               } else if (o.playbook?.magnetAbove) {
@@ -946,12 +1130,56 @@ const RangeEmaUI = {
             </div>`;
           })()}
           <ul class="rb-action-steps">${steps}</ul>
-          <div class="rb-action-levels">
-            <div><span>Entry Lean</span><strong>${this._fmt(a.entry)}</strong><small class="rb-level-sub">15m Execution</small></div>
-            <div><span>1. Stop-Loss (1R)</span><strong class="neg-text">${this._fmt(a.stop)}</strong>${stopSub}</div>
-            <div><span>2. 50% TP (1:1)</span><strong class="pos-text">${this._fmt(a.tp1 ?? o.tp1)}</strong>${tp1Sub}</div>
-            <div><span>3. 50% Runner</span><strong class="pos-text">EMA 10/30 Cross</strong>${runnerSub}</div>
-          </div>
+          ${(() => {
+            const isEnter = a.side === 'LONG' || a.side === 'SHORT';
+            const snap = this.state.enterSnapshot;
+            const useSnap = isEnter && snap && snap.side === a.side;
+            const eN = useSnap ? snap.entry : a.entry;
+            const sN = useSnap ? snap.stop : a.stop;
+            const tpA = useSnap ? snap.tpA : (a.tp1 ?? o.tp1);
+            const tpB = useSnap ? snap.tpB : (a.tp3 ?? o.tp3 ?? a.exit ?? o.bookZone);
+            const statusBanner = isEnter
+              ? `<div class="rb-signal-banner enter">LIVE ENTER · ${a.side} — trade is ON (not waiting). Levels below are ${useSnap ? 'frozen at first alert' : 'live'}.</div>`
+              : a.side === 'WATCH'
+                ? `<div class="rb-signal-banner watch">WATCHING — not an entry yet. No Telegram trade until this flips to ENTER.</div>`
+                : `<div class="rb-signal-banner wait">WAITING — no setup. Do not place Binance orders from dashes.</div>`;
+            const pos = this.state.futuresStatus;
+            const posAmt = pos?.positions?.[0] ? Math.abs(parseFloat(pos.positions[0].positionAmt) || 0) : 0;
+            const posLine = pos
+              ? (posAmt > 0
+                ? `<div class="rb-binance-status on">Binance: position open (${posAmt} BTC) · ${(pos.openOrders || []).length} resting order(s)</div>`
+                : `<div class="rb-binance-status">Binance: no open BTCUSDT position right now</div>`)
+              : '';
+            const botBtns = isEnter ? `
+              <div class="rb-bot-actions">
+                <button type="button" class="rb-inst-btn active" id="rbPlaceTwoLeg">Place two-leg on Binance</button>
+                <button type="button" class="rb-inst-btn" id="rbCheckBinance">Check Binance positions</button>
+                <a class="rb-inst-btn" href="https://www.binance.com/en/futures/BTCUSDT" target="_blank" rel="noopener">Open Binance Futures ↗</a>
+              </div>
+              <p class="rb-manage-plan-note">Notification = alert that ENTER fired (PWA banner and/or Telegram). It does <em>not</em> mean an order is filled unless auto-trade is on or you pressed Place.</p>` : `
+              <div class="rb-bot-actions">
+                <button type="button" class="rb-inst-btn" id="rbCheckBinance">Check Binance positions</button>
+                <a class="rb-inst-btn" href="https://www.binance.com/en/futures/BTCUSDT" target="_blank" rel="noopener">Open Binance Futures ↗</a>
+              </div>`;
+            return `
+          ${statusBanner}
+          ${posLine}
+          <div class="rb-manage-plan">
+            <div class="rb-manage-plan-title">One ENTER · set-and-forget two legs</div>
+            <p class="rb-manage-plan-note">${useSnap ? 'Frozen at first ENTER (ignores later level drift).' : 'Same entry + stop. Leg A books 50% @ 1:1 · Leg B runner @ 1:3.'}</p>
+            <div class="rb-action-levels">
+              <div><span>Entry</span><strong>${this._fmt(eN)}</strong><small class="rb-level-sub">${useSnap ? 'Frozen' : (ladder ? 'H1→M5' : 'Live')}</small></div>
+              <div><span>Stop (both legs)</span><strong class="neg-text">${this._fmt(sN)}</strong>${stopSub}</div>
+              <div><span>TP A · 50% @ 1:1</span><strong class="pos-text">${this._fmt(tpA)}</strong>${tp1Sub}</div>
+              <div><span>TP B · 50% @ 1:3</span><strong class="pos-text">${this._fmt(tpB)}</strong>${runnerSub}</div>
+            </div>
+            ${botBtns}
+            <div class="rb-place-how">
+              <div class="rb-place-opt"><strong>See your trade:</strong> Binance app/site → <em>Futures</em> → <em>Positions</em> (size open) and <em>Open Orders</em> (SL + TP A + TP B). Or tap Check Binance above.</div>
+              <div class="rb-place-opt"><strong>Auto bot:</strong> On Render set <code>TRADE_ENABLED=true</code>, <code>REDBAR_AUTO_TRADE=true</code>, keys + <code>TRADE_API_SECRET</code>. Next ENTER places two legs and Telegrams the fill.</div>
+            </div>
+          </div>`;
+          })()}
           ${futuresBarHtml}
         </div>
       </div>
@@ -978,11 +1206,11 @@ const RangeEmaUI = {
         <div class="rb-chart-legend">
           <span class="lg price">Candles (${this.activeTf()})</span>
           <span class="lg ema10">EMA ${c.emaFast || 10}</span>
-          <span class="lg ema30">EMA ${c.emaSlow || 30} (Runner Trail)</span>
+          <span class="lg ema30">EMA ${c.emaSlow || 30}</span>
           <span class="lg band">${this._isFibStyle(r) ? `Fib 0·44·50·56·1${r.instrument?.markLabel ? ` · ${r.instrument.markLabel}` : ''}` : 'Day ranges'}</span>
-          <span class="lg stop">1H first red</span>
-          <span class="lg stop rb-lg-desk">15m Swing SL</span>
-          <span class="lg tp rb-lg-desk">1:1 (50% TP) &amp; Stretch</span>
+          <span class="lg stop">1H first red + median</span>
+          <span class="lg stop rb-lg-desk">5m Swing SL</span>
+          <span class="lg tp rb-lg-desk">1:1 → 1:2 → 1:3</span>
           <span class="lg sess-asia rb-lg-desk">Asia H/L</span>
           <span class="lg sess-london rb-lg-desk">London H/L</span>
           <span class="lg sess-ny rb-lg-desk">NY H/L</span>
@@ -1015,7 +1243,7 @@ const RangeEmaUI = {
           : ''}
         <span class="range-chip" title="Exit management only — not an entry strategy">EMA trail: ${String((r.ema && r.ema.cross) || '').replace(/_/g, ' ')} · ${r.emaAgree}</span>
         ${(o.refs?.prevSwingHigh != null || o.refs?.prevSwingLow != null)
-          ? `<span class="range-chip">15m Prev Swing H/L: ${this._fmt(o.refs.prevSwingHigh)} / ${this._fmt(o.refs.prevSwingLow)}</span>`
+          ? `<span class="range-chip">${o.refs.swingStopTf === '5m' ? '5m' : 'Prev'} Swing H/L: ${this._fmt(o.refs.prevSwingHigh)} / ${this._fmt(o.refs.prevSwingLow)}</span>`
           : ''}
         ${(o.cpr || o.playbook?.cpr) ? `<span class="range-chip">Dr. Dev CPR: ${this._fmt((o.cpr || o.playbook.cpr).pivot)} (BC ${this._fmt((o.cpr || o.playbook.cpr).bc)} · TC ${this._fmt((o.cpr || o.playbook.cpr).tc)})</span>` : ''}
         ${o.refs?.priorDayHigh != null
@@ -1031,7 +1259,10 @@ const RangeEmaUI = {
           ? `<span class="range-chip">NY (US) H/L: ${this._fmt(o.refs.nyHigh)} / ${this._fmt(o.refs.nyLow)}</span>`
           : ''}
         ${o.firstRed1h
-          ? `<span class="range-chip">1H first red ${this._fmt(o.firstRed1h.high)} / ${this._fmt(o.firstRed1h.low)}</span>`
+          ? `<span class="range-chip">${o.firstRedLabel || '1H'} first red ${this._fmt(o.firstRed1h.high)} / ${this._fmt(o.firstRed1h.low)}</span>`
+          : ''}
+        ${o.firstRedFibs
+          ? `<span class="range-chip">${o.firstRedLabel || '1H'} red Fib 44/50/56: ${this._fmt(o.firstRedFibs.f44)} / ${this._fmt(o.firstRedFibs.f50)} / ${this._fmt(o.firstRedFibs.f56)}</span>`
           : ''}
         ${o.playbook?.liquidityTip
           ? `<span class="range-chip">${o.playbook.liquidityTip}</span>`
@@ -1457,7 +1688,7 @@ const RangeEmaUI = {
     };
   },
 
-  /** Full-width dashed line at first 1H red high — only while pivot is active. */
+  /** Full-width lines: 1H first-red H/L + Fib 44 / 50 (median) / 56. */
   _firstRed1hPlugin() {
     return {
       id: 'rbFirstRed1h',
@@ -1468,17 +1699,32 @@ const RangeEmaUI = {
         const yScale = chart.scales.y;
         const area = chart.chartArea;
         if (!yScale || !area) return;
-        const y = yScale.getPixelForValue(red.high);
-        if (!Number.isFinite(y) || y < area.top || y > area.bottom) return;
+        const fibs = chart.$rbFirstRedFibs;
+        const levels = [
+          { v: red.high, style: 'rgba(244, 63, 94, 0.85)', w: 1.5, dash: [6, 4] },
+          { v: red.low, style: 'rgba(244, 63, 94, 0.55)', w: 1.2, dash: [4, 4] },
+        ];
+        if (fibs) {
+          levels.push(
+            { v: fibs.f44, style: 'rgba(251, 146, 60, 0.7)', w: 1, dash: [3, 3] },
+            { v: fibs.f50, style: 'rgba(250, 204, 21, 0.85)', w: 1.4, dash: [8, 3] },
+            { v: fibs.f56, style: 'rgba(251, 146, 60, 0.7)', w: 1, dash: [3, 3] },
+          );
+        }
         const ctx = chart.ctx;
         ctx.save();
-        ctx.strokeStyle = 'rgba(244, 63, 94, 0.85)';
-        ctx.lineWidth = 1.5;
-        ctx.setLineDash([6, 4]);
-        ctx.beginPath();
-        ctx.moveTo(area.left, y);
-        ctx.lineTo(area.right, y);
-        ctx.stroke();
+        for (const lv of levels) {
+          if (lv.v == null || !Number.isFinite(lv.v)) continue;
+          const y = yScale.getPixelForValue(lv.v);
+          if (!Number.isFinite(y) || y < area.top || y > area.bottom) continue;
+          ctx.strokeStyle = lv.style;
+          ctx.lineWidth = lv.w;
+          ctx.setLineDash(lv.dash);
+          ctx.beginPath();
+          ctx.moveTo(area.left, y);
+          ctx.lineTo(area.right, y);
+          ctx.stroke();
+        }
         ctx.setLineDash([]);
         ctx.restore();
       },
@@ -1530,7 +1776,7 @@ const RangeEmaUI = {
           const price = Number(t.value).toFixed(0);
           // Compact: short labels drawn INSIDE the plot (no dead right gutter)
           const shortName = compact
-            ? ({ STOP: 'STP', '1:1 TP': '1:1', EXIT: 'TP', '1H RED': '1R', 'SWG HI': 'SwH', 'SWG LO': 'SwL', PDH: 'PDH', PDL: 'PDL', 'ASIA HI': 'A↑', 'ASIA LO': 'A↓', 'LON HI': 'L↑', 'LON LO': 'L↓', 'NY HI': 'NY↑', 'NY LO': 'NY↓', R: 'R', S: 'S' }[t.name] || t.name)
+            ? ({ STOP: 'STP', '1:1 TP': '1:1', '1:2': '1:2', '1:3 TP': '1:3', EXIT: 'TP', '1H RED': '1R', MED: 'Med', '5m HI': '5↑', '5m LO': '5↓', 'SWG HI': 'SwH', 'SWG LO': 'SwL', PDH: 'PDH', PDL: 'PDL', 'ASIA HI': 'A↑', 'ASIA LO': 'A↓', 'LON HI': 'L↑', 'LON LO': 'L↓', 'NY HI': 'NY↑', 'NY LO': 'NY↓', R: 'R', S: 'S' }[t.name] || t.name)
             : t.name;
           const label = `${shortName} ${price}`;
           const padX = compact ? 3 : 5;
@@ -1820,14 +2066,14 @@ const RangeEmaUI = {
     };
 
     const redId = o.playbook?.redSetup?.id;
-    // Dashed pivot line + tag only when price is at/revisit the first-red entry
+    // Show 1H first-red H/L + Fib 44/50/56 whenever the day's pivot is marked
     const showPivot = !!(o.firstRed1h?.high != null
-      && (redId === 'trade2_revisit' || redId === 'at_pivot'));
+      && (redId === 'trade2_revisit' || redId === 'at_pivot' || redId === 'trade1_away' || redId === 'marked'));
 
     // Time-of-day & state-aware Y-axis tags (max 3 tags so the right axis stays clean):
     // 1) When an actionable trade is live (LONG/SHORT), show ONLY the trade's STOP, 1:1 TP, and EXIT.
     // 2) When in WATCH/WAIT, show ONLY the levels relevant to the current session clock & bias:
-    //    - Stop-side 15m Previous Swing (SWG LO for bull / SWG HI for bear)
+    //    - Stop-side swing (5m for Trade 2; else working-TF SWG LO/HI)
     //    - Current session's hunted liquidity pool (Pre-London: 1H RED + PDH/PDL; London: nearest Asia H/L;
     //      US Open: nearest London H/L; After US: nearest NY H/L or PDH/PDL).
     const pickNearer = (hiName, hiVal, loName, loVal, color, bg, rank = 2) => {
@@ -1851,7 +2097,13 @@ const RangeEmaUI = {
       if (tp1Px != null) {
         pushTag('1:1 TP', tp1Px, '#38bdf8', 'rgba(8, 47, 73, 0.94)', { priority: true });
       }
-      if (action.side === 'LONG' && ahead(exitPx, 'above')) {
+      const useLadderTags = !!(action.rrLadder || o.rrLadder || o.setupKind === 'trade2_confirmed');
+      if (useLadderTags) {
+        const tp2Px = action.tp2 ?? o.tp2;
+        const tp3Px = action.tp3 ?? o.tp3;
+        if (tp2Px != null) pushTag('1:2', tp2Px, '#a78bfa', 'rgba(40, 20, 70, 0.92)', { rank: 2 });
+        if (tp3Px != null) pushTag('1:3 TP', tp3Px, COL.exit, 'rgba(10, 40, 20, 0.94)', { priority: true });
+      } else if (action.side === 'LONG' && ahead(exitPx, 'above')) {
         pushTag('EXIT', exitPx, COL.exit, 'rgba(10, 40, 20, 0.94)', { priority: true });
       } else if (action.side === 'SHORT' && ahead(exitPx, 'below')) {
         pushTag('EXIT', exitPx, COL.exit, 'rgba(10, 40, 20, 0.94)', { priority: true });
@@ -1860,19 +2112,29 @@ const RangeEmaUI = {
       const clockId = o.playbook?.clock?.id || 'pre_london';
       // 1. Always show the relevant 15m swing stop side (or 1H RED when at/revisiting pivot)
       if (showPivot && o.firstRed1h?.high != null) {
-        pushTag('1H RED', o.firstRed1h.high, '#f43f5e', 'rgba(60, 10, 20, 0.94)', { priority: true });
+        pushTag(`${o.firstRedLabel || '1H'} RED`, o.firstRed1h.high, '#f43f5e', 'rgba(60, 10, 20, 0.94)', { priority: true });
+        if (o.firstRedFibs?.f50 != null) {
+          pushTag('MED', o.firstRedFibs.f50, '#facc15', 'rgba(55, 45, 10, 0.92)', { rank: 2 });
+        }
       } else if (o.trend === 'bullish') {
-        pushTag('SWG LO', o.refs?.prevSwingLow, '#fb923c', 'rgba(55, 28, 10, 0.88)', { priority: true });
+        pushTag(o.refs?.swingStopTf === '5m' ? '5m LO' : 'SWG LO', o.refs?.prevSwingLow, '#fb923c', 'rgba(55, 28, 10, 0.88)', { priority: true });
       } else if (o.trend === 'bearish') {
-        pushTag('SWG HI', o.refs?.prevSwingHigh, '#fb923c', 'rgba(55, 28, 10, 0.88)', { priority: true });
+        pushTag(o.refs?.swingStopTf === '5m' ? '5m HI' : 'SWG HI', o.refs?.prevSwingHigh, '#fb923c', 'rgba(55, 28, 10, 0.88)', { priority: true });
       } else {
-        pickNearer('SWG HI', o.refs?.prevSwingHigh, 'SWG LO', o.refs?.prevSwingLow, '#fb923c', 'rgba(55, 28, 10, 0.88)');
+        pickNearer(
+          o.refs?.swingStopTf === '5m' ? '5m HI' : 'SWG HI',
+          o.refs?.prevSwingHigh,
+          o.refs?.swingStopTf === '5m' ? '5m LO' : 'SWG LO',
+          o.refs?.prevSwingLow,
+          '#fb923c',
+          'rgba(55, 28, 10, 0.88)',
+        );
       }
 
       // 2. Session-specific liquidity pool for the current clock window (rank 2 = hunted pool, rank 3 = PDH/PDL)
       if (clockId === 'pre_london') {
         if (o.firstRed1h?.high != null) {
-          pushTag('1H RED', o.firstRed1h.high, '#f43f5e', 'rgba(60, 10, 20, 0.94)', { rank: 2 });
+          pushTag(`${o.firstRedLabel || '1H'} RED`, o.firstRed1h.high, '#f43f5e', 'rgba(60, 10, 20, 0.94)', { rank: 2 });
         }
         pickNearer('PDH', o.refs?.priorDayHigh, 'PDL', o.refs?.priorDayLow, '#fbbf24', 'rgba(55, 40, 10, 0.90)', 3);
       } else if (clockId === 'london') {
@@ -2077,6 +2339,7 @@ const RangeEmaUI = {
       ? dayBands.slice(-5)
       : dayBands;
     this._chart.$rbFirstRed1h = o.firstRed1h || null;
+    this._chart.$rbFirstRedFibs = o.firstRedFibs || o.playbook?.redSetup?.fibs || null;
     this._chart.$rbShowFirstRed = showPivot;
     this._chart.$rbLevelTags = levelTags;
     this._chart.$rbCompact = compact;

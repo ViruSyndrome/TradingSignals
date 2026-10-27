@@ -153,6 +153,8 @@ const CONFIG = {
         feed: 'binanceFutures',
         dayMode: 'ist',
         bandStyle: 'sessionFib',
+        // Sagar: gold/silver/copper first-red on 30m (not 1H)
+        firstRedTf: '30m',
         markWindow: {
           timeZone: 'Asia/Kolkata',
           startHour: 1, startMinute: 30,
@@ -161,7 +163,7 @@ const CONFIG = {
         markLabel: '01:30–02:30 IST',
         fibLevels: [0, 0.44, 0.5, 0.56, 1],
         priceDecimals: 2,
-        tradeHint: 'Binance Futures · XAUUSDT · Fib 01:30–02:30 IST',
+        tradeHint: 'Binance Futures · XAUUSDT · Fib 01:30–02:30 IST · first red 30m',
         showSessionMarkers: true,
         sessions: [
           { id: 'asia', label: 'Asia', timeZone: 'Asia/Tokyo', open: [9, 0], close: [15, 0], color: '#818cf8' },
@@ -170,26 +172,26 @@ const CONFIG = {
         ],
       },
       {
-        // Natural Gas — same Red Bar pillars as BTC/XAU.
-        // MCX session is ~09:00–23:30/23:55 IST (not true 23h); chart feed is Yahoo NG=F until Dhan MCX.
-        // Mark window PROVISIONAL = BTC (02:30–03:30 IST) until Sagar confirms.
+        // Natural Gas — Sagar: evening close Fib 23:00–23:30 IST; first red on 30m (same as Crude).
+        // MCX ~09:00–23:30/23:55 IST. Chart: Yahoo NG=F until Dhan MCX wire-up.
         id: 'NG',
         label: 'NG',
         symbol: 'NG=F',
         feed: 'yahoo',
         dayMode: 'ist',
         bandStyle: 'sessionFib',
+        firstRedTf: '30m',
         markWindow: {
           timeZone: 'Asia/Kolkata',
-          startHour: 2, startMinute: 30,
-          endHour: 3, endMinute: 30,
+          startHour: 23, startMinute: 0,
+          endHour: 23, endMinute: 30,
         },
-        markLabel: '02:30–03:30 IST (provisional)',
+        markLabel: '23:00–23:30 IST (MCX close)',
         fibLevels: [0, 0.44, 0.5, 0.56, 1],
         priceDecimals: 3,
         timeframes: ['5m', '15m', '30m', '1h'],
         ohlcLimit: { '5m': 360, '15m': 500, '30m': 500, '1h': 400 },
-        tradeHint: 'Dhan / MCX NATURALGAS · desk chart Yahoo NG=F · Fib provisional (=BTC) until Sagar confirms',
+        tradeHint: 'Dhan / MCX NATURALGAS · Fib 23:00–23:30 IST close · first red 30m · chart Yahoo NG=F',
         showSessionMarkers: true,
         sessions: [
           { id: 'mcx_day', label: 'MCX day', timeZone: 'Asia/Kolkata', open: [9, 0], close: [17, 0], color: '#818cf8' },
