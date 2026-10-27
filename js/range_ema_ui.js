@@ -717,9 +717,11 @@ const RangeEmaUI = {
     const sagarExitStep = useLadder
       ? `2️⃣ 50% TP at 1:1: ${tp1Str}${oneRPctStr} → move SL to Breakeven · 3️⃣ Trail at 1:2: ${tp2Str} · 4️⃣ Take profit at 1:3: ${tp3Str}.`
       : `2️⃣ 50% TP at 1:1: ${tp1Str}${oneRPctStr} (bank 50% & SL→BE) · 3️⃣ Runner stretch: ${this._fmt(o.bookZone)} / 1:3 ${tp3Str}.`;
+    // Don't blank Trade 1 departure just because price sits inside mark Fibs.
     if (
       (o.phase === 'first_candle' || o.phase === 'inside_or')
       && o.setupKind !== 'session_sweep'
+      && o.setupKind !== 'trade1_departure'
       && !trade2Live
     ) {
       const fibHi = o.currentBand?.high ?? o.refs?.orHigh;

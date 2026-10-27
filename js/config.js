@@ -100,7 +100,8 @@ const CONFIG = {
         id: 'BTC',
         label: 'BTC',
         symbol: 'BTCUSDT',
-        feed: 'binanceSpot',
+        // Must match the bot (USD-M). Spot OHLC drifts and paints wrong mark Fibs.
+        feed: 'binanceFutures',
         dayMode: 'ist',
         // Last hour before ~03:30 IST universal open — institutional close window
         bandStyle: 'sessionFib',
@@ -136,7 +137,6 @@ const CONFIG = {
         markLabel: '15:15–15:45 IST',
         fibLevels: [0, 0.44, 0.5, 0.56, 1],
         priceDecimals: 2,
-        // Yahoo 5m is fine in small ranges; keep limits lean so CORS proxies don't hang
         timeframes: ['5m', '15m', '30m', '1h'],
         ohlcLimit: { '5m': 360, '15m': 500, '30m': 500, '1h': 400 },
         tradeHint: 'NSE broker · Fib on 15:15–15:45 IST close window (not Binance)',
