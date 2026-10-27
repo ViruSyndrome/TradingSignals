@@ -8,8 +8,9 @@ const DeskAlerts = {
   STORAGE_KEY: 'trendrunner_rb_alerts',
   SENT_KEY: 'trendrunner_rb_alert_sent',
   TTL_MS: 4 * 60 * 60 * 1000,
-  // Hardcoded so Telegram works even if Settings / config cache is wrong
-  DEFAULT_BOT_URL: 'https://tradingsignals-bjya.onrender.com',
+  // Oracle bot via Cloudflare quick tunnel (Render is alert-only / outdated).
+  // If tunnel URL rotates after cloudflared restart, update Settings → Bot URL.
+  DEFAULT_BOT_URL: 'https://precision-helmet-belfast-republic.trycloudflare.com',
 
   enabled() {
     try {
@@ -43,15 +44,17 @@ const DeskAlerts = {
 
   /** Call once on desk boot — writes Bot URL into localStorage so Settings is not required. */
   ensureBotUrl() {
-    const url = this._botBaseUrl();
+    const url = this.DEFAULT_BOT_URL || this._botBaseUrl();
     if (!url) return '';
     try {
-      const cur = localStorage.getItem('trade_bot_url');
-      if (!cur || !String(cur).trim()) {
+      const cur = String(localStorage.getItem('trade_bot_url') || '').trim();
+      // Migrate off dead/outdated Render host so Place two-leg hits Oracle
+      if (!cur || /onrender\.com/i.test(cur)) {
         localStorage.setItem('trade_bot_url', url);
+        return url;
       }
     } catch (_) {}
-    return url;
+    return this._botBaseUrl();
   },
 
   _sentMap() {

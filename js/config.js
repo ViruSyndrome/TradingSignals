@@ -234,13 +234,14 @@ const CONFIG = {
 
   // ─── Alerts relay (desk → Render → Telegram). Same host as trade bot. ──────
   alerts: {
-    botBaseUrl: 'https://tradingsignals-bjya.onrender.com',
+    // Oracle bot (Cloudflare tunnel). Update if cloudflared quick-tunnel URL rotates.
+    botBaseUrl: 'https://precision-helmet-belfast-republic.trycloudflare.com',
   },
 
-  // ─── Owner click-to-trade (Render bot; keys never in browser) ──────────────
+  // ─── Owner click-to-trade (Oracle bot; keys never in browser) ──────────────
   trade: {
-    // Public Render URL (no trailing slash). Also used for Telegram ENTER relay.
-    botBaseUrl: 'https://tradingsignals-bjya.onrender.com',
+    // Public bot URL (no trailing slash). Also used for Telegram ENTER relay.
+    botBaseUrl: 'https://precision-helmet-belfast-republic.trycloudflare.com',
     defaultQuoteUsdt: 50,
   },
 

@@ -313,7 +313,7 @@ const RangeEmaUI = {
       if (ls && String(ls).trim()) return String(ls).trim().replace(/\/$/, '');
     } catch (_) {}
     if (typeof DeskAlerts !== 'undefined') return DeskAlerts._botBaseUrl?.() || DeskAlerts.DEFAULT_BOT_URL;
-    return 'https://tradingsignals-bjya.onrender.com';
+    return 'https://precision-helmet-belfast-republic.trycloudflare.com';
   },
 
   _tradeSecret() {

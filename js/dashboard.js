@@ -60,7 +60,7 @@ const Dashboard = {
   },
 
   _tradeBotUrl() {
-    const fallback = 'https://tradingsignals-bjya.onrender.com';
+    const fallback = 'https://precision-helmet-belfast-republic.trycloudflare.com';
     try {
       const local = localStorage.getItem(this.TRADE_BOT_URL_KEY);
       if (local && local.trim()) return local.trim().replace(/\/$/, '');
@@ -111,13 +111,20 @@ const Dashboard = {
         return null;
       }
       const base = this._tradeBotUrl();
-      const res = await fetch(`${base}/api/trade/status`, { cache: 'no-store' });
-      const data = await res.json();
+      let data = null;
+      try {
+        const fut = await fetch(`${base}/api/trade/futures/status`, { cache: 'no-store' });
+        if (fut.ok) data = await fut.json();
+      } catch (_) {}
+      if (!data) {
+        const res = await fetch(`${base}/api/trade/status`, { cache: 'no-store' });
+        data = await res.json();
+      }
       this._tradeStatus = data;
       if (hint) {
-        hint.textContent = data.tradeEnabled
-          ? `Ready · max $${data.maxUsdt} · trail ${data.defaultTrailPct}%`
-          : (data.keysConfigured ? 'Bot up — enable TRADE_ENABLED + secret' : 'Bot up — Binance keys not set');
+        if (data.autoTrade) hint.textContent = `Futures auto-trade ON · margin ~$${data.marginUsdt || data.maxUsdt || '—'}`;
+        else if (data.tradeEnabled) hint.textContent = `Futures ready · Place two-leg · margin ~$${data.marginUsdt || data.maxUsdt || '—'}`;
+        else hint.textContent = data.keysConfigured ? 'Bot up — enable TRADE_ENABLED + secret' : 'Bot up — Binance keys not set';
       }
       return data;
     } catch (e) {
