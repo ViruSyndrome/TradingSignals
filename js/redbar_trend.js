@@ -2006,20 +2006,24 @@ const RedBarTrend = {
     if (!stopStructural) {
       return { state: 'watch', reason: `Setup present but no real swing fits the stop window (${invalidationReason}).` };
     }
-    // Winning formula (public BTCUSDT USD-M Oct24–Sep26): only 5m-swing SL book
-    // stayed green train+OOS (n=274, WR≈61%). 1H red / fib / wick-only stops bled.
-    if (!/5m swing/i.test(String(invalidationReason || ''))) {
+    // Winning formula (public BTCUSDT USD-M Oct24–Sep26): only real 5m-swing SL book
+    // stayed green. Reject "% floor / too close" labels that merely mention "5m swing".
+    const stopTag = String(invalidationReason || '');
+    const realFiveMinSwing = /5m swing/i.test(stopTag) && !/too close|floor|default|0\.28%|0\.5%/i.test(stopTag);
+    if (!realFiveMinSwing) {
       return {
         state: 'watch',
-        reason: `Setup present but SL is ${invalidationReason || 'not a 5m swing'} — wait until stop locks to a 5m swing (quality ENTER).`,
+        reason: `Setup present but SL is ${invalidationReason || 'not a 5m swing'} — wait until stop locks to a real 5m swing (not a % floor).`,
       };
     }
-    // Loser DNA (same public book): late-session ENTERs bled (n=141, sum≈−8%);
-    // skipping late lifted train+OOS (+9% / +14%, total +23% vs +15% baseline).
-    if (clock && clock.id === 'late') {
+    // Loser DNA: late-session bled. US Open (4:30–7 IST) is the hunt/spike window —
+    // same stand-aside (mechanical Trade 2 often prints into the fake-out).
+    if (clock && (clock.id === 'late' || clock.id === 'us_open')) {
       return {
         state: 'watch',
-        reason: 'Setup present but IST late session — stand aside (loser cluster on public USD-M). Wait for next day’s pre-London / London.',
+        reason: clock.id === 'us_open'
+          ? 'US Open window (4:30–7:00 IST) — stand aside. Liquidity hunts / spikes; wait for post-US or next London.'
+          : 'IST late session — stand aside (loser cluster on public USD-M). Wait for next day’s pre-London / London.',
       };
     }
     // Wide stops (>1%) were rare (~3% of book) but toxic (WR≈24%, sum≈−14%).

@@ -855,7 +855,15 @@ async function pollManagedFuturesStops() {
       const pos = (positions || []).find((p) => String(p.symbol).toUpperCase() === String(t.symbol).toUpperCase());
       const amt = Math.abs(parseFloat(pos?.positionAmt || 0));
       if (!(amt > 0)) {
-        console.log(`[RedBarBot] ${t.symbol}: position flat — drop manage book`);
+        console.log(`[RedBarBot] ${t.symbol}: position flat — cancel leftover algos/orders`);
+        try {
+          if (typeof fut.clearSymbolForEntry === 'function') {
+            const notes = await fut.clearSymbolForEntry(t.symbol, { closePosition: false });
+            if (notes?.length) console.log(`[RedBarBot] ${t.symbol} cleanup:`, notes.join('; '));
+          }
+        } catch (e) {
+          console.warn(`[RedBarBot] ${t.symbol} flat cleanup:`, e.message);
+        }
         continue;
       }
       if (t.beMoved) {
