@@ -1155,13 +1155,19 @@ const RangeEmaUI = {
           ${(() => {
             const isEnter = a.side === 'LONG' || a.side === 'SHORT';
             const snap = this.state.enterSnapshot;
-            const useSnap = isEnter && snap && snap.side === a.side;
+            const snapAgeMin = snap?.at ? (Date.now() - snap.at) / 60000 : 0;
+            const reasonStale = /stale|do not chase|window closed|already \d/i.test(String(o.actionReason || ''));
+            const snapStale = snap && snapAgeMin > 20;
+            const showEnter = isEnter && !reasonStale;
+            const useSnap = showEnter && snap && snap.side === a.side && !snapStale;
             const eN = useSnap ? snap.entry : a.entry;
             const sN = useSnap ? snap.stop : a.stop;
             const tpA = useSnap ? snap.tpA : (a.tp1 ?? o.tp1);
             const tpB = useSnap ? snap.tpB : (a.tp3 ?? o.tp3 ?? a.exit ?? o.bookZone);
-            const statusBanner = isEnter
-              ? `<div class="rb-signal-banner enter">LIVE ENTER · ${a.side} — trade is ON (not waiting). Levels below are ${useSnap ? 'frozen at first alert' : 'live'}.</div>`
+            const statusBanner = showEnter
+              ? `<div class="rb-signal-banner enter">LIVE ENTER · ${a.side} — fresh window (~20m). Levels ${useSnap ? 'frozen at first alert' : 'live'}.</div>`
+              : (isEnter || reasonStale || snapStale)
+                ? `<div class="rb-signal-banner watch">STALE — ENTER already fired; do <em>not</em> chase. ${o.actionReason ? String(o.actionReason).replace(/[<>&]/g, '') : 'Wait for the next Trade 1 / 2 / sweep.'}</div>`
               : a.side === 'WATCH'
                 ? `<div class="rb-signal-banner watch">WATCHING — not an entry yet. No Telegram trade until this flips to ENTER.</div>`
                 : `<div class="rb-signal-banner wait">WAITING — no setup. Do not place Binance orders from dashes.</div>`;
@@ -1172,7 +1178,7 @@ const RangeEmaUI = {
                 ? `<div class="rb-binance-status on">Binance: position open (${posAmt} BTC) · ${(pos.openOrders || []).length} resting order(s)</div>`
                 : `<div class="rb-binance-status">Binance: no open BTCUSDT position right now</div>`)
               : '';
-            const botBtns = isEnter ? `
+            const botBtns = showEnter ? `
               <div class="rb-bot-actions">
                 <button type="button" class="rb-inst-btn active" id="rbPlaceTwoLeg">Place two-leg on Binance</button>
                 <button type="button" class="rb-inst-btn" id="rbCheckBinance">Check Binance positions</button>

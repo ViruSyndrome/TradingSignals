@@ -903,7 +903,8 @@ const RedBarTrend = {
     // Newest closed bars first — require sweep on the trigger bar or earlier
     for (let i = closed.length - 1; i >= 0; i--) {
       const trig = closed[i];
-      if (asOfTs != null && (asOfTs - trig.t) > 60 * 60 * 1000) break; // fresh trigger only
+      // Fresh trigger only — stale ENTERs were sitting on the desk for ~1h and inviting chases
+      if (asOfTs != null && (asOfTs - trig.t) > 20 * 60 * 1000) break;
 
       let sweepHi = trig.h > hi ? trig.h : null;
       let sweepLo = trig.l < lo ? trig.l : null;
@@ -1130,6 +1131,8 @@ const RedBarTrend = {
       revisitSide,
       revisitStrong,
       trade1Fresh,
+      /** 5m bar time of Trade 2 confirm (for ENTER freshness). */
+      triggerTs: (conf5 && conf5.bar && conf5.bar.t) || null,
       distFromPivotPct,
       leftAbove,
       leftBelow,
@@ -1824,6 +1827,14 @@ const RedBarTrend = {
       renko,
       clock,
       asOfTs: bars[i].t,
+      instrumentId: c.id || c.instrumentId || null,
+      season: this._istSeasonBucket(bars[i].t),
+      setupTriggerTs: redSetup.triggerTs
+        || (setupKind === 'session_sweep' ? bars[i].t : null)
+        || null,
+      entryPrice: price,
+      stopPrice: invalidation,
+      livePrice: price,
     });
 
     const sizing = (actionState === 'enter' && invalidation != null && bookZone != null)
@@ -1955,7 +1966,18 @@ const RedBarTrend = {
    * Single source of truth for "enter now" vs "watch" vs "wait".
    * Used by the desk UI, the Telegram bot and the walk-forward backtest.
    */
-  entryGate({ trend, setupKind, rr, stopStructural, invalidationReason, stopPct, renko, clock, asOfTs }) {
+  _istSeasonBucket(ts) {
+    const day = this.zonedHms(ts, 'Asia/Kolkata').day;
+    const m = parseInt(String(day).slice(5, 7), 10);
+    if (m <= 3) return 'JAN–MAR';
+    if (m <= 8) return 'APR–AUG';
+    return 'SEP–DEC';
+  },
+
+  entryGate({
+    trend, setupKind, rr, stopStructural, invalidationReason, stopPct, renko, clock,
+    asOfTs, instrumentId, season, setupTriggerTs, entryPrice, stopPrice, livePrice,
+  }) {
     if (trend !== 'bullish' && trend !== 'bearish') {
       return { state: 'wait', reason: 'No directional setup.' };
     }
@@ -2008,6 +2030,56 @@ const RedBarTrend = {
         reason: `Setup present but stop is ${stopPct.toFixed(2)}% (>1%) — stand aside until a tighter 5m swing fits.`,
       };
     }
+
+    // Freshness: do not keep LIVE ENTER long after the trigger (chase bait).
+    const asOf = asOfTs != null ? Number(asOfTs) : Date.now();
+    const trigTs = setupTriggerTs != null ? Number(setupTriggerTs) : null;
+    const ENTER_FRESH_MS = 20 * 60 * 1000;
+    if (trigTs != null && Number.isFinite(trigTs) && (asOf - trigTs) > ENTER_FRESH_MS) {
+      return {
+        state: 'watch',
+        reason: 'ENTER window closed (>20m since trigger bar) — do not chase. Wait for the next Trade 1 / 2 / sweep.',
+      };
+    }
+    // Already ran: price ≥0.5R into the trade from the signal print → late.
+    const ep = Number(entryPrice);
+    const sp = Number(stopPrice);
+    const lp = Number(livePrice);
+    const R = Math.abs(ep - sp);
+    if (R > 0 && Number.isFinite(ep) && Number.isFinite(lp)) {
+      const favR = trend === 'bullish' ? (lp - ep) / R : (ep - lp) / R;
+      if (favR >= 0.5) {
+        return {
+          state: 'watch',
+          reason: `Price already ${favR.toFixed(1)}R into the move — ENTER is stale. Do not chase; manage if filled or wait next setup.`,
+        };
+      }
+    }
+
+    // Nifty desk book (2024–2026 real 1m→5m): baseline PASS, but Trade 2 alone fails OOS
+    // (n=325, train +0.15% / oos −0.69%). Trade 1 carries the edge — keep T2 as WATCH only.
+    const inst = String(instrumentId || '').toUpperCase();
+    if (inst === 'NIFTY' && setupKind === 'trade2_confirmed') {
+      return {
+        state: 'watch',
+        reason: 'Nifty: Trade 2 confirmed is chart context only (OOS bled on 2y book). Prefer Trade 1 departure ENTER.',
+      };
+    }
+    // Soft seasonal stand-aside for Nifty APR–AUG (weaker half; T1 + not APR–AUG still PASS).
+    if (inst === 'NIFTY' && (season === 'APR–AUG' || (!season && asOfTs != null && this._istSeasonBucket(asOfTs) === 'APR–AUG'))) {
+      return {
+        state: 'watch',
+        reason: 'Nifty: APR–AUG season — stand aside (weaker half on 2y book). Prefer SEP–DEC / JAN–MAR Trade 1.',
+      };
+    }
+    // Nifty gated book: stopPct>0.65 is rare but 0% WR (n=3) — tighten vs BTC’s 1% soft cap.
+    if (inst === 'NIFTY' && stopPct != null && Number.isFinite(stopPct) && stopPct > 0.65) {
+      return {
+        state: 'watch',
+        reason: `Nifty: stop ${stopPct.toFixed(2)}% (>0.65%) — wait for a tighter 5m swing.`,
+      };
+    }
+
     const trailBit = setupKind === 'trade2_confirmed'
       ? 'H1→M5 sweep+close-through · SL 5m swing · 50% @ 1:1 → BE → trail 1:2 → TP 1:3'
       : 'SL 5m swing · 50% TP at 1:1 → trail runner (stretch target)';
