@@ -517,18 +517,9 @@ function _escHtml(s) {
 }
 
 async function _deskBars(inst, interval, limit) {
-  if (inst.feed === 'yahoo') {
-    return API.getYahooOHLC(inst.symbol, interval, limit);
-  }
-  if (inst.feed === 'binanceFutures') {
-    try {
-      return await API.getFuturesOHLC(inst.symbol, interval, limit);
-    } catch (e) {
-      if (inst.fallbackSymbol) return API.getBinanceKlines(inst.fallbackSymbol, interval, limit);
-      throw e;
-    }
-  }
-  return API.getBinanceKlines(inst.symbol, interval, limit);
+  // Use desk router (binanceSpot → getCryptoOHLC; futures → getFuturesOHLC; yahoo → getYahooOHLC).
+  // Do not call missing helpers like getBinanceKlines — that silently killed BTC ENTER alerts.
+  return API.getDeskOHLC(inst, interval, limit);
 }
 
 async function _scanOneRedBarInstrument(inst, rbCfg) {
@@ -740,8 +731,8 @@ async function _maybeAutoFuturesTwoLeg({ inst, side, readout, alertKey }) {
     saveAlertState(lastAlerted);
 
     const fillEntry = Number(result.entry?.avgPrice) || entry;
-    const stopOrderId = result.stopOrder?.orderId || null;
-    const tpAOrderId = result.tpAOrder?.orderId || null;
+    const stopOrderId = result.stopOrder?.algoId || result.stopOrder?.orderId || null;
+    const tpAOrderId = result.tpAOrder?.algoId || result.tpAOrder?.orderId || null;
     if (result.ok && stopOrderId && tpAOrderId) {
       const managed = loadManagedTrades().filter((t) => t.symbol !== inst.symbol);
       managed.push({
@@ -749,9 +740,13 @@ async function _maybeAutoFuturesTwoLeg({ inst, side, readout, alertKey }) {
         side,
         alertKey,
         entry: fillEntry,
+        qty: result.qty,
+        qtyB: result.qtyB,
         stopOrderId,
+        stopAlgoId: stopOrderId,
         tpAOrderId,
-        tpBOrderId: result.tpBOrder?.orderId || null,
+        tpAAlgoId: tpAOrderId,
+        tpBOrderId: result.tpBOrder?.algoId || result.tpBOrder?.orderId || null,
         beMoved: false,
         openedAt: Date.now(),
       });
@@ -814,26 +809,41 @@ async function pollManagedFuturesStops() {
       }
 
       let tpAStatus = null;
+      const tpAId = t.tpAAlgoId || t.tpAOrderId;
       try {
-        const ord = await fut.getOrder(t.symbol, t.tpAOrderId);
-        tpAStatus = ord?.status || null;
+        if (typeof fut.getAlgoOrder === 'function') {
+          const ord = await fut.getAlgoOrder(t.symbol, tpAId);
+          tpAStatus = ord?.algoStatus || ord?.status || null;
+        } else {
+          const ord = await fut.getOrder(t.symbol, tpAId);
+          tpAStatus = ord?.status || null;
+        }
       } catch (e) {
-        // Order may be gone from history window — treat missing as not filled yet / skip
-        console.warn(`[RedBarBot] ${t.symbol}: TP A order check: ${e.message}`);
-        keep.push(t);
-        continue;
+        // Fallback: position shrunk toward runner size ⇒ treat 1:1 as done
+        const runnerTarget = Number(t.qtyB) > 0 ? Number(t.qtyB) : (Number(t.qty) > 0 ? Number(t.qty) * 0.55 : 0);
+        if (runnerTarget > 0 && amt <= runnerTarget * 1.05) {
+          tpAStatus = 'FILLED';
+        } else {
+          console.warn(`[RedBarBot] ${t.symbol}: TP A order check: ${e.message}`);
+          keep.push(t);
+          continue;
+        }
       }
 
-      if (tpAStatus === 'FILLED') {
-        console.log(`[RedBarBot] ${t.symbol}: TP A filled — moving SL to BE @ ${t.entry}`);
+      const tpADone = tpAStatus === 'FILLED' || tpAStatus === 'TRIGGERED' || tpAStatus === 'FINISHED';
+      if (tpADone) {
+        console.log(`[RedBarBot] ${t.symbol}: TP A ${tpAStatus} — moving SL to BE @ ${t.entry}`);
         const moved = await fut.moveStopToBreakeven({
           symbol: t.symbol,
           side: t.side,
           entryPrice: t.entry,
           stopOrderId: t.stopOrderId,
+          stopAlgoId: t.stopAlgoId || t.stopOrderId,
+          quantity: amt,
         });
         t.beMoved = true;
-        t.stopOrderId = moved.stopOrder?.orderId || t.stopOrderId;
+        t.stopOrderId = moved.stopOrder?.algoId || moved.stopOrder?.orderId || t.stopOrderId;
+        t.stopAlgoId = t.stopOrderId;
         t.bePrice = moved.bePrice;
         t.beMovedAt = Date.now();
         keep.push(t);

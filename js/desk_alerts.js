@@ -122,9 +122,10 @@ const DeskAlerts = {
       }
       if (data.deduped) {
         console.info('[DeskAlerts] Telegram already delivered for this setup');
+        this._toast('Already alerted — same ENTER (not a second trade)', 'info');
       } else {
         console.info('[DeskAlerts] Telegram relay OK');
-        this._toast('Telegram ENTER sent', 'success');
+        this._toast('Telegram ENTER sent — check Binance if you placed / auto-trade', 'success');
       }
       return true;
     } catch (e) {

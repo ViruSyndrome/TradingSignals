@@ -80,7 +80,13 @@ app.get('/api/trade/futures/positions', async (req, res) => {
     const positions = (await fut.getPositionRisk(symbol))
       .filter((p) => Math.abs(parseFloat(p.positionAmt) || 0) > 0);
     const orders = await fut.getOpenOrders(symbol);
-    res.json({ ok: true, symbol, positions, openOrders: orders });
+    let openAlgoOrders = [];
+    try {
+      openAlgoOrders = await fut.getOpenAlgoOrders(symbol);
+    } catch (_) {
+      openAlgoOrders = [];
+    }
+    res.json({ ok: true, symbol, positions, openOrders: orders, openAlgoOrders });
   } catch (e) {
     console.error('[Futures] positions error:', e.message);
     res.status(500).json({ ok: false, error: e.message });
@@ -126,6 +132,32 @@ app.post('/api/trade/futures/two-leg', async (req, res) => {
   } catch (e) {
     lastFuturesTradeAt = 0;
     console.error('[Futures] two-leg error:', e.message);
+    res.status(500).json({ ok: false, error: e.message, binanceCode: e.binanceCode });
+  }
+});
+
+/** Repair: attach SL/TP algos to an already-open futures position (naked market fill). */
+app.post('/api/trade/futures/protect', async (req, res) => {
+  if (!requireTradeSecret(req, res)) return;
+  if (String(process.env.TRADE_ENABLED || '').toLowerCase() !== 'true') {
+    return res.status(503).json({ ok: false, error: 'TRADE_ENABLED is not true' });
+  }
+  const body = req.body || {};
+  try {
+    const { createBinanceFuturesTrade } = require('./js/binance_futures_trade.js');
+    const fut = createBinanceFuturesTrade();
+    const result = await fut.attachProtectiveLegs({
+      symbol: String(body.symbol || 'BTCUSDT').toUpperCase(),
+      side: String(body.side || '').toUpperCase(),
+      stopPrice: Number(body.stopPrice),
+      tpA: Number(body.tpA),
+      tpB: Number(body.tpB),
+      quantity: body.quantity != null ? Number(body.quantity) : undefined,
+    });
+    console.log(`[Futures] protect ${body.side} ${body.symbol} ok=${result.ok}`);
+    res.status(result.ok ? 200 : 207).json(result);
+  } catch (e) {
+    console.error('[Futures] protect error:', e.message);
     res.status(500).json({ ok: false, error: e.message, binanceCode: e.binanceCode });
   }
 });

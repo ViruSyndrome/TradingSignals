@@ -2,11 +2,11 @@
 
 /**
  * binance_futures_trade.js — USD-M perpetual helpers for Red Bar set-and-forget.
- * Opens one market position, then attaches:
- *   - STOP_MARKET (closePosition) at desk Stop
+ * Opens one market position, then attaches (Binance Algo Order API since 2025-12):
+ *   - STOP_MARKET reduce-only full size at desk Stop
  *   - TAKE_PROFIT_MARKET reduce-only 50% at TP A (1:1)
  *   - TAKE_PROFIT_MARKET reduce-only 50% at TP B (1:3)
- * No staring required once orders rest on Binance.
+ * Conditional types must POST /fapi/v1/algoOrder (triggerPrice), not /fapi/v1/order.
  */
 const crypto = require('crypto');
 
@@ -157,6 +157,21 @@ function createBinanceFuturesTrade(opts = {}) {
     }, { signed: true });
   }
 
+  async function getAlgoOrder(symbol, algoId) {
+    await _syncTime();
+    return _request('GET', '/fapi/v1/algoOrder', {
+      symbol: String(symbol).toUpperCase(),
+      algoId: String(algoId),
+    }, { signed: true });
+  }
+
+  async function getOpenAlgoOrders(symbol) {
+    await _syncTime();
+    const params = {};
+    if (symbol) params.symbol = String(symbol).toUpperCase();
+    return _request('GET', '/fapi/v1/openAlgoOrders', params, { signed: true });
+  }
+
   async function cancelOrder(symbol, orderId) {
     await _syncTime();
     return _request('DELETE', '/fapi/v1/order', {
@@ -165,15 +180,35 @@ function createBinanceFuturesTrade(opts = {}) {
     }, { signed: true });
   }
 
+  async function cancelAlgoOrder(symbol, algoId) {
+    await _syncTime();
+    return _request('DELETE', '/fapi/v1/algoOrder', {
+      symbol: String(symbol).toUpperCase(),
+      algoId: String(algoId),
+    }, { signed: true });
+  }
+
+  /** Conditional STOP / TP via Algo Service (required since 2025-12). */
+  async function placeAlgoConditional(params = {}) {
+    await _syncTime();
+    return _request('POST', '/fapi/v1/algoOrder', {
+      algoType: 'CONDITIONAL',
+      workingType: 'MARK_PRICE',
+      ...params,
+    }, { signed: true });
+  }
+
   /**
-   * After 1:1 (TP A) fills: cancel the open STOP_MARKET and place a new one at entry (BE)
-   * with closePosition so the runner is protected at breakeven until TP B or stop.
+   * After 1:1 (TP A) fills: cancel the open STOP_MARKET algo and place a new one at entry (BE)
+   * reduce-only on remaining size so the runner is protected until TP B or stop.
    */
   async function moveStopToBreakeven({
     symbol,
     side,
     entryPrice,
     stopOrderId,
+    stopAlgoId,
+    quantity,
   } = {}) {
     const sym = String(symbol || '').toUpperCase();
     const tradeSide = String(side || '').toUpperCase();
@@ -186,28 +221,49 @@ function createBinanceFuturesTrade(opts = {}) {
     const closeSide = tradeSide === 'LONG' ? 'SELL' : 'BUY';
     const bePx = roundPrice(entry, filters.tickSize);
 
-    if (stopOrderId) {
+    const algoId = stopAlgoId || stopOrderId;
+    if (algoId) {
       try {
-        await cancelOrder(sym, stopOrderId);
+        await cancelAlgoOrder(sym, algoId);
       } catch (e) {
-        // -2011 unknown order / already filled — continue if we can still place BE stop
-        if (e.binanceCode !== -2011) {
-          console.warn('[FuturesTrade] cancel stop:', e.message);
+        // unknown / already triggered — try legacy cancel, then continue
+        try {
+          await cancelOrder(sym, algoId);
+        } catch (e2) {
+          if (e.binanceCode !== -2011 && e2.binanceCode !== -2011) {
+            console.warn('[FuturesTrade] cancel stop:', e.message);
+          }
         }
       }
     }
 
-    const stopOrder = await _request('POST', '/fapi/v1/order', {
+    let qty = Number(quantity);
+    if (!(qty > 0)) {
+      const rows = await getPositionRisk(sym);
+      const pos = (rows || []).find((p) => String(p.symbol).toUpperCase() === sym);
+      qty = Math.abs(parseFloat(pos?.positionAmt || 0));
+    }
+    qty = roundStep(qty, filters.stepSize, 'down');
+    if (!(qty >= filters.minQty)) throw new Error(`BE stop qty ${qty} below min`);
+
+    const stopOrder = await placeAlgoConditional({
       symbol: sym,
       side: closeSide,
       type: 'STOP_MARKET',
-      stopPrice: String(bePx),
-      closePosition: 'true',
-      workingType: 'MARK_PRICE',
-      newOrderRespType: 'RESULT',
-    }, { signed: true });
+      triggerPrice: String(bePx),
+      quantity: String(qty),
+      reduceOnly: 'true',
+    });
 
-    return { ok: true, bePrice: bePx, stopOrder };
+    return {
+      ok: true,
+      bePrice: bePx,
+      stopOrder: {
+        ...stopOrder,
+        orderId: stopOrder.algoId || stopOrder.orderId,
+        algoId: stopOrder.algoId || stopOrder.orderId,
+      },
+    };
   }
 
   async function getMarkPrice(symbol) {
@@ -305,17 +361,22 @@ function createBinanceFuturesTrade(opts = {}) {
       status: entryOrder.status,
     };
 
-    // SL on whatever remains (closePosition)
+    const tagAlgo = (ord) => {
+      if (!ord) return null;
+      const id = ord.algoId || ord.orderId;
+      return { ...ord, algoId: id, orderId: id };
+    };
+
+    // SL on full size (algo conditional — /fapi/v1/order rejects STOP_MARKET now)
     try {
-      result.stopOrder = await _request('POST', '/fapi/v1/order', {
+      result.stopOrder = tagAlgo(await placeAlgoConditional({
         symbol,
         side: closeSide,
         type: 'STOP_MARKET',
-        stopPrice: String(stopPx),
-        closePosition: 'true',
-        workingType: 'MARK_PRICE',
-        newOrderRespType: 'RESULT',
-      }, { signed: true });
+        triggerPrice: String(stopPx),
+        quantity: String(qty),
+        reduceOnly: 'true',
+      }));
     } catch (e) {
       result.ok = false;
       result.warnings.push(`Stop failed: ${e.message}`);
@@ -323,16 +384,14 @@ function createBinanceFuturesTrade(opts = {}) {
 
     if (qtyA >= filters.minQty) {
       try {
-        result.tpAOrder = await _request('POST', '/fapi/v1/order', {
+        result.tpAOrder = tagAlgo(await placeAlgoConditional({
           symbol,
           side: closeSide,
           type: 'TAKE_PROFIT_MARKET',
-          stopPrice: String(tpAPx),
+          triggerPrice: String(tpAPx),
           quantity: String(qtyA),
           reduceOnly: 'true',
-          workingType: 'MARK_PRICE',
-          newOrderRespType: 'RESULT',
-        }, { signed: true });
+        }));
       } catch (e) {
         result.ok = false;
         result.warnings.push(`TP A failed: ${e.message}`);
@@ -341,16 +400,14 @@ function createBinanceFuturesTrade(opts = {}) {
 
     if (qtyB >= filters.minQty) {
       try {
-        result.tpBOrder = await _request('POST', '/fapi/v1/order', {
+        result.tpBOrder = tagAlgo(await placeAlgoConditional({
           symbol,
           side: closeSide,
           type: 'TAKE_PROFIT_MARKET',
-          stopPrice: String(tpBPx),
+          triggerPrice: String(tpBPx),
           quantity: String(qtyB),
           reduceOnly: 'true',
-          workingType: 'MARK_PRICE',
-          newOrderRespType: 'RESULT',
-        }, { signed: true });
+        }));
       } catch (e) {
         result.ok = false;
         result.warnings.push(`TP B failed: ${e.message}`);
@@ -366,11 +423,130 @@ function createBinanceFuturesTrade(opts = {}) {
     return result;
   }
 
+  /**
+   * Attach SL + TP A/B algo legs to an already-open position (repair naked fills).
+   */
+  async function attachProtectiveLegs({
+    symbol = 'BTCUSDT',
+    side,
+    stopPrice,
+    tpA,
+    tpB,
+    quantity,
+  } = {}) {
+    const sym = String(symbol).toUpperCase();
+    const tradeSide = String(side || '').toUpperCase();
+    if (tradeSide !== 'LONG' && tradeSide !== 'SHORT') throw new Error('side must be LONG or SHORT');
+    const stopPxIn = Number(stopPrice);
+    const tpAIn = Number(tpA);
+    const tpBIn = Number(tpB);
+    if (!(stopPxIn > 0 && tpAIn > 0 && tpBIn > 0)) throw new Error('stopPrice, tpA, tpB required');
+
+    await _syncTime();
+    const filters = await getExchangeFilters(sym);
+    let qty = Number(quantity);
+    if (!(qty > 0)) {
+      const rows = await getPositionRisk(sym);
+      const pos = (rows || []).find((p) => String(p.symbol).toUpperCase() === sym);
+      const amt = parseFloat(pos?.positionAmt || 0);
+      if (!(Math.abs(amt) > 0)) throw new Error(`No open ${sym} position to protect`);
+      const inferred = amt > 0 ? 'LONG' : 'SHORT';
+      if (inferred !== tradeSide) {
+        throw new Error(`Position is ${inferred} but side=${tradeSide}`);
+      }
+      qty = Math.abs(amt);
+    }
+    qty = roundStep(qty, filters.stepSize, 'down');
+    let qtyA = roundStep(qty * 0.5, filters.stepSize, 'down');
+    let qtyB = roundStep(qty - qtyA, filters.stepSize, 'down');
+    if (qtyA < filters.minQty || qtyB < filters.minQty) {
+      qtyA = 0;
+      qtyB = qty;
+    }
+
+    const closeSide = tradeSide === 'LONG' ? 'SELL' : 'BUY';
+    const stopPx = roundPrice(stopPxIn, filters.tickSize);
+    const tpAPx = roundPrice(tpAIn, filters.tickSize);
+    const tpBPx = roundPrice(tpBIn, filters.tickSize);
+    const tagAlgo = (ord) => {
+      if (!ord) return null;
+      const id = ord.algoId || ord.orderId;
+      return { ...ord, algoId: id, orderId: id };
+    };
+
+    const result = {
+      ok: true,
+      symbol: sym,
+      side: tradeSide,
+      qty,
+      qtyA,
+      qtyB,
+      stopPrice: stopPx,
+      tpA: tpAPx,
+      tpB: tpBPx,
+      stopOrder: null,
+      tpAOrder: null,
+      tpBOrder: null,
+      warnings: [],
+    };
+
+    try {
+      result.stopOrder = tagAlgo(await placeAlgoConditional({
+        symbol: sym,
+        side: closeSide,
+        type: 'STOP_MARKET',
+        triggerPrice: String(stopPx),
+        quantity: String(qty),
+        reduceOnly: 'true',
+      }));
+    } catch (e) {
+      result.ok = false;
+      result.warnings.push(`Stop failed: ${e.message}`);
+    }
+    if (qtyA >= filters.minQty) {
+      try {
+        result.tpAOrder = tagAlgo(await placeAlgoConditional({
+          symbol: sym,
+          side: closeSide,
+          type: 'TAKE_PROFIT_MARKET',
+          triggerPrice: String(tpAPx),
+          quantity: String(qtyA),
+          reduceOnly: 'true',
+        }));
+      } catch (e) {
+        result.ok = false;
+        result.warnings.push(`TP A failed: ${e.message}`);
+      }
+    }
+    if (qtyB >= filters.minQty) {
+      try {
+        result.tpBOrder = tagAlgo(await placeAlgoConditional({
+          symbol: sym,
+          side: closeSide,
+          type: 'TAKE_PROFIT_MARKET',
+          triggerPrice: String(tpBPx),
+          quantity: String(qtyB),
+          reduceOnly: 'true',
+        }));
+      } catch (e) {
+        result.ok = false;
+        result.warnings.push(`TP B failed: ${e.message}`);
+      }
+    }
+    if (result.warnings.length) result.error = result.warnings.join('; ');
+    return result;
+  }
+
   return {
     openTwoLegDeskTrade,
+    attachProtectiveLegs,
     moveStopToBreakeven,
+    placeAlgoConditional,
     getOrder,
+    getAlgoOrder,
+    getOpenAlgoOrders,
     cancelOrder,
+    cancelAlgoOrder,
     getPositionRisk,
     getOpenOrders,
     getMarkPrice,

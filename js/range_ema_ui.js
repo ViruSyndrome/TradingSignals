@@ -364,6 +364,28 @@ const RangeEmaUI = {
       this.state.lastBotTrade = { at: Date.now(), result, snap };
       if (result.ok) {
         this._showDeskToast(`Binance: opened ${snap.side} qty ${result.qty} · SL + TP A/B resting`);
+      } else if (result.entry && !result.stopOrder) {
+        // Market filled but algos failed — try protect endpoint once
+        try {
+          const fixed = await this._futuresFetch('/api/trade/futures/protect', {
+            method: 'POST',
+            body: {
+              symbol: snap.symbol,
+              side: snap.side,
+              stopPrice: snap.stop,
+              tpA: snap.tpA,
+              tpB: snap.tpB,
+              quantity: result.qty,
+            },
+          });
+          if (fixed.ok) {
+            this._showDeskToast(`Binance: entry filled — protective SL/TP attached`);
+          } else {
+            this._showDeskToast(fixed.error || 'Entry filled but SL missing — set stop on Binance NOW');
+          }
+        } catch (pe) {
+          this._showDeskToast(pe.message || 'Entry filled but SL missing — set stop on Binance NOW');
+        }
       } else {
         this._showDeskToast(result.error || result.warnings?.join('; ') || 'Partial — check Binance');
       }
