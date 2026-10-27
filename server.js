@@ -30,12 +30,44 @@ app.use((req, res, next) => {
 });
 
 app.get('/', (req, res) => res.type('text').send('TrendRunner bot is running.'));
-app.get('/health', (req, res) => res.status(200).json({
-  status: 'ok',
-  alerts: Boolean(process.env.TELEGRAM_BOT_TOKEN && process.env.TELEGRAM_CHAT_ID),
-  autoTrade: String(process.env.REDBAR_AUTO_TRADE || '').toLowerCase() === 'true'
-    && String(process.env.TRADE_ENABLED || '').toLowerCase() === 'true',
-}));
+app.get('/health', (req, res) => {
+  let dhan = false;
+  try {
+    dhan = require('./js/dhan_client.js').isDhanConfigured();
+  } catch (_) {
+    dhan = false;
+  }
+  res.status(200).json({
+    status: 'ok',
+    alerts: Boolean(process.env.TELEGRAM_BOT_TOKEN && process.env.TELEGRAM_CHAT_ID),
+    autoTrade: String(process.env.REDBAR_AUTO_TRADE || '').toLowerCase() === 'true'
+      && String(process.env.TRADE_ENABLED || '').toLowerCase() === 'true',
+    dhan,
+  });
+});
+
+/** Desk/browser proxy for Dhan OHLC (keys stay on server). */
+app.get('/api/dhan/ohlc', async (req, res) => {
+  try {
+    const { createDhanClient, isDhanConfigured } = require('./js/dhan_client.js');
+    if (!isDhanConfigured()) {
+      return res.status(503).json({ ok: false, error: 'DHAN_CLIENT_ID / DHAN_ACCESS_TOKEN not set' });
+    }
+    const dhan = createDhanClient();
+    const instrument = {
+      dhanSecurityId: String(req.query.securityId || '13'),
+      dhanExchangeSegment: String(req.query.exchangeSegment || 'IDX_I'),
+      dhanInstrument: String(req.query.instrument || 'INDEX'),
+    };
+    const interval = String(req.query.interval || '15m');
+    const limit = Math.min(2000, Math.max(50, Number(req.query.limit) || 500));
+    const rows = await dhan.getKlines(instrument, interval, limit);
+    res.json({ ok: true, rows, count: rows.length, securityId: instrument.dhanSecurityId, interval });
+  } catch (e) {
+    console.error('[Dhan] ohlc error:', e.message);
+    res.status(500).json({ ok: false, error: e.message });
+  }
+});
 
 function tradeEnv(key, fallback = '') {
   const v = process.env[key];
@@ -207,7 +239,8 @@ app.post('/api/alerts/redbar', async (req, res) => {
     return res.status(400).json({ ok: false, error: 'setupKind not Red Bar actionable' });
   }
 
-  const alertKey = `RB_${instrumentId}|${side}|${setupKind}|${dayKey}`;
+  // One desk→Telegram relay per instrument per day (side flips must not spam).
+  const alertKey = `RB_${instrumentId}|DAY|${dayKey || 'noday'}`;
   const now = Date.now();
   for (const [k, t] of recentRelay) {
     if (now - t > RELAY_TTL_MS) recentRelay.delete(k);

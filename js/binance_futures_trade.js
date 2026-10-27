@@ -188,6 +188,78 @@ function createBinanceFuturesTrade(opts = {}) {
     }, { signed: true });
   }
 
+  /**
+   * Cancel resting + algo orders, then flatten any open position so a new
+   * LONG/SHORT market entry is not blocked by "Position side cannot be changed…".
+   */
+  async function clearSymbolForEntry(symbol, { closePosition = true } = {}) {
+    const sym = String(symbol).toUpperCase();
+    const notes = [];
+    await _syncTime();
+    // Cancel algos FIRST — Binance one-way mode rejects side flips while conditional SL/TP exist.
+    try {
+      const algos = await getOpenAlgoOrders(sym);
+      for (const a of algos || []) {
+        const id = a.algoId || a.orderId;
+        if (!id) continue;
+        try {
+          await cancelAlgoOrder(sym, id);
+        } catch (e) {
+          notes.push(`cancel algo ${id}: ${e.message}`);
+        }
+      }
+      if ((algos || []).length) notes.push(`cancelled ${algos.length} algo order(s)`);
+    } catch (e) {
+      notes.push(`list algos: ${e.message}`);
+    }
+    try {
+      await _request('DELETE', '/fapi/v1/allOpenOrders', { symbol: sym }, { signed: true });
+      notes.push('cancelled open orders');
+    } catch (e) {
+      if (e.binanceCode !== -2011) notes.push(`cancel orders: ${e.message}`);
+    }
+    // Second algo pass (race: cancel-all can leave conditionals)
+    try {
+      const algos2 = await getOpenAlgoOrders(sym);
+      for (const a of algos2 || []) {
+        const id = a.algoId || a.orderId;
+        if (!id) continue;
+        try { await cancelAlgoOrder(sym, id); } catch (_) {}
+      }
+    } catch (_) {}
+    if (closePosition) {
+      const rows = await getPositionRisk(sym);
+      const pos = (rows || []).find((p) => String(p.symbol).toUpperCase() === sym);
+      const amt = parseFloat(pos?.positionAmt || 0);
+      if (Math.abs(amt) > 0) {
+        const filters = await getExchangeFilters(sym);
+        const qty = roundStep(Math.abs(amt), filters.stepSize, 'down');
+        if (qty >= filters.minQty) {
+          await _request('POST', '/fapi/v1/order', {
+            symbol: sym,
+            side: amt > 0 ? 'SELL' : 'BUY',
+            type: 'MARKET',
+            quantity: String(qty),
+            reduceOnly: 'true',
+            newOrderRespType: 'RESULT',
+          }, { signed: true });
+          notes.push(`flattened ${amt > 0 ? 'LONG' : 'SHORT'} ${qty}`);
+        }
+      }
+    }
+    // Verify no resting orders left (otherwise next market entry throws -4059 / side change)
+    try {
+      const left = await getOpenOrders(sym);
+      const leftA = await getOpenAlgoOrders(sym);
+      if ((left || []).length || (leftA || []).length) {
+        throw new Error(`still have ${(left || []).length} orders + ${(leftA || []).length} algos after clear`);
+      }
+    } catch (e) {
+      if (/still have/.test(e.message)) throw e;
+    }
+    return notes;
+  }
+
   /** Conditional STOP / TP via Algo Service (required since 2025-12). */
   async function placeAlgoConditional(params = {}) {
     await _syncTime();
@@ -345,7 +417,16 @@ function createBinanceFuturesTrade(opts = {}) {
       tpAOrder: null,
       tpBOrder: null,
       warnings: [],
+      prep: [],
     };
+
+    // Flatten opposite / same-side leftovers + cancel SL/TP so Binance allows a new side
+    try {
+      result.prep = await clearSymbolForEntry(symbol, { closePosition: true });
+      if (result.prep.length) console.log(`[FuturesTrade] prep ${symbol}:`, result.prep.join('; '));
+    } catch (e) {
+      throw new Error(`Could not clear open position/orders before entry: ${e.message}`);
+    }
 
     const entryOrder = await _request('POST', '/fapi/v1/order', {
       symbol,
@@ -541,6 +622,7 @@ function createBinanceFuturesTrade(opts = {}) {
     openTwoLegDeskTrade,
     attachProtectiveLegs,
     moveStopToBreakeven,
+    clearSymbolForEntry,
     placeAlgoConditional,
     getOrder,
     getAlgoOrder,

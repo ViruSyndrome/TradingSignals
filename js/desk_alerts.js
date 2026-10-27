@@ -151,7 +151,9 @@ const DeskAlerts = {
 
     this.ensureBotUrl();
 
-    const baseKey = `RB_${payload.instrumentId}|${payload.side}|${payload.setupKind}|${payload.dayKey || ''}`;
+    // One PWA + Telegram ping per instrument per day (not per LONG/SHORT flip).
+    const dayPart = payload.dayKey || 'noday';
+    const baseKey = `RB_${payload.instrumentId}|DAY|${dayPart}`;
     const pwaKey = baseKey;
     const tgKey = `TG_${baseKey}`;
     let map = this._prune(this._sentMap());

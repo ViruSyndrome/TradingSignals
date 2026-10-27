@@ -571,8 +571,11 @@ async function _scanOneRedBarInstrument(inst, rbCfg) {
   const side = readout.trend === 'bullish' ? 'LONG' : readout.trend === 'bearish' ? 'SHORT' : 'WAIT';
   const setupKind = readout.setupKind || 'wait';
   const actionState = readout.actionState || 'wait';
-  const alertKey = `${side}|${setupKind}|${readout.asOfDay || ''}`;
-  const alreadyAlerted = lastAlerted[`RB_${inst.id}`] === alertKey;
+  const dayKey = readout.asOfDay || '';
+  // One Telegram + one auto attempt per instrument per IST day (not per side flip).
+  const dayAlertKey = `DAY|${dayKey}`;
+  const alertKey = `${side}|${setupKind}|${dayKey}`;
+  const alreadyAlertedToday = Boolean(dayKey) && lastAlerted[`RB_${inst.id}`] === dayAlertKey;
 
   console.log(
     `[RedBarBot] ${inst.id} (${inst.symbol}): state=${actionState.toUpperCase()} (${side}) | setup=${setupKind} | price=${readout.price} | stop=${readout.invalidation} (${readout.invalidationReason || '—'}) | book=${readout.bookZone} | RR=${readout.rr != null ? readout.rr.toFixed(2) : '—'}`
@@ -581,63 +584,85 @@ async function _scanOneRedBarInstrument(inst, rbCfg) {
   const actionable = Array.isArray(RedBarTrend.ACTIONABLE_SETUPS)
     && RedBarTrend.ACTIONABLE_SETUPS.includes(setupKind);
   if (actionState === 'enter' && actionable && (side === 'LONG' || side === 'SHORT')) {
-    // Live bot: BTC only (skip Nifty/XAU Telegram + trade noise until those books are proven)
     if (!_redBarBotInstrumentAllowed(inst)) {
       console.log(`[RedBarBot] ${inst.id}: ENTER ignored on worker (REDBAR_BOT_INSTRUMENTS) — desk can still show it`);
       return;
     }
-    if (alreadyAlerted) {
-      console.log(`[RedBarBot] ${inst.id}: ENTER already telegram'd for ${alertKey} — skip`);
-      return;
-    }
-    const dec = inst.priceDecimals ?? 2;
-    const fmt = (n) => (n != null && Number.isFinite(n) ? Number(n).toFixed(dec) : '—');
-    const sz = readout.sizing || RedBarTrend.futuresSizing({
-      entry: readout.price,
-      stop: readout.invalidation,
-      exit: readout.bookZone,
-      capital: 1000,
-      riskPct: 1,
-    });
-    const deskUrl = envTrim('DESK_URL') || 'https://trendrunner.app';
-    const futLink = `https://www.binance.com/en/futures/${inst.symbol}?ref=TRENDRUNNER`;
-    const emoji = side === 'LONG' ? '🟢' : '🔴';
-    const setupLabel = readout.playbook?.redSetup?.label || setupKind;
-    const subject = `Red Bar ${side}: ${inst.label} · ${setupLabel}`;
-    const htmlMsg = `${emoji} <b>ENTER NOW · Red Bar ${_escHtml(inst.label)} ${side}</b>
-${_escHtml(setupLabel)} (${_escHtml(setupKind)})
-Entry <b>$${fmt(readout.price)}</b> · Stop <b>$${fmt(readout.invalidation)}</b> (${_escHtml(readout.invalidationReason || '5m swing')}) · 1:1 <b>$${fmt(readout.tp1)}</b>${sz ? ` · ${sz.recLeverage}×` : ''}
-<a href="${deskUrl}">Open desk</a> · <a href="${futLink}">Futures</a>`;
-    const plainMsg = [
-      `ENTER NOW · ${inst.label} ${side}`,
-      `${setupLabel}`,
-      `Entry $${fmt(readout.price)} · Stop $${fmt(readout.invalidation)} · 1:1 $${fmt(readout.tp1)}`,
-      deskUrl,
-    ].join('\n');
 
-    const delivered = await deliverRedBarAlert({
-      subject,
-      htmlMsg,
-      plainMsg,
-      clickUrl: deskUrl,
-    });
-    if (delivered) {
-      lastAlerted[`RB_${inst.id}`] = alertKey;
-      saveAlertState(lastAlerted);
-      // Set-and-forget futures two-leg (opt-in). Snapshot levels at alert time.
+    // Telegram: at most one ping per instrument per IST day (no SHORT↔LONG spam).
+    if (!alreadyAlertedToday) {
+      const dec = inst.priceDecimals ?? 2;
+      const fmt = (n) => (n != null && Number.isFinite(n) ? Number(n).toFixed(dec) : '—');
+      const sz = readout.sizing || RedBarTrend.futuresSizing({
+        entry: readout.price,
+        stop: readout.invalidation,
+        exit: readout.bookZone,
+        capital: 1000,
+        riskPct: 1,
+      });
+      const deskUrl = envTrim('DESK_URL') || 'https://trendrunner.app';
+      const isBinance = String(inst.feed || '').startsWith('binance') || String(inst.symbol || '').endsWith('USDT');
+      const futLink = isBinance
+        ? `https://www.binance.com/en/futures/${inst.symbol}?ref=TRENDRUNNER`
+        : null;
+      const pxPrefix = isBinance ? '$' : '';
+      const emoji = side === 'LONG' ? '🟢' : '🔴';
+      const setupLabel = readout.playbook?.redSetup?.label || setupKind;
+      const autoNote = _autoSetupAllowed(setupKind)
+        ? ''
+        : '\nℹ️ Signal only — auto-trade waits for Trade 1 / session sweep';
+      const alertOnlyNote = !isBinance ? '\n⚠️ Alert only — place manually on Dhan (no auto-order)' : autoNote;
+      const subject = `Red Bar ${side}: ${inst.label} · ${setupLabel}`;
+      const htmlMsg = `${emoji} <b>ENTER NOW · Red Bar ${_escHtml(inst.label)} ${side}</b>
+${_escHtml(setupLabel)} (${_escHtml(setupKind)})
+Entry <b>${pxPrefix}${fmt(readout.price)}</b> · Stop <b>${pxPrefix}${fmt(readout.invalidation)}</b> (${_escHtml(readout.invalidationReason || '5m swing')}) · 1:1 <b>${pxPrefix}${fmt(readout.tp1)}</b>${isBinance && sz ? ` · ${sz.recLeverage}×` : ''}${alertOnlyNote}
+<a href="${deskUrl}">Open desk</a>${futLink ? ` · <a href="${futLink}">Futures</a>` : ''}`;
+      const plainMsg = [
+        `ENTER NOW · ${inst.label} ${side}`,
+        `${setupLabel}`,
+        `Entry ${pxPrefix}${fmt(readout.price)} · Stop ${pxPrefix}${fmt(readout.invalidation)} · 1:1 ${pxPrefix}${fmt(readout.tp1)}`,
+        !isBinance ? 'Alert only — place manually on Dhan' : (_autoSetupAllowed(setupKind) ? null : 'Signal only — auto waits for Trade 1 / sweep'),
+        deskUrl,
+      ].filter(Boolean).join('\n');
+
+      const delivered = await deliverRedBarAlert({
+        subject,
+        htmlMsg,
+        plainMsg,
+        clickUrl: deskUrl,
+      });
+      if (delivered) {
+        lastAlerted[`RB_${inst.id}`] = dayAlertKey;
+        lastAlerted[`RB_${inst.id}_DETAIL`] = alertKey;
+        saveAlertState(lastAlerted);
+      } else {
+        console.error(`[RedBarBot] ${inst.id}: ENTER seen but Telegram delivery failed — will retry next scan`);
+      }
+    } else {
+      console.log(`[RedBarBot] ${inst.id}: already telegram'd today (${dayAlertKey}) — skip TG ${alertKey}`);
+    }
+
+    // Auto: quality setups only (default Trade 1 + sweep). Independent of which signal telegraphed first.
+    if (_autoSetupAllowed(setupKind)) {
       await _maybeAutoFuturesTwoLeg({
         inst,
         side,
         readout,
         alertKey,
+        dayKey,
       });
     } else {
-      console.error(`[RedBarBot] ${inst.id}: ENTER seen but Telegram delivery failed — will retry next scan`);
+      console.log(`[RedBarBot] ${inst.id}: ${setupKind} — alert path only (not in REDBAR_AUTO_SETUPS)`);
     }
-  } else if (actionState !== 'enter') {
-    delete lastAlerted[`RB_${inst.id}`];
-    saveAlertState(lastAlerted);
   }
+  // Do NOT clear RB_* when leaving ENTER — that re-armed spam on flicker/side flips.
+}
+
+/** Setups that may open Binance two-leg. Trade 2 stays signal-only by default (chop / flip risk). */
+function _autoSetupAllowed(setupKind) {
+  const raw = envTrim('REDBAR_AUTO_SETUPS') || 'trade1_departure,session_sweep';
+  const allow = raw.split(',').map((s) => s.trim()).filter(Boolean);
+  return allow.includes(String(setupKind || ''));
 }
 
 const MANAGED_TRADES_FILE = 'managed_futures_trades.json';
@@ -657,7 +682,7 @@ function saveManagedTrades(rows) {
   }
 }
 
-/** Bot live path is BTC-only for now (Nifty/XAU alerts & auto-trade off). Override: REDBAR_BOT_INSTRUMENTS=BTC,XAU */
+/** Live Telegram ENTER allow-list. Default BTC; add NIFTY for alert-only (no Dhan auto-order yet). */
 function _redBarBotInstrumentAllowed(inst) {
   const raw = envTrim('REDBAR_BOT_INSTRUMENTS') || 'BTC';
   const allow = raw.split(',').map((s) => s.trim().toUpperCase()).filter(Boolean);
@@ -666,14 +691,14 @@ function _redBarBotInstrumentAllowed(inst) {
   return allow.includes(id) || allow.includes(sym);
 }
 
-/** Only BTCUSDT on Binance USD-M until other symbols are proven. */
+/** Only BTCUSDT on Binance USD-M — Nifty stays Telegram alert-only until Dhan F&O + funds. */
 function _canAutoTradeBinanceFutures(inst) {
   if (!_redBarBotInstrumentAllowed(inst)) return false;
   const sym = String(inst?.symbol || '').toUpperCase();
   return sym === 'BTCUSDT';
 }
 
-async function _maybeAutoFuturesTwoLeg({ inst, side, readout, alertKey }) {
+async function _maybeAutoFuturesTwoLeg({ inst, side, readout, alertKey, dayKey }) {
   if (String(process.env.REDBAR_AUTO_TRADE || '').toLowerCase() !== 'true') return;
   if (String(process.env.TRADE_ENABLED || '').toLowerCase() !== 'true') return;
   if (!_canAutoTradeBinanceFutures(inst)) {
@@ -682,6 +707,12 @@ async function _maybeAutoFuturesTwoLeg({ inst, side, readout, alertKey }) {
   }
   if (!envTrim('BINANCE_API_KEY') || !envTrim('BINANCE_API_SECRET')) {
     console.warn('[RedBarBot] AUTO_TRADE on but Binance keys missing');
+    return;
+  }
+  const tradeDayKey = `DAY|${dayKey || ''}`;
+  // Hard cap: at most one BTC auto entry per IST day (no LONG↔SHORT flip spam).
+  if (dayKey && lastAlerted[`TRADE_${inst.id}`] === tradeDayKey) {
+    console.log(`[RedBarBot] ${inst.id}: futures already used today's slot (${tradeDayKey}) — skip ${alertKey}`);
     return;
   }
   if (lastAlerted[`TRADE_${inst.id}`] === alertKey) {
@@ -727,13 +758,15 @@ async function _maybeAutoFuturesTwoLeg({ inst, side, readout, alertKey }) {
       tpB,
       entryHint: entry,
     });
-    lastAlerted[`TRADE_${inst.id}`] = alertKey;
-    saveAlertState(lastAlerted);
 
     const fillEntry = Number(result.entry?.avgPrice) || entry;
     const stopOrderId = result.stopOrder?.algoId || result.stopOrder?.orderId || null;
     const tpAOrderId = result.tpAOrder?.algoId || result.tpAOrder?.orderId || null;
-    if (result.ok && stopOrderId && tpAOrderId) {
+    // Only consume the day slot on a real protected fill — failed flips must be retryable.
+    if (result.ok && stopOrderId) {
+      lastAlerted[`TRADE_${inst.id}`] = dayKey ? tradeDayKey : alertKey;
+      lastAlerted[`TRADE_${inst.id}_DETAIL`] = alertKey;
+      saveAlertState(lastAlerted);
       const managed = loadManagedTrades().filter((t) => t.symbol !== inst.symbol);
       managed.push({
         symbol: inst.symbol,
