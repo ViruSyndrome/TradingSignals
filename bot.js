@@ -517,7 +517,7 @@ function _escHtml(s) {
 }
 
 async function _deskBars(inst, interval, limit) {
-  // Use desk router (binanceSpot → getCryptoOHLC; futures → getFuturesOHLC; yahoo → getYahooOHLC).
+  // Desk router: BTC/XAU must be binanceFutures (spot OHLC paints wrong mark Fibs / first-red).
   // Do not call missing helpers like getBinanceKlines — that silently killed BTC ENTER alerts.
   return API.getDeskOHLC(inst, interval, limit);
 }

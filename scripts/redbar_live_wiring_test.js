@@ -478,6 +478,14 @@ function assertBotSourceContracts() {
   console.log('\n[SOURCE] bot.js / futures one-open + relay dedupe');
   const bot = fs.readFileSync(path.join(ROOT, 'bot.js'), 'utf8');
   const fut = fs.readFileSync(path.join(ROOT, 'js/binance_futures_trade.js'), 'utf8');
+  const cfg = fs.readFileSync(path.join(ROOT, 'js/config.js'), 'utf8');
+  const btcBlock = cfg.match(/id:\s*'BTC'[\s\S]*?feed:\s*'([^']+)'/);
+  ok('BTC instrument feed is binanceFutures (not spot)',
+    btcBlock && btcBlock[1] === 'binanceFutures',
+    btcBlock ? `feed=${btcBlock[1]}` : 'BTC block missing');
+  ok('getDeskOHLC forces futures if BTC/XAU marked spot',
+    /forcing binanceFutures \(spot Fibs are wrong/.test(
+      fs.readFileSync(path.join(ROOT, 'js/api.js'), 'utf8')));
   ok('bot skips auto when position open',
     /openAmt[\s\S]{0,120}Math\.abs\(openAmt\) > 0/.test(bot)
     && /already active — skip auto-entry/.test(bot));

@@ -69,7 +69,7 @@ const RangeEmaUI = {
       id: 'BTC',
       label: 'BTC',
       symbol: (c.symbols && c.symbols[0]) || 'BTCUSDT',
-      feed: 'binanceSpot',
+      feed: 'binanceFutures',
       dayMode: c.dayMode || 'utc',
       priceDecimals: 2,
       tradeHint: 'Binance USDⓈ-M · BTCUSDT',
@@ -543,7 +543,7 @@ const RangeEmaUI = {
 
   async _buildRow(inst, c) {
     const instrument = typeof inst === 'string'
-      ? { id: inst, symbol: inst, feed: 'binanceSpot', dayMode: c.dayMode || 'utc' }
+      ? { id: inst, symbol: inst, feed: 'binanceFutures', dayMode: c.dayMode || 'utc' }
       : (inst || this.activeInstrument());
     const tf = this.activeTf();
     const lim = this._ohlcLimit(tf, c, instrument);

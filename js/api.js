@@ -210,16 +210,26 @@ const API = {
     return mapped;
   },
 
+  /** Map desk/Binance intervals → OKX candle bar ids */
+  _okxBar(interval) {
+    const map = {
+      '1m': '1m', '3m': '3m', '5m': '5m', '15m': '15m', '30m': '30m',
+      '1h': '1H', '1H': '1H', '2h': '2H', '4h': '4H', '4H': '4H',
+      '6h': '6H', '12h': '12H', '1d': '1D', '1D': '1D', '1w': '1W',
+    };
+    return map[interval] || map[String(interval || '').toLowerCase()] || '1D';
+  },
+
   /** OKX candles → Binance kline rows [ts, o, h, l, c, v] oldest→newest */
-  async _getCryptoOHLCOkx(coinId, interval = '1d') {
+  async _getCryptoOHLCOkx(coinId, interval = '1d', limitOverride) {
     const binanceSymbol = coinId.replace('_4H', '').replace('_5M', '');
     const base = binanceSymbol.replace(/USDT$/, '');
     const instId = `${base}-USDT`;
-    const bar = interval === '4h' || interval === '4H' ? '4H' : '1D';
-    const limit = Math.min(CONFIG.refresh?.historyDays || 250, 300);
+    const bar = this._okxBar(interval);
+    const limit = Math.min(Math.max(limitOverride || CONFIG.refresh?.historyDays || 250, 40), 300);
     const data = await this._fetch(
-      `https://www.okx.com/api/v5/market/candles?instId=${encodeURIComponent(instId)}&bar=${bar}&limit=${limit}`,
-      5000,
+      `https://www.okx.com/api/v5/market/candles?instId=${encodeURIComponent(instId)}&bar=${encodeURIComponent(bar)}&limit=${limit}`,
+      8000,
       2
     );
     const rows = Array.isArray(data?.data) ? data.data.slice() : [];
@@ -234,6 +244,13 @@ const API = {
       r[4],
       r[5],
     ]);
+  },
+
+  /** Clear IP ban flag so desk can retry Binance (e.g. data-api.binance.vision). */
+  clearBinanceBan() {
+    this._binanceHardBanUntil = 0;
+    this._preferOkx = false;
+    this._binanceCooloffUntil = 0;
   },
 
   // ══════════════════════════════════════════════════════════════════════════════
@@ -384,25 +401,35 @@ const API = {
     const limit = limitOverride || CONFIG.refresh.historyDays;
     const key = `crypto_hist_${coinId}_${interval}_${limit}`;
     const cached = this._get(key);
-    if (cached) return cached;
+    if (cached && Array.isArray(cached) && cached.length >= 40) return cached;
 
     const binanceSymbol = coinId.replace('_4H', '').replace('_5M', '');
-    const path = `/api/v3/klines?symbol=${binanceSymbol}&interval=${interval}&limit=${limit}`;
+    const path = `/api/v3/klines?symbol=${binanceSymbol}&interval=${interval}&limit=${Math.min(limit, 1000)}`;
+    // Always try Binance public data host first for desk TFs (spot klines are CORS-friendly)
     try {
-      if (!this._binanceIsHardBanned()) {
-        const data = await this._fetchBinance(path, 5000);
+      if (this._binanceIsHardBanned()) {
+        // One-shot vision host even when other api*.binance.com hosts 418'd
+        const vision = `https://data-api.binance.vision${path}`;
+        const data = await this._fetch(vision, 8000, 1);
+        if (Array.isArray(data) && data.length >= 40) {
+          this.clearBinanceBan();
+          return this._set(key, data, CONFIG.refresh.cacheMs);
+        }
+      } else {
+        const data = await this._fetchBinance(path, 8000, 2);
         if (!Array.isArray(data) || data.length === 0) throw new Error('Empty klines');
         return this._set(key, data, CONFIG.refresh.cacheMs);
       }
     } catch (e) {
-      console.warn(`[API] Binance history failed for ${coinId}:`, e.message);
+      console.warn(`[API] Binance history failed for ${coinId} ${interval}:`, e.message);
     }
     try {
-      const data = await this._getCryptoOHLCOkx(coinId, interval);
+      const data = await this._getCryptoOHLCOkx(coinId, interval, limit);
+      if (!Array.isArray(data) || data.length < 40) throw new Error(`OKX short history (${data?.length || 0})`);
       return this._set(key, data, CONFIG.refresh.cacheMs);
     } catch (e2) {
-      console.warn(`[API] OKX history failed for ${coinId}:`, e2.message);
-      return null;
+      console.warn(`[API] OKX history failed for ${coinId} ${interval}:`, e2.message);
+      throw e2;
     }
   },
 
@@ -538,13 +565,78 @@ const API = {
   },
 
   /**
+   * DhanHQ intraday OHLC (Node: direct keys; browser: Oracle/Render bot proxy).
+   * Returns Binance-shaped rows [t,o,h,l,c,v].
+   */
+  async getDhanOHLC(instrument, interval = '15m', limitOverride) {
+    const limit = limitOverride || 500;
+    const sid = instrument?.dhanSecurityId || instrument?.securityId || instrument?.symbol || '13';
+    const key = `dhan_hist_${sid}_${interval}_${limit}`;
+    const cached = this._get(key);
+    if (cached) return cached;
+
+    if (this._isNode()) {
+      try {
+        const { createDhanClient, isDhanConfigured } = require('./dhan_client.js');
+        if (!isDhanConfigured()) throw new Error('DHAN_CLIENT_ID / DHAN_ACCESS_TOKEN missing');
+        const dhan = createDhanClient();
+        const rows = await dhan.getKlines(instrument, interval, limit);
+        if (!rows?.length) throw new Error('Empty Dhan klines');
+        return this._set(key, rows, CONFIG.refresh.cacheMs);
+      } catch (e) {
+        console.warn(`[API] Dhan OHLC failed (${sid} ${interval}):`, e.message);
+        if (instrument?.symbol) {
+          console.warn('[API] Falling back to Yahoo for', instrument.symbol);
+          return this.getYahooOHLC(instrument.symbol, interval, limit);
+        }
+        throw e;
+      }
+    }
+
+    // Browser → bot proxy (keys stay on server)
+    let botBase = '';
+    try {
+      botBase = (typeof localStorage !== 'undefined' && localStorage.getItem('trade_bot_url')) || '';
+    } catch (_) {}
+    if (!botBase && typeof CONFIG !== 'undefined') {
+      botBase = CONFIG.market?.proxyBaseUrl || CONFIG.trade?.botBaseUrl || CONFIG.alerts?.botBaseUrl || '';
+    }
+    botBase = String(botBase || '').replace(/\/$/, '');
+    if (!botBase) throw new Error('Set Oracle Bot URL in Settings for Dhan Nifty feed');
+    const qs = new URLSearchParams({
+      securityId: String(sid),
+      exchangeSegment: instrument?.dhanExchangeSegment || 'IDX_I',
+      instrument: instrument?.dhanInstrument || 'INDEX',
+      interval: String(interval),
+      limit: String(limit),
+    });
+    const data = await this._fetch(`${botBase}/api/dhan/ohlc?${qs}`, 20000, 1);
+    const rows = Array.isArray(data?.rows) ? data.rows : (Array.isArray(data) ? data : null);
+    if (!rows?.length) throw new Error(data?.error || 'Empty Dhan proxy response');
+    return this._set(key, rows, CONFIG.refresh.cacheMs);
+  },
+
+  /**
    * Desk OHLC router by instrument.feed.
    * instrument: { feed, symbol, fallbackSymbol? }
    */
   async getDeskOHLC(instrument, interval = '30m', limitOverride) {
     if (!instrument) return null;
-    const feed = instrument.feed || 'binanceSpot';
-    const sym = instrument.symbol;
+    let feed = instrument.feed || 'binanceFutures';
+    const sym = String(instrument.symbol || '').toUpperCase();
+    const id = String(instrument.id || '').toUpperCase();
+    // Hard guard: BTC/XAU desk + bot must never silently fall back to spot OHLC
+    // (spot vs USD-M mark Fibs / first-red diverged every day in Oct 2026 audit).
+    if (
+      (id === 'BTC' || id === 'XAU' || sym === 'BTCUSDT' || sym === 'XAUUSDT' || sym === 'PAXGUSDT')
+      && feed === 'binanceSpot'
+    ) {
+      console.warn(`[API] ${id || sym} feed was binanceSpot — forcing binanceFutures (spot Fibs are wrong for USD-M)`);
+      feed = 'binanceFutures';
+    }
+    if (feed === 'dhan') {
+      return this.getDhanOHLC(instrument, interval, limitOverride);
+    }
     if (feed === 'yahoo') {
       return this.getYahooOHLC(sym, interval, limitOverride);
     }
