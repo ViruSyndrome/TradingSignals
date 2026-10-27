@@ -221,6 +221,64 @@ function unitGate7MidBar(tag, px = 25000) {
     gExpired.reason);
 }
 
+/**
+ * Sep 3 2026 regression: first leave @ 06:45 close 23918.05 must stay locked;
+ * later 15m bars must not slide trigger to 23915.2 / 23923.75 (tol / conf5 steal).
+ */
+function niftyTriggerLockProbe() {
+  console.log('\n[NIFTY] Trade1 triggerTs lock (Sep 3 2026 leave episode)');
+  const cfg = instCfg('NIFTY');
+  const bars15 = loadDesk('NIFTY', '15m');
+  const bars5 = loadDesk('NIFTY', '5m');
+  const bars1h = loadDesk('NIFTY', '1h');
+  const wantTrigTs = Date.parse('2026-09-03T06:45:00.000Z');
+  const wantTrigPx = 23918.05;
+  const checkpoints = [
+    Date.parse('2026-09-03T06:59:59.000Z'),
+    Date.parse('2026-09-03T07:14:59.000Z'),
+    Date.parse('2026-09-03T07:29:59.000Z'),
+  ];
+
+  function readoutAt(asOf) {
+    let i15 = -1;
+    for (let i = 0; i < bars15.length; i++) {
+      if (bars15[i].t <= asOf) i15 = i;
+      else break;
+    }
+    if (i15 < 60) return null;
+    const calDay = RedBarTrend.dayKey(bars15[i15].t, cfg.dayMode);
+    const slice15 = bars15.slice(Math.max(0, i15 - 960), i15 + 1);
+    const iP = lastClosedIdx(bars1h, asOf, BAR_MS['1h']);
+    const pivotSlice = iP < 0 ? [] : bars1h.slice(Math.max(0, iP - 80), iP + 1);
+    const firstRed1h = RedBarTrend.firstRedBarOfSession(pivotSlice, calDay, {
+      ...cfg, asOfTs: asOf, barMs: BAR_MS['1h'],
+    });
+    const i5 = lastClosedIdx(bars5, asOf, BAR_MS['5m']);
+    const m5 = bars5.slice(Math.max(0, i5 - 599), i5 + 1);
+    return RedBarTrend.readAt(slice15, slice15.length - 1, {
+      ...cfg, asOfTs: asOf, firstRed1h, bars1h: pivotSlice, bars5m: m5,
+    });
+  }
+
+  let locked = 0;
+  for (const asOf of checkpoints) {
+    const o = readoutAt(asOf);
+    const good = o
+      && o.setupKind === 'trade1_departure'
+      && Number(o.triggerTs) === wantTrigTs
+      && Number(o.triggerPrice) === wantTrigPx;
+    if (good) locked += 1;
+    ok(`lock @ ${new Date(asOf).toISOString().slice(11, 16)}Z`,
+      good,
+      o ? `trig=${o.triggerPrice} ts=${o.triggerTs && new Date(o.triggerTs).toISOString()} state=${o.actionState}` : 'null');
+  }
+  const late = readoutAt(checkpoints[1]);
+  ok('07:14Z is WATCH (>20m), not a slid ENTER',
+    late && late.actionState === 'watch' && /20m|window closed/i.test(late.actionReason || ''),
+    late ? late.actionReason : 'null');
+  ok('Sep3 leave stayed locked on all checkpoints', locked === checkpoints.length, `locked=${locked}`);
+}
+
 /** Force a real Nifty Trade1 ENTER, then bump tip 0.7R — must flip to watch via readAt. */
 function niftyReadAtChaseProbe() {
   console.log('\n[NIFTY] readAt chase probe on real Sep bars');
@@ -487,6 +545,7 @@ function replayBtcSep2026() {
   if (WANT === 'ALL' || WANT === 'NIFTY') {
     unitGate7MidBar('NIFTY', 25000);
     try { niftyReadAtChaseProbe(); } catch (e) { failed += 1; console.log('  FAIL  NIFTY chase probe', e.message); }
+    try { niftyTriggerLockProbe(); } catch (e) { failed += 1; console.log('  FAIL  NIFTY trigger lock', e.message); }
     try { replayNiftySep2026(); } catch (e) { failed += 1; console.log('  FAIL  NIFTY replay', e.message); }
   }
 

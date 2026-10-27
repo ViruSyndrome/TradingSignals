@@ -1087,6 +1087,22 @@ const RedBarTrend = {
         : 0;
     let justDeparted = false;
     let departBar = null;
+    // Sticky first close beyond the pivot in the current leave episode (5m).
+    // Walking newest→oldest while still outside; first chronologically = trigger.
+    let firstDepart5 = null;
+    if ((leftAbove || leftBelow) && Array.isArray(bars5m) && bars5m.length) {
+      for (let k = bars5m.length - 1; k >= 0; k--) {
+        const b5 = bars5m[k];
+        if (b5.t < firstRed.t) break;
+        if (asOfTs != null && b5.t + 5 * 60 * 1000 - 1500 > asOfTs) continue;
+        const out5 = leftAbove ? b5.c > firstRed.high : b5.c < firstRed.low;
+        if (out5) {
+          firstDepart5 = b5;
+          continue;
+        }
+        if (firstDepart5) break;
+      }
+    }
     if ((leftAbove || leftBelow) && Array.isArray(slice) && slice.length >= 2) {
       const lookBars = slice.slice(-3, -1);
       const wasInside = leftAbove
@@ -1096,9 +1112,11 @@ const RedBarTrend = {
         const cur15 = slice[slice.length - 1];
         const prev15 = slice[slice.length - 2];
         const workMs = Math.max(60000, cur15.t - prev15.t);
+        // Match leftAbove/leftBelow/out5 (no tol) — tol here used to re-arm
+        // prevAlreadyOut false and slide triggerTs one extra 15m bar.
         const prevAlreadyOut = leftAbove
-          ? prev15.c > firstRed.high + tol
-          : prev15.c < firstRed.low - tol;
+          ? prev15.c > firstRed.high
+          : prev15.c < firstRed.low;
         const cur15Closed = asOfTs == null || (cur15.t + workMs - 1500 <= asOfTs);
         let closed5mOut = null;
         if (Array.isArray(bars5m) && bars5m.length) {
@@ -1113,10 +1131,10 @@ const RedBarTrend = {
         }
         if (prevAlreadyOut) {
           justDeparted = true;
-          departBar = closed5mOut || prev15;
+          departBar = firstDepart5 || closed5mOut || prev15;
         } else if (cur15Closed || closed5mOut) {
           justDeparted = true;
-          departBar = closed5mOut || cur15;
+          departBar = firstDepart5 || closed5mOut || cur15;
         }
       }
     }
@@ -1159,12 +1177,14 @@ const RedBarTrend = {
       revisitSide,
       revisitStrong,
       trade1Fresh,
-      /** Bar time of Trade 2 confirm or Trade 1 departure (for ENTER 20m freshness). */
-      triggerTs: (conf5 && conf5.bar && conf5.bar.t)
-        || (trade1Fresh && departBar ? departBar.t : null),
+      /** Trade 1 wins setupKind over Trade 2 — anchors must follow the same priority. */
+      triggerTs: (trade1Fresh && departBar ? departBar.t : null)
+        || (conf5 && conf5.bar && conf5.bar.t)
+        || null,
       /** Trigger bar close price (anchors 0.5R anti-chase check). */
-      triggerPrice: (conf5 && conf5.bar && conf5.bar.c)
-        || (trade1Fresh && departBar ? departBar.c : null),
+      triggerPrice: (trade1Fresh && departBar ? departBar.c : null)
+        || (conf5 && conf5.bar && conf5.bar.c)
+        || null,
       distFromPivotPct,
       leftAbove,
       leftBelow,
