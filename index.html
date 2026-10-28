@@ -346,7 +346,7 @@
             <div class="edu-header"><span>🟥</span><h3>1. Mark-Window Fib Boxes (0 · 0.44 · 0.5 · 0.56 · 1)</h3></div>
             <p>Each session starts with an institutional mark window drawn forward across the chart with custom Fibonacci levels <code>0, 0.44, 0.5, 0.56, 1</code>:</p>
             <ul>
-              <li><strong>BTC:</strong> <code>02:30–03:30 IST</code> · <strong>XAU (Gold):</strong> <code>01:30–02:30 IST</code> · <strong>NIFTY:</strong> <code>15:15–15:45 IST</code> institutional close.</li>
+              <li><strong>BTC:</strong> <code>02:30–03:30 IST</code> (1H wick H/L) · <strong>XAU (Gold):</strong> <code>01:30–02:30 IST</code> · <strong>NIFTY:</strong> <code>15:15–15:45 IST</code> institutional close.</li>
               <li><strong>Inside [0, 1]:</strong> Sideways accumulation zone → <strong>WAIT</strong> (do not force trades inside the box).</li>
               <li><strong>0.44–0.56 Golden Pocket:</strong> Institutional equilibrium zone on pullbacks into prior-day or current-day Fibs.</li>
               <li><strong>Outside [0, 1]:</strong> Directional expansion (above Fib 0 = Bullish; below Fib 1 = Bearish).</li>
@@ -588,7 +588,7 @@
     <div class="loader-content">
       <div class="loader-spinner"></div>
       <div class="loader-text">Loading Red Bar Desk…</div>
-      <div class="loader-sub">BTC 30m ranges and trend map</div>
+      <div class="loader-sub">BTC 02:30–03:30 IST 1H Fibs &amp; Red Bar map</div>
     </div>
   </div>
 
@@ -612,16 +612,21 @@
           if (clean.length !== wl.length) localStorage.setItem('trading_watchlist', JSON.stringify(clean));
         }
       }
-      // Nuke bloated caches that are causing QuotaExceededError (Removed to allow instant paint)
+      // Scrub any legacy spot OHLC cache for BTC/XAU so desk only paints USD-M futures
+      Object.keys(localStorage).forEach(k => {
+        if (/^trading_cache_crypto_hist_(BTC|XAU|PAXG)/i.test(k)) {
+          localStorage.removeItem(k);
+        }
+      });
     } catch(e) {}
   </script>
-  <script src="js/config.js?v=7.20" defer></script>
+  <script src="js/config.js?v=7.22" defer></script>
   <script src="js/api.js?v=6.99" defer></script>
   <script src="js/indicators.js?v=6.60" defer></script>
-  <script src="js/redbar_trend.js?v=1.46" defer></script>
+  <script src="js/redbar_trend.js?v=1.50" defer></script>
   <script src="js/range_ema_engine.js?v=1.1" defer></script>
   <script src="js/desk_alerts.js?v=1.11" defer></script>
-  <script src="js/range_ema_ui.js?v=1.83" defer></script>
+  <script src="js/range_ema_ui.js?v=1.87" defer></script>
   <script src="js/signals.js?v=6.70" defer></script>
   <script src="js/charts.js?v=6.60" defer></script>
   

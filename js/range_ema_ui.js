@@ -560,17 +560,24 @@ const RangeEmaUI = {
     let raw;
     let rawPivot = null;
     let raw5m = null;
+    let rawFib30m = null;
     try {
       const get = (iv, n) => (typeof API.getDeskOHLC === 'function'
         ? API.getDeskOHLC(instrument, iv, n)
         : API.getCryptoOHLC(instrument.symbol, iv, n));
-      // Parallel work-TF + first-red pivot TF + 5m (Trade 2 confirm vs median)
+      // Parallel work-TF + first-red pivot TF + 5m (Trade 2 confirm vs median) + 30m Fib source when viewing 1h
+      const mw = instrument.markWindow || c.markWindow || null;
+      const mwMins = mw
+        ? (((mw.endHour * 60 + (mw.endMinute || 0)) - (mw.startHour * 60 + (mw.startMinute || 0)) + 1440) % 1440) || 60
+        : 60;
       const need5m = tf !== '5m';
       const needPivotFetch = tf !== firstRedTf;
+      const needFib30m = tf === '1h' && mwMins < 60 && firstRedTf !== '30m';
       const pair = await Promise.allSettled([
         get(tf, lim),
         needPivotFetch ? get(firstRedTf, limPivot) : Promise.resolve(null),
         need5m ? get('5m', lim5m) : Promise.resolve(null),
+        needFib30m ? get('30m', 500) : Promise.resolve(null),
       ]);
       if (pair[0].status !== 'fulfilled') throw pair[0].reason;
       raw = pair[0].value;
@@ -583,6 +590,11 @@ const RangeEmaUI = {
       if (need5m) {
         if (pair[2].status === 'fulfilled') raw5m = pair[2].value;
         else console.warn('[RangeEmaUI] 5m Trade-2 fetch failed:', pair[2].reason?.message || pair[2].reason);
+      }
+      if (needFib30m && pair[3].status === 'fulfilled') {
+        rawFib30m = pair[3].value;
+      } else if (tf === '1h' && firstRedTf === '30m') {
+        rawFib30m = rawPivot;
       }
     } catch (e) {
       return {
@@ -638,11 +650,13 @@ const RangeEmaUI = {
     }
 
     const bars5m = tf === '5m' ? bars30 : this._klinesToBars(raw5m);
+    const barsFib = rawFib30m ? this._klinesToBars(rawFib30m) : null;
     const readout = RedBarTrend.read(bars30, {
       ...readCfg,
       firstRed1h,
       bars1h,
       bars5m: bars5m && bars5m.length ? bars5m : null,
+      barsFib: barsFib && barsFib.length ? barsFib : null,
     });
     if (readout) {
       readout.firstRed1h = firstRed1h;
@@ -732,7 +746,7 @@ const RangeEmaUI = {
         title: o.phase === 'first_candle' ? 'Do not trade yet (Mark window forming)' : 'Inside mark-window Fibs (targets only)',
         subtitle: 'Mark-window Fibs = targets. Trade 2 = H1→M5: sweep 1H first-red H/L liquidity, then 5m close back through (+ median).',
         steps: [
-          `Fib 0 / Fib 1: ${this._fmt(fibHi)} / ${this._fmt(fibLo)} — context / targets only.`,
+          `Fib High (1) / Fib Low (0): ${this._fmt(fibHi)} / ${this._fmt(fibLo)} — context / targets only.`,
           pivotStep,
           ...(clockStep ? [clockStep] : []),
         ],
@@ -1265,6 +1279,9 @@ const RangeEmaUI = {
       <div class="range-chips">
         <span class="range-chip">Following: Red Bar</span>
         <span class="range-chip">Fib bias: ${o.orBias}</span>
+        ${o.currentBand?.high != null && o.currentBand?.low != null
+          ? `<span class="range-chip" title="Top line = Highest wick (Fib 1) · Bottom line = Lowest wick (Fib 0) of ${r.instrument?.markLabel || '02:30–03:30 IST'}">Mark Fib (${r.instrument?.markLabel || '02:30–03:30 IST'}${o.currentBand.locked === false ? ' · forming' : ''}) Wick H/L: ${this._fmt(o.currentBand.high)} / ${this._fmt(o.currentBand.low)}${o.currentBand.f50 != null ? ` (44/50/56: ${this._fmt(o.currentBand.f44)} / ${this._fmt(o.currentBand.f50)} / ${this._fmt(o.currentBand.f56)})` : ''}</span>`
+          : ''}
         ${o.playbook?.clock
           ? `<span class="range-chip">${o.playbook.clock.label}</span>`
           : ''}
@@ -1627,6 +1644,10 @@ const RangeEmaUI = {
         const ctx = chart.ctx;
         const n = bands.length;
         const lastIdx = chart.$rbBars ? chart.$rbBars.length - 1 : null;
+        const barStep = (lastIdx != null && lastIdx > 0)
+          ? Math.abs(xScale.getPixelForValue(1) - xScale.getPixelForValue(0))
+          : 10;
+        const padX = Number.isFinite(barStep) ? Math.max(3, Math.min(10, barStep * 0.42)) : 4;
 
         ctx.save();
         for (let i = 0; i < n; i++) {
@@ -1638,8 +1659,12 @@ const RangeEmaUI = {
           if (i1 == null) continue;
 
           let x0 = xScale.getPixelForValue(b.i0);
-          let x1 = xScale.getPixelForValue(i1);
+          let x1 = (i === n - 1 && lastIdx != null && i1 >= lastIdx)
+            ? area.right
+            : xScale.getPixelForValue(i1);
           if (![x0, x1].every(Number.isFinite)) continue;
+          if (b.iMarkStart != null) x0 -= padX;
+          if (i < n - 1 && bands[i + 1]?.iMarkStart != null) x1 -= padX;
           if (x1 < x0) { const t = x0; x0 = x1; x1 = t; }
           if (x1 < area.left || x0 > area.right) continue;
           x0 = Math.max(x0, area.left);
@@ -1673,7 +1698,7 @@ const RangeEmaUI = {
               { v: b.f44, c: 'rgba(74, 222, 128, 0.85)' },
               { v: b.f0, c: 'rgba(249, 115, 22, 0.95)' },
             ];
-            ctx.setLineDash([]);
+            ctx.setLineDash(b.locked === false ? [4, 4] : []);
             for (const ln of lines) {
               if (ln.v == null) continue;
               const y = yScale.getPixelForValue(ln.v);
@@ -1684,6 +1709,26 @@ const RangeEmaUI = {
               ctx.moveTo(x0, y);
               ctx.lineTo(x1, y);
               ctx.stroke();
+            }
+            ctx.setLineDash([]);
+            // Bracket the anchor mark-window candle(s) (02:30–03:30 IST) at the left edge
+            // so you can see the exact candle(s) whose High & Low wicks define the Fib box.
+            if (b.iMarkEnd != null && b.iMarkStart != null && b.iMarkEnd >= b.iMarkStart) {
+              const xm0 = Math.max(area.left, xScale.getPixelForValue(b.iMarkStart) - padX);
+              const xm1 = Math.min(area.right, xScale.getPixelForValue(b.iMarkEnd) + padX);
+              const yHi = yScale.getPixelForValue(b.f1 ?? b.high);
+              const yLo = yScale.getPixelForValue(b.f0 ?? b.low);
+              if ([xm0, xm1, yHi, yLo].every(Number.isFinite) && xm1 > xm0) {
+                const topY = Math.min(yHi, yLo);
+                const boxH = Math.max(2, Math.abs(yLo - yHi));
+                const boxW = Math.max(6, xm1 - xm0);
+                ctx.save();
+                ctx.strokeStyle = 'rgba(250, 204, 21, 0.85)';
+                ctx.lineWidth = 1.4;
+                ctx.setLineDash([3, 2]);
+                ctx.strokeRect(xm0, topY, boxW, boxH);
+                ctx.restore();
+              }
             }
           } else {
             const palette = [
@@ -1952,19 +1997,37 @@ const RangeEmaUI = {
       else daySpans.get(day).i1 = i;
     }
     const resolveBandIndex = (b) => {
-      if (b.index != null && b.index >= 0) {
+      if (!isRenkoMode && b.index != null && b.index >= 0) {
         // index is absolute in full series; map into visible window
         const abs = b.index;
         const visStart = row.bars.length - bars.length;
         const local = abs - visStart;
         if (local >= 0 && local < bars.length) return local;
       }
-      if (b.openT != null) {
-        const idx = this._nearestBarIndex(times, b.openT);
+      const targetT = b.t0 != null ? b.t0 : b.openT;
+      if (targetT != null && times.length) {
+        if (targetT <= times[0]) return 0;
+        const idx = this._nearestBarIndex(times, targetT);
         if (idx >= 0) return idx;
+        const firstAfter = times.findIndex((t) => t >= targetT - 1000);
+        if (firstAfter >= 0) return firstAfter;
       }
       const span = daySpans.get(b.day);
       return span ? span.i0 : null;
+    };
+    const resolveMarkEndIndex = (b, i0) => {
+      if (!isRenkoMode && b.i1Mark != null && b.i1Mark >= 0) {
+        const visStart = row.bars.length - bars.length;
+        const local = b.i1Mark - visStart;
+        if (local >= 0 && local < bars.length) return Math.max(i0, local);
+      }
+      const endT = b.endT != null ? b.endT : b.openT;
+      if (endT != null && times.length) {
+        if (endT < times[0]) return null;
+        const idx = this._nearestBarIndex(times, endT);
+        if (idx >= 0) return Math.max(i0, idx);
+      }
+      return null;
     };
     const rawBands = [
       ...(Array.isArray(o.recentBands) ? o.recentBands : []),
@@ -1979,15 +2042,24 @@ const RangeEmaUI = {
     const sortedBandDays = [...byDay.keys()].sort();
     const dayBands = sortedBandDays.map((day, bi) => {
       const b = byDay.get(day);
+      const nextDay = sortedBandDays[bi + 1];
+      const nextB = nextDay ? byDay.get(nextDay) : null;
+      const nextStartT = nextB ? (nextB.t0 ?? nextB.openT) : null;
+      if (nextStartT != null && times.length && nextStartT <= times[0]) {
+        // Entire band finished before the visible chart window starts
+        return null;
+      }
       const i0 = resolveBandIndex(b);
       if (i0 == null) return null;
-      const nextDay = sortedBandDays[bi + 1];
       let i1 = bars.length - 1;
-      if (nextDay) {
-        const n0 = resolveBandIndex(byDay.get(nextDay));
+      if (nextB) {
+        const n0 = resolveBandIndex(nextB);
         if (n0 != null && n0 > i0) i1 = n0;
       }
-      return { ...b, i0, i1 };
+      const startT = b.t0 ?? b.openT;
+      const iMarkStart = (startT != null && times.length && startT < times[0]) ? null : i0;
+      const iMarkEnd = iMarkStart != null ? resolveMarkEndIndex(b, iMarkStart) : null;
+      return { ...b, i0, i1, iMarkStart, iMarkEnd };
     }).filter(Boolean);
     // Fit Y to candles + magnet levels
     const barHi = Math.max(...bars.map((b) => b.h));

@@ -89,11 +89,11 @@ function fibLevels(high, low) {
   return {
     high,
     low,
-    f0: high,
+    f0: low,
     f44: low + 0.44 * (high - low),
     f50: (high + low) / 2,
     f56: low + 0.56 * (high - low),
-    f1: low,
+    f1: high,
   };
 }
 

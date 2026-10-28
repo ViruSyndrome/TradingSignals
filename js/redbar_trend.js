@@ -107,10 +107,10 @@ const RedBarTrend = {
       const a = cfg.orAnchor;
       const sh = a.hour != null ? a.hour : 2;
       const sm = a.minute != null ? a.minute : 30;
-      // Legacy: single candle → 1h window from that clock
-      let eh = sh + 1;
-      let em = sm;
-      if (eh >= 24) eh -= 24;
+      const dur = a.durationMinutes != null ? a.durationMinutes : 60;
+      const totalMins = ((sh * 60 + sm + dur) % (24 * 60) + (24 * 60)) % (24 * 60);
+      const eh = Math.floor(totalMins / 60);
+      const em = totalMins % 60;
       return {
         timeZone: a.timeZone || 'Asia/Kolkata',
         startHour: sh,
@@ -143,9 +143,24 @@ const RedBarTrend = {
     return p.day;
   },
 
-  /** UTC ms when hour:minute occurs on calendar dayStr in timeZone. */
+  /** UTC ms when hour:minute occurs on calendar dayStr in timeZone (exact minute boundary). */
   zonedClockToUtc(dayStr, timeZone, hour, minute) {
-    const targetHm = `${String(hour).padStart(2, '0')}:${String(minute).padStart(2, '0')}`;
+    const hNum = Number(hour) || 0;
+    const mNum = Number(minute) || 0;
+    if (!timeZone || timeZone === 'Asia/Kolkata') {
+      // IST is fixed UTC+05:30 with no DST — exact millisecond arithmetic
+      const istMidnightUtc = Date.parse(`${dayStr}T00:00:00+05:30`);
+      if (Number.isFinite(istMidnightUtc)) {
+        return istMidnightUtc + (hNum * 60 + mNum) * 60000;
+      }
+    }
+    if (timeZone === 'UTC' || timeZone === 'Etc/UTC') {
+      const utcMidnight = Date.parse(`${dayStr}T00:00:00Z`);
+      if (Number.isFinite(utcMidnight)) {
+        return utcMidnight + (hNum * 60 + mNum) * 60000;
+      }
+    }
+    const targetHm = `${String(hNum).padStart(2, '0')}:${String(mNum).padStart(2, '0')}`;
     const base = Date.parse(`${dayStr}T12:00:00Z`);
     let lo = base - 36 * 3600 * 1000;
     let hi = base + 36 * 3600 * 1000;
@@ -161,7 +176,7 @@ const RedBarTrend = {
       minute: '2-digit',
       hour12: false,
     });
-    while (hi - lo > 30 * 1000) {
+    while (hi - lo > 1000) {
       const mid = Math.floor((lo + hi) / 2);
       const d = new Date(mid);
       const day = fmtDay.format(d);
@@ -169,7 +184,20 @@ const RedBarTrend = {
       if (day < dayStr || (day === dayStr && hm < targetHm)) lo = mid;
       else hi = mid;
     }
-    return hi;
+    return Math.floor(hi / 60000) * 60000;
+  },
+
+  /** Infer intraday bar duration (ms), ignoring overnight/weekend session gaps. */
+  _inferBarMs(bars, fallbackMs = 15 * 60000, endIdx = null) {
+    if (!Array.isArray(bars) || bars.length < 2) return fallbackMs;
+    const hi = endIdx != null ? Math.min(bars.length - 1, endIdx) : bars.length - 1;
+    const lo = Math.max(1, hi - 16);
+    let best = Infinity;
+    for (let k = hi; k >= lo; k--) {
+      const dt = bars[k].t - bars[k - 1].t;
+      if (dt >= 60000 && dt < best) best = dt;
+    }
+    return (Number.isFinite(best) && best <= 4 * 3600000) ? best : fallbackMs;
   },
 
   /** Fib price on candle range (0 = low / bottom, 1 = high / top — matches TV shot). */
@@ -178,9 +206,12 @@ const RedBarTrend = {
   },
 
   /**
-   * Aggregate H/L of all bars that overlap [start, end) on dayStr.
-   * e.g. BTC 02:30–03:30 IST = last hour before “universal” open.
-   * Uses overlap (not open-only) so binary-search clock skew cannot drop the open bar.
+   * Aggregate H/L of all bars that open inside [start, end) on dayStr.
+   * e.g. BTC 02:30–03:30 IST = last hour before “universal” open:
+   *  - on 1h: the single 02:30 IST candle
+   *  - on 30m: the 02:30 and 03:00 IST candles
+   *  - on 15m: the 02:30, 02:45, 03:00, and 03:15 IST candles
+   *  - on 5m: the twelve 5m candles from 02:30 through 03:25 IST
    */
   findMarkWindowRange(bars, dayStr, window) {
     if (!bars || !bars.length || !dayStr || !window) return null;
@@ -193,10 +224,10 @@ const RedBarTrend = {
     let i0 = -1;
     let i1 = -1;
     let openT = null;
-    // Open-in-window with slack: clock search can sit a few seconds after true HH:MM,
-    // which would otherwise drop the exact open bar or pull in the end bar.
-    const openFrom = t0 - 90 * 1000;
-    const openUntil = t1 - 30 * 1000;
+    let endT = null;
+    // Exact minute boundaries with ±1s tolerance for exchange millisecond jitter
+    const openFrom = t0 - 1000;
+    const openUntil = t1 - 1000;
     for (let i = 0; i < bars.length; i++) {
       const b = bars[i];
       if (b.t >= openFrom && b.t < openUntil) {
@@ -205,12 +236,13 @@ const RedBarTrend = {
           openT = b.t;
         }
         i1 = i;
+        endT = b.t;
         high = Math.max(high, b.h);
         low = Math.min(low, b.l);
       }
     }
     if (i0 < 0 || !(high > low) || !Number.isFinite(high) || !Number.isFinite(low)) return null;
-    return { high, low, i0, i1, openT, t0, t1 };
+    return { high, low, i0, i1, openT, endT, t0, t1 };
   },
 
   buildDailyBands(bars, lookbackDays = 90, dayMode = 'utc') {
@@ -253,11 +285,57 @@ const RedBarTrend = {
     const sortedDays = [...days].sort();
     if (sortedDays.length) days.add(this.shiftDay(sortedDays[0], -1));
 
+    const barMs = this._inferBarMs(bars, 15 * 60000);
+    const maxEndT = bars.length ? (bars[bars.length - 1].t + barMs) : Infinity;
+    const rawFine = (Array.isArray(cfg.barsFib) && cfg.barsFib.length)
+      ? cfg.barsFib
+      : ((Array.isArray(cfg.bars5m) && cfg.bars5m.length) ? cfg.bars5m : null);
+    const fineBars = rawFine ? rawFine.filter((fb) => fb.t < maxEndT + 1000) : null;
+    // When working TF is short-history (e.g. 5m = ~3.4d), backfill older 1H mark windows from bars1h.
+    // Clip to completed HTF bars <= maxEndT so historical replays never include future days/wicks.
+    const rawHtf = (Array.isArray(cfg.bars1h) && cfg.bars1h.length) ? cfg.bars1h : null;
+    const defaultHtfMs = cfg.firstRedTf === '30m' ? 30 * 60000 : 3600000;
+    const htfBarMs = this._inferBarMs(rawHtf, defaultHtfMs);
+    const htfBars = rawHtf
+      ? rawHtf.filter((hb) => (hb.t + htfBarMs) <= maxEndT + 1000)
+      : null;
+    if (htfBars && htfBars.length) {
+      for (const hb of htfBars) days.add(this.zonedDay(hb.t, tz));
+    }
+
     const bands = [];
     for (const day of [...days].sort()) {
-      const hit = this.findMarkWindowRange(bars, day, window);
+      let hit = this.findMarkWindowRange(bars, day, window);
+      let fromHtf = false;
+      if (!hit && htfBars) {
+        const hHit = this.findMarkWindowRange(htfBars, day, window);
+        // Only use htfBars when its bar width fits within the mark window (e.g. 1h for 60m BTC/XAU window)
+        if (hHit && htfBarMs <= (hHit.t1 - hHit.t0) + 1000) {
+          hit = { ...hHit, i0: -1, i1: -1 };
+          fromHtf = true;
+        }
+      }
       if (!hit) continue;
-      const { high, low, i0, openT } = hit;
+      let { high, low } = hit;
+      const { i0, openT } = hit;
+      // Check completeness when working bars start mid-window (e.g. oldest 5m bar is 02:50 IST):
+      // prefer full 1H candle H/L from htfBars if working bars missed the start of [t0, t1).
+      if (!fromHtf && htfBars && openT > hit.t0 + 1000) {
+        const hHit = this.findMarkWindowRange(htfBars, day, window);
+        if (hHit && htfBarMs <= (hHit.t1 - hHit.t0) + 1000) {
+          high = hHit.high;
+          low = hHit.low;
+        }
+      }
+      // When viewing a coarse TF (e.g. 1h = 60m) whose bar is wider than a 30m mark window
+      // (Nifty 15:15–15:45 / NG 23:00–23:30 IST), refine H/L from finer bars.
+      if (fineBars && barMs > (hit.t1 - hit.t0) + 1000) {
+        const fineHit = this.findMarkWindowRange(fineBars, day, window);
+        if (fineHit) {
+          high = fineHit.high;
+          low = fineHit.low;
+        }
+      }
       const fib = {};
       for (const lv of levels) fib[`f${String(lv).replace('.', '_')}`] = this.fibPrice(high, low, lv);
       bands.push({
@@ -271,6 +349,7 @@ const RedBarTrend = {
         f56: this.fibPrice(high, low, 0.56),
         f1: this.fibPrice(high, low, 1),
         openT,
+        endT: hit.endT ?? openT,
         index: i0,
         i1Mark: hit.i1,
         t0: hit.t0,
@@ -508,21 +587,27 @@ const RedBarTrend = {
     if (window && this.isSessionFib(cfg)) {
       const hit = this.findMarkWindowRange(bars, asOfDay, window);
       if (!hit) return null;
+      let { high, low } = hit;
+      const barMs = this._inferBarMs(bars, 15 * 60000);
+      const fineBars = (Array.isArray(cfg.barsFib) && cfg.barsFib.length)
+        ? cfg.barsFib
+        : ((Array.isArray(cfg.bars5m) && cfg.bars5m.length) ? cfg.bars5m : null);
+      if (fineBars && barMs > (hit.t1 - hit.t0) + 1000) {
+        const fineHit = this.findMarkWindowRange(fineBars, asOfDay, window);
+        if (fineHit) {
+          high = fineHit.high;
+          low = fineHit.low;
+        }
+      }
       const lastT = bars.length ? bars[bars.length - 1].t : 0;
-      // zonedClockToUtc can sit a few–dozen seconds AFTER true HH:MM, so a bar that
-      // opens exactly at endHour:endMinute (e.g. 03:30 IST) would never lock if we
-      // required lastT >= hit.t1. Lock when the last bar's clock is at/past the end
-      // minute, or wall-clock is past t1 (with the same ~90s slack used for opens).
-      const tz = window.timeZone || 'Asia/Kolkata';
-      const zLast = this.zonedHms(lastT, tz);
-      const endMins = (window.endHour || 0) * 60 + (window.endMinute || 0);
-      const lastMins = zLast.hour * 60 + zLast.minute;
-      const asOfTs = cfg.asOfTs != null ? cfg.asOfTs : Date.now();
-      const locked = lastMins >= endMins || asOfTs >= hit.t1 - 90 * 1000 || lastT >= hit.t1;
+      const asOfTs = cfg.asOfTs != null ? Number(cfg.asOfTs) : Date.now();
+      const lastCloseT = lastT + barMs;
+      // Locked only once the full mark window [t0, t1) has completed (e.g. >= 03:30:00 IST for BTC)
+      const locked = lastT >= hit.t1 || (asOfTs >= hit.t1 - 1000 && lastCloseT >= hit.t1 - 1000);
       return {
-        high: hit.high,
-        low: hit.low,
-        mid: (hit.high + hit.low) / 2,
+        high,
+        low,
+        mid: (high + low) / 2,
         openT: hit.openT,
         index: hit.i0,
         indexEnd: hit.i1,
@@ -865,11 +950,11 @@ const RedBarTrend = {
     return {
       high,
       low,
-      f0: high,
+      f0: low,
       f44,
       f50,
       f56,
-      f1: low,
+      f1: high,
       median: f50,
     };
   },
@@ -1208,7 +1293,7 @@ const RedBarTrend = {
   detectSessionSweep(slice, clock, asiaHl, londonHl, firstRed1h = null, asOfTs = null) {
     if (!Array.isArray(slice) || slice.length < 5 || !clock) return null;
     const last = slice[slice.length - 1];
-    const workBarMs = slice.length >= 2 ? Math.max(60000, last.t - slice[slice.length - 2].t) : 15 * 60 * 1000;
+    const workBarMs = this._inferBarMs(slice, 15 * 60 * 1000);
     // In live mode, if the tip bar is still forming, evaluate the just-closed bar to avoid unclosed wick fakes
     const useSlice = (asOfTs != null && last.t + workBarMs - 1500 > asOfTs && slice.length >= 6)
       ? slice.slice(0, -1)
@@ -1686,13 +1771,20 @@ const RedBarTrend = {
 
     const price = bars[i].c;
     const slice = bars.slice(0, i + 1);
-    const asOfDay = this.asOfDayFor(bars[i].t, c);
-    const bands = this.buildBands(slice, c);
+    const workBarMs = this._inferBarMs(bars, 15 * 60 * 1000, i);
+    const evalTs = (c.asOfTs != null && Number.isFinite(Number(c.asOfTs)))
+      ? Number(c.asOfTs)
+      : (i === bars.length - 1
+        ? Math.min(Date.now(), bars[i].t + workBarMs)
+        : bars[i].t + workBarMs - 1000);
+    const cEval = { ...c, asOfTs: evalTs };
+    const asOfDay = this.asOfDayFor(bars[i].t, cEval);
+    const bands = this.buildBands(slice, cEval);
     const prior = this.priorBands(bands, asOfDay);
     const active = this.interactingBands(bands, price, asOfDay, c.touchPct);
     const { resist, support } = this.nearestLevels(bands, price, asOfDay);
     const { swingHigh, swingLow } = this.nearestSwings(bars, i, c.swingPivot || 3);
-    const or = this.openingRange(slice, asOfDay, c.dayMode, c);
+    const or = this.openingRange(slice, asOfDay, c.dayMode, cEval);
     const red = this.lastRedBar(bars, i);
 
     // Opening-range / mark-window Fib box bias
@@ -1730,14 +1822,6 @@ const RedBarTrend = {
     const firstRedFibs = this.firstRedFibs(firstRed1h);
     const bars5m = Array.isArray(c.bars5m) && c.bars5m.length ? c.bars5m : null;
     const dayMode = c.dayMode || 'ist';
-    const workBarMs = i > 0
-      ? Math.max(60000, bars[i].t - bars[i - 1].t)
-      : 15 * 60 * 1000;
-    const evalTs = (c.asOfTs != null && Number.isFinite(Number(c.asOfTs)))
-      ? Number(c.asOfTs)
-      : (i === bars.length - 1
-        ? Math.min(Date.now(), bars[i].t + workBarMs)
-        : bars[i].t + workBarMs - 1000);
     const istDay = this.zonedDay(bars[i].t, 'Asia/Kolkata');
     const priorDayStr = this.shiftDay(istDay, -1);
     const priorDay = this.calendarDayHl(slice, priorDayStr, dayMode);
@@ -1991,12 +2075,24 @@ const RedBarTrend = {
         f56: b.f56,
         f1: b.f1,
         openT: b.openT,
+        endT: b.endT,
         index: b.index,
+        i1Mark: b.i1Mark,
+        t0: b.t0,
+        t1: b.t1,
+        locked: true,
       })),
       bandCountPrior: prior.length,
       bandStyle: c.bandStyle || 'dayHl',
       // Today's 02:30 fib / day range (extends right on the chart)
-      currentBand: bands.find((b) => b.day === asOfDay) || null,
+      currentBand: (() => {
+        const cb = bands.find((b) => b.day === asOfDay) || null;
+        if (!cb) return null;
+        return {
+          ...cb,
+          locked: or ? !!or.locked : true,
+        };
+      })(),
       refs: {
         ...refs,
         swingHigh,

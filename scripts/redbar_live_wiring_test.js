@@ -475,6 +475,10 @@ function replayLiveTip(id, bars15, bars5, bars1h, monthStart, monthEnd) {
 }
 
 function assertBotSourceContracts() {
+  const btcInst = (CONFIG.rangeEma?.instruments || []).find((x) => x.id === 'BTC');
+  ok('BTC markWindow is 02:30–03:30 IST (1H wick H/L)',
+    btcInst && btcInst.markWindow && btcInst.markWindow.startHour === 2 && btcInst.markWindow.startMinute === 30 && btcInst.markWindow.endHour === 3 && btcInst.markWindow.endMinute === 30,
+    btcInst && btcInst.markLabel);
   console.log('\n[SOURCE] bot.js / futures one-open + relay dedupe');
   const bot = fs.readFileSync(path.join(ROOT, 'bot.js'), 'utf8');
   const fut = fs.readFileSync(path.join(ROOT, 'js/binance_futures_trade.js'), 'utf8');

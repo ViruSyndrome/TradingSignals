@@ -103,7 +103,7 @@ const CONFIG = {
         // Must match the bot (USD-M). Spot OHLC drifts and paints wrong mark Fibs.
         feed: 'binanceFutures',
         dayMode: 'ist',
-        // Last hour before ~03:30 IST universal open — institutional close window
+        // 1H 02:30–03:30 IST candle — highest point of wick (Fib 1) to lowest point of wick (Fib 0)
         bandStyle: 'sessionFib',
         markWindow: {
           timeZone: 'Asia/Kolkata',
@@ -113,7 +113,7 @@ const CONFIG = {
         markLabel: '02:30–03:30 IST',
         fibLevels: [0, 0.44, 0.5, 0.56, 1],
         priceDecimals: 2,
-        tradeHint: 'Binance USDⓈ-M · BTCUSDT · Fib 02:30–03:30 IST',
+        tradeHint: 'Binance USDⓈ-M · BTCUSDT · Fib 02:30–03:30 IST (1H wick H/L)',
         showSessionMarkers: true,
         sessions: [
           { id: 'asia', label: 'Asia', timeZone: 'Asia/Tokyo', open: [9, 0], close: [15, 0], color: '#818cf8' },
