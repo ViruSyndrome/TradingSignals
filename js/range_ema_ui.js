@@ -1502,8 +1502,8 @@ const RangeEmaUI = {
 
         const plotW = area.right - area.left;
         const compact = !!chart.$rbCompact;
-        // Session opens only — skip dashed close ticks that double vertical line clutter
-        const list = markers.filter((m) => m.kind === 'open');
+        // Session opens (solid + label) and closes (thin dashed)
+        const list = markers;
         const minLineGap = compact ? 10 : 6;
         const minLabelGap = compact ? 42 : 28;
         const showLabels = plotW >= (compact ? 280 : 200);
