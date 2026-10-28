@@ -177,7 +177,31 @@ function unitGate7MidBar(tag, px = 25000) {
     ok('Nifty T2 stays WATCH (DNA)', gT2.state === 'watch', gT2.reason);
   }
 
-  const liveChased = trigClose - 0.7 * R; // short: price already 0.7R in favor
+  const isNifty = tag === 'NIFTY';
+  if (!isNifty) {
+    const gMidMove = RedBarTrend.entryGate({
+      trend: 'bearish',
+      setupKind: 'trade1_departure',
+      rr: 1.5,
+      stopStructural: true,
+      invalidationReason: '5m swing high',
+      stopPct: 0.32,
+      renko: null,
+      clock: { id: 'pre_london' },
+      asOfTs: t0 + 25 * 60000,
+      instrumentId: 'BTC',
+      season: 'SEP–DEC',
+      setupTriggerTs: t0,
+      entryPrice: trigClose,
+      stopPrice: stop,
+      livePrice: trigClose - 0.7 * R,
+      revisitRead: null,
+    });
+    ok('BTC 25m + 0.7R allowed under 90m/1.5R Gate 7', gMidMove.state === 'enter', gMidMove.reason);
+  }
+
+  const chaseMult = isNifty ? 0.7 : 1.6;
+  const liveChased = trigClose - chaseMult * R;
   const gChased = RedBarTrend.entryGate({
     trend: 'bearish',
     setupKind: 'trade1_departure',
@@ -188,7 +212,7 @@ function unitGate7MidBar(tag, px = 25000) {
     renko: null,
     clock: { id: 'pre_london' },
     asOfTs: asOfMid,
-    instrumentId: tag === 'NIFTY' ? 'NIFTY' : 'BTC',
+    instrumentId: isNifty ? 'NIFTY' : 'BTC',
     season: 'SEP–DEC',
     setupTriggerTs: t0,
     entryPrice: trigClose,
@@ -196,9 +220,10 @@ function unitGate7MidBar(tag, px = 25000) {
     livePrice: liveChased,
     revisitRead: null,
   });
-  ok('0.7R chase → watch', gChased.state === 'watch' && /0\.7R|stale|chase/i.test(gChased.reason),
+  ok(`${chaseMult}R chase → watch`, gChased.state === 'watch' && /R into the move|stale|chase/i.test(gChased.reason),
     gChased.reason);
 
+  const staleMin = isNifty ? 21 : 95;
   const gExpired = RedBarTrend.entryGate({
     trend: 'bearish',
     setupKind: 'trade1_departure',
@@ -208,8 +233,8 @@ function unitGate7MidBar(tag, px = 25000) {
     stopPct: 0.32,
     renko: null,
     clock: { id: 'pre_london' },
-    asOfTs: t0 + 21 * 60000,
-    instrumentId: tag === 'NIFTY' ? 'NIFTY' : 'BTC',
+    asOfTs: t0 + staleMin * 60000,
+    instrumentId: isNifty ? 'NIFTY' : 'BTC',
     season: 'SEP–DEC',
     setupTriggerTs: t0,
     entryPrice: trigClose,
@@ -217,7 +242,7 @@ function unitGate7MidBar(tag, px = 25000) {
     livePrice: trigClose,
     revisitRead: null,
   });
-  ok('>20m → watch', gExpired.state === 'watch' && /20m|window closed/i.test(gExpired.reason),
+  ok(`>${isNifty ? 20 : 90}m → watch`, gExpired.state === 'watch' && /(?:20|90)m|window closed/i.test(gExpired.reason),
     gExpired.reason);
 }
 
@@ -447,7 +472,7 @@ function replayLiveTip(id, bars15, bars5, bars1h, monthStart, monthEnd) {
         }
       } else if (/already .*R into the move|Do not chase/i.test(reason)) {
         watchChase += 1;
-      } else if (/window closed \(>20m/i.test(reason)) {
+      } else if (/window closed \(>(?:20|90)m/i.test(reason)) {
         watchStale += 1;
       } else if (o.actionState === 'watch') {
         watchOther += 1;

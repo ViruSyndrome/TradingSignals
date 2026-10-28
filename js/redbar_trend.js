@@ -2163,8 +2163,8 @@ const RedBarTrend = {
    *     Pre-London + London + US Open OK; late = WATCH
    *  5. stopPct ≤ 1%
    *  6. Skip T2 LONG + liq_sweep_low (PASS +18.9% vs baseline)
-   *  7. Fresh ≤20m from trigger; price not already ≥0.5R into the trade
-   * Nifty extras: T1 only, skip APR–AUG, stopPct ≤ 0.65%
+   *  7. BTC anti-restart guard: ≤90m from trigger; price not already ≥1.5R into the trade
+   * Nifty extras: T1 only, skip APR–AUG, stopPct ≤ 0.65%, Gate 7 ≤20m & <0.5R
    */
   entryGate({
     trend, setupKind, rr, stopStructural, invalidationReason, stopPct, renko, clock,
@@ -2233,10 +2233,13 @@ const RedBarTrend = {
       };
     }
 
+    const isNifty = inst === 'NIFTY';
+    const freshMins = isNifty ? 20 : 90;
+    const ENTER_FRESH_MS = freshMins * 60 * 1000;
+    const maxFavR = isNifty ? 0.5 : 1.5;
     const asOf = asOfTs != null ? Number(asOfTs) : Date.now();
     const trigTs = setupTriggerTs != null ? Number(setupTriggerTs) : null;
-    const ENTER_FRESH_MS = 20 * 60 * 1000;
-    // Refuse ENTER without a trigger anchor — missing trigTs used to bypass the 20m window (Bug #3).
+    // Refuse ENTER without a trigger anchor — missing trigTs used to bypass the freshness window (Bug #3).
     if (trigTs == null || !Number.isFinite(trigTs)) {
       return {
         state: 'watch',
@@ -2246,7 +2249,7 @@ const RedBarTrend = {
     if ((asOf - trigTs) > ENTER_FRESH_MS) {
       return {
         state: 'watch',
-        reason: 'ENTER window closed (>20m since trigger bar) — do not chase. Wait for the next Trade 1 / 2 / sweep.',
+        reason: `ENTER window closed (>${freshMins}m since trigger bar) — do not chase. Wait for the next Trade 1 / 2 / sweep.`,
       };
     }
     const ep = Number(entryPrice);
@@ -2261,7 +2264,7 @@ const RedBarTrend = {
     }
     {
       const favR = trend === 'bullish' ? (lp - ep) / R : (ep - lp) / R;
-      if (favR >= 0.5) {
+      if (favR >= maxFavR) {
         return {
           state: 'watch',
           reason: `Price already ${favR.toFixed(1)}R into the move — ENTER is stale. Do not chase; manage if filled or wait next setup.`,

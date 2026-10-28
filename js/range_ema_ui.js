@@ -284,8 +284,11 @@ const RangeEmaUI = {
     };
     this._pendingEnterAlert = payload;
     // Freeze levels for place/bot — live refresh was changing Entry/SL/TP mid-signal
-    const snapKey = `${payload.dayKey}|${payload.side}|${payload.setupKind}`;
-    if (!this.state.enterSnapshot || this.state.enterSnapshot.key !== snapKey) {
+    const freshMins = String(inst.id || '').toUpperCase() === 'NIFTY' ? 20 : 90;
+    const snapKey = `${payload.dayKey}|${payload.side}|${payload.setupKind}|${payload.triggerTs}`;
+    const prevSnap = this.state.enterSnapshot;
+    const prevStale = prevSnap?.at ? ((Date.now() - prevSnap.at) / 60000 > freshMins) : false;
+    if (!prevSnap || prevSnap.key !== snapKey || prevStale) {
       const entry = Number(a.entry ?? o.price);
       const stop = Number(o.invalidation);
       const oneR = Math.abs(entry - stop);
@@ -1173,10 +1176,11 @@ const RangeEmaUI = {
           <ul class="rb-action-steps">${steps}</ul>
           ${(() => {
             const isEnter = a.side === 'LONG' || a.side === 'SHORT';
+            const freshMins = String(r.instrument?.id || '').toUpperCase() === 'NIFTY' ? 20 : 90;
             const snap = this.state.enterSnapshot;
             const snapAgeMin = snap?.at ? (Date.now() - snap.at) / 60000 : 0;
             const reasonStale = /stale|do not chase|window closed|already \d/i.test(String(o.actionReason || ''));
-            const snapStale = snap && snapAgeMin > 20;
+            const snapStale = snap && snapAgeMin > freshMins;
             const showEnter = isEnter && !reasonStale;
             const useSnap = showEnter && snap && snap.side === a.side && !snapStale;
             const eN = useSnap ? snap.entry : a.entry;
@@ -1184,7 +1188,7 @@ const RangeEmaUI = {
             const tpA = useSnap ? snap.tpA : (a.tp1 ?? o.tp1);
             const tpB = useSnap ? snap.tpB : (a.tp3 ?? o.tp3 ?? a.exit ?? o.bookZone);
             const statusBanner = showEnter
-              ? `<div class="rb-signal-banner enter">LIVE ENTER · ${a.side} — fresh window (~20m). Levels ${useSnap ? 'frozen at first alert' : 'live'}.</div>`
+              ? `<div class="rb-signal-banner enter">LIVE ENTER · ${a.side} — fresh window (~${freshMins}m). Levels ${useSnap ? 'frozen at first alert' : 'live'}.</div>`
               : (isEnter || reasonStale || snapStale)
                 ? `<div class="rb-signal-banner watch">STALE — ENTER already fired; do <em>not</em> chase. ${o.actionReason ? String(o.actionReason).replace(/[<>&]/g, '') : 'Wait for the next Trade 1 / 2 / sweep.'}</div>`
               : a.side === 'WATCH'
@@ -1255,12 +1259,8 @@ const RangeEmaUI = {
           <span class="lg ema10">EMA ${c.emaFast || 10}</span>
           <span class="lg ema30">EMA ${c.emaSlow || 30}</span>
           <span class="lg band">${this._isFibStyle(r) ? `Fib 0·44·50·56·1${r.instrument?.markLabel ? ` · ${r.instrument.markLabel}` : ''}` : 'Day ranges'}</span>
-          <span class="lg stop">1H first red + median</span>
-          <span class="lg stop rb-lg-desk">5m Swing SL</span>
-          <span class="lg tp rb-lg-desk">1:1 → 1:2 → 1:3</span>
-          <span class="lg sess-asia rb-lg-desk">Asia H/L</span>
-          <span class="lg sess-london rb-lg-desk">London H/L</span>
-          <span class="lg sess-ny rb-lg-desk">NY H/L</span>
+          <span class="lg stop">${o.firstRedLabel || '1H'} first red H/L</span>
+          <span class="lg sess-london rb-lg-desk">Session opens</span>
         </div>
         <p class="rb-zoom-hint">${this.isPhoneLayout() ? 'Pinch to zoom · ◀ ▶ to scrub · Fit resets' : 'Pinch / wheel to zoom · drag to pan · Fit resets'}</p>
         <div class="rb-chart-box">
@@ -1502,10 +1502,8 @@ const RangeEmaUI = {
 
         const plotW = area.right - area.left;
         const compact = !!chart.$rbCompact;
-        // Opens only when cramped; skips close ticks that double the barcode
-        const list = compact
-          ? markers.filter((m) => m.kind === 'open')
-          : markers;
+        // Session opens only — skip dashed close ticks that double vertical line clutter
+        const list = markers.filter((m) => m.kind === 'open');
         const minLineGap = compact ? 10 : 6;
         const minLabelGap = compact ? 42 : 28;
         const showLabels = plotW >= (compact ? 280 : 200);
@@ -1766,7 +1764,7 @@ const RangeEmaUI = {
     };
   },
 
-  /** Full-width lines: 1H first-red H/L + Fib 44 / 50 (median) / 56. */
+  /** Clean 1H first-red High & Low lines only (anchored from that 1H red bar forward; no 44/MED/56 clutter). */
   _firstRed1hPlugin() {
     return {
       id: 'rbFirstRed1h',
@@ -1774,21 +1772,28 @@ const RangeEmaUI = {
         if (chart.$rbShowFirstRed === false) return;
         const red = chart.$rbFirstRed1h;
         if (!red || red.high == null) return;
+        const xScale = chart.scales.x;
         const yScale = chart.scales.y;
         const area = chart.chartArea;
         if (!yScale || !area) return;
-        const fibs = chart.$rbFirstRedFibs;
+
+        let x0 = area.left;
+        const times = chart.$rbTimes;
+        if (xScale && Array.isArray(times) && times.length && red.t != null) {
+          if (red.t > times[0]) {
+            const firstIdx = times.findIndex((t) => t >= red.t - 1000);
+            if (firstIdx >= 0) {
+              const px = xScale.getPixelForValue(firstIdx);
+              if (Number.isFinite(px)) x0 = Math.max(area.left, px);
+            }
+          }
+        }
+        if (x0 >= area.right) return;
+
         const levels = [
-          { v: red.high, style: 'rgba(244, 63, 94, 0.85)', w: 1.5, dash: [6, 4] },
+          { v: red.high, style: 'rgba(244, 63, 94, 0.85)', w: 1.4, dash: [6, 4] },
           { v: red.low, style: 'rgba(244, 63, 94, 0.55)', w: 1.2, dash: [4, 4] },
         ];
-        if (fibs) {
-          levels.push(
-            { v: fibs.f44, style: 'rgba(251, 146, 60, 0.7)', w: 1, dash: [3, 3] },
-            { v: fibs.f50, style: 'rgba(250, 204, 21, 0.85)', w: 1.4, dash: [8, 3] },
-            { v: fibs.f56, style: 'rgba(251, 146, 60, 0.7)', w: 1, dash: [3, 3] },
-          );
-        }
         const ctx = chart.ctx;
         ctx.save();
         for (const lv of levels) {
@@ -1799,7 +1804,7 @@ const RangeEmaUI = {
           ctx.lineWidth = lv.w;
           ctx.setLineDash(lv.dash);
           ctx.beginPath();
-          ctx.moveTo(area.left, y);
+          ctx.moveTo(x0, y);
           ctx.lineTo(area.right, y);
           ctx.stroke();
         }
@@ -2218,9 +2223,6 @@ const RangeEmaUI = {
       // 1. Always show the relevant 15m swing stop side (or 1H RED when at/revisiting pivot)
       if (showPivot && o.firstRed1h?.high != null) {
         pushTag(`${o.firstRedLabel || '1H'} RED`, o.firstRed1h.high, '#f43f5e', 'rgba(60, 10, 20, 0.94)', { priority: true });
-        if (o.firstRedFibs?.f50 != null) {
-          pushTag('MED', o.firstRedFibs.f50, '#facc15', 'rgba(55, 45, 10, 0.92)', { rank: 2 });
-        }
       } else if (o.trend === 'bullish') {
         pushTag(o.refs?.swingStopTf === '5m' ? '5m LO' : 'SWG LO', o.refs?.prevSwingLow, '#fb923c', 'rgba(55, 28, 10, 0.88)', { priority: true });
       } else if (o.trend === 'bearish') {
