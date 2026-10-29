@@ -92,8 +92,8 @@ const CONFIG = {
     emaSlow: 30,
     ohlcLimit: { '5m': 1000, '15m': 1000, '30m': 1000, '1h': 720 },
     chartBars: { '5m': 360, '15m': 240, '30m': 240, '1h': 168 },
-    // Fewer bars on phones so candles have horizontal room
-    chartBarsMobile: { '5m': 96, '15m': 80, '30m': 72, '1h': 56 },
+    // Generous context on phones; ◀ ▶ buttons and pinch allow smooth scrub
+    chartBarsMobile: { '5m': 140, '15m': 120, '30m': 100, '1h': 84 },
     defaultInstrument: 'BTC',
     instruments: [
       {

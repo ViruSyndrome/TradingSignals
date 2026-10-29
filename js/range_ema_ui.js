@@ -88,6 +88,7 @@ const RangeEmaUI = {
     const list = this.instruments();
     if (!list.some((x) => x.id === id) || id === this.activeInstrument()?.id) return;
     this.state.instrumentId = id;
+    this.state.chartPanOffset = 0;
     try { localStorage.setItem('trendrunner_rb_instrument', id); } catch (_) {}
     // Immediate feedback — never wait on a stuck prior fetch
     this.state.loading = true;
@@ -107,6 +108,7 @@ const RangeEmaUI = {
   setChartMode(mode) {
     if (this.state.chartMode === mode) return;
     this.state.chartMode = mode;
+    this.state.chartPanOffset = 0;
     try { localStorage.setItem('trendrunner_rb_chart_mode', mode); } catch (_) {}
     const row = (this.state.rows || [])[0];
     if (row && !row.error) {
@@ -124,6 +126,7 @@ const RangeEmaUI = {
     const allowed = inst.timeframes || c.timeframes || ['5m', '15m', '30m', '1h'];
     if (!allowed.includes(tf) || tf === this.activeTf()) return;
     this.state.tf = tf;
+    this.state.chartPanOffset = 0;
     try { localStorage.setItem('trendrunner_rb_tf_v2', tf); } catch (_) {}
     // Drop old TF row so we don't paint 30m fibs on a 5m switch (or vice versa)
     this.state.rows = [];
@@ -1012,14 +1015,41 @@ const RangeEmaUI = {
       try { this._chart?.zoom?.(0.75); } catch (_) {}
     });
     document.getElementById('rbZoomReset')?.addEventListener('click', () => {
+      this.state.chartPanOffset = 0;
       try { this._chart?.resetZoom?.(); } catch (_) {}
+      const row = (this.state.rows || [])[0];
+      if (row && !row.error) this._paintChart(row, this.cfg());
     });
     const panBy = (dir) => {
       const ch = this._chart;
-      if (!ch) return;
-      try {
-        if (typeof ch.pan === 'function') ch.pan({ x: dir * 80 }, undefined, 'default');
-      } catch (_) {}
+      let panned = false;
+      if (ch && typeof ch.pan === 'function') {
+        const xScale = ch.scales?.x;
+        const isZoomed = ch.isZoomedOrPanned ? ch.isZoomedOrPanned() : (xScale && (xScale.min > 0.5 || xScale.max < (ch.$rbBars?.length - 1.5)));
+        if (isZoomed && xScale) {
+          try {
+            const prevMin = xScale.min;
+            ch.pan({ x: dir * 80 }, undefined, 'default');
+            if (Math.abs(xScale.min - prevMin) > 0.1) {
+              panned = true;
+            }
+          } catch (_) {}
+        }
+      }
+      if (!panned) {
+        const row = (this.state.rows || [])[0];
+        if (!row || !row.bars || !row.bars.length) return;
+        const count = ch?.$rbBars?.length || 60;
+        const shift = Math.max(10, Math.round(count * 0.25));
+        const curOffset = this.state.chartPanOffset || 0;
+        const maxOffset = Math.max(0, row.bars.length - count);
+        let nextOffset = curOffset + (dir * shift);
+        nextOffset = Math.max(0, Math.min(maxOffset, nextOffset));
+        if (nextOffset !== curOffset) {
+          this.state.chartPanOffset = nextOffset;
+          this._paintChart(row, this.cfg());
+        }
+      }
     };
     document.getElementById('rbPanLeft')?.addEventListener('click', () => panBy(1));
     document.getElementById('rbPanRight')?.addEventListener('click', () => panBy(-1));
@@ -1916,29 +1946,37 @@ const RangeEmaUI = {
     const inst = row.instrument || this.activeInstrument() || { label: 'BTC', dayMode: 'utc' };
     const priceLabel = inst.label || 'Price';
     const tf = row.tf || this.activeTf();
-    // Mobile: fewer bars so candles have width (240 bars on a 360px phone = needles)
+    // Generous context on phones; ◀ ▶ buttons and pinch allow smooth scrub
     const wantDesktop = (c.chartBars && c.chartBars[tf]) || 120;
     const wantMobile = (c.chartBarsMobile && c.chartBarsMobile[tf])
-      || ({ '5m': 96, '15m': 80, '30m': 72, '1h': 56 }[tf] || 80);
+      || ({ '5m': 140, '15m': 120, '30m': 100, '1h': 84 }[tf] || 100);
     const want = compact ? wantMobile : wantDesktop;
     const o = row.readout;
     const isRenkoMode = this.state.chartMode === 'renko';
     let bars;
     let emaF;
     let emaS;
+    let visStart = 0;
+
+    const panOffset = Math.max(0, this.state.chartPanOffset || 0);
 
     // Renko View is chart-only (not a strategy); brick size still used as spike ruler in entryGate
     if (isRenkoMode && typeof RedBarTrend !== 'undefined' && RedBarTrend.buildRenkoSeries) {
       const bSize = o.renko?.brickSize || (row.bars[row.bars.length - 1].c * 0.0018);
       const allBricks = RedBarTrend.buildRenkoSeries(row.bars, bSize);
       const showN = Math.min(want, Math.max(1, allBricks.length));
-      const renkoSlice = allBricks.length ? allBricks.slice(-showN) : [];
+      const endIdx = Math.max(showN, allBricks.length - panOffset);
+      const startIdx = Math.max(0, endIdx - showN);
+      visStart = startIdx;
+      const renkoSlice = allBricks.length ? allBricks.slice(startIdx, endIdx) : [];
       if (!renkoSlice.length) {
         // Fall back to candles if no bricks printed yet
-        const offset = Math.max(0, row.bars.length - want);
-        bars = row.bars.slice(offset);
-        emaF = (row.ema.emaF || []).slice(offset);
-        emaS = (row.ema.emaS || []).slice(offset);
+        const eIdx = Math.max(want, row.bars.length - panOffset);
+        const sIdx = Math.max(0, eIdx - want);
+        visStart = sIdx;
+        bars = row.bars.slice(sIdx, eIdx);
+        emaF = (row.ema.emaF || []).slice(sIdx, eIdx);
+        emaS = (row.ema.emaS || []).slice(sIdx, eIdx);
       } else {
         bars = renkoSlice.map((b) => ({
           t: b.t,
@@ -1961,15 +1999,17 @@ const RangeEmaUI = {
           fullEmaF.push(ef);
           fullEmaS.push(es);
         }
-        emaF = fullEmaF.slice(-showN);
-        emaS = fullEmaS.slice(-showN);
+        emaF = fullEmaF.slice(startIdx, endIdx);
+        emaS = fullEmaS.slice(startIdx, endIdx);
       }
     } else {
       const showN = Math.min(want, row.bars.length);
-      const offset = row.bars.length - showN;
-      bars = row.bars.slice(-showN);
-      emaF = (row.ema.emaF || []).slice(offset);
-      emaS = (row.ema.emaS || []).slice(offset);
+      const endIdx = Math.max(showN, row.bars.length - panOffset);
+      const startIdx = Math.max(0, endIdx - showN);
+      visStart = startIdx;
+      bars = row.bars.slice(startIdx, endIdx);
+      emaF = (row.ema.emaF || []).slice(startIdx, endIdx);
+      emaS = (row.ema.emaS || []).slice(startIdx, endIdx);
     }
 
     const n = bars.length;
@@ -2005,7 +2045,6 @@ const RangeEmaUI = {
       if (!isRenkoMode && b.index != null && b.index >= 0) {
         // index is absolute in full series; map into visible window
         const abs = b.index;
-        const visStart = row.bars.length - bars.length;
         const local = abs - visStart;
         if (local >= 0 && local < bars.length) return local;
       }
@@ -2022,7 +2061,6 @@ const RangeEmaUI = {
     };
     const resolveMarkEndIndex = (b, i0) => {
       if (!isRenkoMode && b.i1Mark != null && b.i1Mark >= 0) {
-        const visStart = row.bars.length - bars.length;
         const local = b.i1Mark - visStart;
         if (local >= 0 && local < bars.length) return Math.max(i0, local);
       }
@@ -2095,10 +2133,6 @@ const RangeEmaUI = {
     let sessionMarks = showSessions
       ? this._sessionMarkersInRange(times[0], times[n - 1], inst.sessions || c.sessions || [], barMs)
       : [];
-    if (compact && sessionMarks.length) {
-      // Opens only — closes double the vertical barcode on a phone
-      sessionMarks = sessionMarks.filter((m) => m.kind === 'open');
-    }
 
     // Distinct palette (avoid overlapping blues/reds/greens across layers)
     const COL = {
@@ -2346,7 +2380,7 @@ const RangeEmaUI = {
             },
             // Desktop: drag-pan. Phone: pinch to zoom; use ◀ ▶ for scrub (keeps page scroll).
             pan: {
-              enabled: !compact,
+              enabled: true,
               mode: 'x',
               threshold: 6,
               modifierKey: null,
