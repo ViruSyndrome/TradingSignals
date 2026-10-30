@@ -567,6 +567,7 @@ const RangeEmaUI = {
     let rawPivot = null;
     let raw5m = null;
     let rawFib30m = null;
+    let raw1m = null;
     try {
       const get = (iv, n) => (typeof API.getDeskOHLC === 'function'
         ? API.getDeskOHLC(instrument, iv, n)
@@ -604,7 +605,6 @@ const RangeEmaUI = {
       } else if (tf === '1h' && firstRedTf === '30m') {
         rawFib30m = rawPivot;
       }
-      let raw1m = null;
       if (need1m && pair[4]?.status === 'fulfilled') {
         raw1m = pair[4].value;
       }
