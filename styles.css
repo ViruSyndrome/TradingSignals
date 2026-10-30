@@ -3057,9 +3057,81 @@ body.redbar-only .site-footer-copyright {
   overflow-wrap: break-word;
   word-break: break-word;
 }
+.rb-signal-banner {
+  margin: 8px 0;
+  padding: 8px 10px;
+  border-radius: 8px;
+  font-size: 12px;
+  font-weight: 650;
+  line-height: 1.35;
+}
+.rb-signal-banner.enter {
+  background: rgba(46, 204, 113, 0.15);
+  border: 1px solid rgba(46, 204, 113, 0.35);
+  color: #b8f0cc;
+}
+.rb-signal-banner.watch {
+  background: rgba(241, 196, 15, 0.12);
+  border: 1px solid rgba(241, 196, 15, 0.3);
+  color: #f5e6a8;
+}
+.rb-signal-banner.wait {
+  background: rgba(255, 255, 255, 0.04);
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  color: var(--text-muted);
+}
+.rb-binance-status {
+  font-size: 11px;
+  color: var(--text-muted);
+  margin: 0 0 8px;
+}
+.rb-binance-status.on {
+  color: #b8f0cc;
+  font-weight: 600;
+}
+.rb-bot-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin: 10px 0 6px;
+}
+.rb-manage-plan {
+  margin-top: 8px;
+  padding: 10px 12px;
+  border-radius: 8px;
+  background: rgba(255, 255, 255, 0.04);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+}
+.rb-manage-plan-title {
+  font-size: 12px;
+  font-weight: 700;
+  letter-spacing: 0.02em;
+  margin-bottom: 2px;
+}
+.rb-manage-plan-note {
+  margin: 0 0 10px;
+  font-size: 11px;
+  color: var(--text-muted);
+  line-height: 1.35;
+}
+.rb-place-how {
+  display: grid;
+  gap: 6px;
+  margin-top: 10px;
+  padding-top: 8px;
+  border-top: 1px solid rgba(255, 255, 255, 0.08);
+}
+.rb-place-opt {
+  font-size: 11px;
+  line-height: 1.4;
+  color: var(--text-muted);
+}
+.rb-place-opt strong {
+  color: var(--text-primary, inherit);
+}
 .rb-action-levels {
   display: grid;
-  grid-template-columns: repeat(4, minmax(0, 1fr));
+  grid-template-columns: repeat(auto-fit, minmax(110px, 1fr));
   gap: 8px;
   font-size: 12px;
 }

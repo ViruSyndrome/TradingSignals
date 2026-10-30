@@ -252,7 +252,7 @@ const RangeEmaUI = {
     const o = row.readout;
     const inst = row.instrument || this.activeInstrument() || {};
     const isEnter = a?.side === 'LONG' || a?.side === 'SHORT';
-    const actionable = o?.actionState === 'enter' && isEnter;
+    const actionable = (o?.actionState === 'enter' || (a?.isFibMagnet && a?.magnetState === 'ENTER')) && isEnter;
 
     // WATCH / bias is NOT an ENTER — do not Telegram.
     // But keep retrying the last real ENTER for a few minutes (brief Trade 2
@@ -276,13 +276,13 @@ const RangeEmaUI = {
       label: inst.label || inst.symbol,
       symbol: inst.symbol,
       side: a.side,
-      setupKind: o.setupKind || 'enter',
-      title: a.title || o.setupKind,
-      price: fmt(a.entry ?? o.price),
-      stop: fmt(o.invalidation),
-      tp1: fmt(o.tp1),
-      dayKey: o.asOfDay || '',
-      triggerTs: o.triggerTs || o.playbook?.redSetup?.triggerTs || o.t || Date.now(),
+      setupKind: a?.isFibMagnet ? 'fib_magnet_reversion' : (o?.setupKind || 'enter'),
+      title: a?.title || o?.setupKind,
+      price: fmt(a?.entry ?? o?.price),
+      stop: fmt(a?.stop ?? o?.invalidation),
+      tp1: fmt(a?.tp1 ?? o?.tp1),
+      dayKey: o?.asOfDay || '',
+      triggerTs: a?.isFibMagnet ? (row.fibMagnet?.candleTime || Date.now()) : (o?.triggerTs || o?.playbook?.redSetup?.triggerTs || o?.t || Date.now()),
       queuedAt: Date.now(),
     };
     this._pendingEnterAlert = payload;
@@ -579,11 +579,13 @@ const RangeEmaUI = {
       const need5m = tf !== '5m';
       const needPivotFetch = tf !== firstRedTf;
       const needFib30m = tf === '1h' && mwMins < 60 && firstRedTf !== '30m';
+      const need1m = (typeof FibMagnet !== 'undefined');
       const pair = await Promise.allSettled([
         get(tf, lim),
         needPivotFetch ? get(firstRedTf, limPivot) : Promise.resolve(null),
         need5m ? get('5m', lim5m) : Promise.resolve(null),
         needFib30m ? get('30m', 500) : Promise.resolve(null),
+        need1m ? get('1m', 50) : Promise.resolve(null),
       ]);
       if (pair[0].status !== 'fulfilled') throw pair[0].reason;
       raw = pair[0].value;
@@ -601,6 +603,10 @@ const RangeEmaUI = {
         rawFib30m = pair[3].value;
       } else if (tf === '1h' && firstRedTf === '30m') {
         rawFib30m = rawPivot;
+      }
+      let raw1m = null;
+      if (need1m && pair[4]?.status === 'fulfilled') {
+        raw1m = pair[4].value;
       }
     } catch (e) {
       return {
@@ -685,13 +691,29 @@ const RangeEmaUI = {
       else emaAgree = 'neutral_trend';
     }
 
-    const action = this._actionPlan(readout, emaAgree, instrument);
+    const bars1m = raw1m ? this._klinesToBars(raw1m) : null;
+    let fibMagnet = null;
+    try {
+      if (typeof FibMagnet !== 'undefined' && readout?.currentBand) {
+        fibMagnet = FibMagnet.evaluate({
+          bars: bars30,
+          sessionBand: readout.currentBand,
+          bars1m,
+        });
+      }
+    } catch (e) {
+      console.warn('[RangeEmaUI] FibMagnet evaluate failed:', e.message || e);
+    }
+
+    const action = this._actionPlan(readout, emaAgree, instrument, fibMagnet);
 
     return {
       symbol: instrument.symbol,
       instrument,
       tf,
       bars: bars30,
+      bars1m,
+      fibMagnet,
       readout,
       ema,
       emaAgree,
@@ -700,7 +722,7 @@ const RangeEmaUI = {
   },
 
   /** Sagar playbook → plain language + levels (fib mark + 1H first red + session clock + futures R:R). */
-  _actionPlan(o, emaAgree, instrument) {
+  _actionPlan(o, emaAgree, instrument, fibMagnet) {
     const inst = instrument || this.activeInstrument() || {};
     const hint = inst.tradeHint || 'Place the futures order on your exchange / broker';
     if (!o) {
@@ -803,7 +825,71 @@ const RangeEmaUI = {
       };
     }
 
-    // 2. Directional Bias / Watch ONLY (not an entry trigger yet — do not FOMO mid-trend)
+    // 2. Fib Magnet Reversion ENTER (Tweezer + 1m EMA Confirmed)
+    if (fibMagnet && fibMagnet.state === 'ENTER') {
+      const rrStr = fibMagnet.rr != null ? `1:${fibMagnet.rr.toFixed(2)}` : '—';
+      const slPctStr = (fibMagnet.entry && fibMagnet.stop)
+        ? ` (${(Math.abs(fibMagnet.entry - fibMagnet.stop) / fibMagnet.entry * 100).toFixed(2)}%)`
+        : '';
+      return {
+        side: fibMagnet.side,
+        isFibMagnet: true,
+        magnetState: 'ENTER',
+        cls: fibMagnet.side === 'LONG' ? 'long' : 'short',
+        title: fibMagnet.title,
+        subtitle: `Fib Magnet Reversion · Stretched ${fibMagnet.distPct.toFixed(2)}% · 1m EMA Confirmed ✅ · R:R ${fibMagnet.rr.toFixed(2)}`,
+        steps: [
+          `${hint}: Enter Futures ${fibMagnet.side} near ${this._fmt(fibMagnet.entry)} (15m Tweezer ${fibMagnet.side === 'LONG' ? 'Bottom' : 'Top'} at ${this._fmt(fibMagnet.swingExtreme)}).`,
+          `1️⃣ Stop-Loss: ${this._fmt(fibMagnet.stop)}${slPctStr} (Structural swing extreme + 0.2% buffer).`,
+          `2️⃣ Take Profit (Fib Magnet): ${this._fmt(fibMagnet.tp)} (Target: return to 02:30 IST Fib box).`,
+          `3️⃣ Micro-Trigger: ${fibMagnet.emaCheck?.status === 'bull_stacked' || fibMagnet.emaCheck?.recentBullCross ? '1m EMA 10 crossed above EMA 20 (Bullish Confirmation ✅)' : '1m EMA 10 crossed below EMA 20 (Bearish Confirmation ✅)'}.`,
+          `4️⃣ Risk/Reward: ${rrStr} · Sizing ready for Binance Futures two-leg order.`,
+        ],
+        entry: fibMagnet.entry,
+        stop: fibMagnet.stop,
+        tp1: fibMagnet.tp,
+        tp2: fibMagnet.tpAlt || fibMagnet.tp,
+        tp3: fibMagnet.tp,
+        exit: fibMagnet.tp,
+        rr: fibMagnet.rr,
+        stopPct: Math.abs(fibMagnet.entry - fibMagnet.stop) / fibMagnet.entry * 100,
+        invalidationReason: 'Swing extreme buffer',
+        actionReason: 'Fib Magnet Reversion with 1m EMA confirmation',
+      };
+    }
+
+    // 3. Fib Magnet WATCH (Tweezer formed, awaiting 1m EMA cross)
+    if (fibMagnet && fibMagnet.state === 'WATCH_1M') {
+      const rrStr = fibMagnet.rr != null ? `1:${fibMagnet.rr.toFixed(2)}` : '—';
+      const slPctStr = (fibMagnet.entry && fibMagnet.stop)
+        ? ` (${(Math.abs(fibMagnet.entry - fibMagnet.stop) / fibMagnet.entry * 100).toFixed(2)}%)`
+        : '';
+      return {
+        side: 'WATCH',
+        isFibMagnet: true,
+        magnetState: 'WATCH_1M',
+        cls: 'wait',
+        title: fibMagnet.title,
+        subtitle: `Tweezer rejection at ${this._fmt(fibMagnet.swingExtreme)} · Awaiting 1m EMA cross before ENTER.`,
+        steps: [
+          `15m Tweezer formed: ${fibMagnet.side} setup ready, but 1m EMA has not crossed yet.`,
+          `Wait for 1m EMA 10 to cross ${fibMagnet.side === 'LONG' ? 'above' : 'below'} EMA 20 to confirm momentum flip.`,
+          `Target: Fib Magnet @ ${this._fmt(fibMagnet.tp)} · Planned Stop: ${this._fmt(fibMagnet.stop)}${slPctStr}.`,
+        ],
+        entry: fibMagnet.entry,
+        stop: fibMagnet.stop,
+        tp1: fibMagnet.tp,
+        tp2: fibMagnet.tpAlt || fibMagnet.tp,
+        tp3: fibMagnet.tp,
+        exit: fibMagnet.tp,
+        rr: fibMagnet.rr,
+        stopPct: Math.abs(fibMagnet.entry - fibMagnet.stop) / fibMagnet.entry * 100,
+        invalidationReason: 'Swing extreme buffer',
+        actionReason: 'Awaiting 1m EMA cross',
+      };
+    }
+
+    // 4. Directional Bias / Watch ONLY (not an entry trigger yet — do not FOMO mid-trend)
     if (biasDir) {
       const magDown = o.playbook?.magnetBelow;
       const magUp = o.playbook?.magnetAbove;
@@ -1217,13 +1303,17 @@ const RangeEmaUI = {
             const sN = useSnap ? snap.stop : a.stop;
             const tpA = useSnap ? snap.tpA : (a.tp1 ?? o.tp1);
             const tpB = useSnap ? snap.tpB : (a.tp3 ?? o.tp3 ?? a.exit ?? o.bookZone);
-            const statusBanner = showEnter
-              ? `<div class="rb-signal-banner enter">LIVE ENTER · ${a.side} — fresh window (~${freshMins}m). Levels ${useSnap ? 'frozen at first alert' : 'live'}.</div>`
-              : (isEnter || reasonStale || snapStale)
-                ? `<div class="rb-signal-banner watch">STALE — ENTER already fired; do <em>not</em> chase. ${o.actionReason ? String(o.actionReason).replace(/[<>&]/g, '') : 'Wait for the next Trade 1 / 2 / sweep.'}</div>`
-              : a.side === 'WATCH'
-                ? `<div class="rb-signal-banner watch">WATCHING — not an entry yet. No Telegram trade until this flips to ENTER.</div>`
-                : `<div class="rb-signal-banner wait">WAITING — no setup. Do not place Binance orders from dashes.</div>`;
+            const statusBanner = a.isFibMagnet
+              ? (showEnter
+                  ? `<div class="rb-signal-banner enter" style="background:linear-gradient(90deg, rgba(56,189,248,0.25), rgba(34,197,94,0.25)); border:1px solid #38bdf8; color:#e0f2fe;">🧲 LIVE ENTER · Fib Magnet ${a.side} — 1m EMA Confirmed ✅ (Target: Fib ${a.side === 'LONG' ? 'f0' : 'f1'} @ ${this._fmt(a.tp1)})</div>`
+                  : `<div class="rb-signal-banner watch" style="background:rgba(234,179,8,0.18); border:1px solid #eab308; color:#fef08a;">🧲 WATCH · Fib Magnet Tweezer formed — awaiting 1m EMA cross before ENTER</div>`)
+              : (showEnter
+                ? `<div class="rb-signal-banner enter">LIVE ENTER · ${a.side} — fresh window (~${freshMins}m). Levels ${useSnap ? 'frozen at first alert' : 'live'}.</div>`
+                : (isEnter || reasonStale || snapStale)
+                  ? `<div class="rb-signal-banner watch">STALE — ENTER already fired; do <em>not</em> chase. ${o.actionReason ? String(o.actionReason).replace(/[<>&]/g, '') : 'Wait for the next Trade 1 / 2 / sweep.'}</div>`
+                : a.side === 'WATCH'
+                  ? `<div class="rb-signal-banner watch">WATCHING — not an entry yet. No Telegram trade until this flips to ENTER.</div>`
+                  : `<div class="rb-signal-banner wait">WAITING — no setup. Do not place Binance orders from dashes.</div>`);
             const pos = this.state.futuresStatus;
             const posAmt = pos?.positions?.[0] ? Math.abs(parseFloat(pos.positions[0].positionAmt) || 0) : 0;
             const posLine = pos
@@ -1592,7 +1682,8 @@ const RangeEmaUI = {
         if (!bars || !bars.length) return;
         const xScale = chart.scales.x;
         const yScale = chart.scales.y;
-        if (!xScale || !yScale) return;
+        const area = chart.chartArea;
+        if (!xScale || !yScale || !area) return;
         const ctx = chart.ctx;
         const n = bars.length;
         const slot = n > 1
@@ -1645,6 +1736,42 @@ const RangeEmaUI = {
             const h = Math.max(1, Math.abs(yC - yO));
             ctx.fillStyle = color;
             ctx.fillRect(x - bodyW / 2, top, bodyW, h);
+          }
+        }
+
+        // Fib Magnet Reversion candle badge
+        if (chart.$rbFibMagnet && chart.$rbFibMagnet.state === 'ENTER' && chart.$rbTimes && chart.$rbTimes.length) {
+          const fm = chart.$rbFibMagnet;
+          let matchIdx = -1;
+          if (fm.candleTime) {
+            matchIdx = chart.$rbTimes.findIndex((t) => Math.abs(t - fm.candleTime) < 30000);
+          }
+          const targetIdx = matchIdx >= 0 ? matchIdx : n - 1;
+          const pxX = xScale.getPixelForValue(targetIdx);
+          const isBuy = fm.side === 'LONG';
+          const targetBar = bars[targetIdx] || bars[n - 1];
+          if (targetBar && Number.isFinite(pxX)) {
+            const yEdge = isBuy ? yScale.getPixelForValue(targetBar.l) : yScale.getPixelForValue(targetBar.h);
+            if (Number.isFinite(yEdge)) {
+              const badgeY = isBuy ? Math.min(area.bottom - 12, yEdge + 18) : Math.max(area.top + 12, yEdge - 18);
+              ctx.save();
+              ctx.font = 'bold 9px Outfit, system-ui, sans-serif';
+              const text = isBuy ? '🧲 MAGNET BUY' : '🧲 MAGNET SELL';
+              const tw = ctx.measureText(text).width;
+              ctx.fillStyle = isBuy ? 'rgba(34, 197, 94, 0.95)' : 'rgba(239, 68, 68, 0.95)';
+              ctx.beginPath();
+              if (typeof ctx.roundRect === 'function') {
+                ctx.roundRect(pxX - tw / 2 - 5, badgeY - 8, tw + 10, 16, 3);
+              } else {
+                ctx.rect(pxX - tw / 2 - 5, badgeY - 8, tw + 10, 16);
+              }
+              ctx.fill();
+              ctx.fillStyle = '#ffffff';
+              ctx.textAlign = 'center';
+              ctx.textBaseline = 'middle';
+              ctx.fillText(text, pxX, badgeY);
+              ctx.restore();
+            }
           }
         }
         ctx.restore();
@@ -2235,7 +2362,10 @@ const RangeEmaUI = {
       }
     };
 
-    if (trading) {
+    if (action.isFibMagnet && (action.side === 'LONG' || action.side === 'SHORT')) {
+      pushTag('🧲 SL', action.stop, COL.stop, 'rgba(60, 10, 10, 0.94)', { priority: true });
+      pushTag('🧲 FIB TP', action.tp1, '#38bdf8', 'rgba(8, 47, 73, 0.94)', { priority: true });
+    } else if (trading) {
       pushTag('STOP', stopPx, COL.stop, 'rgba(60, 10, 10, 0.94)', { priority: true });
       const tp1Px = action.tp1 ?? o.tp1;
       if (tp1Px != null) {
@@ -2485,6 +2615,7 @@ const RangeEmaUI = {
     this._chart.$rbLevelTags = levelTags;
     this._chart.$rbCompact = compact;
     this._chart.$rbUI = this;
+    this._chart.$rbFibMagnet = row.fibMagnet || null;
     // Flex / phone layout often settles after first paint — boxes/plugins need a
     // second resize+update or they stay invisible until the user taps the chart.
     const settle = () => {
