@@ -2895,14 +2895,13 @@ body.redbar-only .rb-chart-wrap {
   flex: 1 1 auto;
   display: flex;
   flex-direction: column;
-  /* Never allow the flex crush that collapsed this to ~16px on phones */
-  min-height: min(52vh, 420px);
-  margin-bottom: 0;
+  min-height: min(65vh, 520px);
+  margin-bottom: 8px;
 }
 body.redbar-only .rb-chart-box {
   flex: 1 1 auto;
   height: auto;
-  min-height: 280px;
+  min-height: 380px;
 }
 body.redbar-only .rb-meta-row,
 body.redbar-only .range-chips,
@@ -3533,3 +3532,216 @@ html.is-phone body.redbar-only #rangeEmaDesk {
     display: none;
   }
 }
+
+/* ==========================================================================
+   Modern Visual Desk Components: Stepper, Timeline, Radar Beacon & Matrix
+   ========================================================================== */
+
+/* Live Pulse Beacon */
+.rb-live-pulse-dot {
+  display: inline-block;
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: #22c55e;
+  box-shadow: 0 0 0 rgba(34, 197, 94, 0.4);
+  animation: rbPulseDot 1.8s infinite;
+  margin-right: 4px;
+}
+@keyframes rbPulseDot {
+  0% { transform: scale(0.95); box-shadow: 0 0 0 0 rgba(34, 197, 94, 0.7); }
+  70% { transform: scale(1.1); box-shadow: 0 0 0 7px rgba(34, 197, 94, 0); }
+  100% { transform: scale(0.95); box-shadow: 0 0 0 0 rgba(34, 197, 94, 0); }
+}
+
+/* Visual Stepper Pipeline */
+.rb-stepper-wrap {
+  margin: 6px 0 8px;
+  background: rgba(15, 23, 42, 0.45);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  border-radius: 8px;
+  padding: 8px 10px;
+}
+.rb-stepper {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 6px;
+}
+@media (max-width: 640px) {
+  .rb-stepper {
+    grid-template-columns: repeat(2, 1fr);
+  }
+}
+.rb-step {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  padding: 6px 8px;
+  border-radius: 6px;
+  background: rgba(255, 255, 255, 0.02);
+  border: 1px solid rgba(255, 255, 255, 0.05);
+}
+.rb-step.done {
+  border-color: rgba(34, 197, 94, 0.35);
+  background: rgba(34, 197, 94, 0.06);
+}
+.rb-step.active {
+  border-color: rgba(56, 189, 248, 0.45);
+  background: rgba(56, 189, 248, 0.09);
+  box-shadow: 0 0 10px rgba(56, 189, 248, 0.15);
+}
+.rb-step.pending {
+  opacity: 0.65;
+}
+.rb-step-icon {
+  width: 20px;
+  height: 20px;
+  border-radius: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 10px;
+  font-weight: 700;
+  background: rgba(255, 255, 255, 0.08);
+  color: #cbd5e1;
+  flex-shrink: 0;
+}
+.rb-step.done .rb-step-icon {
+  background: #22c55e;
+  color: #052e16;
+}
+.rb-step.active .rb-step-icon {
+  background: #38bdf8;
+  color: #082f49;
+  animation: rbStepPulse 1.6s infinite;
+}
+@keyframes rbStepPulse {
+  0% { transform: scale(1); }
+  50% { transform: scale(1.12); }
+  100% { transform: scale(1); }
+}
+.rb-step-body {
+  min-width: 0;
+  overflow: hidden;
+}
+.rb-step-name {
+  font-size: 9.5px;
+  color: #94a3b8;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  white-space: nowrap;
+}
+.rb-step-val {
+  font-size: 11px;
+  font-weight: 600;
+  color: #f1f5f9;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.rb-step-val.pos { color: #4ade80; }
+.rb-step-val.neg { color: #f87171; }
+
+/* 24H Session Timeline */
+.rb-session-timeline-card {
+  margin: 10px 0;
+  padding: 8px 12px;
+  background: rgba(15, 23, 42, 0.45);
+  border: 1px solid rgba(255, 255, 255, 0.07);
+  border-radius: 8px;
+}
+.rb-timeline-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 6px;
+  font-size: 11px;
+  color: #94a3b8;
+}
+.rb-timeline-track {
+  display: grid;
+  grid-template-columns: repeat(6, 1fr);
+  gap: 5px;
+}
+@media (max-width: 600px) {
+  .rb-timeline-track {
+    grid-template-columns: repeat(3, 1fr);
+    row-gap: 6px;
+  }
+}
+.rb-session-seg {
+  padding: 5px 4px;
+  border-radius: 5px;
+  background: rgba(255, 255, 255, 0.02);
+  border: 1px solid rgba(255, 255, 255, 0.05);
+  text-align: center;
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+  transition: all 0.2s;
+}
+.rb-session-seg.active {
+  background: rgba(56, 189, 248, 0.15);
+  border-color: #38bdf8;
+  box-shadow: 0 0 10px rgba(56, 189, 248, 0.2);
+}
+.rb-session-seg .seg-time {
+  font-size: 9px;
+  color: #64748b;
+  font-family: monospace;
+}
+.rb-session-seg.active .seg-time {
+  color: #7dd3fc;
+  font-weight: 700;
+}
+.rb-session-seg .seg-name {
+  font-size: 10.5px;
+  font-weight: 600;
+  color: #cbd5e1;
+}
+.rb-session-seg.active .seg-name {
+  color: #ffffff;
+  font-weight: 700;
+}
+
+/* Key Levels Matrix (3-Column clean grid) */
+.rb-levels-matrix {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 8px;
+  margin: 10px 0;
+}
+@media (max-width: 680px) {
+  .rb-levels-matrix {
+    grid-template-columns: 1fr;
+  }
+}
+.rb-levels-col {
+  background: rgba(15, 23, 42, 0.45);
+  border: 1px solid rgba(255, 255, 255, 0.07);
+  border-radius: 8px;
+  padding: 8px 12px;
+}
+.rb-levels-col .col-title {
+  font-size: 10.5px;
+  font-weight: 700;
+  color: #94a3b8;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  margin-bottom: 6px;
+  padding-bottom: 4px;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.06);
+}
+.rb-levels-col .level-row {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  font-size: 11px;
+  margin-bottom: 4px;
+  color: #94a3b8;
+}
+.rb-levels-col .level-row strong {
+  color: #f1f5f9;
+  font-weight: 600;
+}
+

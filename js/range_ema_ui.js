@@ -1094,6 +1094,20 @@ const RangeEmaUI = {
     document.getElementById('rbCheckBinance')?.addEventListener('click', () => {
       this._refreshFuturesPositions();
     });
+    document.getElementById('rbOpenGuide')?.addEventListener('click', () => {
+      document.getElementById('rbGuideModal')?.classList.add('open');
+      document.body.classList.add('modal-open');
+    });
+    document.getElementById('closeGuideModal')?.addEventListener('click', () => {
+      document.getElementById('rbGuideModal')?.classList.remove('open');
+      document.body.classList.remove('modal-open');
+    });
+    document.getElementById('rbGuideModal')?.addEventListener('click', (e) => {
+      if (e.target.id === 'rbGuideModal') {
+        document.getElementById('rbGuideModal')?.classList.remove('open');
+        document.body.classList.remove('modal-open');
+      }
+    });
     document.querySelectorAll('[data-rb-inst]').forEach((btn) => {
       btn.addEventListener('click', () => this.setInstrument(btn.getAttribute('data-rb-inst')));
     });
@@ -1263,137 +1277,43 @@ const RangeEmaUI = {
       }
     }
 
-    return `
-      <div class="rb-action ${a.cls}">
-        <div class="rb-action-side">${a.side}</div>
-        <div class="rb-action-body">
-          <div class="rb-action-title">${a.title}</div>
-          <div class="rb-action-sub">${a.subtitle || ''}</div>
-          ${(() => {
-            const tfStr = this.activeTf() || '15m';
-            const tfMins = tfStr === '5m' ? 5 : tfStr === '30m' ? 30 : tfStr === '1h' ? 60 : 15;
-            const nowMs = Date.now();
-            const barMs = tfMins * 60000;
-            const remSec = Math.max(1, Math.ceil((barMs - (nowMs % barMs)) / 1000));
-            const remM = Math.floor(remSec / 60);
-            const remS = remSec % 60;
-            const nextBarStr = `Next ${tfStr} bar close in ${remM}m ${String(remS).padStart(2, '0')}s`;
-            const liveClk = (typeof RedBarTrend !== 'undefined' && RedBarTrend.istClockPhase) ? RedBarTrend.istClockPhase(nowMs) : o.playbook?.clock;
-            const trigParts = [];
-            if (a.side === 'WATCH' || a.side === 'WAIT') {
-              if (o.firstRed1h) {
-                const pl = o.firstRedLabel || '1H';
-                trigParts.push(`${pl} Red Zone ${this._fmt(o.firstRed1h.low)}–${this._fmt(o.firstRed1h.high)}`);
-              }
-              if (o.playbook?.magnetBelow) {
-                trigParts.push(`Fib ↓ ${o.playbook.magnetBelow.label} @ ${this._fmt(o.playbook.magnetBelow.price)}`);
-              } else if (o.playbook?.magnetAbove) {
-                trigParts.push(`Fib ↑ ${o.playbook.magnetAbove.label} @ ${this._fmt(o.playbook.magnetAbove.price)}`);
-              }
-            }
-            return `<div class="range-chips" style="margin: 0 0 8px;">
-              <span class="range-chip">Red Bar only</span>
-              <span class="range-chip">⏱️ ${nextBarStr}</span>
-              ${liveClk?.nextWindow ? `<span class="range-chip">🕒 ${liveClk.nextWindow}</span>` : liveClk?.label ? `<span class="range-chip">🕒 ${liveClk.label}</span>` : ''}
-              ${trigParts.length ? `<span class="range-chip">🎯 Waiting: ${trigParts.join(' · ')}</span>` : ''}
-            </div>`;
-          })()}
-          <ul class="rb-action-steps">${steps}</ul>
-          ${(() => {
-            const isEnter = a.side === 'LONG' || a.side === 'SHORT';
-            const freshMins = String(r.instrument?.id || '').toUpperCase() === 'NIFTY' ? 20 : 90;
-            const snap = this.state.enterSnapshot;
-            const snapAgeMin = snap?.at ? (Date.now() - snap.at) / 60000 : 0;
-            const reasonStale = /stale|do not chase|window closed|already \d/i.test(String(o.actionReason || ''));
-            const snapStale = snap && snapAgeMin > freshMins;
-            const showEnter = isEnter && !reasonStale;
-            const useSnap = showEnter && snap && snap.side === a.side && !snapStale;
-            const eN = useSnap ? snap.entry : a.entry;
-            const sN = useSnap ? snap.stop : a.stop;
-            const tpA = useSnap ? snap.tpA : (a.tp1 ?? o.tp1);
-            const tpB = useSnap ? snap.tpB : (a.tp3 ?? o.tp3 ?? a.exit ?? o.bookZone);
-            let tellHtml = '';
-            if (r.sessionTell) {
-              const st = r.sessionTell;
-              const isBull = st.type === 'bullish';
-              const isBear = st.type === 'bearish';
-              const tellBorder = isBull ? '#22c55e' : isBear ? '#ef4444' : '#38bdf8';
-              const tellBg = isBull ? 'rgba(34,197,94,0.08)' : isBear ? 'rgba(239,68,68,0.08)' : 'rgba(56,189,248,0.08)';
-              const badgeBg = isBull ? 'rgba(34,197,94,0.2)' : isBear ? 'rgba(239,68,68,0.2)' : 'rgba(56,189,248,0.2)';
-              const badgeColor = isBull ? '#4ade80' : isBear ? '#f87171' : '#7dd3fc';
+    // Time & Session Computations
+    const tfStr = this.activeTf() || '15m';
+    const tfMins = tfStr === '5m' ? 5 : tfStr === '30m' ? 30 : tfStr === '1h' ? 60 : 15;
+    const nowMs = Date.now();
+    const barMs = tfMins * 60000;
+    const remSec = Math.max(1, Math.ceil((barMs - (nowMs % barMs)) / 1000));
+    const remM = Math.floor(remSec / 60);
+    const remS = remSec % 60;
+    const nextBarStr = `${remM}m ${String(remS).padStart(2, '0')}s`;
 
-              tellHtml = `
-                <div class="rb-session-tell-card" style="margin: 10px 0 12px; padding: 10px 14px; border-radius: 8px; border: 1px solid ${tellBorder}; background: ${tellBg};">
-                  <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom: 6px;">
-                    <div style="display:flex; align-items:center; gap: 8px;">
-                      <span style="font-weight:700; font-size:12px; padding:2px 8px; border-radius:4px; background:${badgeBg}; color:${badgeColor};">${st.badge}</span>
-                      <span style="font-size:12px; color:#94a3b8;">${st.session}</span>
-                    </div>
-                    <span style="font-size:11px; font-weight:600; color:#cbd5e1; background:rgba(255,255,255,0.07); padding:2px 6px; border-radius:4px;">🎯 ${st.confidence}</span>
-                  </div>
-                  <div style="font-size:13px; font-weight:600; color:#f8fafc; margin-bottom:4px;">
-                    Predicted Next Move: <span style="color:${badgeColor}; font-weight:700;">${st.predictedDir}</span> — ${st.headline}
-                  </div>
-                  <div style="font-size:11.5px; color:#cbd5e1; line-height:1.45;">
-                    ${st.detail}
-                  </div>
-                </div>
-              `;
-            }
+    const invDate = new Date(new Date(nowMs).toLocaleString('en-US', { timeZone: 'Asia/Kolkata' }));
+    const curMins = invDate.getHours() * 60 + invDate.getMinutes();
+    const isMark = (curMins >= 150 && curMins < 210);
+    const isAsia = (curMins >= 330 && curMins < 750);
+    const isLon = (curMins >= 750 && curMins < 1110);
+    const isNy = (curMins >= 1110 && curMins < 1170);
+    const isLonClose = (curMins >= 1170 && curMins <= 1290);
+    const isUsClose = (curMins > 1290 || curMins < 150);
 
-            const statusBanner = a.isFibMagnet
-              ? (showEnter
-                  ? `<div class="rb-signal-banner enter" style="background:linear-gradient(90deg, rgba(56,189,248,0.25), rgba(34,197,94,0.25)); border:1px solid #38bdf8; color:#e0f2fe;">🧲 LIVE ENTER · Fib Magnet ${a.side} — 1m EMA Confirmed ✅ (Target: Fib ${a.side === 'LONG' ? 'f0' : 'f1'} @ ${this._fmt(a.tp1)})</div>`
-                  : `<div class="rb-signal-banner watch" style="background:rgba(234,179,8,0.18); border:1px solid #eab308; color:#fef08a;">🧲 WATCH · Fib Magnet Tweezer formed — awaiting 1m EMA cross before ENTER</div>`)
-              : (showEnter
-                ? `<div class="rb-signal-banner enter">LIVE ENTER · ${a.side} — fresh window (~${freshMins}m). Levels ${useSnap ? 'frozen at first alert' : 'live'}.</div>`
-                : (isEnter || reasonStale || snapStale)
-                  ? `<div class="rb-signal-banner watch">STALE — ENTER already fired; do <em>not</em> chase. ${o.actionReason ? String(o.actionReason).replace(/[<>&]/g, '') : 'Wait for the next Trade 1 / 2 / sweep.'}</div>`
-                : a.side === 'WATCH'
-                  ? `<div class="rb-signal-banner watch">👀 WATCHING (Setup Developing) — Bias is ${trendWord}, but entry trigger is not reached yet. Do NOT enter yet; waiting for confirmed trigger.</div>`
-                  : `<div class="rb-signal-banner wait">⏳ WAITING (Market in Equilibrium) — No active entry setup. Market is neutral/balanced; stay in cash and watch the session radar below.</div>`);
-            const pos = this.state.futuresStatus;
-            const posAmt = pos?.positions?.[0] ? Math.abs(parseFloat(pos.positions[0].positionAmt) || 0) : 0;
-            const posLine = pos
-              ? (posAmt > 0
-                ? `<div class="rb-binance-status on">Binance: position open (${posAmt} BTC) · ${(pos.openOrders || []).length} resting order(s)</div>`
-                : `<div class="rb-binance-status">Binance: no open BTCUSDT position right now</div>`)
-              : '';
-            const botBtns = showEnter ? `
-              <div class="rb-bot-actions">
-                <button type="button" class="rb-inst-btn active" id="rbPlaceTwoLeg">Place two-leg on Binance</button>
-                <button type="button" class="rb-inst-btn" id="rbCheckBinance">Check Binance positions</button>
-                <a class="rb-inst-btn" href="https://www.binance.com/en/futures/BTCUSDT" target="_blank" rel="noopener">Open Binance Futures ↗</a>
-              </div>
-              <p class="rb-manage-plan-note">Notification = alert that ENTER fired (PWA banner and/or Telegram). It does <em>not</em> mean an order is filled unless auto-trade is on or you pressed Place.</p>` : `
-              <div class="rb-bot-actions">
-                <button type="button" class="rb-inst-btn" id="rbCheckBinance">Check Binance positions</button>
-                <a class="rb-inst-btn" href="https://www.binance.com/en/futures/BTCUSDT" target="_blank" rel="noopener">Open Binance Futures ↗</a>
-              </div>`;
-            return `
-          ${statusBanner}
-          ${tellHtml}
-          ${posLine}
-          <div class="rb-manage-plan">
-            <div class="rb-manage-plan-title">One ENTER · set-and-forget two legs</div>
-            <p class="rb-manage-plan-note">${useSnap ? 'Frozen at first ENTER (ignores later level drift).' : 'Same entry + stop. Leg A books 50% @ 1:1 · Leg B runner @ 1:3.'}</p>
-            <div class="rb-action-levels">
-              <div><span>Entry</span><strong>${this._fmt(eN)}</strong><small class="rb-level-sub">${useSnap ? 'Frozen' : (ladder ? 'H1→M5' : 'Live')}</small></div>
-              <div><span>Stop (both legs)</span><strong class="neg-text">${this._fmt(sN)}</strong>${stopSub}</div>
-              <div><span>TP A · 50% @ 1:1</span><strong class="pos-text">${this._fmt(tpA)}</strong>${tp1Sub}</div>
-              <div><span>TP B · 50% @ 1:3</span><strong class="pos-text">${this._fmt(tpB)}</strong>${runnerSub}</div>
-            </div>
-            ${botBtns}
-            <div class="rb-place-how">
-              <div class="rb-place-opt"><strong>See your trade:</strong> Binance app/site → <em>Futures</em> → <em>Positions</em> (size open) and <em>Open Orders</em> (SL + TP A + TP B). Or tap Check Binance above.</div>
-              <div class="rb-place-opt"><strong>Auto bot:</strong> On Render set <code>TRADE_ENABLED=true</code>, <code>REDBAR_AUTO_TRADE=true</code>, keys + <code>TRADE_API_SECRET</code>. Next ENTER places two legs and Telegrams the fill.</div>
-            </div>
-          </div>`;
-          })()}
-          ${futuresBarHtml}
-        </div>
-      </div>
+    const activeSessionName = isMark ? 'Daily Mark Window (02:30–03:30 IST)'
+      : isAsia ? 'Asia Session (05:30–12:30 IST)'
+      : isLon ? 'London Session (12:30–18:30 IST)'
+      : isNy ? 'New York Open (18:30–19:30 IST)'
+      : isLonClose ? 'London Close / 4 PM Fix (19:30–21:30 IST)'
+      : 'US Cash Close & CME Settle (21:30–02:30 IST)';
 
+    // Trigger level text for Stepper
+    const trigLevelStr = o.firstRed1h
+      ? `1H Red ${this._fmt(o.firstRed1h.low)}–${this._fmt(o.firstRed1h.high)}`
+      : o.playbook?.magnetBelow
+        ? `Fib ↓ ${this._fmt(o.playbook.magnetBelow.price)}`
+        : o.playbook?.magnetAbove
+          ? `Fib ↑ ${this._fmt(o.playbook.magnetAbove.price)}`
+          : 'Testing Equilibrium';
+
+    // 1. Chart Wrap (TOP PRIORITY)
+    const chartHtml = `
       <div class="rb-chart-wrap glass">
         <div class="rb-chart-toolbar">
           <div class="rb-chart-mode-group" role="group" aria-label="Chart style" style="display:flex;gap:4px;margin-right:8px;">
@@ -1411,8 +1331,21 @@ const RangeEmaUI = {
             <button type="button" class="rb-zoom-btn" id="rbZoomOut" title="Zoom out">−</button>
             <button type="button" class="rb-zoom-btn" id="rbZoomIn" title="Zoom in">+</button>
             <button type="button" class="rb-zoom-btn" id="rbZoomReset" title="Fit all / reset">Fit</button>
+            <button type="button" class="rb-zoom-btn" id="rbOpenGuide" style="border-color:#38bdf8;color:#38bdf8;display:inline-flex;align-items:center;gap:4px;" title="Open Desk Rules & FAQ">📖 Rules &amp; FAQ</button>
           </div>
         </div>
+
+        <div style="display:flex; justify-content:space-between; align-items:center; margin: 0 4px 6px; padding: 6px 12px; background: rgba(15,23,42,0.55); border-radius: 6px; border: 1px solid rgba(255,255,255,0.06); font-size: 11.5px;">
+          <div style="display:flex; align-items:center; gap:8px;">
+            <span style="display:flex; align-items:center;"><span class="rb-live-pulse-dot"></span> <strong style="color:#f8fafc;">${activeSessionName}</strong></span>
+            <span style="color:#64748b;">·</span>
+            <span style="color:#94a3b8;">⏱️ Candle close in ${nextBarStr}</span>
+          </div>
+          <div>
+            ${r.sessionTell ? `<span style="font-weight:600; color:${r.sessionTell.type === 'bullish' ? '#4ade80' : r.sessionTell.type === 'bearish' ? '#f87171' : '#7dd3fc'}; font-size:11px; background:rgba(255,255,255,0.05); padding:2px 8px; border-radius:4px;">${r.sessionTell.badge} (${r.sessionTell.predictedDir})</span>` : ''}
+          </div>
+        </div>
+
         <div class="rb-chart-legend">
           <span class="lg price">Candles (${this.activeTf()})</span>
           <span class="lg ema10">EMA ${c.emaFast || 10}</span>
@@ -1426,62 +1359,211 @@ const RangeEmaUI = {
           <canvas id="redBarChart" aria-label="Red Bar chart"></canvas>
         </div>
       </div>
+    `;
 
-      <div class="rb-meta-row">
-        <div class="range-trend-banner ${trendCls}">
-          <span class="range-trend-label">Predicted trend</span>
-          <strong>${trendWord}</strong>
+    // 2. Action & Status HUD
+    const isEnter = a.side === 'LONG' || a.side === 'SHORT';
+    const freshMins = String(r.instrument?.id || '').toUpperCase() === 'NIFTY' ? 20 : 90;
+    const snap = this.state.enterSnapshot;
+    const snapAgeMin = snap?.at ? (Date.now() - snap.at) / 60000 : 0;
+    const reasonStale = /stale|do not chase|window closed|already \d/i.test(String(o.actionReason || ''));
+    const snapStale = snap && snapAgeMin > freshMins;
+    const showEnter = isEnter && !reasonStale;
+    const useSnap = showEnter && snap && snap.side === a.side && !snapStale;
+    const eN = useSnap ? snap.entry : a.entry;
+    const sN = useSnap ? snap.stop : a.stop;
+    const tpA = useSnap ? snap.tpA : (a.tp1 ?? o.tp1);
+    const tpB = useSnap ? snap.tpB : (a.tp3 ?? o.tp3 ?? a.exit ?? o.bookZone);
+
+    let tellHtml = '';
+    if (r.sessionTell) {
+      const st = r.sessionTell;
+      const isBull = st.type === 'bullish';
+      const isBear = st.type === 'bearish';
+      const tellBorder = isBull ? '#22c55e' : isBear ? '#ef4444' : '#38bdf8';
+      const tellBg = isBull ? 'rgba(34,197,94,0.08)' : isBear ? 'rgba(239,68,68,0.08)' : 'rgba(56,189,248,0.08)';
+      const badgeBg = isBull ? 'rgba(34,197,94,0.2)' : isBear ? 'rgba(239,68,68,0.2)' : 'rgba(56,189,248,0.2)';
+      const badgeColor = isBull ? '#4ade80' : isBear ? '#f87171' : '#7dd3fc';
+
+      tellHtml = `
+        <div class="rb-session-tell-card" style="margin: 8px 0; padding: 10px 14px; border-radius: 8px; border: 1px solid ${tellBorder}; background: ${tellBg};">
+          <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom: 5px;">
+            <div style="display:flex; align-items:center; gap: 8px;">
+              <span style="font-weight:700; font-size:11.5px; padding:2px 8px; border-radius:4px; background:${badgeBg}; color:${badgeColor};">${st.badge}</span>
+              <span style="font-size:11.5px; color:#94a3b8;">${st.session}</span>
+            </div>
+            <span style="font-size:11px; font-weight:600; color:#cbd5e1; background:rgba(255,255,255,0.07); padding:2px 6px; border-radius:4px;">🎯 ${st.confidence}</span>
+          </div>
+          <div style="font-size:12.5px; font-weight:600; color:#f8fafc; margin-bottom:3px;">
+            Predicted Next Move: <span style="color:${badgeColor}; font-weight:700;">${st.predictedDir}</span> — ${st.headline}
+          </div>
+          <div style="font-size:11.5px; color:#cbd5e1; line-height:1.45;">
+            ${st.detail}
+          </div>
         </div>
-        <p class="range-narrative">${o.narrative}</p>
-      </div>
+      `;
+    }
 
-      <div class="range-chips">
-        <span class="range-chip">Following: Red Bar</span>
-        <span class="range-chip">Fib bias: ${o.orBias}</span>
-        ${o.currentBand?.high != null && o.currentBand?.low != null
-          ? `<span class="range-chip" title="Top line = Highest wick (Fib 1) · Bottom line = Lowest wick (Fib 0) of ${r.instrument?.markLabel || '02:30–03:30 IST'}">Mark Fib (${r.instrument?.markLabel || '02:30–03:30 IST'}${o.currentBand.locked === false ? ' · forming' : ''}) Wick H/L: ${this._fmt(o.currentBand.high)} / ${this._fmt(o.currentBand.low)}${o.currentBand.f50 != null ? ` (44/50/56: ${this._fmt(o.currentBand.f44)} / ${this._fmt(o.currentBand.f50)} / ${this._fmt(o.currentBand.f56)})` : ''}</span>`
-          : ''}
-        ${o.playbook?.clock
-          ? `<span class="range-chip">${o.playbook.clock.label}</span>`
-          : ''}
-        ${o.playbook?.redSetup
-          ? `<span class="range-chip ${o.playbook.redSetup.revisitWindow ? 'pos' : ''}">${o.playbook.redSetup.label}</span>`
-          : ''}
-        ${o.playbook?.sweep
-          ? `<span class="range-chip pos">${o.playbook.sweep.label}</span>`
-          : ''}
-        <span class="range-chip" title="Exit management only — not an entry strategy">EMA trail: ${String((r.ema && r.ema.cross) || '').replace(/_/g, ' ')} · ${r.emaAgree}</span>
-        ${(o.refs?.prevSwingHigh != null || o.refs?.prevSwingLow != null)
-          ? `<span class="range-chip">${o.refs.swingStopTf === '5m' ? '5m' : 'Prev'} Swing H/L: ${this._fmt(o.refs.prevSwingHigh)} / ${this._fmt(o.refs.prevSwingLow)}</span>`
-          : ''}
-        ${(o.cpr || o.playbook?.cpr) ? `<span class="range-chip">Dr. Dev CPR: ${this._fmt((o.cpr || o.playbook.cpr).pivot)} (BC ${this._fmt((o.cpr || o.playbook.cpr).bc)} · TC ${this._fmt((o.cpr || o.playbook.cpr).tc)})</span>` : ''}
-        ${o.refs?.priorDayHigh != null
-          ? `<span class="range-chip">Prev Day (PDH/PDL): ${this._fmt(o.refs.priorDayHigh)} / ${this._fmt(o.refs.priorDayLow)}</span>`
-          : ''}
-        ${o.refs?.asiaHigh != null
-          ? `<span class="range-chip">Asia H/L: ${this._fmt(o.refs.asiaHigh)} / ${this._fmt(o.refs.asiaLow)}</span>`
-          : ''}
-        ${o.refs?.londonHigh != null
-          ? `<span class="range-chip">London H/L: ${this._fmt(o.refs.londonHigh)} / ${this._fmt(o.refs.londonLow)}</span>`
-          : ''}
-        ${o.refs?.nyHigh != null
-          ? `<span class="range-chip">NY (US) H/L: ${this._fmt(o.refs.nyHigh)} / ${this._fmt(o.refs.nyLow)}</span>`
-          : ''}
-        ${o.firstRed1h
-          ? `<span class="range-chip">${o.firstRedLabel || '1H'} first red ${this._fmt(o.firstRed1h.high)} / ${this._fmt(o.firstRed1h.low)}</span>`
-          : ''}
-        ${o.firstRedFibs
-          ? `<span class="range-chip">${o.firstRedLabel || '1H'} red Fib 44/50/56: ${this._fmt(o.firstRedFibs.f44)} / ${this._fmt(o.firstRedFibs.f50)} / ${this._fmt(o.firstRedFibs.f56)}</span>`
-          : ''}
-        ${o.playbook?.liquidityTip
-          ? `<span class="range-chip">${o.playbook.liquidityTip}</span>`
-          : ''}
-      </div>
+    const statusBanner = a.isFibMagnet
+      ? (showEnter
+          ? `<div class="rb-signal-banner enter" style="background:linear-gradient(90deg, rgba(56,189,248,0.25), rgba(34,197,94,0.25)); border:1px solid #38bdf8; color:#e0f2fe;">🧲 LIVE ENTER · Fib Magnet ${a.side} — 1m EMA Confirmed ✅ (Target: Fib ${a.side === 'LONG' ? 'f0' : 'f1'} @ ${this._fmt(a.tp1)})</div>`
+          : `<div class="rb-signal-banner watch" style="background:rgba(234,179,8,0.18); border:1px solid #eab308; color:#fef08a;">🧲 WATCH · Fib Magnet Tweezer formed — awaiting 1m EMA cross before ENTER</div>`)
+      : (showEnter
+        ? `<div class="rb-signal-banner enter">LIVE ENTER · ${a.side} — fresh window (~${freshMins}m). Levels ${useSnap ? 'frozen at first alert' : 'live'}.</div>`
+        : (isEnter || reasonStale || snapStale)
+          ? `<div class="rb-signal-banner watch">STALE — ENTER already fired; do <em>not</em> chase. ${o.actionReason ? String(o.actionReason).replace(/[<>&]/g, '') : 'Wait for the next Trade 1 / 2 / sweep.'}</div>`
+        : a.side === 'WATCH'
+          ? `<div class="rb-signal-banner watch">👀 WATCHING (Setup Developing) — Bias is ${trendWord}; waiting for confirmed trigger. Do NOT enter yet.</div>`
+          : `<div class="rb-signal-banner wait">⏳ WAITING (Market in Equilibrium) — No active entry setup. Stay in cash.</div>`);
 
-      <p class="range-desk-footnote">
-        Futures Desk · Green = Actionable LONG · Red = Actionable SHORT · Grey = WATCH / WAIT (bias only — do not chase mid-trend).
-        Only Trade 1 departure, decisive Trade 2 revisit, or Session Sweep trigger an entry.
-      </p>
+    const pos = this.state.futuresStatus;
+    const posAmt = pos?.positions?.[0] ? Math.abs(parseFloat(pos.positions[0].positionAmt) || 0) : 0;
+    const posLine = pos
+      ? (posAmt > 0
+        ? `<div class="rb-binance-status on">Binance: position open (${posAmt} BTC) · ${(pos.openOrders || []).length} resting order(s)</div>`
+        : `<div class="rb-binance-status">Binance: no open BTCUSDT position right now</div>`)
+      : '';
+
+    let actionContentHtml = '';
+    if (showEnter) {
+      const botBtns = `
+        <div class="rb-bot-actions">
+          <button type="button" class="rb-inst-btn active" id="rbPlaceTwoLeg">Place two-leg on Binance</button>
+          <button type="button" class="rb-inst-btn" id="rbCheckBinance">Check Binance positions</button>
+          <a class="rb-inst-btn" href="https://www.binance.com/en/futures/BTCUSDT" target="_blank" rel="noopener">Open Binance Futures ↗</a>
+        </div>
+        <p class="rb-manage-plan-note">Notification = alert that ENTER fired (PWA banner and/or Telegram). It does <em>not</em> mean an order is filled unless auto-trade is on or you pressed Place.</p>`;
+
+      actionContentHtml = `
+        ${statusBanner}
+        ${tellHtml}
+        ${posLine}
+        <div class="rb-manage-plan">
+          <div class="rb-manage-plan-title">One ENTER · set-and-forget two legs</div>
+          <p class="rb-manage-plan-note">${useSnap ? 'Frozen at first ENTER (ignores later level drift).' : 'Same entry + stop. Leg A books 50% @ 1:1 · Leg B runner @ 1:3.'}</p>
+          <div class="rb-action-levels">
+            <div><span>Entry</span><strong>${this._fmt(eN)}</strong><small class="rb-level-sub">${useSnap ? 'Frozen' : (ladder ? 'H1→M5' : 'Live')}</small></div>
+            <div><span>Stop (both legs)</span><strong class="neg-text">${this._fmt(sN)}</strong>${stopSub}</div>
+            <div><span>TP A · 50% @ 1:1</span><strong class="pos-text">${this._fmt(tpA)}</strong>${tp1Sub}</div>
+            <div><span>TP B · 50% @ 1:3</span><strong class="pos-text">${this._fmt(tpB)}</strong>${runnerSub}</div>
+          </div>
+          ${botBtns}
+        </div>
+        ${futuresBarHtml}
+      `;
+    } else {
+      // Compact Stepper for WATCH / WAIT
+      actionContentHtml = `
+        ${statusBanner}
+        ${tellHtml}
+        <div class="rb-stepper-wrap">
+          <div class="rb-stepper">
+            <div class="rb-step done">
+              <div class="rb-step-icon">✓</div>
+              <div class="rb-step-body">
+                <div class="rb-step-name">1. Direction Bias</div>
+                <div class="rb-step-val ${trendCls}">${trendWord}</div>
+              </div>
+            </div>
+            <div class="rb-step active">
+              <div class="rb-step-icon">⚡</div>
+              <div class="rb-step-body">
+                <div class="rb-step-name">2. Target Level</div>
+                <div class="rb-step-val">${trigLevelStr}</div>
+              </div>
+            </div>
+            <div class="rb-step pending">
+              <div class="rb-step-icon">⏳</div>
+              <div class="rb-step-body">
+                <div class="rb-step-name">3. Candle Confirm</div>
+                <div class="rb-step-val">Waiting 5m Close</div>
+              </div>
+            </div>
+            <div class="rb-step pending">
+              <div class="rb-step-icon">🎯</div>
+              <div class="rb-step-body">
+                <div class="rb-step-name">4. Two-Leg Execution</div>
+                <div class="rb-step-val">1:1 BE → 1:3 Runner</div>
+              </div>
+            </div>
+          </div>
+        </div>
+        <details style="margin-top:4px;">
+          <summary style="font-size:11px; color:#64748b; cursor:pointer; padding:2px 0;">Inspect Setup Steps &amp; Levels ▼</summary>
+          <div style="font-size:11.5px; color:#94a3b8; padding:6px 0;">
+            <ul class="rb-action-steps" style="margin:4px 0 0;">${steps}</ul>
+          </div>
+        </details>
+      `;
+    }
+
+    // 3. 24-Hour Session Timeline Card
+    const timelineHtml = `
+      <div class="rb-session-timeline-card">
+        <div class="rb-timeline-header">
+          <span style="font-weight:600; color:#cbd5e1;">🕒 24H Global Liquidity Rhythm</span>
+          <span><span class="rb-live-pulse-dot"></span> Active: <strong style="color:#f8fafc;">${activeSessionName}</strong></span>
+        </div>
+        <div class="rb-timeline-track">
+          <div class="rb-session-seg ${isMark ? 'active' : ''}">
+            <span class="seg-time">02:30</span>
+            <span class="seg-name">Mark</span>
+          </div>
+          <div class="rb-session-seg ${isAsia ? 'active' : ''}">
+            <span class="seg-time">05:30</span>
+            <span class="seg-name">Asia</span>
+          </div>
+          <div class="rb-session-seg ${isLon ? 'active' : ''}">
+            <span class="seg-time">12:30</span>
+            <span class="seg-name">London</span>
+          </div>
+          <div class="rb-session-seg ${isNy ? 'active' : ''}">
+            <span class="seg-time">18:30</span>
+            <span class="seg-name">NY Open</span>
+          </div>
+          <div class="rb-session-seg ${isLonClose ? 'active' : ''}">
+            <span class="seg-time">19:30</span>
+            <span class="seg-name">Lon Close</span>
+          </div>
+          <div class="rb-session-seg ${isUsClose ? 'active' : ''}">
+            <span class="seg-time">01:30</span>
+            <span class="seg-name">US Close</span>
+          </div>
+        </div>
+      </div>
+    `;
+
+    // 4. Key Levels Matrix (3-Column clean grid)
+    const levelsMatrixHtml = `
+      <div class="rb-levels-matrix">
+        <div class="rb-levels-col">
+          <div class="col-title">📌 Session Extremes</div>
+          <div class="level-row"><span>Asia H/L:</span> <strong>${this._fmt(o.refs?.asiaHigh)} / ${this._fmt(o.refs?.asiaLow)}</strong></div>
+          <div class="level-row"><span>London H/L:</span> <strong>${this._fmt(o.refs?.londonHigh)} / ${this._fmt(o.refs?.londonLow)}</strong></div>
+          <div class="level-row"><span>NY H/L:</span> <strong>${this._fmt(o.refs?.nyHigh)} / ${this._fmt(o.refs?.nyLow)}</strong></div>
+        </div>
+        <div class="rb-levels-col">
+          <div class="col-title">🧲 Equilibrium Anchors</div>
+          <div class="level-row"><span>02:30 Mark Fib:</span> <strong>${this._fmt(o.currentBand?.high)} / ${this._fmt(o.currentBand?.low)}</strong></div>
+          <div class="level-row"><span>1H First Red:</span> <strong>${this._fmt(o.firstRed1h?.high)} / ${this._fmt(o.firstRed1h?.low)}</strong></div>
+          <div class="level-row"><span>Dr. Dev CPR:</span> <strong>${this._fmt((o.cpr || o.playbook?.cpr)?.pivot)}</strong></div>
+        </div>
+        <div class="rb-levels-col">
+          <div class="col-title">🎯 Macro Targets &amp; Swings</div>
+          <div class="level-row"><span>Prior Day (PDH/PDL):</span> <strong>${this._fmt(o.refs?.priorDayHigh)} / ${this._fmt(o.refs?.priorDayLow)}</strong></div>
+          <div class="level-row"><span>5m Swing H/L:</span> <strong>${this._fmt(o.refs?.prevSwingHigh)} / ${this._fmt(o.refs?.prevSwingLow)}</strong></div>
+          <div class="level-row"><span>EMA 10 / 30:</span> <strong>${r.emaAgree || 'Agree'}</strong></div>
+        </div>
+      </div>
+    `;
+
+    return `
+      ${chartHtml}
+      <div class="rb-action ${a.cls}" style="margin: 8px 0;">
+        ${actionContentHtml}
+      </div>
+      ${timelineHtml}
+      ${levelsMatrixHtml}
     `;
   },
 

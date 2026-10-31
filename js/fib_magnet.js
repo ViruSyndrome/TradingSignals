@@ -214,48 +214,66 @@ const FibMagnet = {
     const minRecent = Math.min(...recentBars.map(b => b.l));
     const maxRecent = Math.max(...recentBars.map(b => b.h));
 
-    // 1. London Open Window: 12:30 to 14:15 IST (mins 750 to 855)
-    if (mins >= 750 && mins <= 855) {
-      if (asiaLow != null && minRecent < asiaLow && price >= asiaLow * 0.998) {
+    const markHigh = sessionBand?.f1 ?? sessionBand?.high ?? refs?.markHigh;
+    const markLow = sessionBand?.f0 ?? sessionBand?.low ?? refs?.markLow;
+
+    // 1. Asia Open Window: 05:30 to 07:15 IST (mins 330 to 435) — 00:00 UTC Midnight Daily Open
+    if (mins >= 330 && mins <= 435) {
+      if (markLow != null && minRecent < markLow && price >= markLow * 0.998) {
         return {
-          id: 'london_judas_low',
-          badge: '⚡ ASIA LOW SWEPT',
-          session: 'London Open (13:00–14:15 IST)',
-          predictedDir: 'BULLISH REVERSAL',
-          confidence: '62.7% London Extreme',
-          headline: `⚡ Asia Low Swept ($${asiaLow.toFixed(1)}) — London Judas Swing`,
-          detail: `62.7% of trading days form London's session extreme in this opening 45m window. Asia Low was punctured; watch for 15m twin bars & 1m EMA bullish cross to enter Long back to Fib Magnet.`,
+          id: 'asia_sweep_mark_low',
+          badge: '⚡ MARK LOW SWEPT',
+          session: 'Asia Open / Daily Open (05:30–07:15 IST)',
+          predictedDir: 'BULLISH ASIA BOUNCE',
+          confidence: '71.7% Asia Extreme',
+          headline: `⚡ Mark Low Swept ($${Number(markLow).toFixed(1)}) — UTC Daily Low Trap`,
+          detail: `71.7% of days print the Asia session extreme in the first 90m. Mark window low was swept; watch for bounce back towards the 50% Fib median.`,
           candleTime: lastBar.t,
           type: 'bullish',
         };
       }
-      if (asiaHigh != null && maxRecent > asiaHigh && price <= asiaHigh * 1.002) {
+      if (markHigh != null && maxRecent > markHigh && price <= markHigh * 1.002) {
         return {
-          id: 'london_judas_high',
-          badge: '⚡ ASIA HIGH SWEPT',
-          session: 'London Open (13:00–14:15 IST)',
-          predictedDir: 'BEARISH REVERSAL',
-          confidence: '62.7% London Extreme',
-          headline: `⚡ Asia High Swept ($${asiaHigh.toFixed(1)}) — London Judas Swing`,
-          detail: `62.7% of trading days form London's session extreme in this opening 45m window. Asia High was swept; watch for 15m twin rejection bars & 1m EMA bearish cross to fade back to Fib Magnet.`,
+          id: 'asia_sweep_mark_high',
+          badge: '⚡ MARK HIGH SWEPT',
+          session: 'Asia Open / Daily Open (05:30–07:15 IST)',
+          predictedDir: 'BEARISH ASIA FADE',
+          confidence: '71.7% Asia Extreme',
+          headline: `⚡ Mark High Swept ($${Number(markHigh).toFixed(1)}) — UTC Daily High Trap`,
+          detail: `71.7% of days print the Asia session extreme in the first 90m. Mark window high was swept early; watch for rejection back towards the 50% Fib median.`,
           candleTime: lastBar.t,
           type: 'bearish',
         };
       }
       return {
-        id: 'london_open_hunt',
-        badge: '🕒 LONDON OPEN WINDOW',
-        session: 'London Open Active (13:00–14:30 IST)',
-        predictedDir: 'WATCH FOR FAKE OPENING MOVE',
-        confidence: '62.7% Session Extreme Window',
-        headline: '🕒 London Opening Liquidity Hunt in Progress',
-        detail: 'The first 45m of London frequently produces a fake run (Judas Swing) to engineer liquidity before the real trend starts. Look for traps at Asia High/Low.',
+        id: 'asia_open_window',
+        badge: '🌏 ASIA OPEN (UTC 00:00)',
+        session: 'Asia Open Active (05:30–07:15 IST)',
+        predictedDir: 'WATCH FOR DAILY JUDAS WICK',
+        confidence: '71.7% Asia Extreme Window',
+        headline: '🌏 Asia Opening Liquidity Window Active',
+        detail: '05:30 IST is UTC Midnight (new daily candle). The first 90m frequently forms the high or low of Asia. Watch reaction at Mark Fibs.',
         candleTime: lastBar.t,
         type: 'neutral',
       };
     }
 
-    // 2. Pre-London Window: 12:00 to 13:00 IST (mins 720 to 750)
+    // 2. Pre-Asia Window: 03:30 to 05:30 IST (mins 210 to 330)
+    if (mins >= 210 && mins < 330) {
+      return {
+        id: 'pre_asia_drift',
+        badge: '🌏 PRE-ASIA DRIFT',
+        session: 'Pre-Asia (03:30–05:30 IST)',
+        predictedDir: 'WAIT FOR 05:30 UTC DAILY OPEN',
+        confidence: 'Low Volume Consolidation',
+        headline: '🌏 Pre-Asia Low-Volume Drift',
+        detail: 'Mark window has locked. Low-volume drift into 05:30 IST Daily Open. Avoid chasing small pre-market moves before Asian volume arrives.',
+        candleTime: lastBar.t,
+        type: 'neutral',
+      };
+    }
+
+    // 3. Pre-London Window: 12:00 to 13:00 IST (mins 720 to 750)
     if (mins >= 720 && mins < 750) {
       const slicePre = bars.slice(-4);
       const preDelta = (slicePre[slicePre.length - 1].c - slicePre[0].o) / slicePre[0].o * 100;
@@ -287,16 +305,72 @@ const FibMagnet = {
       }
     }
 
-    // 3. New York Open Window: 18:30 to 20:15 IST (mins 1110 to 1215)
-    if (mins >= 1110 && mins <= 1215) {
+    // 4. London Open Window: 12:30 to 14:15 IST (mins 750 to 855)
+    if (mins >= 750 && mins <= 855) {
+      if (asiaLow != null && minRecent < asiaLow && price >= asiaLow * 0.998) {
+        return {
+          id: 'london_judas_low',
+          badge: '⚡ ASIA LOW SWEPT',
+          session: 'London Open (13:00–14:15 IST)',
+          predictedDir: 'BULLISH REVERSAL',
+          confidence: '62.7% London Extreme',
+          headline: `⚡ Asia Low Swept ($${Number(asiaLow).toFixed(1)}) — London Judas Swing`,
+          detail: `62.7% of trading days form London's session extreme in this opening 45m window. Asia Low was punctured; watch for 15m twin bars & 1m EMA bullish cross to enter Long back to Fib Magnet.`,
+          candleTime: lastBar.t,
+          type: 'bullish',
+        };
+      }
+      if (asiaHigh != null && maxRecent > asiaHigh && price <= asiaHigh * 1.002) {
+        return {
+          id: 'london_judas_high',
+          badge: '⚡ ASIA HIGH SWEPT',
+          session: 'London Open (13:00–14:15 IST)',
+          predictedDir: 'BEARISH REVERSAL',
+          confidence: '62.7% London Extreme',
+          headline: `⚡ Asia High Swept ($${Number(asiaHigh).toFixed(1)}) — London Judas Swing`,
+          detail: `62.7% of trading days form London's session extreme in this opening 45m window. Asia High was swept; watch for 15m twin rejection bars & 1m EMA bearish cross to fade back to Fib Magnet.`,
+          candleTime: lastBar.t,
+          type: 'bearish',
+        };
+      }
+      return {
+        id: 'london_open_hunt',
+        badge: '🕒 LONDON OPEN WINDOW',
+        session: 'London Open Active (13:00–14:30 IST)',
+        predictedDir: 'WATCH FOR FAKE OPENING MOVE',
+        confidence: '62.7% Session Extreme Window',
+        headline: '🕒 London Opening Liquidity Hunt in Progress',
+        detail: 'The first 45m of London frequently produces a fake run (Judas Swing) to engineer liquidity before the real trend starts. Look for traps at Asia High/Low.',
+        candleTime: lastBar.t,
+        type: 'neutral',
+      };
+    }
+
+    // 5. London Close / 4 PM Fix Window: 19:30 to 21:30 IST (mins 1170 to 1290)
+    if (mins >= 1170 && mins <= 1290) {
+      return {
+        id: 'london_close_fix',
+        badge: '🇬🇧 LONDON CLOSE / 4PM FIX',
+        session: 'London Close (19:30–21:30 IST)',
+        predictedDir: 'REVERSAL / CHOP WARNING',
+        confidence: '61.8% Non-Continuation Rate',
+        headline: '🇬🇧 London 4 PM Fix — Institutional Rebalancing',
+        detail: '61.8% of trend days reverse (46%) or chop (16%) during London close as European desks square books. Avoid chasing late breakout momentum; watch for squeezes back to VWAP.',
+        candleTime: lastBar.t,
+        type: 'neutral',
+      };
+    }
+
+    // 6. New York Open Window: 18:30 to 19:30 IST (mins 1110 to 1170)
+    if (mins >= 1110 && mins < 1170) {
       if (lonLow != null && minRecent < lonLow && price >= lonLow * 0.998) {
         return {
           id: 'ny_sweep_lon_low',
           badge: '⚡ LONDON LOW SWEPT',
-          session: 'New York Open (18:30–20:00 IST)',
+          session: 'New York Open (18:30–19:30 IST)',
           predictedDir: 'BULLISH BOUNCE',
           confidence: '53.7% Historical Reversal',
-          headline: `⚡ London Low Swept ($${lonLow.toFixed(1)}) — NY Opening Trap`,
+          headline: `⚡ London Low Swept ($${Number(lonLow).toFixed(1)}) — NY Opening Trap`,
           detail: `New York swept the London session low. 53.7% of the time, this is an opening liquidity grab that reverses back into the day's range. Watch 1m EMA cross for Long.`,
           candleTime: lastBar.t,
           type: 'bullish',
@@ -306,10 +380,10 @@ const FibMagnet = {
         return {
           id: 'ny_sweep_lon_high',
           badge: '⚡ LONDON HIGH SWEPT',
-          session: 'New York Open (18:30–20:00 IST)',
+          session: 'New York Open (18:30–19:30 IST)',
           predictedDir: 'BEARISH FADE',
           confidence: '48.4% Fade Odds',
-          headline: `⚡ London High Swept ($${lonHigh.toFixed(1)}) — NY Liquidity Grab`,
+          headline: `⚡ London High Swept ($${Number(lonHigh).toFixed(1)}) — NY Liquidity Grab`,
           detail: `New York swept the London session high. Watch for rejection twin bars and 1m EMA rollover back towards the daily Fib anchor.`,
           candleTime: lastBar.t,
           type: 'bearish',
@@ -318,11 +392,26 @@ const FibMagnet = {
       return {
         id: 'ny_open_window',
         badge: '🕒 NY OPEN WINDOW',
-        session: 'New York Open Active (18:30–20:00 IST)',
+        session: 'New York Open Active (18:30–19:30 IST)',
         predictedDir: 'WATCH NY SWEEP OF LONDON H/L',
         confidence: '56% Extreme Window',
         headline: '🕒 New York Opening Volatility Active',
         detail: '56.0% of days form NY session extreme in first 45m. Watch how price reacts around London High/Low levels.',
+        candleTime: lastBar.t,
+        type: 'neutral',
+      };
+    }
+
+    // 7. US Close & Settlement: 01:15 to 02:30 IST (mins 75 to 150)
+    if (mins >= 75 && mins < 150) {
+      return {
+        id: 'us_close_settle',
+        badge: '🇺🇸 US CLOSE & SETTLE',
+        session: 'US Equity Close (01:15–02:30 IST)',
+        predictedDir: 'COMPRESSION INTO MARK WINDOW',
+        confidence: 'Post-Settle Consolidation',
+        headline: '🇺🇸 US Cash Closed (01:30 IST) & CME Settle',
+        detail: 'US equities closed at 01:30 IST. Volatility compresses as liquidity drains before the next 02:30 IST Mark Window forms.',
         candleTime: lastBar.t,
         type: 'neutral',
       };

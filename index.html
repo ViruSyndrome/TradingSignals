@@ -43,7 +43,7 @@
   <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.4/dist/chart.umd.min.js" defer></script>
   <script src="https://cdn.jsdelivr.net/npm/hammerjs@2.0.8/hammer.min.js" defer></script>
   <script src="https://cdn.jsdelivr.net/npm/chartjs-plugin-zoom@2.2.0/dist/chartjs-plugin-zoom.min.js" defer></script>
-  <link rel="stylesheet" href="styles.css?v=7.21" />
+  <link rel="stylesheet" href="styles.css?v=7.22" />
   <!-- Critical boot overlay (prevents sidebar flash before styles.css applies) -->
   <style>
     html, body { margin: 0; background: #080a14; }
@@ -624,10 +624,10 @@
   <script src="js/api.js?v=6.99" defer></script>
   <script src="js/indicators.js?v=6.60" defer></script>
   <script src="js/redbar_trend.js?v=1.51" defer></script>
-  <script src="js/fib_magnet.js?v=1.01" defer></script>
+  <script src="js/fib_magnet.js?v=1.02" defer></script>
   <script src="js/range_ema_engine.js?v=1.1" defer></script>
   <script src="js/desk_alerts.js?v=1.11" defer></script>
-  <script src="js/range_ema_ui.js?v=1.94" defer></script>
+  <script src="js/range_ema_ui.js?v=1.95" defer></script>
   <script src="js/signals.js?v=6.70" defer></script>
   <script src="js/charts.js?v=6.60" defer></script>
   
@@ -818,6 +818,86 @@
           <span id="authToggleText">Don't have an account?</span> 
           <a href="#" id="authToggleBtn" class="auth-toggle-link">Register here</a>
         </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Red Bar Desk Guide & FAQ Modal -->
+  <div class="modal-overlay" id="rbGuideModal">
+    <div class="modal-box" style="max-width: 760px; max-height: 88vh;">
+      <div class="modal-header">
+        <h2 style="display:flex;align-items:center;gap:8px;font-size:1.15rem;">📖 TrendRunner Desk Guide &amp; Rules</h2>
+        <button class="modal-close-btn" id="closeGuideModal" type="button">&times;</button>
+      </div>
+      <div class="modal-body" style="overflow-y:auto; padding:16px 20px; font-size:13px; line-height:1.6; color:#cbd5e1;">
+        
+        <div style="display:grid; grid-template-columns:1fr 1fr; gap:16px; margin-bottom:16px;">
+          <div style="background:rgba(255,255,255,0.03); border:1px solid rgba(255,255,255,0.07); border-radius:8px; padding:12px;">
+            <h3 style="font-size:13px; font-weight:700; color:#38bdf8; margin:0 0 6px;">🎯 Trade 1: Departure</h3>
+            <p style="margin:0; font-size:12px; color:#94a3b8;">Price decisively leaves the 02:30 IST Mark Window or 1H First Red Bar. Entry fires when candle breaks out with EMA agreement. Stop loss is fixed at the opposite boundary with an initial 1:1 profit target.</p>
+          </div>
+          <div style="background:rgba(255,255,255,0.03); border:1px solid rgba(255,255,255,0.07); border-radius:8px; padding:12px;">
+            <h3 style="font-size:13px; font-weight:700; color:#4ade80; margin:0 0 6px;">⚡ Trade 2: H1→M5 Revisit &amp; Sweep</h3>
+            <p style="margin:0; font-size:12px; color:#94a3b8;">Price sweeps the 1H First Red high or low (liquidity grab), then prints a 5m close back inside with median confluence. Stop loss is locked to the 5m swing wick, giving an ultra-tight risk with 1:3 runner potential.</p>
+          </div>
+        </div>
+
+        <h3 style="font-size:13px; font-weight:700; color:#f8fafc; margin:16px 0 6px;">🕒 24-Hour Session Rhythm (Empirical Tells)</h3>
+        <table style="width:100%; border-collapse:collapse; font-size:12px; margin-bottom:16px;">
+          <thead>
+            <tr style="border-bottom:1px solid rgba(255,255,255,0.1); color:#94a3b8; text-align:left;">
+              <th style="padding:6px 8px;">Session</th>
+              <th style="padding:6px 8px;">Window (IST)</th>
+              <th style="padding:6px 8px;">Historical Tell (730 Days Data)</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr style="border-bottom:1px solid rgba(255,255,255,0.05);">
+              <td style="padding:6px 8px; font-weight:600; color:#f8fafc;">Daily Mark Window</td>
+              <td style="padding:6px 8px;">02:30–03:30</td>
+              <td style="padding:6px 8px; color:#94a3b8;">Locks daily Fib box (0·44·50·56·1). Acts as magnet fair value (69.2% return rate).</td>
+            </tr>
+            <tr style="border-bottom:1px solid rgba(255,255,255,0.05);">
+              <td style="padding:6px 8px; font-weight:600; color:#f8fafc;">Asia Open (UTC 00:00)</td>
+              <td style="padding:6px 8px;">05:30–07:15</td>
+              <td style="padding:6px 8px; color:#94a3b8;">71.7% of days print Asia High or Low in first 90m. Sweeping Mark Window sets daily wick.</td>
+            </tr>
+            <tr style="border-bottom:1px solid rgba(255,255,255,0.05);">
+              <td style="padding:6px 8px; font-weight:600; color:#f8fafc;">London Open (Judas)</td>
+              <td style="padding:6px 8px;">12:30–14:15</td>
+              <td style="padding:6px 8px; color:#94a3b8;">62.7% print London extreme in opening 45m. Sweeping Asia High/Low produces fakeout reversal.</td>
+            </tr>
+            <tr style="border-bottom:1px solid rgba(255,255,255,0.05);">
+              <td style="padding:6px 8px; font-weight:600; color:#f8fafc;">New York Open</td>
+              <td style="padding:6px 8px;">18:30–19:30</td>
+              <td style="padding:6px 8px; color:#94a3b8;">56.0% print NY extreme in first 45m. Sweeping London Low bounces 53.7% of the time.</td>
+            </tr>
+            <tr style="border-bottom:1px solid rgba(255,255,255,0.05);">
+              <td style="padding:6px 8px; font-weight:600; color:#f8fafc;">London Close / 4 PM Fix</td>
+              <td style="padding:6px 8px;">19:30–21:30</td>
+              <td style="padding:6px 8px; color:#94a3b8;">61.8% of trend days reverse or chop as European desks square books. Avoid chasing late breakouts.</td>
+            </tr>
+            <tr>
+              <td style="padding:6px 8px; font-weight:600; color:#f8fafc;">US Cash Close &amp; Settle</td>
+              <td style="padding:6px 8px;">01:15–02:30</td>
+              <td style="padding:6px 8px; color:#94a3b8;">US cash closed (01:30). CME settle. Volatility compresses into 02:30 Mark Window.</td>
+            </tr>
+          </tbody>
+        </table>
+
+        <h3 style="font-size:13px; font-weight:700; color:#f8fafc; margin:16px 0 6px;">💡 FAQs &amp; Rules of Execution</h3>
+        <div style="font-size:12px; line-height:1.6; color:#94a3b8;">
+          <p><strong>What is the difference between WAIT and WATCH?</strong><br>
+          • <em>WAIT</em> = Market is in equilibrium or consolidation between boundaries. No directional bias or trade setup is present. Stay in cash.<br>
+          • <em>WATCH</em> = Directional bias or structure is identified (e.g. Red Bar forming, EMA directional alignment, or liquidity sweep underway), but the exact entry trigger has NOT fired yet. Prepare your order, but DO NOT enter prematurely.</p>
+          
+          <p><strong>How do Futures Fees affect small vs large sizes?</strong><br>
+          Binance USD-M Futures fee is 0.04% per side (0.08% round-trip). Because fee is a fixed percentage, trading a $3,000 position for a small move makes 3× more net dollars than a $1,000 position for the same price movement. On losing trades, the fee remains 0.08% of notional.</p>
+
+          <p><strong>Set-and-Forget Two-Leg Execution:</strong><br>
+          Every ENTER signal provides identical Entry and Stop Loss. Leg A books 50% profit at 1:1 risk-to-reward and immediately moves Stop Loss to Breakeven. Leg B is a risk-free runner targeting 1:3 or EMA rollover.</p>
+        </div>
+
       </div>
     </div>
   </div>
