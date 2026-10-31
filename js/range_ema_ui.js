@@ -1108,6 +1108,12 @@ const RangeEmaUI = {
         document.body.classList.remove('modal-open');
       }
     });
+    document.addEventListener('keydown', (e) => {
+      if (e.key === 'Escape' && document.getElementById('rbGuideModal')?.classList.contains('open')) {
+        document.getElementById('rbGuideModal')?.classList.remove('open');
+        document.body.classList.remove('modal-open');
+      }
+    });
     document.querySelectorAll('[data-rb-inst]').forEach((btn) => {
       btn.addEventListener('click', () => this.setInstrument(btn.getAttribute('data-rb-inst')));
     });
