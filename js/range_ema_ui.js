@@ -1359,6 +1359,7 @@ const RangeEmaUI = {
           <span class="lg band">${this._isFibStyle(r) ? `Fib 0·44·50·56·1${r.instrument?.markLabel ? ` · ${r.instrument.markLabel}` : ''}` : 'Day ranges'}</span>
           <span class="lg stop">${o.firstRedLabel || '1H'} first red H/L</span>
           <span class="lg sess-london rb-lg-desk">Session opens</span>
+          <span id="rbCandleInfo" style="margin-left:auto; font-weight:600; font-size:11.5px; color:#cbd5e1;"></span>
         </div>
         <p class="rb-zoom-hint">${this.isPhoneLayout() ? 'Pinch to zoom · ◀ ▶ to scrub · Fit resets' : 'Pinch / wheel to zoom · drag to pan · Fit resets'}</p>
         <div class="rb-chart-box">
@@ -2616,6 +2617,33 @@ const RangeEmaUI = {
         maintainAspectRatio: false,
         animation: { duration: compact ? 0 : 280 },
         interaction: { mode: 'index', intersect: false },
+        onHover: (event, activeElements) => {
+          const elInfo = document.getElementById('rbCandleInfo');
+          if (!elInfo) return;
+          if (activeElements && activeElements.length) {
+            const idx = activeElements[0].index;
+            const b = bars[idx];
+            if (b) {
+              const d = inst.priceDecimals ?? 2;
+              const chg = ((b.c - b.o) / b.o) * 100;
+              const arrow = chg >= 0 ? '▲' : '▼';
+              const sign = chg >= 0 ? '+' : '';
+              const col = chg >= 0 ? '#4ade80' : '#f87171';
+              const t = times[idx] ? new Date(times[idx]).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', hour12: false }) : '';
+              elInfo.innerHTML = `<span style="color:#94a3b8;">${t}</span> <strong style="color:${col};">$${Number(b.c).toFixed(d)} (${arrow} ${sign}${chg.toFixed(2)}%)</strong> <span style="color:#64748b;">H: $${Number(b.h).toFixed(d)} · L: $${Number(b.l).toFixed(d)}</span>`;
+              return;
+            }
+          }
+          if (bars && bars.length) {
+            const last = bars[bars.length - 1];
+            const d = inst.priceDecimals ?? 2;
+            const chg = ((last.c - last.o) / last.o) * 100;
+            const arrow = chg >= 0 ? '▲' : '▼';
+            const sign = chg >= 0 ? '+' : '';
+            const col = chg >= 0 ? '#4ade80' : '#f87171';
+            elInfo.innerHTML = `<span style="color:#94a3b8;">Live:</span> <strong style="color:${col};">$${Number(last.c).toFixed(d)} (${arrow} ${sign}${chg.toFixed(2)}%)</strong> <span style="color:#64748b;">H: $${Number(last.h).toFixed(d)} · L: $${Number(last.l).toFixed(d)}</span>`;
+          }
+        },
         layout: {
           // Tags draw inside the plot now — only a slim edge for the Y tick labels
           padding: {
@@ -2629,44 +2657,39 @@ const RangeEmaUI = {
           legend: { display: false },
           tooltip: {
             enabled: true,
-            backgroundColor: 'rgba(12,16,36,0.92)',
-            titleFont: { family: 'Outfit', size: 11 },
+            backgroundColor: 'rgba(15, 23, 42, 0.95)',
+            borderColor: 'rgba(255, 255, 255, 0.12)',
+            borderWidth: 1,
+            titleFont: { family: 'Outfit', size: 12, weight: '700' },
             bodyFont: { family: 'Outfit', size: 11 },
-            padding: 8,
+            padding: 10,
             displayColors: false,
             caretPadding: 8,
             filter(item) {
-              const l = item.dataset.label || '';
-              return l === priceLabel || l.startsWith('EMA');
+              return item.dataset.label === priceLabel;
             },
             callbacks: {
               title(items) {
                 const i = items[0]?.dataIndex;
                 if (i == null || !times[i]) return items[0]?.label || '';
                 const d = new Date(times[i]);
-                return d.toLocaleString(undefined, {
-                  month: 'short',
-                  day: 'numeric',
-                  hour: '2-digit',
-                  minute: '2-digit',
-                  hour12: false,
-                });
+                const timeStr = d.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', hour12: false });
+                const dateStr = d.toLocaleDateString([], { month: 'short', day: 'numeric' });
+                return `📅 ${dateStr} · ${timeStr} IST`;
               },
               label(ctx) {
-                if (ctx.dataset.label === priceLabel) {
-                  const b = bars[ctx.dataIndex];
-                  if (!b) return priceLabel;
-                  const d = inst.priceDecimals ?? 2;
-                  return [
-                    `O  ${Number(b.o).toFixed(d)}`,
-                    `H  ${Number(b.h).toFixed(d)}`,
-                    `L  ${Number(b.l).toFixed(d)}`,
-                    `C  ${Number(b.c).toFixed(d)}`,
-                  ];
-                }
-                const v = ctx.parsed.y;
-                if (v == null) return ctx.dataset.label;
-                return `${ctx.dataset.label}  ${Number(v).toFixed(2)}`;
+                const b = bars[ctx.dataIndex];
+                if (!b) return '';
+                const d = inst.priceDecimals ?? 2;
+                const changePct = ((b.c - b.o) / b.o) * 100;
+                const sign = changePct >= 0 ? '+' : '';
+                const arrow = changePct >= 0 ? '▲' : '▼';
+                return [
+                  `💵 Price: $${Number(b.c).toLocaleString(undefined, { minimumFractionDigits: d, maximumFractionDigits: d })} (${arrow} ${sign}${changePct.toFixed(2)}%)`,
+                  `📈 High:   $${Number(b.h).toLocaleString(undefined, { minimumFractionDigits: d, maximumFractionDigits: d })}`,
+                  `📉 Low:    $${Number(b.l).toLocaleString(undefined, { minimumFractionDigits: d, maximumFractionDigits: d })}`,
+                  `🚪 Open:   $${Number(b.o).toLocaleString(undefined, { minimumFractionDigits: d, maximumFractionDigits: d })}`,
+                ];
               },
             },
           },
@@ -2784,6 +2807,17 @@ const RangeEmaUI = {
     this._chart.$rbUI = this;
     this._chart.$rbFibMagnet = row.fibMagnet || null;
     this._chart.$rbSessionTell = row.sessionTell || null;
+
+    const elInitInfo = document.getElementById('rbCandleInfo');
+    if (elInitInfo && bars && bars.length) {
+      const last = bars[bars.length - 1];
+      const d = inst.priceDecimals ?? 2;
+      const chg = ((last.c - last.o) / last.o) * 100;
+      const arrow = chg >= 0 ? '▲' : '▼';
+      const sign = chg >= 0 ? '+' : '';
+      const col = chg >= 0 ? '#4ade80' : '#f87171';
+      elInitInfo.innerHTML = `<span style="color:#94a3b8;">Live:</span> <strong style="color:${col};">$${Number(last.c).toFixed(d)} (${arrow} ${sign}${chg.toFixed(2)}%)</strong> <span style="color:#64748b;">H: $${Number(last.h).toFixed(d)} · L: $${Number(last.l).toFixed(d)}</span>`;
+    }
     // Flex / phone layout often settles after first paint — boxes/plugins need a
     // second resize+update or they stay invisible until the user taps the chart.
     const settle = () => {

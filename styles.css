@@ -3389,17 +3389,39 @@ body.redbar-only .site-footer-copyright {
   .rb-tf-group, .rb-zoom-group {
     justify-content: stretch;
   }
+  .rb-zoom-group {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 4px;
+  }
+  .rb-zoom-group #rbOpenGuide {
+    flex: 2 1 100%;
+    margin-top: 4px;
+    font-weight: 600;
+  }
   .rb-tf-btn, .rb-zoom-btn {
     flex: 1;
     text-align: center;
     padding: 8px 6px;
-    min-height: 40px;
+    min-height: 38px;
   }
   .rb-chart-legend {
     display: flex;
     gap: 6px 10px;
     font-size: 10px;
     margin-bottom: 6px;
+    flex-wrap: wrap;
+  }
+  .rb-chart-legend #rbCandleInfo {
+    width: 100%;
+    margin-left: 0;
+    margin-top: 3px;
+    font-size: 11px;
+    display: block;
+    background: rgba(255, 255, 255, 0.03);
+    padding: 4px 8px;
+    border-radius: 4px;
+    border: 1px solid rgba(255, 255, 255, 0.05);
   }
   .rb-chart-legend .rb-lg-desk { display: none; }
   .rb-zoom-hint { font-size: 10px; margin-bottom: 4px; }
