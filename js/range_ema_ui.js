@@ -693,16 +693,24 @@ const RangeEmaUI = {
 
     const bars1m = raw1m ? this._klinesToBars(raw1m) : null;
     let fibMagnet = null;
+    let sessionTell = null;
     try {
-      if (typeof FibMagnet !== 'undefined' && readout?.currentBand) {
-        fibMagnet = FibMagnet.evaluate({
+      if (typeof FibMagnet !== 'undefined') {
+        if (readout?.currentBand) {
+          fibMagnet = FibMagnet.evaluate({
+            bars: bars30,
+            sessionBand: readout.currentBand,
+            bars1m,
+          });
+        }
+        sessionTell = FibMagnet.detectSessionTell({
           bars: bars30,
-          sessionBand: readout.currentBand,
-          bars1m,
+          sessionBand: readout?.currentBand,
+          refs: readout?.refs,
         });
       }
     } catch (e) {
-      console.warn('[RangeEmaUI] FibMagnet evaluate failed:', e.message || e);
+      console.warn('[RangeEmaUI] FibMagnet/Tell evaluate failed:', e.message || e);
     }
 
     const action = this._actionPlan(readout, emaAgree, instrument, fibMagnet);
@@ -714,6 +722,7 @@ const RangeEmaUI = {
       bars: bars30,
       bars1m,
       fibMagnet,
+      sessionTell,
       readout,
       ema,
       emaAgree,
@@ -1303,6 +1312,35 @@ const RangeEmaUI = {
             const sN = useSnap ? snap.stop : a.stop;
             const tpA = useSnap ? snap.tpA : (a.tp1 ?? o.tp1);
             const tpB = useSnap ? snap.tpB : (a.tp3 ?? o.tp3 ?? a.exit ?? o.bookZone);
+            let tellHtml = '';
+            if (r.sessionTell) {
+              const st = r.sessionTell;
+              const isBull = st.type === 'bullish';
+              const isBear = st.type === 'bearish';
+              const tellBorder = isBull ? '#22c55e' : isBear ? '#ef4444' : '#38bdf8';
+              const tellBg = isBull ? 'rgba(34,197,94,0.08)' : isBear ? 'rgba(239,68,68,0.08)' : 'rgba(56,189,248,0.08)';
+              const badgeBg = isBull ? 'rgba(34,197,94,0.2)' : isBear ? 'rgba(239,68,68,0.2)' : 'rgba(56,189,248,0.2)';
+              const badgeColor = isBull ? '#4ade80' : isBear ? '#f87171' : '#7dd3fc';
+
+              tellHtml = `
+                <div class="rb-session-tell-card" style="margin: 10px 0 12px; padding: 10px 14px; border-radius: 8px; border: 1px solid ${tellBorder}; background: ${tellBg};">
+                  <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom: 6px;">
+                    <div style="display:flex; align-items:center; gap: 8px;">
+                      <span style="font-weight:700; font-size:12px; padding:2px 8px; border-radius:4px; background:${badgeBg}; color:${badgeColor};">${st.badge}</span>
+                      <span style="font-size:12px; color:#94a3b8;">${st.session}</span>
+                    </div>
+                    <span style="font-size:11px; font-weight:600; color:#cbd5e1; background:rgba(255,255,255,0.07); padding:2px 6px; border-radius:4px;">🎯 ${st.confidence}</span>
+                  </div>
+                  <div style="font-size:13px; font-weight:600; color:#f8fafc; margin-bottom:4px;">
+                    Predicted Next Move: <span style="color:${badgeColor}; font-weight:700;">${st.predictedDir}</span> — ${st.headline}
+                  </div>
+                  <div style="font-size:11.5px; color:#cbd5e1; line-height:1.45;">
+                    ${st.detail}
+                  </div>
+                </div>
+              `;
+            }
+
             const statusBanner = a.isFibMagnet
               ? (showEnter
                   ? `<div class="rb-signal-banner enter" style="background:linear-gradient(90deg, rgba(56,189,248,0.25), rgba(34,197,94,0.25)); border:1px solid #38bdf8; color:#e0f2fe;">🧲 LIVE ENTER · Fib Magnet ${a.side} — 1m EMA Confirmed ✅ (Target: Fib ${a.side === 'LONG' ? 'f0' : 'f1'} @ ${this._fmt(a.tp1)})</div>`
@@ -1312,8 +1350,8 @@ const RangeEmaUI = {
                 : (isEnter || reasonStale || snapStale)
                   ? `<div class="rb-signal-banner watch">STALE — ENTER already fired; do <em>not</em> chase. ${o.actionReason ? String(o.actionReason).replace(/[<>&]/g, '') : 'Wait for the next Trade 1 / 2 / sweep.'}</div>`
                 : a.side === 'WATCH'
-                  ? `<div class="rb-signal-banner watch">WATCHING — not an entry yet. No Telegram trade until this flips to ENTER.</div>`
-                  : `<div class="rb-signal-banner wait">WAITING — no setup. Do not place Binance orders from dashes.</div>`);
+                  ? `<div class="rb-signal-banner watch">👀 WATCHING (Setup Developing) — Bias is ${trendWord}, but entry trigger is not reached yet. Do NOT enter yet; waiting for confirmed trigger.</div>`
+                  : `<div class="rb-signal-banner wait">⏳ WAITING (Market in Equilibrium) — No active entry setup. Market is neutral/balanced; stay in cash and watch the session radar below.</div>`);
             const pos = this.state.futuresStatus;
             const posAmt = pos?.positions?.[0] ? Math.abs(parseFloat(pos.positions[0].positionAmt) || 0) : 0;
             const posLine = pos
@@ -1334,6 +1372,7 @@ const RangeEmaUI = {
               </div>`;
             return `
           ${statusBanner}
+          ${tellHtml}
           ${posLine}
           <div class="rb-manage-plan">
             <div class="rb-manage-plan-title">One ENTER · set-and-forget two legs</div>
@@ -1771,6 +1810,46 @@ const RangeEmaUI = {
               ctx.textBaseline = 'middle';
               ctx.fillText(text, pxX, badgeY);
               ctx.restore();
+            }
+          }
+        }
+
+        // Session Tell Badge (Liquidity Sweeps & Session Tells)
+        if (chart.$rbSessionTell && chart.$rbSessionTell.badge && chart.$rbTimes && chart.$rbTimes.length) {
+          const st = chart.$rbSessionTell;
+          if (st.id && (st.id.includes('sweep') || st.id.includes('magnet') || st.id.includes('pump') || st.id.includes('dump'))) {
+            let matchIdx = -1;
+            if (st.candleTime) {
+              matchIdx = chart.$rbTimes.findIndex((t) => Math.abs(t - st.candleTime) < 30000);
+            }
+            const targetIdx = matchIdx >= 0 ? matchIdx : n - 1;
+            const pxX = xScale.getPixelForValue(targetIdx);
+            const isBull = st.type === 'bullish';
+            const isBear = st.type === 'bearish';
+            const targetBar = bars[targetIdx] || bars[n - 1];
+            if (targetBar && Number.isFinite(pxX)) {
+              const yEdge = isBull ? yScale.getPixelForValue(targetBar.l) : yScale.getPixelForValue(targetBar.h);
+              if (Number.isFinite(yEdge)) {
+                const yOff = (chart.$rbFibMagnet && chart.$rbFibMagnet.state === 'ENTER') ? 34 : 18;
+                const badgeY = isBull ? Math.min(area.bottom - 12, yEdge + yOff) : Math.max(area.top + 12, yEdge - yOff);
+                ctx.save();
+                ctx.font = 'bold 9px Outfit, system-ui, sans-serif';
+                const text = st.badge;
+                const tw = ctx.measureText(text).width;
+                ctx.fillStyle = isBull ? 'rgba(16, 185, 129, 0.95)' : isBear ? 'rgba(239, 68, 68, 0.95)' : 'rgba(14, 165, 233, 0.95)';
+                ctx.beginPath();
+                if (typeof ctx.roundRect === 'function') {
+                  ctx.roundRect(pxX - tw / 2 - 5, badgeY - 8, tw + 10, 16, 3);
+                } else {
+                  ctx.rect(pxX - tw / 2 - 5, badgeY - 8, tw + 10, 16);
+                }
+                ctx.fill();
+                ctx.fillStyle = '#ffffff';
+                ctx.textAlign = 'center';
+                ctx.textBaseline = 'middle';
+                ctx.fillText(text, pxX, badgeY);
+                ctx.restore();
+              }
             }
           }
         }
@@ -2616,6 +2695,7 @@ const RangeEmaUI = {
     this._chart.$rbCompact = compact;
     this._chart.$rbUI = this;
     this._chart.$rbFibMagnet = row.fibMagnet || null;
+    this._chart.$rbSessionTell = row.sessionTell || null;
     // Flex / phone layout often settles after first paint — boxes/plugins need a
     // second resize+update or they stay invisible until the user taps the chart.
     const settle = () => {

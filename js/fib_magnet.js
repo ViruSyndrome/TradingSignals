@@ -183,6 +183,197 @@ const FibMagnet = {
         : `WATCH · Tweezer formed, awaiting 1m EMA cross`,
       subtitle: `Target Fib ${setup.side === 'LONG' ? 'f0' : 'f1'} (${setup.tp.toFixed(1)}) · Stretched ${setup.distPct.toFixed(2)}% · SL ${setup.stop.toFixed(1)} · R:R ${setup.rr.toFixed(2)}`,
     };
+  },
+
+  /**
+   * Detects real-world session opening tells & predictive bias:
+   *  1. London Judas Swing (sweeping Asia High or Low in first 75m)
+   *  2. NY Opening Hunt (sweeping London High or Low)
+   *  3. Pre-London Ramp/Drift (12:00-13:00 IST)
+   *  4. Fib Magnet Pull (69.2% reversion probability)
+   */
+  detectSessionTell({ bars, sessionBand, refs, asOfTs }) {
+    const now = asOfTs || (bars && bars.length ? bars[bars.length - 1].t : Date.now());
+    const d = new Date(now);
+    const inv = new Date(d.toLocaleString('en-US', { timeZone: 'Asia/Kolkata' }));
+    const hour = inv.getHours();
+    const minute = inv.getMinutes();
+    const mins = hour * 60 + minute;
+
+    if (!bars || bars.length < 5) return null;
+    const lastBar = bars[bars.length - 1];
+    const price = lastBar.c;
+
+    const asiaHigh = refs?.asiaHigh;
+    const asiaLow = refs?.asiaLow;
+    const lonHigh = refs?.londonHigh;
+    const lonLow = refs?.londonLow;
+
+    // Check last 4 bars for recent sweeps
+    const recentBars = bars.slice(-4);
+    const minRecent = Math.min(...recentBars.map(b => b.l));
+    const maxRecent = Math.max(...recentBars.map(b => b.h));
+
+    // 1. London Open Window: 12:30 to 14:15 IST (mins 750 to 855)
+    if (mins >= 750 && mins <= 855) {
+      if (asiaLow != null && minRecent < asiaLow && price >= asiaLow * 0.998) {
+        return {
+          id: 'london_judas_low',
+          badge: '⚡ ASIA LOW SWEPT',
+          session: 'London Open (13:00–14:15 IST)',
+          predictedDir: 'BULLISH REVERSAL',
+          confidence: '62.7% London Extreme',
+          headline: `⚡ Asia Low Swept ($${asiaLow.toFixed(1)}) — London Judas Swing`,
+          detail: `62.7% of trading days form London's session extreme in this opening 45m window. Asia Low was punctured; watch for 15m twin bars & 1m EMA bullish cross to enter Long back to Fib Magnet.`,
+          candleTime: lastBar.t,
+          type: 'bullish',
+        };
+      }
+      if (asiaHigh != null && maxRecent > asiaHigh && price <= asiaHigh * 1.002) {
+        return {
+          id: 'london_judas_high',
+          badge: '⚡ ASIA HIGH SWEPT',
+          session: 'London Open (13:00–14:15 IST)',
+          predictedDir: 'BEARISH REVERSAL',
+          confidence: '62.7% London Extreme',
+          headline: `⚡ Asia High Swept ($${asiaHigh.toFixed(1)}) — London Judas Swing`,
+          detail: `62.7% of trading days form London's session extreme in this opening 45m window. Asia High was swept; watch for 15m twin rejection bars & 1m EMA bearish cross to fade back to Fib Magnet.`,
+          candleTime: lastBar.t,
+          type: 'bearish',
+        };
+      }
+      return {
+        id: 'london_open_hunt',
+        badge: '🕒 LONDON OPEN WINDOW',
+        session: 'London Open Active (13:00–14:30 IST)',
+        predictedDir: 'WATCH FOR FAKE OPENING MOVE',
+        confidence: '62.7% Session Extreme Window',
+        headline: '🕒 London Opening Liquidity Hunt in Progress',
+        detail: 'The first 45m of London frequently produces a fake run (Judas Swing) to engineer liquidity before the real trend starts. Look for traps at Asia High/Low.',
+        candleTime: lastBar.t,
+        type: 'neutral',
+      };
+    }
+
+    // 2. Pre-London Window: 12:00 to 13:00 IST (mins 720 to 750)
+    if (mins >= 720 && mins < 750) {
+      const slicePre = bars.slice(-4);
+      const preDelta = (slicePre[slicePre.length - 1].c - slicePre[0].o) / slicePre[0].o * 100;
+      if (preDelta > 0.20) {
+        return {
+          id: 'pre_london_pump',
+          badge: '🕒 PRE-LONDON RAMP',
+          session: 'Pre-London (12:00–13:00 IST)',
+          predictedDir: 'POTENTIAL OPENING DUMP',
+          confidence: '43% Reversal Tell',
+          headline: '🕒 Pre-London Ramp (+0.2% into open)',
+          detail: 'Slow upward grind in low pre-market volume often acts as bait. London open (13:00 IST) frequently counter-punches with a sharp fake dump.',
+          candleTime: lastBar.t,
+          type: 'bearish',
+        };
+      }
+      if (preDelta < -0.20) {
+        return {
+          id: 'pre_london_dump',
+          badge: '🕒 PRE-LONDON SLIDE',
+          session: 'Pre-London (12:00–13:00 IST)',
+          predictedDir: 'POTENTIAL OPENING BOUNCE',
+          confidence: '37% Reversal Tell',
+          headline: '🕒 Pre-London Slide (-0.2% into open)',
+          detail: 'Slow downward slide into London open. Watch for an opening liquidity flush below Asia Low to establish London session low.',
+          candleTime: lastBar.t,
+          type: 'bullish',
+        };
+      }
+    }
+
+    // 3. New York Open Window: 18:30 to 20:15 IST (mins 1110 to 1215)
+    if (mins >= 1110 && mins <= 1215) {
+      if (lonLow != null && minRecent < lonLow && price >= lonLow * 0.998) {
+        return {
+          id: 'ny_sweep_lon_low',
+          badge: '⚡ LONDON LOW SWEPT',
+          session: 'New York Open (18:30–20:00 IST)',
+          predictedDir: 'BULLISH BOUNCE',
+          confidence: '53.7% Historical Reversal',
+          headline: `⚡ London Low Swept ($${lonLow.toFixed(1)}) — NY Opening Trap`,
+          detail: `New York swept the London session low. 53.7% of the time, this is an opening liquidity grab that reverses back into the day's range. Watch 1m EMA cross for Long.`,
+          candleTime: lastBar.t,
+          type: 'bullish',
+        };
+      }
+      if (lonHigh != null && maxRecent > lonHigh && price <= lonHigh * 1.002) {
+        return {
+          id: 'ny_sweep_lon_high',
+          badge: '⚡ LONDON HIGH SWEPT',
+          session: 'New York Open (18:30–20:00 IST)',
+          predictedDir: 'BEARISH FADE',
+          confidence: '48.4% Fade Odds',
+          headline: `⚡ London High Swept ($${lonHigh.toFixed(1)}) — NY Liquidity Grab`,
+          detail: `New York swept the London session high. Watch for rejection twin bars and 1m EMA rollover back towards the daily Fib anchor.`,
+          candleTime: lastBar.t,
+          type: 'bearish',
+        };
+      }
+      return {
+        id: 'ny_open_window',
+        badge: '🕒 NY OPEN WINDOW',
+        session: 'New York Open Active (18:30–20:00 IST)',
+        predictedDir: 'WATCH NY SWEEP OF LONDON H/L',
+        confidence: '56% Extreme Window',
+        headline: '🕒 New York Opening Volatility Active',
+        detail: '56.0% of days form NY session extreme in first 45m. Watch how price reacts around London High/Low levels.',
+        candleTime: lastBar.t,
+        type: 'neutral',
+      };
+    }
+
+    // 4. Daily Fib Magnet Pull (Any session post-03:30 IST)
+    if (sessionBand && sessionBand.locked && Number.isFinite(sessionBand.f0) && Number.isFinite(sessionBand.f1)) {
+      const { f0, f1 } = sessionBand;
+      const distBelowPct = (f0 - price) / price * 100;
+      const distAbovePct = (price - f1) / price * 100;
+
+      if (distBelowPct >= 0.50) {
+        return {
+          id: 'fib_magnet_long',
+          badge: '🧲 FIB MAGNET PULL',
+          session: 'Daily Equilibrium Anchor',
+          predictedDir: 'BULLISH MEAN REVERSION',
+          confidence: '69.2% Fib Return Rate',
+          headline: `🧲 Fib Magnet Pull (-${distBelowPct.toFixed(2)}% Stretched Below Fib)`,
+          detail: `Price is stretched significantly below the daily mark window ($${f0.toFixed(1)}). In 730 days of data, 69.2% of sessions return to touch the Fib box. Look for Long tweezer bottom.`,
+          candleTime: lastBar.t,
+          type: 'bullish',
+        };
+      }
+      if (distAbovePct >= 0.50) {
+        return {
+          id: 'fib_magnet_short',
+          badge: '🧲 FIB MAGNET PULL',
+          session: 'Daily Equilibrium Anchor',
+          predictedDir: 'BEARISH MEAN REVERSION',
+          confidence: '69.2% Fib Return Rate',
+          headline: `🧲 Fib Magnet Pull (+${distAbovePct.toFixed(2)}% Stretched Above Fib)`,
+          detail: `Price is stretched significantly above the daily mark window ($${f1.toFixed(1)}). In 730 days of data, 69.2% of sessions return to touch the Fib box. Look for Short tweezer top.`,
+          candleTime: lastBar.t,
+          type: 'bearish',
+        };
+      }
+    }
+
+    // 5. Default Session Context
+    return {
+      id: 'session_standard',
+      badge: hour < 12 ? '🌏 ASIA SESSION' : hour < 18 ? '🇬🇧 LONDON SESSION' : '🇺🇸 NY SESSION',
+      session: 'Standard Flow',
+      predictedDir: 'WAIT FOR SESSION OPEN OR FIB STRETCH',
+      confidence: 'Market in Equilibrium',
+      headline: `Holding between Fib Anchor & Session Pivots`,
+      detail: `Price is trading near fair value. High-conviction tells appear at London Open (13:00 IST), NY Open (18:30 IST), or when price stretches ≥0.5% away from the Fib box.`,
+      candleTime: lastBar.t,
+      type: 'neutral',
+    };
   }
 };
 

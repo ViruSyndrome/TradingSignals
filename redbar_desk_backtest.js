@@ -1,14 +1,15 @@
 /**
  * redbar_desk_backtest.js — Walk-forward backtest for Sagar's Red Bar Futures Desk
  *
- * Mirrors the live 15m desk engine (mark-window Fibs, 1H first-red Trade 1/2,
- * Asia/London/US sweeps, session_continuation, magnet_reaction, >=1.5R ladder)
- * with futures taker fees (0.04%/side).
+ * Mirrors the live desk (1H first-red median/Fibs, Trade 2 = 5m close vs median,
+ * 5m swing SL, 1:1→BE→1:2 trail→1:3 TP, session sweeps) + futures taker fees.
+ *
+ * Sagar: BTC behaves differently by season — always report Jan–Mar / Apr–Aug / post-Sep.
  *
  * Usage:
  *   node redbar_desk_backtest.js
- *   node redbar_desk_backtest.js BTCUSDT 4000
- *   node redbar_desk_backtest.js PAXGUSDT 4000
+ *   node redbar_desk_backtest.js BTCUSDT 35000
+ *   node redbar_desk_backtest.js PAXGUSDT 35000
  *   node redbar_desk_backtest.js --live
  */
 'use strict';
@@ -24,7 +25,8 @@ const posArgs = args.filter((a) => !a.startsWith('--'));
 const SYMBOL = posArgs[0] || 'BTCUSDT';
 const TARGET_BARS = Number(posArgs[1]) || (liveOnly ? 480 : 4000);
 const FEE_PER_SIDE = 0.0004; // 0.04% Binance USD-M Futures taker fee
-const BAR_MS = 15 * 60000;
+const BAR_MS_15 = 15 * 60000;
+const BAR_MS_5 = 5 * 60000;
 const ACTIONABLE = [
   'trade1_departure',
   'trade2_confirmed',
@@ -110,6 +112,31 @@ function minsSinceSessionOpen(ts) {
   return { phase: clock.id, minsOpen: null };
 }
 
+/** Sagar seasonal buckets for BTC (IST calendar month of entry). */
+function seasonOf(ts) {
+  const day = RedBarTrend.zonedHms(ts, 'Asia/Kolkata').day; // YYYY-MM-DD
+  const m = parseInt(String(day).slice(5, 7), 10);
+  if (m >= 1 && m <= 3) return 'JAN–MAR';
+  if (m >= 4 && m <= 8) return 'APR–AUG';
+  return 'SEP–DEC'; // post-September
+}
+
+/** Last index with close time <= asOf (bars sorted ascending), or -1. */
+function lastClosedIdx(bars, asOf, barMs) {
+  if (!bars || !bars.length) return -1;
+  let lo = 0;
+  let hi = bars.length - 1;
+  let ans = -1;
+  while (lo <= hi) {
+    const mid = (lo + hi) >> 1;
+    if (bars[mid].t + barMs <= asOf) {
+      ans = mid;
+      lo = mid + 1;
+    } else hi = mid - 1;
+  }
+  return ans;
+}
+
 function summarize(label, trades) {
   if (!trades.length) {
     console.log(`  ${label}: n=0`);
@@ -121,60 +148,59 @@ function summarize(label, trades) {
   const winRate = (wins.length / trades.length) * 100;
   const rrs = trades.map((t) => t.rr).filter(Number.isFinite).sort((a, b) => a - b);
   const medRR = rrs.length ? rrs[rrs.length >> 1] : 0;
-  const tpCount = trades.filter((t) => t.exitReason === 'tp1+book').length;
+  const tpCount = trades.filter((t) => t.exitReason === 'tp1+book' || t.exitReason === 'tp1+tp3').length;
+  const tp2Count = trades.filter((t) => t.exitReason === 'tp1+trail_1_2').length;
   const emaCount = trades.filter((t) => t.exitReason === 'tp1+ema_cross').length;
   const beCount = trades.filter((t) => t.exitReason === 'tp1+be_stop').length;
   const slCount = trades.filter((t) => t.exitReason === 'stop').length;
   const tsCount = trades.filter((t) => t.exitReason === 'session_end' || t.exitReason === 'tp1+session_end').length;
   console.log(
-    `  ${label.padEnd(28)} n=${String(trades.length).padStart(3)}  WR=${winRate.toFixed(1).padStart(5)}%  avg=${(avgPct >= 0 ? '+' : '') + avgPct.toFixed(3)}%  sum=${(sumPct >= 0 ? '+' : '') + sumPct.toFixed(2)}%  medRR=${medRR.toFixed(2)}  (1:1+book=${tpCount} 1:1+ema=${emaCount} 1:1+be=${beCount} stop=${slCount} time=${tsCount})`
+    `  ${label.padEnd(28)} n=${String(trades.length).padStart(3)}  WR=${winRate.toFixed(1).padStart(5)}%  avg=${(avgPct >= 0 ? '+' : '') + avgPct.toFixed(3)}%  sum=${(sumPct >= 0 ? '+' : '') + sumPct.toFixed(2)}%  medRR=${medRR.toFixed(2)}  (1:3=${tpCount} trail1:2=${tp2Count} ema=${emaCount} be=${beCount} stop=${slCount} time=${tsCount})`
   );
   return { n: trades.length, winRate, avgPct, sumPct, medRR };
 }
 
 /**
- * Accept live desk ENTER setups that pass engine entryGate + directional confirm candle.
+ * Match live desk entryGate: actionState=enter + actionable setup + valid levels.
+ * No extra EMA / direction-candle filters (those skewed Trade 1 to n=0).
  */
-function isActionableEntry(o, curBar, prevBar, emaFast, emaSlow) {
-  if (!o || !curBar || !prevBar) return false;
+function isActionableEntry(o, allowSetups = null) {
+  if (!o) return false;
   if (o.actionState !== 'enter') return false;
-  if (o.invalidation == null || o.tp1 == null || o.bookZone == null || !(o.rr >= 1.5)) return false;
+  if (o.invalidation == null || o.tp1 == null || o.bookZone == null || !(o.rr >= 1.0)) return false;
   if (!ACTIONABLE.includes(o.setupKind)) return false;
-
-  const isBull = o.trend === 'bullish';
-  const dirCandle = isBull
-    ? (curBar.c > curBar.o && curBar.c > prevBar.c)
-    : (curBar.c < curBar.o && curBar.c < prevBar.c);
-  if (!dirCandle) return false;
-
-  if (o.setupKind === 'trade1_departure') {
-    const red = o.firstRed1h;
-    if (!red) return false;
-    const emaAligned = emaFast != null && emaSlow != null
-      ? (isBull ? emaFast >= emaSlow : emaFast <= emaSlow)
-      : true;
-    if (!emaAligned) return false;
-  }
-
+  if (Array.isArray(allowSetups) && allowSetups.length && !allowSetups.includes(o.setupKind)) return false;
+  if (o.trend !== 'bullish' && o.trend !== 'bearish') return false;
   return true;
 }
 
-function runSimulation(bars15, bars1h, cfg, { maxHoldBars = 48 } = {}) {
-  const WARM = 48 * 4; // ~2 days of 15m
-  const closes = bars15.map((b) => b.c);
-  const ema10 = calcEma(closes, 10);
-  const ema30 = calcEma(closes, 30);
+/**
+ * Simulate on 5m closes (desk Trade 2 timing) with 15m context for mark-window / structure.
+ * allowSetups: null = combined book; else only those setupKinds may enter (isolated book).
+ */
+function runSimulation(bars15, bars1h, bars5m, cfg, {
+  maxHoldBars5 = 144, // ~12h on 5m
+  allowSetups = null,
+} = {}) {
+  const has5m = Array.isArray(bars5m) && bars5m.length > 0;
+  if (!has5m) {
+    console.warn('[backtest] No 5m bars — cannot align with desk entry timing');
+    return [];
+  }
+  const WARM = 48 * 12; // ~2 days of 5m
   const trades = [];
   let pos = null;
   let lastTradeDay = null;
   let tradesToday = 0;
 
-  for (let i = WARM; i < bars15.length; i++) {
-    const bar = bars15[i];
+  for (let i = WARM; i < bars5m.length; i++) {
+    const bar = bars5m[i];
+    const asOf = bar.t + BAR_MS_5 - 1000;
 
     if (pos) {
       const isLong = pos.side === 'LONG';
       const legRet = (exitPx) => (isLong ? (exitPx - pos.entry) / pos.entry : (pos.entry - exitPx) / pos.entry) - 2 * FEE_PER_SIDE;
+      const ladder = !!pos.rrLadder;
 
       if (!pos.banked50) {
         const hitStop = isLong ? bar.l <= pos.activeStop : bar.h >= pos.activeStop;
@@ -187,27 +213,31 @@ function runSimulation(bars15, bars1h, cfg, { maxHoldBars = 48 } = {}) {
             exitReason: 'stop',
             pnlPct: legRet(pos.activeStop) * 100,
             barsHeld: i - pos.entryIdx,
+            season: seasonOf(pos.entryT),
           });
           pos = null;
         } else if (hitTp1) {
           pos.banked50 = true;
           pos.half1Ret = legRet(pos.tp1);
-          // Move stop to BE (+ tiny fee cushion) after 1:1
           const bePad = pos.entry * 0.001;
           pos.activeStop = isLong ? pos.entry + bePad : pos.entry - bePad;
         }
       } else {
         const hitBeStop = isLong ? bar.l <= pos.activeStop : bar.h >= pos.activeStop;
-        const hitStretch = isLong ? bar.h >= pos.exit : bar.l <= pos.exit;
-        const emaCrossAgainst = ema10[i] != null && ema30[i] != null && ema10[i - 1] != null && ema30[i - 1] != null
-          ? (isLong
-            ? (ema10[i - 1] >= ema30[i - 1] && ema10[i] < ema30[i])
-            : (ema10[i - 1] <= ema30[i - 1] && ema10[i] > ema30[i]))
-          : false;
+        const hitTp3 = isLong ? bar.h >= pos.exit : bar.l <= pos.exit;
+        if (ladder && pos.tp2 != null && !pos.trailedAt2) {
+          const hitTp2 = isLong ? bar.h >= pos.tp2 : bar.l <= pos.tp2;
+          if (hitTp2) {
+            pos.trailedAt2 = true;
+            pos.activeStop = pos.tp1;
+          }
+        }
 
-        if (hitStretch || hitBeStop || emaCrossAgainst) {
-          const runnerExitPx = hitStretch ? pos.exit : hitBeStop ? pos.activeStop : bar.c;
-          const runnerReason = hitStretch ? 'tp1+book' : hitBeStop ? 'tp1+be_stop' : 'tp1+ema_cross';
+        if (hitTp3 || hitBeStop) {
+          const runnerExitPx = hitTp3 ? pos.exit : pos.activeStop;
+          const runnerReason = hitTp3
+            ? (ladder ? 'tp1+tp3' : 'tp1+book')
+            : (pos.trailedAt2 ? 'tp1+trail_1_2' : 'tp1+be_stop');
           trades.push({
             ...pos,
             exitPx: runnerExitPx,
@@ -215,12 +245,13 @@ function runSimulation(bars15, bars1h, cfg, { maxHoldBars = 48 } = {}) {
             exitReason: runnerReason,
             pnlPct: (0.5 * pos.half1Ret + 0.5 * legRet(runnerExitPx)) * 100,
             barsHeld: i - pos.entryIdx,
+            season: seasonOf(pos.entryT),
           });
           pos = null;
         }
       }
 
-      if (pos && (i - pos.entryIdx) >= maxHoldBars) {
+      if (pos && (i - pos.entryIdx) >= maxHoldBars5) {
         const exitPx = bar.c;
         const pnlPct = pos.banked50
           ? (0.5 * pos.half1Ret + 0.5 * legRet(exitPx)) * 100
@@ -232,6 +263,7 @@ function runSimulation(bars15, bars1h, cfg, { maxHoldBars = 48 } = {}) {
           exitReason: pos.banked50 ? 'tp1+session_end' : 'session_end',
           pnlPct,
           barsHeld: i - pos.entryIdx,
+          season: seasonOf(pos.entryT),
         });
         pos = null;
       }
@@ -239,7 +271,6 @@ function runSimulation(bars15, bars1h, cfg, { maxHoldBars = 48 } = {}) {
 
     if (pos) continue;
 
-    const asOf = bar.t + BAR_MS - 1000; // near bar close
     const calDay = RedBarTrend.dayKey(bar.t, cfg.dayMode || 'ist');
     if (calDay !== lastTradeDay) {
       lastTradeDay = calDay;
@@ -247,21 +278,28 @@ function runSimulation(bars15, bars1h, cfg, { maxHoldBars = 48 } = {}) {
     }
     if (tradesToday >= 2) continue;
 
-    const h1 = bars1h.filter((x) => x.t + 3600000 <= asOf);
+    // 15m context up to this 5m close (desk working TF)
+    const i15 = lastClosedIdx(bars15, asOf, BAR_MS_15);
+    if (i15 < 40) continue;
+    const slice15 = bars15.slice(Math.max(0, i15 - 96 * 10), i15 + 1);
+
+    const i1h = lastClosedIdx(bars1h, asOf, 3600000);
+    const h1 = i1h < 0 ? [] : bars1h.slice(Math.max(0, i1h - 80), i1h + 1);
     const firstRed1h = RedBarTrend.firstRedBarOfSession(h1, calDay, {
       ...cfg,
       asOfTs: asOf,
       barMs: 3600000,
     });
+    const m5 = bars5m.slice(Math.max(0, i - 599), i + 1);
 
-    const slice = bars15.slice(Math.max(0, i - 96 * 10), i + 1);
-    const o = RedBarTrend.readAt(slice, slice.length - 1, {
+    const o = RedBarTrend.readAt(slice15, slice15.length - 1, {
       ...cfg,
       asOfTs: asOf,
       firstRed1h,
       bars1h: h1,
+      bars5m: m5,
     });
-    if (!isActionableEntry(o, bar, bars15[i - 1], ema10[i], ema30[i])) continue;
+    if (!isActionableEntry(o, allowSetups)) continue;
 
     const side = o.trend === 'bullish' ? 'LONG' : 'SHORT';
     const okLevels = side === 'LONG'
@@ -272,23 +310,36 @@ function runSimulation(bars15, bars1h, cfg, { maxHoldBars = 48 } = {}) {
     const sess = minsSinceSessionOpen(asOf);
     const oneR = Math.abs(bar.c - o.invalidation);
     const tp1 = side === 'LONG' ? bar.c + oneR : bar.c - oneR;
+    const tp2 = side === 'LONG' ? bar.c + oneR * 2 : bar.c - oneR * 2;
+    const tp3 = side === 'LONG' ? bar.c + oneR * 3 : bar.c - oneR * 3;
+    const useLadder = o.setupKind === 'trade2_confirmed'
+      || o.setupKind === 'trade1_departure'
+      || !!o.rrLadder;
+    const redSetup = o.playbook?.redSetup || null;
     pos = {
       side,
       setupKind: o.setupKind,
       clockId: o.playbook?.clock?.id || sess.phase,
       minsOpen: sess.minsOpen,
       earlyOpen45: sess.minsOpen != null && sess.minsOpen < 45,
+      revisitRead: redSetup?.revisitRead || null,
+      stopReason: o.invalidationReason || null,
+      stopPct: o.stopPct != null ? o.stopPct : null,
       entry: bar.c,
       stop: o.invalidation,
       activeStop: o.invalidation,
       tp1,
+      tp2: useLadder ? (o.tp2 ?? tp2) : null,
       banked50: false,
+      trailedAt2: false,
       half1Ret: 0,
-      exit: o.bookZone,
+      exit: useLadder ? (o.tp3 ?? tp3) : o.bookZone,
       rr: o.rr,
+      rrLadder: useLadder,
       entryIdx: i,
       entryT: bar.t,
       day: calDay,
+      season: seasonOf(bar.t),
     };
     tradesToday++;
   }
@@ -319,54 +370,70 @@ function runSimulation(bars15, bars1h, cfg, { maxHoldBars = 48 } = {}) {
     sessions: inst.sessions || [],
   };
 
-  console.log(`Fetching ${SYMBOL} 15m (${TARGET_BARS} bars) + 1h candles...`);
+  // ~3× 15m coverage in 5m; allow multi-year samples (was capped at 30k ≈ 104d)
+  const bars5Target = Math.min(TARGET_BARS * 3 + 200, 220000);
+  console.log(`Fetching ${SYMBOL} 15m (${TARGET_BARS}) + 1h + 5m (~${bars5Target})...`);
   const bars15 = await fetchKlines(SYMBOL, '15m', TARGET_BARS);
   const bars1h = await fetchKlines(SYMBOL, '1h', Math.max(400, Math.ceil(TARGET_BARS / 4) + 80));
+  const bars5m = await fetchKlines(SYMBOL, '5m', bars5Target);
+  console.log(`Loaded 15m=${bars15.length} 1h=${bars1h.length} 5m=${bars5m.length}`);
 
   let result = null;
   if (!liveOnly) {
     const fromDate = new Date(bars15[0].t).toISOString().slice(0, 10);
     const toDate = new Date(bars15[bars15.length - 1].t).toISOString().slice(0, 10);
-    console.log(`\n=== Red Bar Futures Desk Walk-Forward Backtest: ${SYMBOL} 15m (${fromDate} -> ${toDate}) ===`);
-    console.log(`Fee model: ${(FEE_PER_SIDE * 200).toFixed(2)}% round-trip taker · Swing Stop · 50% TP at 1:1 + 50% Runner Trail till EMA 10/30 cross\n`);
+    console.log(`\n=== Red Bar Futures Desk Backtest: ${SYMBOL} (5m entries · 15m context) ${fromDate} -> ${toDate} ===`);
+    console.log(`Fee ${(FEE_PER_SIDE * 200).toFixed(2)}% RT · Trade1 leave / Trade2 H1→M5 sweep · SL wick/5m swing · 1:1→BE→1:2→1:3`);
+    console.log(`Live-aligned gate (no extra EMA) · Trade 1 priority over Trade 2\n`);
 
-    const trades = runSimulation(bars15, bars1h, cfg);
-    const all = summarize('ALL TRADES', trades);
-    summarize('LONG', trades.filter((t) => t.side === 'LONG'));
-    summarize('SHORT', trades.filter((t) => t.side === 'SHORT'));
+    console.log('--- Book A: COMBINED (path-dependent, max 2/day) ---');
+    const trades = runSimulation(bars15, bars1h, bars5m, cfg);
+    const all = summarize('COMBINED', trades);
+    summarize('  LONG', trades.filter((t) => t.side === 'LONG'));
+    summarize('  SHORT', trades.filter((t) => t.side === 'SHORT'));
+
+    console.log('\n--- Book B: TRADE 1 ONLY (isolated) ---');
+    const t1Only = runSimulation(bars15, bars1h, bars5m, cfg, {
+      allowSetups: ['trade1_departure'],
+    });
+    const bookT1 = summarize('TRADE 1 ONLY', t1Only);
+
+    console.log('\n--- Book C: TRADE 2 ONLY (isolated) ---');
+    const t2Only = runSimulation(bars15, bars1h, bars5m, cfg, {
+      allowSetups: ['trade2_confirmed'],
+    });
+    const bookT2 = summarize('TRADE 2 ONLY', t2Only);
 
     const mid = Math.floor(trades.length / 2);
-    console.log('\n--- Walk-Forward Split (Older Half vs Newer Unseen Half) ---');
+    console.log('\n--- Combined Walk-Forward Split ---');
     const h1 = summarize('First Half (Train)', trades.slice(0, mid));
     const h2 = summarize('Second Half (Out-of-Sample)', trades.slice(mid));
 
-    console.log('\n--- By Setup Type ---');
+    console.log('\n--- Combined By Season ---');
+    const bySeason = {};
+    for (const s of ['JAN–MAR', 'APR–AUG', 'SEP–DEC']) {
+      const sub = trades.filter((t) => (t.season || seasonOf(t.entryT)) === s);
+      bySeason[s] = summarize(s, sub);
+    }
+
+    console.log('\n--- Combined By Setup (path mix) ---');
     for (const kind of REPORT_SETUPS) {
       const sub = trades.filter((t) => t.setupKind === kind);
       if (sub.length) summarize(kind, sub);
       else console.log(`  ${kind}: n=0`);
     }
 
-    console.log('\n--- By Clock Phase ---');
+    console.log('\n--- Combined By Clock Phase ---');
     for (const phase of ['pre_london', 'london', 'us_open', 'late']) {
       const sub = trades.filter((t) => t.clockId === phase);
       if (sub.length) summarize(phase, sub);
     }
 
-    console.log('\n--- London / US first 45 min vs rest ---');
-    const lonEarly = trades.filter((t) => t.clockId === 'london' && t.earlyOpen45);
-    const lonRest = trades.filter((t) => t.clockId === 'london' && !t.earlyOpen45);
-    const usEarly = trades.filter((t) => t.clockId === 'us_open' && t.earlyOpen45);
-    const usRest = trades.filter((t) => t.clockId === 'us_open' && !t.earlyOpen45);
-    summarize('London first 45m', lonEarly);
-    summarize('London after 45m', lonRest);
-    summarize('US first 45m', usEarly);
-    summarize('US after 45m', usRest);
-
     const passBoth = h1.sumPct > 0 && h2.sumPct > 0;
-    console.log(`\nWalk-Forward Verdict: ${passBoth ? 'PASS (Both halves positive after fees)' : 'MIXED / FAIL — see breakdown'}`);
+    console.log(`\nWalk-Forward Verdict (combined): ${passBoth ? 'PASS (Both halves positive after fees)' : 'MIXED / FAIL — see breakdown'}`);
+    console.log(`Isolated books: Trade1 sum=${bookT1.sumPct.toFixed(2)}% (n=${bookT1.n}) · Trade2 sum=${bookT2.sumPct.toFixed(2)}% (n=${bookT2.n})`);
 
-    result = { all, h1, h2, trades };
+    result = { all, h1, h2, trades, bySeason, bookT1, bookT2, t1Only, t2Only };
   }
 
   if (showLive) {
@@ -413,11 +480,12 @@ function runSimulation(bars15, bars1h, cfg, { maxHoldBars = 48 } = {}) {
     console.log('\n--- JSON_SUMMARY ---');
     console.log(JSON.stringify({
       symbol: SYMBOL,
-      n: result.all.n,
-      sumPct: result.all.sumPct,
-      winRate: result.all.winRate,
+      combined: { n: result.all.n, sumPct: result.all.sumPct, winRate: result.all.winRate },
+      trade1Only: result.bookT1,
+      trade2Only: result.bookT2,
       trainSum: result.h1.sumPct,
       oosSum: result.h2.sumPct,
+      bySeason: result.bySeason,
       bySetup,
       earlyOpen45: {
         n: earlyBleed.length,
