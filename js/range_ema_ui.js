@@ -2281,7 +2281,8 @@ const RangeEmaUI = {
           placedY.push(y);
 
           const priceStr = Number(item.val).toFixed(d);
-          const label = `${item.prefix} ${priceStr}`;
+          const dayTag = (!compact && item.prefix === 'H' && pf.dayLabel) ? ` · ${pf.dayLabel}` : '';
+          const label = `${item.prefix} ${priceStr}${dayTag}`;
           const tw = ctx.measureText(label).width;
           const boxW = tw + 16;
           const boxH = compact ? 13 : 15;
@@ -2780,39 +2781,124 @@ const RangeEmaUI = {
 
     const priceNow = Number(o.price);
 
-    // Identify most recent locked prior Fib box (Yesterday's 02:30 IST Mark Box)
+    // Identify trend-targeted prior Fib box (where price is heading to touch and reverse/TP)
+    const todayDayKey = sortedBandDays.length ? sortedBandDays[sortedBandDays.length - 1] : null;
+    const todayBand = (todayDayKey ? byDay.get(todayDayKey) : null) || o.currentBand || null;
+    const todayHi = todayBand ? Number(todayBand.f1 ?? todayBand.high) : null;
+    const todayLo = todayBand ? Number(todayBand.f0 ?? todayBand.low) : null;
+    const todayMid = todayBand ? Number(todayBand.f50 ?? todayBand.mid ?? ((todayHi != null && todayLo != null) ? (todayHi + todayLo) / 2 : null)) : null;
+
     let priorFibInfo = null;
     if (sortedBandDays.length >= 2) {
-      const priorDayKey = sortedBandDays[sortedBandDays.length - 2];
-      const priorBand = byDay.get(priorDayKey);
-      if (priorBand) {
-        const pHi = priorBand.f1 ?? priorBand.high;
-        const pLo = priorBand.f0 ?? priorBand.low;
-        const pMid = priorBand.f50 ?? priorBand.mid ?? ((pHi != null && pLo != null) ? (pHi + pLo) / 2 : null);
-        if (pHi != null && pLo != null && Number.isFinite(Number(pHi)) && Number.isFinite(Number(pLo))) {
-          const numHi = Number(pHi);
-          const numLo = Number(pLo);
-          const numMid = pMid != null ? Number(pMid) : null;
-          const distHi = Math.abs(priceNow - numHi) / priceNow * 100;
-          const distLo = Math.abs(priceNow - numLo) / priceNow * 100;
-          const distMid = numMid != null ? Math.abs(priceNow - numMid) / priceNow * 100 : Infinity;
-          const isInside = priceNow >= Math.min(numLo, numHi) && priceNow <= Math.max(numLo, numHi);
-          const minDist = Math.min(distHi, distLo, distMid);
-          // Only show when price / trend is within 3.5% of yesterday's box or inside it
-          if (isInside || minDist <= 3.5) {
-            const mappedPrior = dayBands.find((b) => b.day === priorDayKey) || priorBand;
-            priorFibInfo = {
-              band: mappedPrior,
-              high: numHi,
-              low: numLo,
-              mid: numMid,
-              f44: priorBand.f44,
-              f56: priorBand.f56,
-              minDist,
-              isInside,
-            };
+      // Determine trend direction
+      // If price is above today's band, trend is heading UP
+      // If price is below today's band, trend is heading DOWN
+      // If inside today's band, use bias / action side / EMA agree
+      let trendDir = 'UP';
+      if (todayHi != null && priceNow > todayHi) {
+        trendDir = 'UP';
+      } else if (todayLo != null && priceNow < todayLo) {
+        trendDir = 'DOWN';
+      } else {
+        const isBull = (row.bias === 'BULLISH' || o.trend === 'BULLISH' || action.side === 'LONG' || (todayMid != null && priceNow >= todayMid));
+        trendDir = isBull ? 'UP' : 'DOWN';
+      }
+
+      // Collect all completed prior days
+      const priorCandidates = [];
+      for (let i = 0; i < sortedBandDays.length - 1; i++) {
+        const dayKey = sortedBandDays[i];
+        const b = byDay.get(dayKey);
+        if (!b) continue;
+        const pHi = Number(b.f1 ?? b.high);
+        const pLo = Number(b.f0 ?? b.low);
+        const pMid = b.f50 != null ? Number(b.f50) : (b.mid != null ? Number(b.mid) : ((pHi + pLo) / 2));
+        if (!Number.isFinite(pHi) || !Number.isFinite(pLo)) continue;
+        const dayParts = String(dayKey).split('-');
+        const dayLabel = dayParts.length === 3
+          ? `${parseInt(dayParts[2], 10)} ${['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'][parseInt(dayParts[1], 10) - 1] || ''}`
+          : dayKey;
+        priorCandidates.push({
+          dayKey,
+          dayLabel,
+          band: b,
+          high: pHi,
+          low: pLo,
+          mid: pMid,
+          f44: b.f44,
+          f56: b.f56,
+          recencyIndex: i, // higher = more recent
+        });
+      }
+
+      let selected = null;
+      if (priorCandidates.length > 0) {
+        if (trendDir === 'UP') {
+          // Look for overhead prior Fib boxes (where high or mid is >= priceNow)
+          const overhead = priorCandidates.filter((c) => c.high >= priceNow || (c.mid != null && c.mid >= priceNow));
+          if (overhead.length > 0) {
+            // Find the lowest overhead box (the immediate ceiling target price will touch first)
+            // If two are close (within 0.4%), prefer the more recent one
+            overhead.sort((a, b) => {
+              const aEntry = Math.max(0, a.low - priceNow);
+              const bEntry = Math.max(0, b.low - priceNow);
+              if (Math.abs(aEntry - bEntry) / priceNow < 0.004) {
+                return b.recencyIndex - a.recencyIndex; // prefer more recent
+              }
+              return aEntry - bEntry;
+            });
+            selected = overhead[0];
+          }
+        } else {
+          // Look for underhead prior Fib boxes (where low or mid is <= priceNow)
+          const underhead = priorCandidates.filter((c) => c.low <= priceNow || (c.mid != null && c.mid <= priceNow));
+          if (underhead.length > 0) {
+            // Find the highest underhead box (the immediate floor target price will touch first)
+            // If two are close (within 0.4%), prefer the more recent one
+            underhead.sort((a, b) => {
+              const aEntry = Math.max(0, priceNow - a.high);
+              const bEntry = Math.max(0, priceNow - b.high);
+              if (Math.abs(aEntry - bEntry) / priceNow < 0.004) {
+                return b.recencyIndex - a.recencyIndex; // prefer more recent
+              }
+              return aEntry - bEntry;
+            });
+            selected = underhead[0];
           }
         }
+
+        // Fallback if no directional candidate found:
+        // Pick candidate with smallest distance to priceNow
+        if (!selected) {
+          priorCandidates.sort((a, b) => {
+            const distA = Math.min(Math.abs(priceNow - a.high), Math.abs(priceNow - a.low), Math.abs(priceNow - (a.mid ?? a.high)));
+            const distB = Math.min(Math.abs(priceNow - b.high), Math.abs(priceNow - b.low), Math.abs(priceNow - (b.mid ?? b.high)));
+            return distA - distB;
+          });
+          selected = priorCandidates[0];
+        }
+      }
+
+      if (selected) {
+        const distHi = Math.abs(priceNow - selected.high) / priceNow * 100;
+        const distLo = Math.abs(priceNow - selected.low) / priceNow * 100;
+        const distMid = selected.mid != null ? Math.abs(priceNow - selected.mid) / priceNow * 100 : Infinity;
+        const isInside = priceNow >= Math.min(selected.low, selected.high) && priceNow <= Math.max(selected.low, selected.high);
+        const minDist = Math.min(distHi, distLo, distMid);
+        const mappedPrior = dayBands.find((b) => b.day === selected.dayKey) || selected.band;
+        priorFibInfo = {
+          band: mappedPrior,
+          dayKey: selected.dayKey,
+          dayLabel: selected.dayLabel,
+          high: selected.high,
+          low: selected.low,
+          mid: selected.mid,
+          f44: selected.f44,
+          f56: selected.f56,
+          minDist,
+          isInside,
+          trendDir,
+        };
       }
     }
 
@@ -3045,29 +3131,51 @@ const RangeEmaUI = {
 
           // Check if hovering near a prior Fib level
           let hoverFibStr = null;
-          if (pf && this._chart?.scales?.y && event.y != null) {
+          const evY = event.y ?? event.native?.offsetY;
+          if (pf && this._chart?.scales?.y && evY != null) {
             const yScale = this._chart.scales.y;
             const yHi = yScale.getPixelForValue(pf.high);
             const yMid = pf.mid != null ? yScale.getPixelForValue(pf.mid) : null;
             const yLo = yScale.getPixelForValue(pf.low);
-            if (Math.abs(event.y - yHi) <= 12) {
+            const dayStr = pf.dayLabel ? ` (${pf.dayLabel})` : '';
+            if (Math.abs(evY - yHi) <= 14) {
               const diffPct = ((pf.high - priceNow) / priceNow * 100);
-              hoverFibStr = `<strong style="color:#4ade80;background:rgba(34,197,94,0.18);padding:1px 6px;border-radius:4px;">🎯 Hovering Prev Fib High: $${Number(pf.high).toFixed(d)} (${diffPct >= 0 ? '+' : ''}${diffPct.toFixed(2)}%)</strong>`;
-            } else if (yMid != null && Math.abs(event.y - yMid) <= 12) {
+              hoverFibStr = `<strong style="color:#4ade80;background:rgba(34,197,94,0.18);padding:1px 6px;border-radius:4px;">🎯 Hovering Prev Fib${dayStr} High: $${Number(pf.high).toFixed(d)} (${diffPct >= 0 ? '+' : ''}${diffPct.toFixed(2)}%)</strong>`;
+            } else if (yMid != null && Math.abs(evY - yMid) <= 14) {
               const diffPct = ((pf.mid - priceNow) / priceNow * 100);
-              hoverFibStr = `<strong style="color:#38bdf8;background:rgba(56,189,248,0.18);padding:1px 6px;border-radius:4px;">🎯 Hovering Prev Fib Median: $${Number(pf.mid).toFixed(d)} (${diffPct >= 0 ? '+' : ''}${diffPct.toFixed(2)}%)</strong>`;
-            } else if (Math.abs(event.y - yLo) <= 12) {
+              hoverFibStr = `<strong style="color:#38bdf8;background:rgba(56,189,248,0.18);padding:1px 6px;border-radius:4px;">🎯 Hovering Prev Fib${dayStr} Median: $${Number(pf.mid).toFixed(d)} (${diffPct >= 0 ? '+' : ''}${diffPct.toFixed(2)}%)</strong>`;
+            } else if (Math.abs(evY - yLo) <= 14) {
               const diffPct = ((pf.low - priceNow) / priceNow * 100);
-              hoverFibStr = `<strong style="color:#f87171;background:rgba(239,68,68,0.18);padding:1px 6px;border-radius:4px;">🎯 Hovering Prev Fib Low: $${Number(pf.low).toFixed(d)} (${diffPct >= 0 ? '+' : ''}${diffPct.toFixed(2)}%)</strong>`;
+              hoverFibStr = `<strong style="color:#f87171;background:rgba(239,68,68,0.18);padding:1px 6px;border-radius:4px;">🎯 Hovering Prev Fib${dayStr} Low: $${Number(pf.low).toFixed(d)} (${diffPct >= 0 ? '+' : ''}${diffPct.toFixed(2)}%)</strong>`;
+            }
+          }
+
+          // Also check if hovering near Today's current band levels
+          if (!hoverFibStr && todayBand && this._chart?.scales?.y && evY != null) {
+            const yScale = this._chart.scales.y;
+            const tHi = todayBand.f1 ?? todayBand.high;
+            const tMid = todayBand.f50 ?? todayBand.mid;
+            const tLo = todayBand.f0 ?? todayBand.low;
+            if (tHi != null && Math.abs(evY - yScale.getPixelForValue(tHi)) <= 12) {
+              const diffPct = ((tHi - priceNow) / priceNow * 100);
+              hoverFibStr = `<strong style="color:#4ade80;background:rgba(34,197,94,0.18);padding:1px 6px;border-radius:4px;">🎯 Today's Fib High: $${Number(tHi).toFixed(d)} (${diffPct >= 0 ? '+' : ''}${diffPct.toFixed(2)}%)</strong>`;
+            } else if (tMid != null && Math.abs(evY - yScale.getPixelForValue(tMid)) <= 12) {
+              const diffPct = ((tMid - priceNow) / priceNow * 100);
+              hoverFibStr = `<strong style="color:#38bdf8;background:rgba(56,189,248,0.18);padding:1px 6px;border-radius:4px;">🎯 Today's Fib Median: $${Number(tMid).toFixed(d)} (${diffPct >= 0 ? '+' : ''}${diffPct.toFixed(2)}%)</strong>`;
+            } else if (tLo != null && Math.abs(evY - yScale.getPixelForValue(tLo)) <= 12) {
+              const diffPct = ((tLo - priceNow) / priceNow * 100);
+              hoverFibStr = `<strong style="color:#f87171;background:rgba(239,68,68,0.18);padding:1px 6px;border-radius:4px;">🎯 Today's Fib Low: $${Number(tLo).toFixed(d)} (${diffPct >= 0 ? '+' : ''}${diffPct.toFixed(2)}%)</strong>`;
             }
           }
 
           if (hoverFibStr) {
-            elInfo.innerHTML = `${hoverFibStr} <span style="color:#64748b;font-size:11px;">(Target TP / SL level)</span>`;
+            const role = pf?.trendDir === 'UP' ? 'Overhead Reversal / TP Target' : 'Underhead Support / SL Target';
+            elInfo.innerHTML = `${hoverFibStr} <span style="color:#94a3b8;font-size:11px;">(${role})</span>`;
             return;
           }
 
-          const pfSummary = pf ? ` · <span style="color:#64748b;">Prev Fib:</span> <span style="color:#4ade80;">H $${Number(pf.high).toFixed(d)}</span> <span style="color:#38bdf8;">Mid $${Number(pf.mid).toFixed(d)}</span> <span style="color:#f87171;">L $${Number(pf.low).toFixed(d)}</span>` : '';
+          const dayStr = pf?.dayLabel ? ` (${pf.dayLabel})` : '';
+          const pfSummary = pf ? ` · <span style="color:#64748b;">Prev Fib${dayStr}:</span> <span style="color:#4ade80;">H $${Number(pf.high).toFixed(d)}</span> <span style="color:#38bdf8;">Mid $${Number(pf.mid).toFixed(d)}</span> <span style="color:#f87171;">L $${Number(pf.low).toFixed(d)}</span>` : '';
 
           if (activeElements && activeElements.length) {
             const idx = activeElements[0].index;
@@ -3265,7 +3373,8 @@ const RangeEmaUI = {
       const arrow = chg >= 0 ? '▲' : '▼';
       const sign = chg >= 0 ? '+' : '';
       const col = chg >= 0 ? '#4ade80' : '#f87171';
-      const pfSummary = priorFibInfo ? ` · <span style="color:#64748b;">Prev Fib:</span> <span style="color:#4ade80;">H $${Number(priorFibInfo.high).toFixed(d)}</span> <span style="color:#38bdf8;">Mid $${Number(priorFibInfo.mid).toFixed(d)}</span> <span style="color:#f87171;">L $${Number(priorFibInfo.low).toFixed(d)}</span>` : '';
+      const dayStr = priorFibInfo?.dayLabel ? ` (${priorFibInfo.dayLabel})` : '';
+      const pfSummary = priorFibInfo ? ` · <span style="color:#64748b;">Prev Fib${dayStr}:</span> <span style="color:#4ade80;">H $${Number(priorFibInfo.high).toFixed(d)}</span> <span style="color:#38bdf8;">Mid $${Number(priorFibInfo.mid).toFixed(d)}</span> <span style="color:#f87171;">L $${Number(priorFibInfo.low).toFixed(d)}</span>` : '';
       elInitInfo.innerHTML = `<span style="color:#94a3b8;">Live:</span> <strong style="color:${col};">$${Number(last.c).toFixed(d)} (${arrow} ${sign}${chg.toFixed(2)}%)</strong> <span style="color:#64748b;">H: $${Number(last.h).toFixed(d)} · L: $${Number(last.l).toFixed(d)}</span>${pfSummary}`;
     }
     // Flex / phone layout often settles after first paint — boxes/plugins need a
