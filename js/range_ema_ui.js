@@ -1352,6 +1352,8 @@ const RangeEmaUI = {
           ? `Fib ↑ ${this._fmt(o.playbook.magnetAbove.price)}`
           : 'Testing Equilibrium';
 
+    const prime = this._getPrimeWindowStatus(nowMs);
+
     // 1. Chart Wrap (TOP PRIORITY)
     const chartHtml = `
       <div class="rb-chart-wrap glass">
@@ -1365,26 +1367,33 @@ const RangeEmaUI = {
               `<button type="button" class="rb-tf-btn${t === this.activeTf() ? ' active' : ''}" data-rb-tf="${t}">${t}</button>`
             ).join('')}
           </div>
-          <div class="rb-zoom-group" role="group" aria-label="Chart zoom and pan">
-            <button type="button" class="rb-zoom-btn" id="rbPanLeft" title="Pan left (earlier)">◀</button>
-            <button type="button" class="rb-zoom-btn" id="rbPanRight" title="Pan right (later)">▶</button>
-            <button type="button" class="rb-zoom-btn" id="rbPanUp" title="Pan price up">▲</button>
-            <button type="button" class="rb-zoom-btn" id="rbPanDown" title="Pan price down">▼</button>
-            <button type="button" class="rb-zoom-btn" id="rbZoomOut" title="Zoom out">−</button>
-            <button type="button" class="rb-zoom-btn" id="rbZoomIn" title="Zoom in">+</button>
-            <button type="button" class="rb-zoom-btn" id="rbZoomReset" title="Fit all / reset">Fit</button>
+          <div class="rb-zoom-group" role="group" aria-label="Desk rules">
             <button type="button" class="rb-zoom-btn" id="rbOpenGuide" style="border-color:#38bdf8;color:#38bdf8;display:inline-flex;align-items:center;gap:4px;" title="Open Desk Rules & FAQ">📖 Rules &amp; FAQ</button>
           </div>
         </div>
 
-        <div style="display:flex; justify-content:space-between; align-items:center; margin: 0 4px 6px; padding: 6px 12px; background: rgba(15,23,42,0.55); border-radius: 6px; border: 1px solid rgba(255,255,255,0.06); font-size: 11.5px;">
-          <div style="display:flex; align-items:center; gap:8px;">
+        <!-- Live Session & Prime Window Beacon -->
+        <div class="rb-prime-beacon-strip">
+          <div class="rb-beacon-left">
             <span style="display:flex; align-items:center;"><span class="rb-live-pulse-dot"></span> <strong style="color:#f8fafc;">${activeSessionName}</strong></span>
             <span style="color:#64748b;">·</span>
-            <span style="color:#94a3b8;">⏱️ Candle close in ${nextBarStr}</span>
+            <span style="color:#94a3b8;">⏱️ Candle close: <strong style="color:#cbd5e1;">${nextBarStr}</strong></span>
           </div>
-          <div>
-            ${r.sessionTell ? `<span style="font-weight:600; color:${r.sessionTell.type === 'bullish' ? '#4ade80' : r.sessionTell.type === 'bearish' ? '#f87171' : '#7dd3fc'}; font-size:11px; background:rgba(255,255,255,0.05); padding:2px 8px; border-radius:4px;">${r.sessionTell.badge} (${r.sessionTell.predictedDir})</span>` : ''}
+          <div class="rb-beacon-right">
+            ${prime.active ? `
+              <span class="rb-prime-pill active" title="${prime.active.rule}">
+                🔥 <strong>PRIME ACTIVE:</strong> ${prime.active.flag} ${prime.active.name} (${prime.active.remStr} left · 🎯 ${prime.active.winRate})
+              </span>
+            ` : prime.next?.isApproaching ? `
+              <span class="rb-prime-pill alert" title="${prime.next.rule}">
+                ⚠️ <strong>PRIME IN ${prime.next.waitMins}m:</strong> ${prime.next.flag} ${prime.next.name} (${prime.next.startStrIst} IST / ${prime.next.localStart} ${prime.userTzName})
+              </span>
+            ` : `
+              <span class="rb-prime-pill next" title="${prime.next.rule}">
+                🎯 <strong>Next Prime:</strong> ${prime.next.flag} ${prime.next.name} in <strong>${prime.next.waitStr}</strong> (${prime.next.startStrIst} IST / ${prime.next.localStart} ${prime.userTzName})
+              </span>
+            `}
+            ${r.sessionTell ? `<span style="font-weight:600; color:${r.sessionTell.type === 'bullish' ? '#4ade80' : r.sessionTell.type === 'bearish' ? '#f87171' : '#7dd3fc'}; font-size:11px; background:rgba(255,255,255,0.05); padding:2px 8px; border-radius:4px;">${r.sessionTell.badge}</span>` : ''}
           </div>
         </div>
 
@@ -1397,7 +1406,7 @@ const RangeEmaUI = {
           <span class="lg sess-london rb-lg-desk">Session opens</span>
           <span id="rbCandleInfo" style="margin-left:auto; font-weight:600; font-size:11.5px; color:#cbd5e1;"></span>
         </div>
-        <p class="rb-zoom-hint">${this.isPhoneLayout() ? 'Use on-chart D-Pad (▲▼◀▶ + − ↺) · Pinch/drag to explore' : 'Mouse wheel to zoom · drag to pan · Toolbar controls above'}</p>
+        <p class="rb-zoom-hint">Floating 4-way D-Pad (▲▼◀▶ + − ↺) for instant pan/zoom · Mouse wheel &amp; touch pinch supported</p>
         <div class="rb-chart-box">
           <canvas id="redBarChart" aria-label="Red Bar chart"></canvas>
           <div class="rb-floating-dpad" id="rbFloatingDpad" aria-label="Chart mobile navigation">
@@ -1565,17 +1574,17 @@ const RangeEmaUI = {
             <span class="seg-time">02:30</span>
             <span class="seg-name">Mark</span>
           </div>
-          <div class="rb-session-seg ${isAsia ? 'active' : ''}">
+          <div class="rb-session-seg ${isAsia ? 'active' : ''}" style="border-bottom: 2px solid #38bdf8;">
             <span class="seg-time">05:30</span>
-            <span class="seg-name">Asia</span>
+            <span class="seg-name">Asia 🎯</span>
           </div>
-          <div class="rb-session-seg ${isLon ? 'active' : ''}">
+          <div class="rb-session-seg ${isLon ? 'active' : ''}" style="border-bottom: 2px solid #f59e0b;">
             <span class="seg-time">12:30</span>
-            <span class="seg-name">London</span>
+            <span class="seg-name">London ⭐</span>
           </div>
-          <div class="rb-session-seg ${isNy ? 'active' : ''}">
+          <div class="rb-session-seg ${isNy ? 'active' : ''}" style="border-bottom: 2px solid #38bdf8;">
             <span class="seg-time">18:30</span>
-            <span class="seg-name">NY Open</span>
+            <span class="seg-name">NY Open 🎯</span>
           </div>
           <div class="rb-session-seg ${isLonClose ? 'active' : ''}">
             <span class="seg-time">19:30</span>
@@ -1584,6 +1593,31 @@ const RangeEmaUI = {
           <div class="rb-session-seg ${isUsClose ? 'active' : ''}">
             <span class="seg-time">01:30</span>
             <span class="seg-name">US Close</span>
+          </div>
+        </div>
+
+        <!-- Prime Execution Windows Reference Matrix -->
+        <div style="margin-top: 14px; padding-top: 10px; border-top: 1px solid rgba(255,255,255,0.06);">
+          <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom: 8px;">
+            <span style="font-size: 11px; font-weight: 700; color: #94a3b8; text-transform: uppercase; letter-spacing: 0.04em;">🎯 3 Prime Entry Windows (Statistically Proven Edges)</span>
+            <span style="font-size: 10.5px; color: #64748b;">Times in IST &amp; your ${prime.userTzName} timezone</span>
+          </div>
+          <div class="rb-prime-windows-grid">
+            ${prime.allWindows.map(w => `
+              <div class="rb-prime-win-card ${w.isCurrent ? 'active' : ''}">
+                <div class="win-card-top">
+                  <span>${w.flag} ${w.name}</span>
+                  ${w.badge ? `<span class="win-best-badge">${w.badge}</span>` : ''}
+                </div>
+                <div class="win-card-times">
+                  <strong>${w.startStrIst}–${w.endStrIst} IST</strong>
+                  <span class="win-local-time">(${w.localStart}–${w.localEnd} ${w.userTzName})</span>
+                </div>
+                <div class="win-card-edge">🎯 ${w.winRate}</div>
+                <div style="font-size: 10px; color: #94a3b8; line-height: 1.35; margin: 2px 0;">${w.rule}</div>
+                <div class="win-card-status">${w.statusBadge}</div>
+              </div>
+            `).join('')}
           </div>
         </div>
       </div>
@@ -2274,6 +2308,139 @@ const RangeEmaUI = {
         ctx.restore();
       },
     };
+  },
+
+  _getPrimeWindowStatus(nowMs = Date.now()) {
+    const d = new Date(nowMs);
+    const utcMins = d.getUTCHours() * 60 + d.getUTCMinutes() + (d.getUTCSeconds() / 60);
+    const istMins = (utcMins + 330) % 1440;
+
+    const formatLocal = (istMinute) => {
+      const utcMinute = (istMinute - 330 + 1440) % 1440;
+      const ref = new Date(nowMs);
+      ref.setUTCHours(Math.floor(utcMinute / 60), Math.round(utcMinute % 60), 0, 0);
+      return ref.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', hour12: false });
+    };
+
+    const userTzName = (() => {
+      try {
+        const parts = new Intl.DateTimeFormat([], { timeZoneName: 'short' }).formatToParts(new Date(nowMs));
+        return parts.find((p) => p.type === 'timeZoneName')?.value || 'Local';
+      } catch (_) {
+        return 'Local';
+      }
+    })();
+
+    const windows = [
+      {
+        id: 'asia',
+        name: 'Asia Open / Daily Open',
+        code: 'ASIA',
+        flag: '🌏',
+        startIstMins: 330,   // 05:30 IST
+        endIstMins: 420,     // 07:00 IST
+        startStrIst: '05:30',
+        endStrIst: '07:00',
+        winRate: '71.7% Extreme',
+        headline: 'Daily Open Judas Wick',
+        rule: '71.7% print Asia extreme in first 90m; sweeps Mark Fib Low/High'
+      },
+      {
+        id: 'london',
+        name: 'London Judas Swing',
+        code: 'LON',
+        flag: '🇬🇧',
+        badge: 'TOP EDGE',
+        startIstMins: 780,   // 13:00 IST
+        endIstMins: 855,     // 14:15 IST
+        startStrIst: '13:00',
+        endStrIst: '14:15',
+        winRate: '62.7% Extreme',
+        headline: 'European Opening Fakeout Sweep',
+        rule: '62.7% form London extreme in first 45m; sweeps Asia H/L before real trend'
+      },
+      {
+        id: 'ny',
+        name: 'New York Opening Hunt',
+        code: 'NY',
+        flag: '🇺🇸',
+        startIstMins: 1110,  // 18:30 IST
+        endIstMins: 1185,    // 19:45 IST
+        startStrIst: '18:30',
+        endStrIst: '19:45',
+        winRate: '56.0% Extreme',
+        headline: 'Wall Street Liquidity Sweep',
+        rule: '56.0% form NY extreme in first 45m; hunts London H/L, 53.7% reverse'
+      }
+    ];
+
+    let active = null;
+    for (const w of windows) {
+      if (istMins >= w.startIstMins && istMins <= w.endIstMins) {
+        const remMins = Math.round(w.endIstMins - istMins);
+        const remH = Math.floor(remMins / 60);
+        const remM = remMins % 60;
+        const remStr = remH > 0 ? `${remH}h ${remM}m` : `${remM}m`;
+        active = {
+          ...w,
+          remMins,
+          remStr,
+          localStart: formatLocal(w.startIstMins),
+          localEnd: formatLocal(w.endIstMins),
+          userTzName
+        };
+        break;
+      }
+    }
+
+    let next = null;
+    let minWait = Infinity;
+    for (const w of windows) {
+      let waitMins = w.startIstMins - istMins;
+      if (waitMins < 0) waitMins += 1440;
+      if (waitMins < minWait) {
+        minWait = waitMins;
+        const waitHours = Math.floor(waitMins / 60);
+        const waitRemMins = Math.round(waitMins % 60);
+        const waitStr = waitHours > 0 ? `${waitHours}h ${waitRemMins}m` : `${waitRemMins}m`;
+        next = {
+          ...w,
+          waitMins: Math.round(waitMins),
+          waitHours,
+          waitRemMins,
+          waitStr,
+          isApproaching: waitMins <= 45,
+          localStart: formatLocal(w.startIstMins),
+          localEnd: formatLocal(w.endIstMins),
+          userTzName
+        };
+      }
+    }
+
+    const allWindows = windows.map((w) => {
+      const localStart = formatLocal(w.startIstMins);
+      const localEnd = formatLocal(w.endIstMins);
+      const isCurrent = active?.id === w.id;
+      let waitMins = w.startIstMins - istMins;
+      if (waitMins < 0) waitMins += 1440;
+      const waitHours = Math.floor(waitMins / 60);
+      const waitRemMins = Math.round(waitMins % 60);
+      const waitStr = waitHours > 0 ? `in ${waitHours}h ${waitRemMins}m` : `in ${waitRemMins}m`;
+      return {
+        ...w,
+        localStart,
+        localEnd,
+        isCurrent,
+        waitStr: isCurrent ? `ACTIVE NOW (${active.remStr} left)` : waitStr,
+        statusBadge: isCurrent
+          ? `<span style="background:#22c55e;color:#022c22;font-weight:700;font-size:10px;padding:2px 6px;border-radius:4px;">🔥 ACTIVE NOW</span>`
+          : waitMins <= 45
+            ? `<span style="background:#f59e0b;color:#451a03;font-weight:700;font-size:10px;padding:2px 6px;border-radius:4px;">⚠️ IN ${waitMins}M</span>`
+            : `<span style="background:rgba(255,255,255,0.06);color:#94a3b8;font-size:10.5px;padding:2px 6px;border-radius:4px;">${waitStr}</span>`
+      };
+    });
+
+    return { active, next, allWindows, userTzName };
   },
 
   _nearPrice(a, b, eps = 0.5) {
