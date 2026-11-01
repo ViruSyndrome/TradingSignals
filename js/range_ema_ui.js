@@ -1129,12 +1129,36 @@ const RangeEmaUI = {
     document.getElementById('rbZoomOut')?.addEventListener('click', () => {
       try { this._chart?.zoom?.(0.75); } catch (_) {}
     });
-    document.getElementById('rbZoomReset')?.addEventListener('click', () => {
+    const resetChartFit = () => {
       this.state.chartPanOffset = 0;
-      try { this._chart?.resetZoom?.(); } catch (_) {}
+      const ch = this._chart;
+      if (ch) {
+        if (ch.scales?.y) {
+          delete ch.scales.y.options.min;
+          delete ch.scales.y.options.max;
+        }
+        try { ch.resetZoom?.(); } catch (_) {}
+      }
       const row = (this.state.rows || [])[0];
       if (row && !row.error) this._paintChart(row, this.cfg());
-    });
+    };
+    document.getElementById('rbZoomReset')?.addEventListener('click', resetChartFit);
+    document.getElementById('rbFloatReset')?.addEventListener('click', resetChartFit);
+
+    const panPrice = (dir) => {
+      const ch = this._chart;
+      if (!ch) return;
+      const yScale = ch.scales?.y;
+      if (!yScale) return;
+      const span = (yScale.max - yScale.min);
+      const delta = span * 0.15 * dir;
+      // dir = +1 means shift view UP (increase min & max), dir = -1 means shift DOWN
+      yScale.options.min = (yScale.min ?? yScale.start) + delta;
+      yScale.options.max = (yScale.max ?? yScale.end) + delta;
+      try { ch.update('none'); } catch (_) {}
+    };
+    document.getElementById('rbFloatPanUp')?.addEventListener('click', () => panPrice(1));
+    document.getElementById('rbFloatPanDown')?.addEventListener('click', () => panPrice(-1));
     const panBy = (dir) => {
       const ch = this._chart;
       let panned = false;
@@ -1168,6 +1192,8 @@ const RangeEmaUI = {
     };
     document.getElementById('rbPanLeft')?.addEventListener('click', () => panBy(1));
     document.getElementById('rbPanRight')?.addEventListener('click', () => panBy(-1));
+    document.getElementById('rbFloatPanLeft')?.addEventListener('click', () => panBy(1));
+    document.getElementById('rbFloatPanRight')?.addEventListener('click', () => panBy(-1));
 
     // Inline Futures Sizing controls
     const capIn = document.getElementById('rbFuturesCap');
@@ -1361,9 +1387,18 @@ const RangeEmaUI = {
           <span class="lg sess-london rb-lg-desk">Session opens</span>
           <span id="rbCandleInfo" style="margin-left:auto; font-weight:600; font-size:11.5px; color:#cbd5e1;"></span>
         </div>
-        <p class="rb-zoom-hint">${this.isPhoneLayout() ? 'Pinch to zoom · ◀ ▶ to scrub · Fit resets' : 'Pinch / wheel to zoom · drag to pan · Fit resets'}</p>
+        <p class="rb-zoom-hint">${this.isPhoneLayout() ? 'Pinch/drag to pan · Use 4-way D-Pad (▲▼◀▶) · ↺ resets' : 'Pinch / wheel to zoom · drag to pan · 4-way D-Pad · Fit resets'}</p>
         <div class="rb-chart-box">
           <canvas id="redBarChart" aria-label="Red Bar chart"></canvas>
+          <div class="rb-floating-dpad" id="rbFloatingDpad" aria-label="Chart 4-way navigation">
+            <button type="button" class="rb-dpad-btn rb-dpad-up" id="rbFloatPanUp" title="Pan price up (▲)">▲</button>
+            <div class="rb-dpad-mid">
+              <button type="button" class="rb-dpad-btn rb-dpad-left" id="rbFloatPanLeft" title="Pan time earlier (◀)">◀</button>
+              <button type="button" class="rb-dpad-btn rb-dpad-fit" id="rbFloatReset" title="Fit / Reset (↺)">↺</button>
+              <button type="button" class="rb-dpad-btn rb-dpad-right" id="rbFloatPanRight" title="Pan time later (▶)">▶</button>
+            </div>
+            <button type="button" class="rb-dpad-btn rb-dpad-down" id="rbFloatPanDown" title="Pan price down (▼)">▼</button>
+          </div>
         </div>
       </div>
     `;
@@ -2696,12 +2731,12 @@ const RangeEmaUI = {
           zoom: {
             limits: {
               x: { min: 'original', max: 'original', minRange: 12 },
-              y: { min: 'original', max: 'original', minRange: Math.max(barSpan * 0.06, 30) },
+              y: { min: 0, max: 500000, minRange: Math.max(barSpan * 0.06, 30) },
             },
-            // Desktop: drag-pan. Phone: pinch to zoom; use ◀ ▶ for scrub (keeps page scroll).
+            // Smooth two-axis drag-pan on touch and desktop
             pan: {
               enabled: true,
-              mode: 'x',
+              mode: 'xy',
               threshold: 6,
               modifierKey: null,
             },

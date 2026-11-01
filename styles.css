@@ -3304,13 +3304,75 @@ body.redbar-only .site-footer-copyright {
   position: relative;
   height: min(52vh, 420px);
   width: 100%;
-  /* pan-y = page scroll with one finger; pinch-zoom = chart zoom with two */
-  touch-action: pan-y pinch-zoom;
+  touch-action: pan-x pan-y pinch-zoom;
 }
 #redBarChart {
-  touch-action: pan-y pinch-zoom;
-  /* Help Hammer/Chart zoom receive multi-touch on iOS */
-  -ms-touch-action: pan-y pinch-zoom;
+  touch-action: pan-x pan-y pinch-zoom;
+  -ms-touch-action: pan-x pan-y pinch-zoom;
+}
+
+/* Floating 4-way D-Pad Navigator for chart */
+.rb-floating-dpad {
+  position: absolute;
+  bottom: 12px;
+  right: 12px;
+  z-index: 15;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 3px;
+  padding: 4px;
+  background: rgba(15, 23, 42, 0.85);
+  border: 1px solid rgba(255, 255, 255, 0.16);
+  border-radius: 12px;
+  backdrop-filter: blur(10px);
+  -webkit-backdrop-filter: blur(10px);
+  box-shadow: 0 4px 18px rgba(0, 0, 0, 0.5);
+  user-select: none;
+  -webkit-user-select: none;
+  touch-action: manipulation;
+}
+.rb-dpad-mid {
+  display: flex;
+  align-items: center;
+  gap: 3px;
+}
+.rb-dpad-btn {
+  width: 32px;
+  height: 28px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: rgba(255, 255, 255, 0.08);
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  border-radius: 6px;
+  color: #e2e8f0;
+  font-size: 11px;
+  font-weight: 700;
+  cursor: pointer;
+  transition: all 0.15s ease;
+  padding: 0;
+  line-height: 1;
+}
+.rb-dpad-btn:hover {
+  background: rgba(124, 106, 245, 0.35);
+  border-color: rgba(124, 106, 245, 0.6);
+  color: #fff;
+  transform: scale(1.05);
+}
+.rb-dpad-btn:active {
+  background: rgba(124, 106, 245, 0.55);
+  transform: scale(0.95);
+}
+.rb-dpad-btn.rb-dpad-fit {
+  background: rgba(56, 189, 248, 0.15);
+  border-color: rgba(56, 189, 248, 0.35);
+  color: #38bdf8;
+  font-size: 13px;
+}
+.rb-dpad-btn.rb-dpad-fit:hover {
+  background: rgba(56, 189, 248, 0.3);
+  color: #fff;
 }
 .rb-meta-row { margin-bottom: 10px; }
 /* Phone chart/layout — also via max-device-width (Chrome desktop-site) */
@@ -3344,9 +3406,8 @@ body.redbar-only .site-footer-copyright {
   }
   body.redbar-only .rb-chart-box {
     flex: none;
-    /* Wider aspect: less tall so candles aren't needle-thin */
-    height: min(42vh, 300px);
-    min-height: 220px;
+    height: min(58vh, 460px);
+    min-height: 320px;
   }
   body.redbar-only .site-footer {
     padding: 8px 10px calc(10px + env(safe-area-inset-bottom, 0px));
@@ -3382,28 +3443,42 @@ body.redbar-only .site-footer-copyright {
     grid-template-columns: repeat(2, minmax(0, 1fr));
     width: 100%;
   }
+  /* Compact single-row horizontal scrollable toolbar for mobile */
   .rb-chart-toolbar {
-    flex-direction: column;
-    align-items: stretch;
+    display: flex;
+    flex-direction: row;
+    flex-wrap: nowrap;
+    overflow-x: auto;
+    -webkit-overflow-scrolling: touch;
+    scrollbar-width: none;
+    align-items: center;
+    gap: 6px;
+    padding: 2px 2px 6px;
+    margin-bottom: 6px;
   }
-  .rb-tf-group, .rb-zoom-group {
-    justify-content: stretch;
+  .rb-chart-toolbar::-webkit-scrollbar {
+    display: none;
   }
+  .rb-chart-mode-group,
+  .rb-tf-group,
   .rb-zoom-group {
     display: flex;
-    flex-wrap: wrap;
+    flex-wrap: nowrap;
     gap: 4px;
-  }
-  .rb-zoom-group #rbOpenGuide {
-    flex: 2 1 100%;
-    margin-top: 4px;
-    font-weight: 600;
+    flex: 0 0 auto;
   }
   .rb-tf-btn, .rb-zoom-btn {
-    flex: 1;
+    flex: 0 0 auto;
     text-align: center;
-    padding: 8px 6px;
-    min-height: 38px;
+    padding: 5px 9px;
+    min-height: 32px;
+    font-size: 11px;
+    white-space: nowrap;
+  }
+  .rb-zoom-group #rbOpenGuide {
+    flex: 0 0 auto;
+    margin-top: 0;
+    font-weight: 600;
   }
   .rb-chart-legend {
     display: flex;
@@ -3426,11 +3501,12 @@ body.redbar-only .site-footer-copyright {
   .rb-chart-legend .rb-lg-desk { display: none; }
   .rb-zoom-hint { font-size: 10px; margin-bottom: 4px; }
   .rb-chart-box {
-    height: min(42vh, 300px);
-    min-height: 220px;
-    touch-action: pan-y pinch-zoom;
+    position: relative;
+    height: min(58vh, 460px);
+    min-height: 320px;
+    touch-action: pan-x pan-y pinch-zoom;
   }
-  #redBarChart { touch-action: pan-y pinch-zoom; }
+  #redBarChart { touch-action: pan-x pan-y pinch-zoom; }
   .range-chips { gap: 4px; }
   .range-chip { font-size: 10px; padding: 2px 6px; }
   .range-narrative { font-size: 11px; margin-bottom: 8px; }
@@ -3493,14 +3569,49 @@ html.is-phone .rb-futures-metrics {
   grid-template-columns: repeat(2, minmax(0, 1fr));
   width: 100%;
 }
+html.is-phone .rb-chart-toolbar {
+  display: flex !important;
+  flex-direction: row !important;
+  flex-wrap: nowrap !important;
+  overflow-x: auto !important;
+  -webkit-overflow-scrolling: touch !important;
+  scrollbar-width: none !important;
+  gap: 6px !important;
+  padding: 2px 2px 6px !important;
+  margin-bottom: 6px !important;
+}
+html.is-phone .rb-chart-toolbar::-webkit-scrollbar {
+  display: none !important;
+}
+html.is-phone .rb-chart-mode-group,
+html.is-phone .rb-tf-group,
+html.is-phone .rb-zoom-group {
+  display: flex !important;
+  flex-wrap: nowrap !important;
+  gap: 4px !important;
+  flex: 0 0 auto !important;
+}
+html.is-phone .rb-tf-btn,
+html.is-phone .rb-zoom-btn {
+  flex: 0 0 auto !important;
+  text-align: center !important;
+  padding: 5px 9px !important;
+  min-height: 32px !important;
+  font-size: 11px !important;
+  white-space: nowrap !important;
+}
+html.is-phone .rb-zoom-group #rbOpenGuide {
+  flex: 0 0 auto !important;
+  margin-top: 0 !important;
+}
 html.is-phone .rb-chart-box,
 html.is-phone body.redbar-only .rb-chart-box {
-  height: min(42vh, 300px) !important;
-  min-height: 220px !important;
-  /* pan-y only — pinch-zoom steals vertical page scroll on phones */
-  touch-action: pan-y !important;
+  position: relative !important;
+  height: min(58vh, 460px) !important;
+  min-height: 320px !important;
+  touch-action: pan-x pan-y pinch-zoom !important;
 }
-html.is-phone #redBarChart { touch-action: pan-y !important; }
+html.is-phone #redBarChart { touch-action: pan-x pan-y pinch-zoom !important; }
 
 /*
  * Phones (incl. landscape where width > 768): document scroll, not nested
