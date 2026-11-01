@@ -2180,8 +2180,8 @@ const RangeEmaUI = {
     return {
       id: 'rbPriorFib',
       beforeDatasetsDraw(chart) {
-        // Fib lines ONLY appear when hovering over the empty space / prior Fib level!
-        const pf = chart.$rbHoveredPriorFib;
+        // Fib lines ONLY appear when hovering or pinned on mobile/desktop!
+        const pf = chart.$rbHoveredPriorFib || chart.$rbPinnedPriorFib;
         if (!pf) return;
         const yScale = chart.scales.y;
         const xScale = chart.scales.x;
@@ -2245,8 +2245,8 @@ const RangeEmaUI = {
       },
 
       afterDraw(chart) {
-        // Left-margin pills: show hovered prior Fib if active, else fall back to active trend-targeted prior Fib
-        const pf = chart.$rbHoveredPriorFib || chart.$rbPriorFib;
+        // Left-margin pills: show hovered or pinned prior Fib if active, else fall back to active trend-targeted prior Fib
+        const pf = chart.$rbHoveredPriorFib || chart.$rbPinnedPriorFib || chart.$rbPriorFib;
         if (!pf) return;
         const yScale = chart.scales.y;
         const area = chart.chartArea;
@@ -2254,7 +2254,8 @@ const RangeEmaUI = {
         const ctx = chart.ctx;
         const compact = !!chart.$rbCompact;
         const d = chart.$rbDecimals ?? 2;
-        const isHovered = !!chart.$rbHoveredPriorFib;
+        const isHovered = !!(chart.$rbHoveredPriorFib || chart.$rbPinnedPriorFib);
+        const isPinned = !!chart.$rbPinnedPriorFib && chart.$rbPinnedPriorFib === pf;
         const hoveredLevel = chart.$rbHoveredLevel;
 
         const items = [
@@ -2294,15 +2295,16 @@ const RangeEmaUI = {
           const isItemActive = isHovered && (hoveredLevel === item.key || hoveredLevel === 'box');
           const priceStr = Number(item.val).toFixed(d);
           const dayTag = (!compact && item.prefix === 'H' && pf.dayLabel) ? ` · ${pf.dayLabel}` : '';
-          const label = `${item.prefix} ${priceStr}${dayTag}`;
+          const pinTag = (isPinned && item.prefix === 'H') ? ' 📌' : '';
+          const label = `${item.prefix} ${priceStr}${dayTag}${pinTag}`;
           const tw = ctx.measureText(label).width;
           const boxW = tw + 16;
           const boxH = compact ? 13 : 15;
           const boxX = area.left + (compact ? 3 : 5);
           const boxY = y - boxH / 2;
 
-          // Subtle 0.55 opacity resting bookmark; bright 1.0 opacity when hovered!
-          ctx.globalAlpha = isItemActive ? 1.0 : (isHovered ? 0.82 : 0.55);
+          // Subtle 0.55 opacity resting bookmark; bright 1.0 opacity when hovered/pinned!
+          ctx.globalAlpha = isItemActive ? 1.0 : (isHovered ? 0.85 : 0.55);
 
           // Dark pill with subtle colored border
           ctx.fillStyle = isItemActive ? 'rgba(15, 23, 42, 0.98)' : 'rgba(15, 23, 42, 0.80)';
@@ -3140,12 +3142,134 @@ const RangeEmaUI = {
         maintainAspectRatio: false,
         animation: { duration: compact ? 0 : 280 },
         interaction: { mode: 'index', intersect: false },
+        events: ['mousemove', 'mouseout', 'click', 'touchstart', 'touchmove'],
+        onClick: (event, activeElements) => {
+          const elInfo = document.getElementById('rbCandleInfo');
+          const d = inst.priceDecimals ?? 2;
+          const yScale = this._chart?.scales?.y;
+          const area = this._chart?.chartArea;
+
+          let evX = event.x;
+          let evY = event.y;
+          if ((evY == null || evX == null) && event.native) {
+            const t = event.native.touches?.[0] || event.native.changedTouches?.[0];
+            if (t && event.native.target) {
+              const rect = event.native.target.getBoundingClientRect();
+              evX = t.clientX - rect.left;
+              evY = t.clientY - rect.top;
+            } else {
+              evX = event.native.offsetX;
+              evY = event.native.offsetY;
+            }
+          }
+
+          // Check if tap was in empty space near a prior Fib or on a pill
+          let tappedCand = null;
+          let tappedLevel = 'box';
+          if (yScale && area && evY != null && evX != null) {
+            const candidates = this._chart?.$rbPriorCandidates || (priorFibInfo ? [priorFibInfo] : []);
+            for (const cand of candidates) {
+              const yHi = yScale.getPixelForValue(cand.high);
+              const yLo = yScale.getPixelForValue(cand.low);
+              const yMid = cand.mid != null ? yScale.getPixelForValue(cand.mid) : null;
+              if (!Number.isFinite(yHi) || !Number.isFinite(yLo)) continue;
+              const topY = Math.min(yHi, yLo);
+              const botY = Math.max(yHi, yLo);
+              const padY = compact ? 28 : 22;
+
+              if (evY >= topY - padY && evY <= botY + padY) {
+                tappedCand = cand;
+                const dHi = Math.abs(evY - yHi);
+                const dMid = yMid != null ? Math.abs(evY - yMid) : Infinity;
+                const dLo = Math.abs(evY - yLo);
+                const minLineDist = Math.min(dHi, dMid, dLo);
+                if (minLineDist <= (compact ? 24 : 16)) {
+                  if (dHi <= minLineDist) tappedLevel = 'high';
+                  else if (dMid <= minLineDist) tappedLevel = 'mid';
+                  else tappedLevel = 'low';
+                } else {
+                  tappedLevel = 'box';
+                }
+                break;
+              }
+            }
+          }
+
+          if (tappedCand) {
+            // If already pinned to this candidate & level, toggle off
+            if (this._chart.$rbPinnedPriorFib === tappedCand && (!tappedLevel || this._chart.$rbHoveredLevel === tappedLevel)) {
+              this._chart.$rbPinnedPriorFib = null;
+              this._chart.$rbHoveredPriorFib = null;
+              this._chart.$rbHoveredLevel = null;
+              this._chart.$rbHoveredKey = null;
+              try { this._chart.draw(); } catch (_) { try { this._chart.update('none'); } catch (_) {} }
+              if (elInfo && bars && bars.length) {
+                const last = bars[bars.length - 1];
+                const chg = ((last.c - last.o) / last.o) * 100;
+                const arrow = chg >= 0 ? '▲' : '▼';
+                const sign = chg >= 0 ? '+' : '';
+                const col = chg >= 0 ? '#4ade80' : '#f87171';
+                const dayStr = priorFibInfo?.dayLabel ? ` (${priorFibInfo.dayLabel})` : '';
+                const pfSummary = priorFibInfo ? ` · <span style="color:#64748b;">Prev Fib${dayStr}:</span> <span style="color:#4ade80;">H $${Number(priorFibInfo.high).toFixed(d)}</span> <span style="color:#38bdf8;">Mid $${Number(priorFibInfo.mid).toFixed(d)}</span> <span style="color:#f87171;">L $${Number(priorFibInfo.low).toFixed(d)}</span>` : '';
+                elInfo.innerHTML = `<span style="color:#94a3b8;">Live:</span> <strong style="color:${col};">$${Number(last.c).toFixed(d)} (${arrow} ${sign}${chg.toFixed(2)}%)</strong> <span style="color:#64748b;">H: $${Number(last.h).toFixed(d)} · L: $${Number(last.l).toFixed(d)}</span>${pfSummary}`;
+              }
+              return;
+            }
+
+            // Lock/pin onto this prior Fib
+            this._chart.$rbPinnedPriorFib = tappedCand;
+            this._chart.$rbHoveredPriorFib = tappedCand;
+            this._chart.$rbHoveredLevel = tappedLevel;
+            this._chart.$rbHoveredKey = `${tappedCand.dayKey}:${tappedLevel}`;
+            try { this._chart.draw(); } catch (_) { try { this._chart.update('none'); } catch (_) {} }
+
+            if (elInfo) {
+              const dayStr = tappedCand.dayLabel ? ` (${tappedCand.dayLabel})` : '';
+              let priceTxt = '';
+              if (tappedLevel === 'high') {
+                const diffPct = ((tappedCand.high - priceNow) / priceNow * 100);
+                priceTxt = `<strong style="color:#4ade80;background:rgba(34,197,94,0.18);padding:1px 6px;border-radius:4px;">🎯 Prev Fib${dayStr} High: $${Number(tappedCand.high).toFixed(d)} (${diffPct >= 0 ? '+' : ''}${diffPct.toFixed(2)}%)</strong>`;
+              } else if (tappedLevel === 'mid') {
+                const diffPct = ((tappedCand.mid - priceNow) / priceNow * 100);
+                priceTxt = `<strong style="color:#38bdf8;background:rgba(56,189,248,0.18);padding:1px 6px;border-radius:4px;">🎯 Prev Fib${dayStr} Median: $${Number(tappedCand.mid).toFixed(d)} (${diffPct >= 0 ? '+' : ''}${diffPct.toFixed(2)}%)</strong>`;
+              } else if (tappedLevel === 'low') {
+                const diffPct = ((tappedCand.low - priceNow) / priceNow * 100);
+                priceTxt = `<strong style="color:#f87171;background:rgba(239,68,68,0.18);padding:1px 6px;border-radius:4px;">🎯 Prev Fib${dayStr} Low: $${Number(tappedCand.low).toFixed(d)} (${diffPct >= 0 ? '+' : ''}${diffPct.toFixed(2)}%)</strong>`;
+              } else {
+                priceTxt = `<strong style="color:#38bdf8;background:rgba(56,189,248,0.18);padding:1px 6px;border-radius:4px;">🎯 Prev Fib Box${dayStr}: $${Number(tappedCand.low).toFixed(d)} – $${Number(tappedCand.high).toFixed(d)}</strong>`;
+              }
+              const role = tappedCand.trendDir === 'UP' ? 'Overhead Target' : 'Underhead Target';
+              elInfo.innerHTML = `${priceTxt} <span style="color:#94a3b8;font-size:10px;">(${role} · Tap to clear)</span>`;
+            }
+            return;
+          }
+
+          // Tapped elsewhere (on candles or outside) -> unpin
+          if (this._chart.$rbPinnedPriorFib) {
+            this._chart.$rbPinnedPriorFib = null;
+            this._chart.$rbHoveredPriorFib = null;
+            this._chart.$rbHoveredLevel = null;
+            this._chart.$rbHoveredKey = null;
+            try { this._chart.draw(); } catch (_) { try { this._chart.update('none'); } catch (_) {} }
+          }
+        },
         onHover: (event, activeElements) => {
           const elInfo = document.getElementById('rbCandleInfo');
           if (!elInfo) return;
           const d = inst.priceDecimals ?? 2;
-          const evY = event.y ?? event.native?.offsetY;
-          const evX = event.x ?? event.native?.offsetX;
+          let evX = event.x;
+          let evY = event.y;
+          if ((evY == null || evX == null) && event.native) {
+            const t = event.native.touches?.[0] || event.native.changedTouches?.[0];
+            if (t && event.native.target) {
+              const rect = event.native.target.getBoundingClientRect();
+              evX = t.clientX - rect.left;
+              evY = t.clientY - rect.top;
+            } else {
+              evX = event.native.offsetX;
+              evY = event.native.offsetY;
+            }
+          }
           const yScale = this._chart?.scales?.y;
           const area = this._chart?.chartArea;
 
@@ -3153,7 +3277,7 @@ const RangeEmaUI = {
           let matchedLevel = null;
           let hoverFibStr = null;
 
-          if (yScale && area && evY != null && evX != null && evX >= area.left - 10 && evX <= area.right + 10) {
+          if (yScale && area && evY != null && evX != null && evX >= area.left - 12 && evX <= area.right + 12) {
             // Check all prior Fib candidates (or active prior Fib)
             const candidates = this._chart?.$rbPriorCandidates || (priorFibInfo ? [priorFibInfo] : []);
             for (const cand of candidates) {
@@ -3164,9 +3288,10 @@ const RangeEmaUI = {
 
               const topY = Math.min(yHi, yLo);
               const botY = Math.max(yHi, yLo);
+              const padY = compact ? 26 : 22;
 
-              // Check if evY is hovering inside or near this prior Fib box (with 22px vertical padding)
-              if (evY >= topY - 22 && evY <= botY + 22) {
+              // Check if evY is hovering inside or near this prior Fib box
+              if (evY >= topY - padY && evY <= botY + padY) {
                 matchedCand = cand;
                 const dHi = Math.abs(evY - yHi);
                 const dMid = yMid != null ? Math.abs(evY - yMid) : Infinity;
@@ -3174,7 +3299,7 @@ const RangeEmaUI = {
                 const minLineDist = Math.min(dHi, dMid, dLo);
 
                 const dayStr = cand.dayLabel ? ` (${cand.dayLabel})` : '';
-                if (minLineDist <= 16) {
+                if (minLineDist <= (compact ? 22 : 16)) {
                   if (dHi <= minLineDist) {
                     matchedLevel = 'high';
                     const diffPct = ((cand.high - priceNow) / priceNow * 100);
@@ -3216,17 +3341,19 @@ const RangeEmaUI = {
             }
           }
 
-          // Trigger instant redraw when hover state changes so lines appear/disappear smoothly
-          const newKey = matchedCand ? `${matchedCand.dayKey}:${matchedLevel}` : null;
-          const prevKey = this._chart.$rbHoveredKey || null;
-          if (newKey !== prevKey) {
-            this._chart.$rbHoveredKey = newKey;
-            this._chart.$rbHoveredPriorFib = matchedCand || null;
-            this._chart.$rbHoveredLevel = matchedLevel || null;
-            try {
-              this._chart.draw();
-            } catch (_) {
-              try { this._chart.update('none'); } catch (_) {}
+          // If not currently pinned, update hovered state
+          if (!this._chart.$rbPinnedPriorFib) {
+            const newKey = matchedCand ? `${matchedCand.dayKey}:${matchedLevel}` : null;
+            const prevKey = this._chart.$rbHoveredKey || null;
+            if (newKey !== prevKey) {
+              this._chart.$rbHoveredKey = newKey;
+              this._chart.$rbHoveredPriorFib = matchedCand || null;
+              this._chart.$rbHoveredLevel = matchedLevel || null;
+              try {
+                this._chart.draw();
+              } catch (_) {
+                try { this._chart.update('none'); } catch (_) {}
+              }
             }
           }
 
@@ -3428,6 +3555,7 @@ const RangeEmaUI = {
     this._chart.$rbPriorCandidates = priorCandidates;
     this._chart.$rbPriorFib = priorFibInfo;
     this._chart.$rbHoveredPriorFib = null;
+    this._chart.$rbPinnedPriorFib = null;
     this._chart.$rbHoveredLevel = null;
     this._chart.$rbHoveredKey = null;
     this._chart.$rbDecimals = inst.priceDecimals ?? 2;
@@ -3445,28 +3573,30 @@ const RangeEmaUI = {
       elInitInfo.innerHTML = `<span style="color:#94a3b8;">Live:</span> <strong style="color:${col};">$${Number(last.c).toFixed(d)} (${arrow} ${sign}${chg.toFixed(2)}%)</strong> <span style="color:#64748b;">H: $${Number(last.h).toFixed(d)} · L: $${Number(last.l).toFixed(d)}</span>${pfSummary}`;
     }
 
-    // Smoothly clear hovered prior Fib lines when mouse leaves the canvas
+    // Smoothly clear hovered prior Fib lines when mouse leaves the canvas (unless pinned)
     canvas.onmouseleave = () => {
-      if (this._chart?.$rbHoveredPriorFib) {
-        this._chart.$rbHoveredKey = null;
-        this._chart.$rbHoveredPriorFib = null;
-        this._chart.$rbHoveredLevel = null;
-        try {
-          this._chart.draw();
-        } catch (_) {
-          try { this._chart.update('none'); } catch (_) {}
+      if (this._chart && !this._chart.$rbPinnedPriorFib) {
+        if (this._chart.$rbHoveredPriorFib) {
+          this._chart.$rbHoveredKey = null;
+          this._chart.$rbHoveredPriorFib = null;
+          this._chart.$rbHoveredLevel = null;
+          try {
+            this._chart.draw();
+          } catch (_) {
+            try { this._chart.update('none'); } catch (_) {}
+          }
         }
-      }
-      if (elInitInfo && bars && bars.length) {
-        const last = bars[bars.length - 1];
-        const d = inst.priceDecimals ?? 2;
-        const chg = ((last.c - last.o) / last.o) * 100;
-        const arrow = chg >= 0 ? '▲' : '▼';
-        const sign = chg >= 0 ? '+' : '';
-        const col = chg >= 0 ? '#4ade80' : '#f87171';
-        const dayStr = priorFibInfo?.dayLabel ? ` (${priorFibInfo.dayLabel})` : '';
-        const pfSummary = priorFibInfo ? ` · <span style="color:#64748b;">Prev Fib${dayStr}:</span> <span style="color:#4ade80;">H $${Number(priorFibInfo.high).toFixed(d)}</span> <span style="color:#38bdf8;">Mid $${Number(priorFibInfo.mid).toFixed(d)}</span> <span style="color:#f87171;">L $${Number(priorFibInfo.low).toFixed(d)}</span>` : '';
-        elInitInfo.innerHTML = `<span style="color:#94a3b8;">Live:</span> <strong style="color:${col};">$${Number(last.c).toFixed(d)} (${arrow} ${sign}${chg.toFixed(2)}%)</strong> <span style="color:#64748b;">H: $${Number(last.h).toFixed(d)} · L: $${Number(last.l).toFixed(d)}</span>${pfSummary}`;
+        if (elInitInfo && bars && bars.length) {
+          const last = bars[bars.length - 1];
+          const d = inst.priceDecimals ?? 2;
+          const chg = ((last.c - last.o) / last.o) * 100;
+          const arrow = chg >= 0 ? '▲' : '▼';
+          const sign = chg >= 0 ? '+' : '';
+          const col = chg >= 0 ? '#4ade80' : '#f87171';
+          const dayStr = priorFibInfo?.dayLabel ? ` (${priorFibInfo.dayLabel})` : '';
+          const pfSummary = priorFibInfo ? ` · <span style="color:#64748b;">Prev Fib${dayStr}:</span> <span style="color:#4ade80;">H $${Number(priorFibInfo.high).toFixed(d)}</span> <span style="color:#38bdf8;">Mid $${Number(priorFibInfo.mid).toFixed(d)}</span> <span style="color:#f87171;">L $${Number(priorFibInfo.low).toFixed(d)}</span>` : '';
+          elInitInfo.innerHTML = `<span style="color:#94a3b8;">Live:</span> <strong style="color:${col};">$${Number(last.c).toFixed(d)} (${arrow} ${sign}${chg.toFixed(2)}%)</strong> <span style="color:#64748b;">H: $${Number(last.h).toFixed(d)} · L: $${Number(last.l).toFixed(d)}</span>${pfSummary}`;
+        }
       }
     };
     // Flex / phone layout often settles after first paint — boxes/plugins need a
