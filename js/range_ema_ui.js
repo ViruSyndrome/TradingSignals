@@ -1349,11 +1349,11 @@ const RangeEmaUI = {
           <div class="rb-beacon-right">
             ${prime.active ? `
               <span class="rb-prime-pill active" title="${prime.active.rule}">
-                <strong>PRIME WINDOW:</strong> ${prime.active.name} (${prime.active.remStr} left · ${prime.active.winRate})
+                <strong>Prime Window:</strong> ${prime.active.name} (${prime.active.remStr} left · ${prime.active.winRate})
               </span>
             ` : prime.next?.isApproaching ? `
               <span class="rb-prime-pill alert" title="${prime.next.rule}">
-                <strong>WINDOW IN ${prime.next.waitMins}m:</strong> ${prime.next.name} (${prime.next.startStrIst} IST${!prime.isUserIst ? ` / ${prime.next.localStart} ${prime.userTzName}` : ''})
+                <strong>Window in ${prime.next.waitMins}m:</strong> ${prime.next.name} (${prime.next.startStrIst} IST${!prime.isUserIst ? ` / ${prime.next.localStart} ${prime.userTzName}` : ''})
               </span>
             ` : `
               <span class="rb-prime-pill next" title="${prime.next.rule}">
@@ -1575,17 +1575,14 @@ const RangeEmaUI = {
           <div class="rb-session-seg ${isAsia ? 'active' : ''} is-prime">
             <span class="seg-time">05:30</span>
             <span class="seg-name">Asia</span>
-            <span class="seg-tag prime">71.7%</span>
           </div>
-          <div class="rb-session-seg ${isLon ? 'active' : ''} is-prime-top">
-            <span class="seg-time">12:30</span>
+          <div class="rb-session-seg ${isLon ? 'active' : ''} is-prime">
+            <span class="seg-time">13:00</span>
             <span class="seg-name">London</span>
-            <span class="seg-tag prime">62.7%</span>
           </div>
           <div class="rb-session-seg ${isNy ? 'active' : ''} is-prime">
             <span class="seg-time">18:30</span>
             <span class="seg-name">NY Open</span>
-            <span class="seg-tag prime">56.0%</span>
           </div>
           <div class="rb-session-seg ${isLonClose ? 'active' : ''}">
             <span class="seg-time">19:30</span>
@@ -2437,7 +2434,8 @@ const RangeEmaUI = {
       const waitMins = Math.round(rawWaitMins);
       const waitHours = Math.floor(waitMins / 60);
       const waitRemMins = waitMins % 60;
-      const waitStr = waitHours > 0 ? `in ${waitHours}h ${waitRemMins}m` : `in ${waitMins}m`;
+      const waitStr = waitHours > 0 ? `in ${waitHours}h ${waitRemMins}m` : (waitMins <= 0 ? 'starting now' : `in ${waitMins}m`);
+      const waitDisplayStr = waitMins <= 0 ? 'starting now' : `in ${waitMins}m`;
       return {
         ...w,
         localStart,
@@ -2450,7 +2448,7 @@ const RangeEmaUI = {
         statusBadge: isCurrent
           ? `<span style="background:#22c55e;color:#022c22;font-weight:700;font-size:10px;padding:2px 6px;border-radius:4px;">🔥 ACTIVE NOW</span>`
           : waitMins <= 45
-            ? `<span style="background:#f59e0b;color:#451a03;font-weight:700;font-size:10px;padding:2px 6px;border-radius:4px;">⚠️ IN ${waitMins}M</span>`
+            ? `<span style="background:#f59e0b;color:#451a03;font-weight:700;font-size:10px;padding:2px 6px;border-radius:4px;">⚠️ ${waitDisplayStr}</span>`
             : `<span style="background:rgba(255,255,255,0.06);color:#94a3b8;font-size:10.5px;padding:2px 6px;border-radius:4px;">${waitStr}</span>`
       };
     });
