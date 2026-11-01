@@ -161,7 +161,7 @@ const FibMagnet = {
       ? (emaCheck.bullish || emaCheck.recentBullCross)
       : (emaCheck.bearish || emaCheck.recentBearCross);
 
-    const state = confirmed ? 'ENTER' : 'WATCH_1M';
+    const state = confirmed ? 'PULL_ACTIVE' : 'PULL_WATCH';
 
     return {
       state,
@@ -176,12 +176,10 @@ const FibMagnet = {
       candleTime: setup.candleTime,
       emaCheck,
       badge: confirmed
-        ? `🧲 FIB MAGNET ${setup.side} (1m Confirmed)`
-        : `🧲 FIB MAGNET ${setup.side} (Wait 1m EMA)`,
-      title: confirmed
-        ? `LIVE ENTER · Fib Magnet ${setup.side}`
-        : `WATCH · Tweezer formed, awaiting 1m EMA cross`,
-      subtitle: `Target Fib ${setup.side === 'LONG' ? 'f0' : 'f1'} (${setup.tp.toFixed(1)}) · Stretched ${setup.distPct.toFixed(2)}% · SL ${setup.stop.toFixed(1)} · R:R ${setup.rr.toFixed(2)}`,
+        ? `🧲 FIB MAGNET ${setup.side} (1m Rebound)`
+        : `🧲 FIB MAGNET ${setup.side} (Stretched)`,
+      title: `Context Radar · Equilibrium Magnet Destination (${setup.side})`,
+      subtitle: `Target Fib ${setup.side === 'LONG' ? 'f0' : 'f1'} (${setup.tp.toFixed(1)}) · Stretched ${setup.distPct.toFixed(2)}% · Equilibrium Anchor (Destination Only)`,
     };
   },
 
@@ -224,10 +222,10 @@ const FibMagnet = {
           id: 'asia_sweep_mark_low',
           badge: '⚡ MARK LOW SWEPT',
           session: 'Asia Open / Daily Open (05:30–07:15 IST)',
-          predictedDir: 'BULLISH ASIA BOUNCE',
-          confidence: '71.7% Asia Extreme',
-          headline: `⚡ Mark Low Swept ($${Number(markLow).toFixed(1)}) — UTC Daily Low Trap`,
-          detail: `71.7% of days print the Asia session extreme in the first 90m. Mark window low was swept; watch for bounce back towards the 50% Fib median.`,
+          predictedDir: 'POTENTIAL ASIA BOUNCE',
+          confidence: '71.7% Session Extreme Window',
+          headline: `⚡ Mark Low Swept ($${Number(markLow).toFixed(1)}) — UTC Daily Low Tell`,
+          detail: `In 729 days of BTC data, 71.7% of sessions set the Asia extreme in the first 90m. Mark window low was swept; contextual tell only — wait for Red Bar DNA to enter.`,
           candleTime: lastBar.t,
           type: 'bullish',
         };
@@ -237,10 +235,10 @@ const FibMagnet = {
           id: 'asia_sweep_mark_high',
           badge: '⚡ MARK HIGH SWEPT',
           session: 'Asia Open / Daily Open (05:30–07:15 IST)',
-          predictedDir: 'BEARISH ASIA FADE',
-          confidence: '71.7% Asia Extreme',
-          headline: `⚡ Mark High Swept ($${Number(markHigh).toFixed(1)}) — UTC Daily High Trap`,
-          detail: `71.7% of days print the Asia session extreme in the first 90m. Mark window high was swept early; watch for rejection back towards the 50% Fib median.`,
+          predictedDir: 'POTENTIAL ASIA FADE',
+          confidence: '71.7% Session Extreme Window',
+          headline: `⚡ Mark High Swept ($${Number(markHigh).toFixed(1)}) — UTC Daily High Tell`,
+          detail: `In 729 days of BTC data, 71.7% of sessions set the Asia extreme in the first 90m. Mark window high was swept; contextual tell only — wait for Red Bar DNA to enter.`,
           candleTime: lastBar.t,
           type: 'bearish',
         };
@@ -249,10 +247,10 @@ const FibMagnet = {
         id: 'asia_open_window',
         badge: '🌏 ASIA OPEN (UTC 00:00)',
         session: 'Asia Open Active (05:30–07:15 IST)',
-        predictedDir: 'WATCH FOR DAILY JUDAS WICK',
-        confidence: '71.7% Asia Extreme Window',
+        predictedDir: 'WATCH FOR OPENING RANGE ESTABLISHMENT',
+        confidence: '71.7% Session Extreme Window',
         headline: '🌏 Asia Opening Liquidity Window Active',
-        detail: '05:30 IST is UTC Midnight (new daily candle). The first 90m frequently forms the high or low of Asia. Watch reaction at Mark Fibs.',
+        detail: '05:30 IST is UTC Midnight (new daily candle). In 729 days of BTC data, 71.7% of sessions set the Asia extreme in the first 90m. Watch reaction at Mark Fibs.',
         candleTime: lastBar.t,
         type: 'neutral',
       };
@@ -282,10 +280,10 @@ const FibMagnet = {
           id: 'pre_london_pump',
           badge: '🕒 PRE-LONDON RAMP',
           session: 'Pre-London (12:00–13:00 IST)',
-          predictedDir: 'POTENTIAL OPENING DUMP',
-          confidence: '43% Reversal Tell',
+          predictedDir: 'POTENTIAL OPENING FADE',
+          confidence: 'Context Tell (Pre-London)',
           headline: '🕒 Pre-London Ramp (+0.2% into open)',
-          detail: 'Slow upward grind in low pre-market volume often acts as bait. London open (13:00 IST) frequently counter-punches with a sharp fake dump.',
+          detail: 'Slow upward grind in low pre-market volume often acts as opening bait. London open (13:00 IST) frequently counter-punches. Context tell only.',
           candleTime: lastBar.t,
           type: 'bearish',
         };
@@ -296,9 +294,9 @@ const FibMagnet = {
           badge: '🕒 PRE-LONDON SLIDE',
           session: 'Pre-London (12:00–13:00 IST)',
           predictedDir: 'POTENTIAL OPENING BOUNCE',
-          confidence: '37% Reversal Tell',
+          confidence: 'Context Tell (Pre-London)',
           headline: '🕒 Pre-London Slide (-0.2% into open)',
-          detail: 'Slow downward slide into London open. Watch for an opening liquidity flush below Asia Low to establish London session low.',
+          detail: 'Slow downward slide into London open. Watch for an opening flush below Asia Low to form London session low. Context tell only.',
           candleTime: lastBar.t,
           type: 'bullish',
         };
@@ -312,10 +310,10 @@ const FibMagnet = {
           id: 'london_judas_low',
           badge: '⚡ ASIA LOW SWEPT',
           session: 'London Open (13:00–14:15 IST)',
-          predictedDir: 'BULLISH REVERSAL',
-          confidence: '62.7% London Extreme',
+          predictedDir: 'POTENTIAL BOUNCE',
+          confidence: '62.7% Session Extreme Window',
           headline: `⚡ Asia Low Swept ($${Number(asiaLow).toFixed(1)}) — London Judas Swing`,
-          detail: `62.7% of trading days form London's session extreme in this opening 45m window. Asia Low was punctured; watch for 15m twin bars & 1m EMA bullish cross to enter Long back to Fib Magnet.`,
+          detail: `In 729 sessions of BTC data, 62.7% set the London session extreme in the first 45m. Asia Low was punctured; watch for rejection wicks back toward equilibrium. Contextual tell only.`,
           candleTime: lastBar.t,
           type: 'bullish',
         };
@@ -325,10 +323,10 @@ const FibMagnet = {
           id: 'london_judas_high',
           badge: '⚡ ASIA HIGH SWEPT',
           session: 'London Open (13:00–14:15 IST)',
-          predictedDir: 'BEARISH REVERSAL',
-          confidence: '62.7% London Extreme',
+          predictedDir: 'POTENTIAL FADE',
+          confidence: '62.7% Session Extreme Window',
           headline: `⚡ Asia High Swept ($${Number(asiaHigh).toFixed(1)}) — London Judas Swing`,
-          detail: `62.7% of trading days form London's session extreme in this opening 45m window. Asia High was swept; watch for 15m twin rejection bars & 1m EMA bearish cross to fade back to Fib Magnet.`,
+          detail: `In 729 sessions of BTC data, 62.7% set the London session extreme in the first 45m. Asia High was swept; watch for rejection wicks back toward equilibrium. Contextual tell only.`,
           candleTime: lastBar.t,
           type: 'bearish',
         };
@@ -337,10 +335,10 @@ const FibMagnet = {
         id: 'london_open_hunt',
         badge: '🕒 LONDON OPEN WINDOW',
         session: 'London Open Active (13:00–14:30 IST)',
-        predictedDir: 'WATCH FOR FAKE OPENING MOVE',
+        predictedDir: 'WATCH FOR OPENING SWEEP',
         confidence: '62.7% Session Extreme Window',
         headline: '🕒 London Opening Liquidity Hunt in Progress',
-        detail: 'The first 45m of London frequently produces a fake run (Judas Swing) to engineer liquidity before the real trend starts. Look for traps at Asia High/Low.',
+        detail: 'In 729 days of BTC data, 62.7% of sessions set their London high or low in the first 45m. Watch for fakeout sweeps at Asia High/Low before real direction establishes.',
         candleTime: lastBar.t,
         type: 'neutral',
       };
@@ -369,9 +367,9 @@ const FibMagnet = {
           badge: '⚡ LONDON LOW SWEPT',
           session: 'New York Open (18:30–19:30 IST)',
           predictedDir: 'BULLISH BOUNCE',
-          confidence: '53.7% Historical Reversal',
-          headline: `⚡ London Low Swept ($${Number(lonLow).toFixed(1)}) — NY Opening Trap`,
-          detail: `New York swept the London session low. 53.7% of the time, this is an opening liquidity grab that reverses back into the day's range. Watch 1m EMA cross for Long.`,
+          confidence: '53.7% Historical Range Return',
+          headline: `⚡ London Low Swept ($${Number(lonLow).toFixed(1)}) — NY Opening Tell`,
+          detail: `New York swept the London session low. In 729 days of BTC data, 53.7% of early London sweeps returned back into the daily range. Context tell only — wait for Red Bar DNA to enter.`,
           candleTime: lastBar.t,
           type: 'bullish',
         };
@@ -381,10 +379,10 @@ const FibMagnet = {
           id: 'ny_sweep_lon_high',
           badge: '⚡ LONDON HIGH SWEPT',
           session: 'New York Open (18:30–19:30 IST)',
-          predictedDir: 'BEARISH FADE',
-          confidence: '48.4% Fade Odds',
-          headline: `⚡ London High Swept ($${Number(lonHigh).toFixed(1)}) — NY Liquidity Grab`,
-          detail: `New York swept the London session high. Watch for rejection twin bars and 1m EMA rollover back towards the daily Fib anchor.`,
+          predictedDir: 'POTENTIAL RETRACE',
+          confidence: '48.4% Historical Range Return',
+          headline: `⚡ London High Swept ($${Number(lonHigh).toFixed(1)}) — NY Opening Tell`,
+          detail: `New York swept the London session high. In 729 days of BTC data, 48.4% of early London sweeps returned back into the daily range. Context tell only — wait for Red Bar DNA to enter.`,
           candleTime: lastBar.t,
           type: 'bearish',
         };
@@ -428,10 +426,10 @@ const FibMagnet = {
           id: 'fib_magnet_long',
           badge: '🧲 FIB MAGNET PULL',
           session: 'Daily Equilibrium Anchor',
-          predictedDir: 'BULLISH MEAN REVERSION',
-          confidence: '69.2% Fib Return Rate',
+          predictedDir: 'EQUILIBRIUM DESTINATION',
+          confidence: '69.2% Equilibrium Revisit Rate',
           headline: `🧲 Fib Magnet Pull (-${distBelowPct.toFixed(2)}% Stretched Below Fib)`,
-          detail: `Price is stretched significantly below the daily mark window ($${f0.toFixed(1)}). In 730 days of data, 69.2% of sessions return to touch the Fib box. Look for Long tweezer bottom.`,
+          detail: `Price is stretched ${distBelowPct.toFixed(2)}% below the daily mark window ($${f0.toFixed(1)}). In 729 days of BTC data, 69.2% of sessions revisit the Fib box after a >= 0.5% stretch. Destination magnet only — not an entry signal.`,
           candleTime: lastBar.t,
           type: 'bullish',
         };
@@ -441,10 +439,10 @@ const FibMagnet = {
           id: 'fib_magnet_short',
           badge: '🧲 FIB MAGNET PULL',
           session: 'Daily Equilibrium Anchor',
-          predictedDir: 'BEARISH MEAN REVERSION',
-          confidence: '69.2% Fib Return Rate',
+          predictedDir: 'EQUILIBRIUM DESTINATION',
+          confidence: '69.2% Equilibrium Revisit Rate',
           headline: `🧲 Fib Magnet Pull (+${distAbovePct.toFixed(2)}% Stretched Above Fib)`,
-          detail: `Price is stretched significantly above the daily mark window ($${f1.toFixed(1)}). In 730 days of data, 69.2% of sessions return to touch the Fib box. Look for Short tweezer top.`,
+          detail: `Price is stretched ${distAbovePct.toFixed(2)}% above the daily mark window ($${f1.toFixed(1)}). In 729 days of BTC data, 69.2% of sessions revisit the Fib box after a >= 0.5% stretch. Destination magnet only — not an entry signal.`,
           candleTime: lastBar.t,
           type: 'bearish',
         };

@@ -252,7 +252,7 @@ const RangeEmaUI = {
     const o = row.readout;
     const inst = row.instrument || this.activeInstrument() || {};
     const isEnter = a?.side === 'LONG' || a?.side === 'SHORT';
-    const actionable = (o?.actionState === 'enter' || (a?.isFibMagnet && a?.magnetState === 'ENTER')) && isEnter;
+    const actionable = o?.actionState === 'enter' && !a?.isFibMagnet && isEnter;
 
     // WATCH / bias is NOT an ENTER — do not Telegram.
     // But keep retrying the last real ENTER for a few minutes (brief Trade 2
@@ -276,13 +276,13 @@ const RangeEmaUI = {
       label: inst.label || inst.symbol,
       symbol: inst.symbol,
       side: a.side,
-      setupKind: a?.isFibMagnet ? 'fib_magnet_reversion' : (o?.setupKind || 'enter'),
+      setupKind: o?.setupKind || 'enter',
       title: a?.title || o?.setupKind,
       price: fmt(a?.entry ?? o?.price),
       stop: fmt(a?.stop ?? o?.invalidation),
       tp1: fmt(a?.tp1 ?? o?.tp1),
       dayKey: o?.asOfDay || '',
-      triggerTs: a?.isFibMagnet ? (row.fibMagnet?.candleTime || Date.now()) : (o?.triggerTs || o?.playbook?.redSetup?.triggerTs || o?.t || Date.now()),
+      triggerTs: o?.triggerTs || o?.playbook?.redSetup?.triggerTs || o?.t || Date.now(),
       queuedAt: Date.now(),
     };
     this._pendingEnterAlert = payload;
@@ -834,76 +834,15 @@ const RangeEmaUI = {
       };
     }
 
-    // 2. Fib Magnet Reversion ENTER (Tweezer + 1m EMA Confirmed)
-    if (fibMagnet && fibMagnet.state === 'ENTER') {
-      const rrStr = fibMagnet.rr != null ? `1:${fibMagnet.rr.toFixed(2)}` : '—';
-      const slPctStr = (fibMagnet.entry && fibMagnet.stop)
-        ? ` (${(Math.abs(fibMagnet.entry - fibMagnet.stop) / fibMagnet.entry * 100).toFixed(2)}%)`
-        : '';
-      return {
-        side: fibMagnet.side,
-        isFibMagnet: true,
-        magnetState: 'ENTER',
-        cls: fibMagnet.side === 'LONG' ? 'long' : 'short',
-        title: fibMagnet.title,
-        subtitle: `Fib Magnet Reversion · Stretched ${fibMagnet.distPct.toFixed(2)}% · 1m EMA Confirmed ✅ · R:R ${fibMagnet.rr.toFixed(2)}`,
-        steps: [
-          `${hint}: Enter Futures ${fibMagnet.side} near ${this._fmt(fibMagnet.entry)} (15m Tweezer ${fibMagnet.side === 'LONG' ? 'Bottom' : 'Top'} at ${this._fmt(fibMagnet.swingExtreme)}).`,
-          `1️⃣ Stop-Loss: ${this._fmt(fibMagnet.stop)}${slPctStr} (Structural swing extreme + 0.2% buffer).`,
-          `2️⃣ Take Profit (Fib Magnet): ${this._fmt(fibMagnet.tp)} (Target: return to 02:30 IST Fib box).`,
-          `3️⃣ Micro-Trigger: ${fibMagnet.emaCheck?.status === 'bull_stacked' || fibMagnet.emaCheck?.recentBullCross ? '1m EMA 10 crossed above EMA 20 (Bullish Confirmation ✅)' : '1m EMA 10 crossed below EMA 20 (Bearish Confirmation ✅)'}.`,
-          `4️⃣ Risk/Reward: ${rrStr} · Sizing ready for Binance Futures two-leg order.`,
-        ],
-        entry: fibMagnet.entry,
-        stop: fibMagnet.stop,
-        tp1: fibMagnet.tp,
-        tp2: fibMagnet.tpAlt || fibMagnet.tp,
-        tp3: fibMagnet.tp,
-        exit: fibMagnet.tp,
-        rr: fibMagnet.rr,
-        stopPct: Math.abs(fibMagnet.entry - fibMagnet.stop) / fibMagnet.entry * 100,
-        invalidationReason: 'Swing extreme buffer',
-        actionReason: 'Fib Magnet Reversion with 1m EMA confirmation',
-      };
-    }
-
-    // 3. Fib Magnet WATCH (Tweezer formed, awaiting 1m EMA cross)
-    if (fibMagnet && fibMagnet.state === 'WATCH_1M') {
-      const rrStr = fibMagnet.rr != null ? `1:${fibMagnet.rr.toFixed(2)}` : '—';
-      const slPctStr = (fibMagnet.entry && fibMagnet.stop)
-        ? ` (${(Math.abs(fibMagnet.entry - fibMagnet.stop) / fibMagnet.entry * 100).toFixed(2)}%)`
-        : '';
-      return {
-        side: 'WATCH',
-        isFibMagnet: true,
-        magnetState: 'WATCH_1M',
-        cls: 'wait',
-        title: fibMagnet.title,
-        subtitle: `Tweezer rejection at ${this._fmt(fibMagnet.swingExtreme)} · Awaiting 1m EMA cross before ENTER.`,
-        steps: [
-          `15m Tweezer formed: ${fibMagnet.side} setup ready, but 1m EMA has not crossed yet.`,
-          `Wait for 1m EMA 10 to cross ${fibMagnet.side === 'LONG' ? 'above' : 'below'} EMA 20 to confirm momentum flip.`,
-          `Target: Fib Magnet @ ${this._fmt(fibMagnet.tp)} · Planned Stop: ${this._fmt(fibMagnet.stop)}${slPctStr}.`,
-        ],
-        entry: fibMagnet.entry,
-        stop: fibMagnet.stop,
-        tp1: fibMagnet.tp,
-        tp2: fibMagnet.tpAlt || fibMagnet.tp,
-        tp3: fibMagnet.tp,
-        exit: fibMagnet.tp,
-        rr: fibMagnet.rr,
-        stopPct: Math.abs(fibMagnet.entry - fibMagnet.stop) / fibMagnet.entry * 100,
-        invalidationReason: 'Swing extreme buffer',
-        actionReason: 'Awaiting 1m EMA cross',
-      };
-    }
-
-    // 4. Directional Bias / Watch ONLY (not an entry trigger yet — do not FOMO mid-trend)
+    // 2. Directional Bias / Watch ONLY (not an entry trigger yet — do not FOMO mid-trend)
     if (biasDir) {
       const magDown = o.playbook?.magnetBelow;
       const magUp = o.playbook?.magnetAbove;
       const magStep = (magDown || magUp)
         ? `Mark-window Fibs (targets only): ${magDown ? `↓ ${magDown.label} ${this._fmt(magDown.price)}` : ''}${magDown && magUp ? ' · ' : ''}${magUp ? `↑ ${magUp.label} ${this._fmt(magUp.price)}` : ''} — not an ENTER.`
+        : null;
+      const fmStep = (fibMagnet && (fibMagnet.state === 'PULL_ACTIVE' || fibMagnet.state === 'PULL_WATCH' || fibMagnet.state === 'ENTER'))
+        ? `🧲 Equilibrium Magnet: Price stretched ${fibMagnet.distPct.toFixed(2)}% · Equilibrium pull destination @ ${this._fmt(fibMagnet.tp)} (Target only — wait for DNA trigger).`
         : null;
       const watchTitle = o.setupKind === 'trade2_watch'
         ? `Red Bar Watch · Trade 2 H1→M5 — need sweep of 1H H/L then 5m close-through (${biasDir})`
@@ -923,6 +862,7 @@ const RangeEmaUI = {
         steps: [
           `WATCH ≠ signal. Bias is ${biasDir}. ENTER + Telegram need Trade 1 / Trade 2 / sweep with SL locked to a 5m swing.`,
           ...(magStep ? [magStep] : []),
+          ...(fmStep ? [fmStep] : []),
           watchExit,
           pivotStep,
           ...(liqStep ? [liqStep] : clockStep ? [clockStep] : []),
@@ -935,6 +875,33 @@ const RangeEmaUI = {
         exit: o.bookZone,
         rr: o.rr,
         rrLadder: useLadder,
+      };
+    }
+
+    // 3. Fib Magnet Equilibrium Context (Radar / Destination Tell ONLY — Not an ENTER trigger)
+    if (fibMagnet && (fibMagnet.state === 'PULL_ACTIVE' || fibMagnet.state === 'PULL_WATCH' || fibMagnet.state === 'ENTER')) {
+      const isPullActive = fibMagnet.state === 'PULL_ACTIVE' || fibMagnet.state === 'ENTER';
+      return {
+        side: 'WATCH',
+        isFibMagnet: true,
+        magnetState: fibMagnet.state,
+        cls: 'wait',
+        title: `Context Radar · Equilibrium Magnet Destination (${fibMagnet.side})`,
+        subtitle: `Price is stretched ${fibMagnet.distPct.toFixed(2)}% outside Mark Box · Destination Target: ${this._fmt(fibMagnet.tp)} · ${isPullActive ? '1m rebound observed' : 'Awaiting lower-timeframe stabilization'}`,
+        steps: [
+          `🧲 Equilibrium Magnet: In 729 days of BTC data, 69.2% of sessions revisit the 02:30 IST Mark Box after a ≥0.5% stretch.`,
+          `🎯 Destination Target: Single target to box edge @ ${this._fmt(fibMagnet.tp)} (optional f50 median @ ${this._fmt(fibMagnet.tpAlt || fibMagnet.tp)}). Single destination target only.`,
+          `⚠️ Red Bar DNA Rule: Equilibrium magnet is a destination tell, NOT a validated entry signal. Telegram alerts and Binance execution are gated strictly to validated Trade 1 / Trade 2 Red Bar DNA.`,
+          pivotStep,
+        ].filter(Boolean),
+        entry: null,
+        stop: null,
+        tp1: fibMagnet.tp,
+        tp2: fibMagnet.tpAlt || fibMagnet.tp,
+        tp3: null,
+        exit: fibMagnet.tp,
+        rr: null,
+        actionReason: 'Equilibrium Magnet Destination (Context tell only — wait for Red Bar DNA to enter)',
       };
     }
 
@@ -1382,15 +1349,15 @@ const RangeEmaUI = {
           <div class="rb-beacon-right">
             ${prime.active ? `
               <span class="rb-prime-pill active" title="${prime.active.rule}">
-                <strong>PRIME ACTIVE:</strong> ${prime.active.name} (${prime.active.remStr} left · ${prime.active.winRate})
+                <strong>PRIME WINDOW:</strong> ${prime.active.name} (${prime.active.remStr} left · ${prime.active.winRate})
               </span>
             ` : prime.next?.isApproaching ? `
               <span class="rb-prime-pill alert" title="${prime.next.rule}">
-                <strong>PRIME IN ${prime.next.waitMins}m:</strong> ${prime.next.name} (${prime.next.startStrIst} IST / ${prime.next.localStart} ${prime.userTzName})
+                <strong>WINDOW IN ${prime.next.waitMins}m:</strong> ${prime.next.name} (${prime.next.startStrIst} IST / ${prime.next.localStart} ${prime.userTzName})
               </span>
             ` : `
               <span class="rb-prime-pill next" title="${prime.next.rule}">
-                <strong>Next Prime:</strong> ${prime.next.name} in <strong>${prime.next.waitStr}</strong> (${prime.next.startStrIst} IST / ${prime.next.localStart} ${prime.userTzName})
+                <strong>Next Window:</strong> ${prime.next.name} in <strong>${prime.next.waitStr}</strong> (${prime.next.startStrIst} IST / ${prime.next.localStart} ${prime.userTzName})
               </span>
             `}
             ${r.sessionTell ? `<span style="font-weight:600; color:${r.sessionTell.type === 'bullish' ? '#4ade80' : r.sessionTell.type === 'bearish' ? '#f87171' : '#7dd3fc'}; font-size:11px; background:rgba(255,255,255,0.05); padding:2px 8px; border-radius:4px;">${r.sessionTell.badge}</span>` : ''}
@@ -1433,7 +1400,7 @@ const RangeEmaUI = {
     const snapAgeMin = snap?.at ? (Date.now() - snap.at) / 60000 : 0;
     const reasonStale = /stale|do not chase|window closed|already \d/i.test(String(o.actionReason || ''));
     const snapStale = snap && snapAgeMin > freshMins;
-    const showEnter = isEnter && !reasonStale;
+    const showEnter = isEnter && !reasonStale && !a.isFibMagnet;
     const useSnap = showEnter && snap && snap.side === a.side && !snapStale;
     const eN = useSnap ? snap.entry : a.entry;
     const sN = useSnap ? snap.stop : a.stop;
@@ -1470,9 +1437,7 @@ const RangeEmaUI = {
     }
 
     const statusBanner = a.isFibMagnet
-      ? (showEnter
-          ? `<div class="rb-signal-banner enter" style="background:linear-gradient(90deg, rgba(56,189,248,0.25), rgba(34,197,94,0.25)); border:1px solid #38bdf8; color:#e0f2fe;">🧲 LIVE ENTER · Fib Magnet ${a.side} — 1m EMA Confirmed ✅ (Target: Fib ${a.side === 'LONG' ? 'f0' : 'f1'} @ ${this._fmt(a.tp1)})</div>`
-          : `<div class="rb-signal-banner watch" style="background:rgba(234,179,8,0.18); border:1px solid #eab308; color:#fef08a;">🧲 WATCH · Fib Magnet Tweezer formed — awaiting 1m EMA cross before ENTER</div>`)
+      ? `<div class="rb-signal-banner wait" style="background:rgba(56,189,248,0.10); border:1px solid rgba(56,189,248,0.35); color:#7dd3fc;">🧲 CONTEXT RADAR · Equilibrium pull towards Mark Fib @ ${this._fmt(a.tp1)} (Context tell only — wait for Red Bar DNA to ENTER)</div>`
       : (showEnter
         ? `<div class="rb-signal-banner enter">LIVE ENTER · ${a.side} — fresh window (~${freshMins}m). Levels ${useSnap ? 'frozen at first alert' : 'live'}.</div>`
         : (isEnter || reasonStale || snapStale)
@@ -1517,40 +1482,73 @@ const RangeEmaUI = {
         ${futuresBarHtml}
       `;
     } else {
-      // Compact Stepper for WATCH / WAIT
+      // Stepper (Magnet-aware when in Equilibrium Context, standard 4-step for Red Bar DNA)
+      const stepperInner = a.isFibMagnet ? `
+        <div class="rb-step done">
+          <div class="rb-step-icon">🧲</div>
+          <div class="rb-step-body">
+            <div class="rb-step-name">1. Equilibrium Pull</div>
+            <div class="rb-step-val" style="color:#38bdf8;">${r.fibMagnet?.distPct ? r.fibMagnet.distPct.toFixed(2) + '% Stretch' : 'Stretched'}</div>
+          </div>
+        </div>
+        <div class="rb-step done">
+          <div class="rb-step-icon">🎯</div>
+          <div class="rb-step-body">
+            <div class="rb-step-name">2. Single Target</div>
+            <div class="rb-step-val">${this._fmt(a.tp1)}</div>
+          </div>
+        </div>
+        <div class="rb-step active">
+          <div class="rb-step-icon">⏳</div>
+          <div class="rb-step-body">
+            <div class="rb-step-name">3. DNA Trigger</div>
+            <div class="rb-step-val">Awaiting Trade 1 / 2</div>
+          </div>
+        </div>
+        <div class="rb-step pending">
+          <div class="rb-step-icon">🔒</div>
+          <div class="rb-step-body">
+            <div class="rb-step-name">4. Execution Gated</div>
+            <div class="rb-step-val">DNA Required to Enter</div>
+          </div>
+        </div>
+      ` : `
+        <div class="rb-step done">
+          <div class="rb-step-icon">✓</div>
+          <div class="rb-step-body">
+            <div class="rb-step-name">1. Direction Bias</div>
+            <div class="rb-step-val ${trendCls}">${trendWord}</div>
+          </div>
+        </div>
+        <div class="rb-step active">
+          <div class="rb-step-icon">⚡</div>
+          <div class="rb-step-body">
+            <div class="rb-step-name">2. Target Level</div>
+            <div class="rb-step-val">${trigLevelStr}</div>
+          </div>
+        </div>
+        <div class="rb-step pending">
+          <div class="rb-step-icon">⏳</div>
+          <div class="rb-step-body">
+            <div class="rb-step-name">3. Candle Confirm</div>
+            <div class="rb-step-val">Waiting 5m Close</div>
+          </div>
+        </div>
+        <div class="rb-step pending">
+          <div class="rb-step-icon">🎯</div>
+          <div class="rb-step-body">
+            <div class="rb-step-name">4. Two-Leg Execution</div>
+            <div class="rb-step-val">1:1 BE → 1:3 Runner</div>
+          </div>
+        </div>
+      `;
+
       actionContentHtml = `
         ${statusBanner}
         ${tellHtml}
         <div class="rb-stepper-wrap">
           <div class="rb-stepper">
-            <div class="rb-step done">
-              <div class="rb-step-icon">✓</div>
-              <div class="rb-step-body">
-                <div class="rb-step-name">1. Direction Bias</div>
-                <div class="rb-step-val ${trendCls}">${trendWord}</div>
-              </div>
-            </div>
-            <div class="rb-step active">
-              <div class="rb-step-icon">⚡</div>
-              <div class="rb-step-body">
-                <div class="rb-step-name">2. Target Level</div>
-                <div class="rb-step-val">${trigLevelStr}</div>
-              </div>
-            </div>
-            <div class="rb-step pending">
-              <div class="rb-step-icon">⏳</div>
-              <div class="rb-step-body">
-                <div class="rb-step-name">3. Candle Confirm</div>
-                <div class="rb-step-val">Waiting 5m Close</div>
-              </div>
-            </div>
-            <div class="rb-step pending">
-              <div class="rb-step-icon">🎯</div>
-              <div class="rb-step-body">
-                <div class="rb-step-name">4. Two-Leg Execution</div>
-                <div class="rb-step-val">1:1 BE → 1:3 Runner</div>
-              </div>
-            </div>
+            ${stepperInner}
           </div>
         </div>
         <details style="margin-top:4px;">
@@ -1582,7 +1580,7 @@ const RangeEmaUI = {
           <div class="rb-session-seg ${isLon ? 'active' : ''} is-prime-top">
             <span class="seg-time">12:30</span>
             <span class="seg-name">London</span>
-            <span class="seg-tag top-edge">62.7% TOP</span>
+            <span class="seg-tag prime">62.7%</span>
           </div>
           <div class="rb-session-seg ${isNy ? 'active' : ''} is-prime">
             <span class="seg-time">18:30</span>
@@ -1602,7 +1600,7 @@ const RangeEmaUI = {
         <!-- Prime Execution Windows Reference Matrix -->
         <div style="margin-top: 14px; padding-top: 10px; border-top: 1px solid rgba(255,255,255,0.06);">
           <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom: 8px;">
-            <span style="font-size: 11px; font-weight: 700; color: #94a3b8; text-transform: uppercase; letter-spacing: 0.04em;">3 Prime Entry Windows (Statistically Proven Edges)</span>
+            <span style="font-size: 11px; font-weight: 700; color: #94a3b8; text-transform: uppercase; letter-spacing: 0.04em;">3 Prime Timing Windows (Session Extreme &amp; Discovery Windows)</span>
             <span style="font-size: 10.5px; color: #64748b;">Times in IST &amp; your ${prime.userTzName} timezone</span>
           </div>
           <div class="rb-prime-windows-grid">
@@ -1953,8 +1951,8 @@ const RangeEmaUI = {
           }
         }
 
-        // Fib Magnet Reversion candle badge
-        if (chart.$rbFibMagnet && chart.$rbFibMagnet.state === 'ENTER' && chart.$rbTimes && chart.$rbTimes.length) {
+        // Fib Magnet Equilibrium Pull candle badge (Context Tell)
+        if (chart.$rbFibMagnet && (chart.$rbFibMagnet.state === 'PULL_ACTIVE' || chart.$rbFibMagnet.state === 'ENTER') && chart.$rbTimes && chart.$rbTimes.length) {
           const fm = chart.$rbFibMagnet;
           let matchIdx = -1;
           if (fm.candleTime) {
@@ -1970,9 +1968,9 @@ const RangeEmaUI = {
               const badgeY = isBuy ? Math.min(area.bottom - 12, yEdge + 18) : Math.max(area.top + 12, yEdge - 18);
               ctx.save();
               ctx.font = 'bold 9px Outfit, system-ui, sans-serif';
-              const text = isBuy ? '🧲 MAGNET BUY' : '🧲 MAGNET SELL';
+              const text = isBuy ? '🧲 FIB PULL ↑' : '🧲 FIB PULL ↓';
               const tw = ctx.measureText(text).width;
-              ctx.fillStyle = isBuy ? 'rgba(34, 197, 94, 0.95)' : 'rgba(239, 68, 68, 0.95)';
+              ctx.fillStyle = 'rgba(14, 165, 233, 0.90)';
               ctx.beginPath();
               if (typeof ctx.roundRect === 'function') {
                 ctx.roundRect(pxX - tw / 2 - 5, badgeY - 8, tw + 10, 16, 3);
@@ -2005,7 +2003,7 @@ const RangeEmaUI = {
             if (targetBar && Number.isFinite(pxX)) {
               const yEdge = isBull ? yScale.getPixelForValue(targetBar.l) : yScale.getPixelForValue(targetBar.h);
               if (Number.isFinite(yEdge)) {
-                const yOff = (chart.$rbFibMagnet && chart.$rbFibMagnet.state === 'ENTER') ? 34 : 18;
+                const yOff = (chart.$rbFibMagnet && (chart.$rbFibMagnet.state === 'PULL_ACTIVE' || chart.$rbFibMagnet.state === 'ENTER')) ? 34 : 18;
                 const badgeY = isBull ? Math.min(area.bottom - 12, yEdge + yOff) : Math.max(area.top + 12, yEdge - yOff);
                 ctx.save();
                 ctx.font = 'bold 9px Outfit, system-ui, sans-serif';
@@ -2343,34 +2341,33 @@ const RangeEmaUI = {
         endIstMins: 420,     // 07:00 IST
         startStrIst: '05:30',
         endStrIst: '07:00',
-        winRate: '71.7% Extreme',
-        headline: 'Daily Open Judas Wick',
-        rule: '71.7% print Asia extreme in first 90m; sweeps Mark Fib Low/High'
+        winRate: '71.7% Session Extreme',
+        headline: 'Daily Open Discovery Window',
+        rule: '71.7% of days print Asia high/low in first 90m (Context tell — wait for Red Bar DNA)'
       },
       {
         id: 'london',
-        name: 'London Judas Swing',
+        name: 'London Open Window',
         code: 'LON',
-        badge: 'TOP EDGE',
         startIstMins: 780,   // 13:00 IST
         endIstMins: 855,     // 14:15 IST
         startStrIst: '13:00',
         endStrIst: '14:15',
-        winRate: '62.7% Extreme',
-        headline: 'European Opening Fakeout Sweep',
-        rule: '62.7% form London extreme in first 45m; sweeps Asia H/L before real trend'
+        winRate: '62.7% Session Extreme',
+        headline: 'European Opening Liquidity Window',
+        rule: '62.7% of days print London high/low in first 45m; sweeps Asia H/L (Context tell — wait for Red Bar DNA)'
       },
       {
         id: 'ny',
-        name: 'New York Opening Hunt',
+        name: 'New York Open Window',
         code: 'NY',
         startIstMins: 1110,  // 18:30 IST
         endIstMins: 1185,    // 19:45 IST
         startStrIst: '18:30',
         endStrIst: '19:45',
-        winRate: '56.0% Extreme',
-        headline: 'Wall Street Liquidity Sweep',
-        rule: '56.0% form NY extreme in first 45m; hunts London H/L, 53.7% reverse'
+        winRate: '56.0% Session Extreme',
+        headline: 'US Cash Open Window',
+        rule: '56.0% of days print NY high/low in first 45m; early sweeps often retrace (Context tell — wait for Red Bar DNA)'
       }
     ];
 
@@ -2746,9 +2743,10 @@ const RangeEmaUI = {
       }
     };
 
-    if (action.isFibMagnet && (action.side === 'LONG' || action.side === 'SHORT')) {
-      pushTag('🧲 SL', action.stop, COL.stop, 'rgba(60, 10, 10, 0.94)', { priority: true });
-      pushTag('🧲 FIB TP', action.tp1, '#38bdf8', 'rgba(8, 47, 73, 0.94)', { priority: true });
+    if (action.isFibMagnet) {
+      if (action.tp1 != null) {
+        pushTag('🧲 FIB TARGET', action.tp1, '#38bdf8', 'rgba(8, 47, 73, 0.94)', { priority: true });
+      }
     } else if (trading) {
       pushTag('STOP', stopPx, COL.stop, 'rgba(60, 10, 10, 0.94)', { priority: true });
       const tp1Px = action.tp1 ?? o.tp1;
