@@ -1353,11 +1353,11 @@ const RangeEmaUI = {
               </span>
             ` : prime.next?.isApproaching ? `
               <span class="rb-prime-pill alert" title="${prime.next.rule}">
-                <strong>WINDOW IN ${prime.next.waitMins}m:</strong> ${prime.next.name} (${prime.next.startStrIst} IST / ${prime.next.localStart} ${prime.userTzName})
+                <strong>WINDOW IN ${prime.next.waitMins}m:</strong> ${prime.next.name} (${prime.next.startStrIst} IST${!prime.isUserIst ? ` / ${prime.next.localStart} ${prime.userTzName}` : ''})
               </span>
             ` : `
               <span class="rb-prime-pill next" title="${prime.next.rule}">
-                <strong>Next Window:</strong> ${prime.next.name} in <strong>${prime.next.waitStr}</strong> (${prime.next.startStrIst} IST / ${prime.next.localStart} ${prime.userTzName})
+                <strong>Next Window:</strong> ${prime.next.name} in <strong>${prime.next.waitStr}</strong> (${prime.next.startStrIst} IST${!prime.isUserIst ? ` / ${prime.next.localStart} ${prime.userTzName}` : ''})
               </span>
             `}
             ${r.sessionTell ? `<span style="font-weight:600; color:${r.sessionTell.type === 'bullish' ? '#4ade80' : r.sessionTell.type === 'bearish' ? '#f87171' : '#7dd3fc'}; font-size:11px; background:rgba(255,255,255,0.05); padding:2px 8px; border-radius:4px;">${r.sessionTell.badge}</span>` : ''}
@@ -1601,7 +1601,7 @@ const RangeEmaUI = {
         <div style="margin-top: 14px; padding-top: 10px; border-top: 1px solid rgba(255,255,255,0.06);">
           <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom: 8px;">
             <span style="font-size: 11px; font-weight: 700; color: #94a3b8; text-transform: uppercase; letter-spacing: 0.04em;">3 Prime Timing Windows (Session Extreme &amp; Discovery Windows)</span>
-            <span style="font-size: 10.5px; color: #64748b;">Times in IST &amp; your ${prime.userTzName} timezone</span>
+            <span style="font-size: 10.5px; color: #64748b;">${prime.isUserIst ? 'Times in IST' : `Times in IST &amp; your ${prime.userTzName} timezone`}</span>
           </div>
           <div class="rb-prime-windows-grid">
             ${prime.allWindows.map(w => `
@@ -1612,7 +1612,7 @@ const RangeEmaUI = {
                 </div>
                 <div class="win-card-times">
                   <strong>${w.startStrIst}–${w.endStrIst} IST</strong>
-                  <span class="win-local-time">(${w.localStart}–${w.localEnd} ${w.userTzName})</span>
+                  ${!w.isUserIst ? `<span class="win-local-time">(${w.localStart}–${w.localEnd} ${w.userTzName})</span>` : ''}
                 </div>
                 <div class="win-card-edge">${w.winRate}</div>
                 <div style="font-size: 10px; color: #94a3b8; line-height: 1.35; margin: 2px 0;">${w.rule}</div>
@@ -2323,12 +2323,26 @@ const RangeEmaUI = {
       return ref.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', hour12: false });
     };
 
+    const isUserIst = (() => {
+      try {
+        return new Date().getTimezoneOffset() === -330;
+      } catch (_) {
+        return false;
+      }
+    })();
+
     const userTzName = (() => {
       try {
         const parts = new Intl.DateTimeFormat([], { timeZoneName: 'short' }).formatToParts(new Date(nowMs));
-        return parts.find((p) => p.type === 'timeZoneName')?.value || 'Local';
+        const val = parts.find((p) => p.type === 'timeZoneName')?.value;
+        if (val) return val;
+        if (isUserIst) return 'IST';
+        const offset = new Date().getTimezoneOffset();
+        const h = -Math.floor(offset / 60);
+        const m = Math.abs(offset % 60);
+        return `GMT${h >= 0 ? '+' : ''}${h}${m ? ':' + m : ''}`;
       } catch (_) {
-        return 'Local';
+        return isUserIst ? 'IST' : 'Local';
       }
     })();
 
@@ -2418,16 +2432,20 @@ const RangeEmaUI = {
       const localStart = formatLocal(w.startIstMins);
       const localEnd = formatLocal(w.endIstMins);
       const isCurrent = active?.id === w.id;
-      let waitMins = w.startIstMins - istMins;
-      if (waitMins < 0) waitMins += 1440;
+      let rawWaitMins = w.startIstMins - istMins;
+      if (rawWaitMins < 0) rawWaitMins += 1440;
+      const waitMins = Math.round(rawWaitMins);
       const waitHours = Math.floor(waitMins / 60);
-      const waitRemMins = Math.round(waitMins % 60);
-      const waitStr = waitHours > 0 ? `in ${waitHours}h ${waitRemMins}m` : `in ${waitRemMins}m`;
+      const waitRemMins = waitMins % 60;
+      const waitStr = waitHours > 0 ? `in ${waitHours}h ${waitRemMins}m` : `in ${waitMins}m`;
       return {
         ...w,
         localStart,
         localEnd,
+        userTzName,
+        isUserIst,
         isCurrent,
+        waitMins,
         waitStr: isCurrent ? `ACTIVE NOW (${active.remStr} left)` : waitStr,
         statusBadge: isCurrent
           ? `<span style="background:#22c55e;color:#022c22;font-weight:700;font-size:10px;padding:2px 6px;border-radius:4px;">🔥 ACTIVE NOW</span>`
@@ -2437,7 +2455,7 @@ const RangeEmaUI = {
       };
     });
 
-    return { active, next, allWindows, userTzName };
+    return { active, next, allWindows, userTzName, isUserIst };
   },
 
   _nearPrice(a, b, eps = 0.5) {
