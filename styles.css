@@ -3311,27 +3311,11 @@ body.redbar-only .site-footer-copyright {
   -ms-touch-action: pan-x pan-y pinch-zoom;
 }
 
-/* Floating 4-way D-Pad Navigator for chart */
+/* Floating 4-way D-Pad Navigator for chart (Mobile / touch only) */
 .rb-floating-dpad {
-  position: absolute;
-  bottom: 12px;
-  right: 12px;
-  z-index: 15;
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  gap: 3px;
-  padding: 4px;
-  background: rgba(15, 23, 42, 0.85);
-  border: 1px solid rgba(255, 255, 255, 0.16);
-  border-radius: 12px;
-  backdrop-filter: blur(10px);
-  -webkit-backdrop-filter: blur(10px);
-  box-shadow: 0 4px 18px rgba(0, 0, 0, 0.5);
-  user-select: none;
-  -webkit-user-select: none;
-  touch-action: manipulation;
+  display: none; /* Hidden on desktop: desktop has mouse drag/wheel and top toolbar */
 }
+.rb-dpad-row,
 .rb-dpad-mid {
   display: flex;
   align-items: center;
@@ -3353,6 +3337,11 @@ body.redbar-only .site-footer-copyright {
   transition: all 0.15s ease;
   padding: 0;
   line-height: 1;
+}
+.rb-dpad-btn.rb-dpad-zoom {
+  background: rgba(255, 255, 255, 0.05);
+  font-size: 12px;
+  color: #94a3b8;
 }
 .rb-dpad-btn:hover {
   background: rgba(124, 106, 245, 0.35);
@@ -3480,6 +3469,35 @@ body.redbar-only .site-footer-copyright {
     margin-top: 0;
     font-weight: 600;
   }
+  .rb-zoom-group #rbPanLeft,
+  .rb-zoom-group #rbPanRight,
+  .rb-zoom-group #rbPanUp,
+  .rb-zoom-group #rbPanDown,
+  .rb-zoom-group #rbZoomOut,
+  .rb-zoom-group #rbZoomIn,
+  .rb-zoom-group #rbZoomReset {
+    display: none !important;
+  }
+  .rb-floating-dpad {
+    display: flex;
+    position: absolute;
+    bottom: 12px;
+    right: 12px;
+    z-index: 15;
+    flex-direction: column;
+    align-items: center;
+    gap: 3px;
+    padding: 4px;
+    background: rgba(15, 23, 42, 0.85);
+    border: 1px solid rgba(255, 255, 255, 0.16);
+    border-radius: 12px;
+    backdrop-filter: blur(10px);
+    -webkit-backdrop-filter: blur(10px);
+    box-shadow: 0 4px 18px rgba(0, 0, 0, 0.5);
+    user-select: none;
+    -webkit-user-select: none;
+    touch-action: manipulation;
+  }
   .rb-chart-legend {
     display: flex;
     gap: 6px 10px;
@@ -3603,6 +3621,18 @@ html.is-phone .rb-zoom-btn {
 html.is-phone .rb-zoom-group #rbOpenGuide {
   flex: 0 0 auto !important;
   margin-top: 0 !important;
+}
+html.is-phone .rb-zoom-group #rbPanLeft,
+html.is-phone .rb-zoom-group #rbPanRight,
+html.is-phone .rb-zoom-group #rbPanUp,
+html.is-phone .rb-zoom-group #rbPanDown,
+html.is-phone .rb-zoom-group #rbZoomOut,
+html.is-phone .rb-zoom-group #rbZoomIn,
+html.is-phone .rb-zoom-group #rbZoomReset {
+  display: none !important;
+}
+html.is-phone .rb-floating-dpad {
+  display: flex !important;
 }
 html.is-phone .rb-chart-box,
 html.is-phone body.redbar-only .rb-chart-box {

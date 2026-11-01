@@ -1159,6 +1159,14 @@ const RangeEmaUI = {
     };
     document.getElementById('rbFloatPanUp')?.addEventListener('click', () => panPrice(1));
     document.getElementById('rbFloatPanDown')?.addEventListener('click', () => panPrice(-1));
+    document.getElementById('rbPanUp')?.addEventListener('click', () => panPrice(1));
+    document.getElementById('rbPanDown')?.addEventListener('click', () => panPrice(-1));
+    document.getElementById('rbFloatZoomIn')?.addEventListener('click', () => {
+      try { this._chart?.zoom?.(1.35); } catch (_) {}
+    });
+    document.getElementById('rbFloatZoomOut')?.addEventListener('click', () => {
+      try { this._chart?.zoom?.(0.75); } catch (_) {}
+    });
     const panBy = (dir) => {
       const ch = this._chart;
       let panned = false;
@@ -1360,6 +1368,8 @@ const RangeEmaUI = {
           <div class="rb-zoom-group" role="group" aria-label="Chart zoom and pan">
             <button type="button" class="rb-zoom-btn" id="rbPanLeft" title="Pan left (earlier)">◀</button>
             <button type="button" class="rb-zoom-btn" id="rbPanRight" title="Pan right (later)">▶</button>
+            <button type="button" class="rb-zoom-btn" id="rbPanUp" title="Pan price up">▲</button>
+            <button type="button" class="rb-zoom-btn" id="rbPanDown" title="Pan price down">▼</button>
             <button type="button" class="rb-zoom-btn" id="rbZoomOut" title="Zoom out">−</button>
             <button type="button" class="rb-zoom-btn" id="rbZoomIn" title="Zoom in">+</button>
             <button type="button" class="rb-zoom-btn" id="rbZoomReset" title="Fit all / reset">Fit</button>
@@ -1387,11 +1397,15 @@ const RangeEmaUI = {
           <span class="lg sess-london rb-lg-desk">Session opens</span>
           <span id="rbCandleInfo" style="margin-left:auto; font-weight:600; font-size:11.5px; color:#cbd5e1;"></span>
         </div>
-        <p class="rb-zoom-hint">${this.isPhoneLayout() ? 'Pinch/drag to pan · Use 4-way D-Pad (▲▼◀▶) · ↺ resets' : 'Pinch / wheel to zoom · drag to pan · 4-way D-Pad · Fit resets'}</p>
+        <p class="rb-zoom-hint">${this.isPhoneLayout() ? 'Use on-chart D-Pad (▲▼◀▶ + − ↺) · Pinch/drag to explore' : 'Mouse wheel to zoom · drag to pan · Toolbar controls above'}</p>
         <div class="rb-chart-box">
           <canvas id="redBarChart" aria-label="Red Bar chart"></canvas>
-          <div class="rb-floating-dpad" id="rbFloatingDpad" aria-label="Chart 4-way navigation">
-            <button type="button" class="rb-dpad-btn rb-dpad-up" id="rbFloatPanUp" title="Pan price up (▲)">▲</button>
+          <div class="rb-floating-dpad" id="rbFloatingDpad" aria-label="Chart mobile navigation">
+            <div class="rb-dpad-row">
+              <button type="button" class="rb-dpad-btn rb-dpad-zoom" id="rbFloatZoomIn" title="Zoom in (+)">+</button>
+              <button type="button" class="rb-dpad-btn rb-dpad-up" id="rbFloatPanUp" title="Pan price up (▲)">▲</button>
+              <button type="button" class="rb-dpad-btn rb-dpad-zoom" id="rbFloatZoomOut" title="Zoom out (−)">−</button>
+            </div>
             <div class="rb-dpad-mid">
               <button type="button" class="rb-dpad-btn rb-dpad-left" id="rbFloatPanLeft" title="Pan time earlier (◀)">◀</button>
               <button type="button" class="rb-dpad-btn rb-dpad-fit" id="rbFloatReset" title="Fit / Reset (↺)">↺</button>
