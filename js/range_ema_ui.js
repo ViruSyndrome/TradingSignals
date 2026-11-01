@@ -1371,6 +1371,7 @@ const RangeEmaUI = {
           <span class="lg band">${this._isFibStyle(r) ? `Fib 0·44·50·56·1${r.instrument?.markLabel ? ` · ${r.instrument.markLabel}` : ''}` : 'Day ranges'}</span>
           <span class="lg stop">${o.firstRedLabel || '1H'} first red H/L</span>
           <span class="lg sess-london rb-lg-desk">Session opens</span>
+          <span class="lg rb-lg-desk" style="border-left:3px solid #22c55e; color:#94a3b8; padding-left:4px;">Prev Fib Box</span>
           <span id="rbCandleInfo" style="margin-left:auto; font-weight:600; font-size:11.5px; color:#cbd5e1;"></span>
         </div>
         <p class="rb-zoom-hint">Floating 4-way D-Pad (▲▼◀▶ + − ↺) for instant pan/zoom · Mouse wheel &amp; touch pinch supported</p>
@@ -2170,6 +2171,154 @@ const RangeEmaUI = {
     };
   },
 
+  /**
+   * Most recent prior Fib box (Yesterday's locked 02:30 IST Mark Box):
+   * 1. Ultra-transparent ghost corridor (4% opacity) with subtle dashed lines across into today's trend.
+   * 2. Left-side margin badges with green dot (High), cyan dot (Mid), red dot (Low) + exact price.
+   */
+  _priorFibPlugin() {
+    return {
+      id: 'rbPriorFib',
+      beforeDatasetsDraw(chart) {
+        const pf = chart.$rbPriorFib;
+        if (!pf) return;
+        const yScale = chart.scales.y;
+        const xScale = chart.scales.x;
+        const area = chart.chartArea;
+        if (!yScale || !xScale || !area) return;
+        const ctx = chart.ctx;
+
+        const yHi = yScale.getPixelForValue(pf.high);
+        const yLo = yScale.getPixelForValue(pf.low);
+        const yMid = pf.mid != null ? yScale.getPixelForValue(pf.mid) : null;
+        if (!Number.isFinite(yHi) || !Number.isFinite(yLo)) return;
+
+        // Extend forward across into today's trend line
+        const xStart = Math.max(area.left, (pf.band?.i1 != null ? xScale.getPixelForValue(pf.band.i1) : area.left));
+        const xEnd = area.right;
+        if (xEnd <= xStart) return;
+
+        ctx.save();
+        // 1. Ultra-transparent ghost corridor fill (4% opacity)
+        const top = Math.min(yHi, yLo);
+        const h = Math.max(2, Math.abs(yLo - yHi));
+        ctx.fillStyle = 'rgba(56, 189, 248, 0.04)';
+        ctx.fillRect(xStart, top, xEnd - xStart, h);
+
+        // 2. Subtle dashed horizontal rays across into today
+        ctx.setLineDash([4, 4]);
+        ctx.lineWidth = 1;
+
+        // High line (Green)
+        ctx.strokeStyle = 'rgba(34, 197, 94, 0.40)';
+        ctx.beginPath();
+        ctx.moveTo(xStart, yHi);
+        ctx.lineTo(xEnd, yHi);
+        ctx.stroke();
+
+        // Median line (Cyan)
+        if (yMid != null && Number.isFinite(yMid)) {
+          ctx.strokeStyle = 'rgba(56, 189, 248, 0.40)';
+          ctx.beginPath();
+          ctx.moveTo(xStart, yMid);
+          ctx.lineTo(xEnd, yMid);
+          ctx.stroke();
+        }
+
+        // Low line (Red)
+        ctx.strokeStyle = 'rgba(239, 68, 68, 0.40)';
+        ctx.beginPath();
+        ctx.moveTo(xStart, yLo);
+        ctx.lineTo(xEnd, yLo);
+        ctx.stroke();
+
+        ctx.setLineDash([]);
+        ctx.restore();
+      },
+
+      afterDraw(chart) {
+        const pf = chart.$rbPriorFib;
+        if (!pf) return;
+        const yScale = chart.scales.y;
+        const area = chart.chartArea;
+        if (!yScale || !area) return;
+        const ctx = chart.ctx;
+        const compact = !!chart.$rbCompact;
+        const d = chart.$rbDecimals ?? 2;
+
+        const items = [
+          { val: pf.high, prefix: 'H', dotCol: '#22c55e', textCol: '#4ade80' },
+          ...(pf.mid != null ? [{ val: pf.mid, prefix: 'Mid', dotCol: '#38bdf8', textCol: '#7dd3fc' }] : []),
+          { val: pf.low, prefix: 'L', dotCol: '#ef4444', textCol: '#f87171' },
+        ];
+
+        ctx.save();
+        ctx.font = compact
+          ? 'bold 9px Outfit, system-ui, sans-serif'
+          : 'bold 9.5px Outfit, system-ui, sans-serif';
+
+        const placedY = [];
+        const minGap = compact ? 15 : 17;
+
+        for (const item of items) {
+          if (item.val == null || !Number.isFinite(item.val)) continue;
+          let y = yScale.getPixelForValue(item.val);
+          if (!Number.isFinite(y)) continue;
+          if (y < area.top + 6 || y > area.bottom - 6) continue;
+
+          for (let g = 0; g < 6; g++) {
+            let hit = false;
+            for (const py of placedY) {
+              if (Math.abs(y - py) < minGap) {
+                y += (y >= py ? minGap : -minGap);
+                hit = true;
+                break;
+              }
+            }
+            if (!hit) break;
+            y = Math.max(area.top + 8, Math.min(area.bottom - 8, y));
+          }
+          placedY.push(y);
+
+          const priceStr = Number(item.val).toFixed(d);
+          const label = `${item.prefix} ${priceStr}`;
+          const tw = ctx.measureText(label).width;
+          const boxW = tw + 16;
+          const boxH = compact ? 13 : 15;
+          const boxX = area.left + (compact ? 3 : 5);
+          const boxY = y - boxH / 2;
+
+          // Dark pill with subtle colored border
+          ctx.fillStyle = 'rgba(15, 23, 42, 0.90)';
+          ctx.strokeStyle = item.dotCol;
+          ctx.lineWidth = 1;
+          ctx.beginPath();
+          if (typeof ctx.roundRect === 'function') {
+            ctx.roundRect(boxX, boxY, boxW, boxH, 3);
+          } else {
+            ctx.rect(boxX, boxY, boxW, boxH);
+          }
+          ctx.fill();
+          ctx.stroke();
+
+          // Dot (Green for High, Cyan for Mid, Red for Low)
+          ctx.fillStyle = item.dotCol;
+          ctx.beginPath();
+          ctx.arc(boxX + 6, y, 2.5, 0, Math.PI * 2);
+          ctx.fill();
+
+          // Label text
+          ctx.fillStyle = item.textCol;
+          ctx.textAlign = 'left';
+          ctx.textBaseline = 'middle';
+          ctx.fillText(label, boxX + 12, y);
+        }
+
+        ctx.restore();
+      },
+    };
+  },
+
   /** Clean 1H first-red High & Low lines only (anchored from that 1H red bar forward; no 44/MED/56 clutter). */
   _firstRed1hPlugin() {
     return {
@@ -2628,6 +2777,45 @@ const RangeEmaUI = {
       const iMarkEnd = iMarkStart != null ? resolveMarkEndIndex(b, iMarkStart) : null;
       return { ...b, i0, i1, iMarkStart, iMarkEnd };
     }).filter(Boolean);
+
+    const priceNow = Number(o.price);
+
+    // Identify most recent locked prior Fib box (Yesterday's 02:30 IST Mark Box)
+    let priorFibInfo = null;
+    if (sortedBandDays.length >= 2) {
+      const priorDayKey = sortedBandDays[sortedBandDays.length - 2];
+      const priorBand = byDay.get(priorDayKey);
+      if (priorBand) {
+        const pHi = priorBand.f1 ?? priorBand.high;
+        const pLo = priorBand.f0 ?? priorBand.low;
+        const pMid = priorBand.f50 ?? priorBand.mid ?? ((pHi != null && pLo != null) ? (pHi + pLo) / 2 : null);
+        if (pHi != null && pLo != null && Number.isFinite(Number(pHi)) && Number.isFinite(Number(pLo))) {
+          const numHi = Number(pHi);
+          const numLo = Number(pLo);
+          const numMid = pMid != null ? Number(pMid) : null;
+          const distHi = Math.abs(priceNow - numHi) / priceNow * 100;
+          const distLo = Math.abs(priceNow - numLo) / priceNow * 100;
+          const distMid = numMid != null ? Math.abs(priceNow - numMid) / priceNow * 100 : Infinity;
+          const isInside = priceNow >= Math.min(numLo, numHi) && priceNow <= Math.max(numLo, numHi);
+          const minDist = Math.min(distHi, distLo, distMid);
+          // Only show when price / trend is within 3.5% of yesterday's box or inside it
+          if (isInside || minDist <= 3.5) {
+            const mappedPrior = dayBands.find((b) => b.day === priorDayKey) || priorBand;
+            priorFibInfo = {
+              band: mappedPrior,
+              high: numHi,
+              low: numLo,
+              mid: numMid,
+              f44: priorBand.f44,
+              f56: priorBand.f56,
+              minDist,
+              isInside,
+            };
+          }
+        }
+      }
+    }
+
     // Fit Y to candles + magnet levels
     const barHi = Math.max(...bars.map((b) => b.h));
     const barLo = Math.min(...bars.map((b) => b.l));
@@ -2645,6 +2833,7 @@ const RangeEmaUI = {
       o.refs?.priorDayHigh, o.refs?.priorDayLow,
       o.refs?.asiaHigh, o.refs?.asiaLow,
       o.refs?.londonHigh, o.refs?.londonLow,
+      ...(priorFibInfo ? [priorFibInfo.high, priorFibInfo.low] : []),
       ...bandPrices,
     ].filter((v) => v != null && Number.isFinite(Number(v))).map(Number);
     const yHi = Math.max(barHi, ...nearLevels);
@@ -2713,7 +2902,7 @@ const RangeEmaUI = {
     // Y-axis: keep it sparse. Chips carry PDH/PDL + Asia/London liquidity.
     // Axis only shows live trade levels + 1H RED at entry moments.
     const levelTags = [];
-    const priceNow = Number(o.price);
+    // priceNow declared above
     const pushTag = (name, value, color, bg, { priority = false, rank = 2 } = {}) => {
       if (value == null || !Number.isFinite(Number(value))) return;
       const v = Number(value);
@@ -2837,6 +3026,7 @@ const RangeEmaUI = {
       data: { labels, datasets },
       plugins: [
         this._bandZonesPlugin(),
+        this._priorFibPlugin(),
         this._firstRed1hPlugin(),
         this._candlePlugin(),
         this._sessionPlugin(),
@@ -2850,28 +3040,55 @@ const RangeEmaUI = {
         onHover: (event, activeElements) => {
           const elInfo = document.getElementById('rbCandleInfo');
           if (!elInfo) return;
+          const d = inst.priceDecimals ?? 2;
+          const pf = this._chart?.$rbPriorFib || priorFibInfo;
+
+          // Check if hovering near a prior Fib level
+          let hoverFibStr = null;
+          if (pf && this._chart?.scales?.y && event.y != null) {
+            const yScale = this._chart.scales.y;
+            const yHi = yScale.getPixelForValue(pf.high);
+            const yMid = pf.mid != null ? yScale.getPixelForValue(pf.mid) : null;
+            const yLo = yScale.getPixelForValue(pf.low);
+            if (Math.abs(event.y - yHi) <= 12) {
+              const diffPct = ((pf.high - priceNow) / priceNow * 100);
+              hoverFibStr = `<strong style="color:#4ade80;background:rgba(34,197,94,0.18);padding:1px 6px;border-radius:4px;">🎯 Hovering Prev Fib High: $${Number(pf.high).toFixed(d)} (${diffPct >= 0 ? '+' : ''}${diffPct.toFixed(2)}%)</strong>`;
+            } else if (yMid != null && Math.abs(event.y - yMid) <= 12) {
+              const diffPct = ((pf.mid - priceNow) / priceNow * 100);
+              hoverFibStr = `<strong style="color:#38bdf8;background:rgba(56,189,248,0.18);padding:1px 6px;border-radius:4px;">🎯 Hovering Prev Fib Median: $${Number(pf.mid).toFixed(d)} (${diffPct >= 0 ? '+' : ''}${diffPct.toFixed(2)}%)</strong>`;
+            } else if (Math.abs(event.y - yLo) <= 12) {
+              const diffPct = ((pf.low - priceNow) / priceNow * 100);
+              hoverFibStr = `<strong style="color:#f87171;background:rgba(239,68,68,0.18);padding:1px 6px;border-radius:4px;">🎯 Hovering Prev Fib Low: $${Number(pf.low).toFixed(d)} (${diffPct >= 0 ? '+' : ''}${diffPct.toFixed(2)}%)</strong>`;
+            }
+          }
+
+          if (hoverFibStr) {
+            elInfo.innerHTML = `${hoverFibStr} <span style="color:#64748b;font-size:11px;">(Target TP / SL level)</span>`;
+            return;
+          }
+
+          const pfSummary = pf ? ` · <span style="color:#64748b;">Prev Fib:</span> <span style="color:#4ade80;">H $${Number(pf.high).toFixed(d)}</span> <span style="color:#38bdf8;">Mid $${Number(pf.mid).toFixed(d)}</span> <span style="color:#f87171;">L $${Number(pf.low).toFixed(d)}</span>` : '';
+
           if (activeElements && activeElements.length) {
             const idx = activeElements[0].index;
             const b = bars[idx];
             if (b) {
-              const d = inst.priceDecimals ?? 2;
               const chg = ((b.c - b.o) / b.o) * 100;
               const arrow = chg >= 0 ? '▲' : '▼';
               const sign = chg >= 0 ? '+' : '';
               const col = chg >= 0 ? '#4ade80' : '#f87171';
               const t = times[idx] ? new Date(times[idx]).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', hour12: false }) : '';
-              elInfo.innerHTML = `<span style="color:#94a3b8;">${t}</span> <strong style="color:${col};">$${Number(b.c).toFixed(d)} (${arrow} ${sign}${chg.toFixed(2)}%)</strong> <span style="color:#64748b;">H: $${Number(b.h).toFixed(d)} · L: $${Number(b.l).toFixed(d)}</span>`;
+              elInfo.innerHTML = `<span style="color:#94a3b8;">${t}</span> <strong style="color:${col};">$${Number(b.c).toFixed(d)} (${arrow} ${sign}${chg.toFixed(2)}%)</strong> <span style="color:#64748b;">H: $${Number(b.h).toFixed(d)} · L: $${Number(b.l).toFixed(d)}</span>${pfSummary}`;
               return;
             }
           }
           if (bars && bars.length) {
             const last = bars[bars.length - 1];
-            const d = inst.priceDecimals ?? 2;
             const chg = ((last.c - last.o) / last.o) * 100;
             const arrow = chg >= 0 ? '▲' : '▼';
             const sign = chg >= 0 ? '+' : '';
             const col = chg >= 0 ? '#4ade80' : '#f87171';
-            elInfo.innerHTML = `<span style="color:#94a3b8;">Live:</span> <strong style="color:${col};">$${Number(last.c).toFixed(d)} (${arrow} ${sign}${chg.toFixed(2)}%)</strong> <span style="color:#64748b;">H: $${Number(last.h).toFixed(d)} · L: $${Number(last.l).toFixed(d)}</span>`;
+            elInfo.innerHTML = `<span style="color:#94a3b8;">Live:</span> <strong style="color:${col};">$${Number(last.c).toFixed(d)} (${arrow} ${sign}${chg.toFixed(2)}%)</strong> <span style="color:#64748b;">H: $${Number(last.h).toFixed(d)} · L: $${Number(last.l).toFixed(d)}</span>${pfSummary}`;
           }
         },
         layout: {
@@ -3037,6 +3254,8 @@ const RangeEmaUI = {
     this._chart.$rbUI = this;
     this._chart.$rbFibMagnet = row.fibMagnet || null;
     this._chart.$rbSessionTell = row.sessionTell || null;
+    this._chart.$rbPriorFib = priorFibInfo;
+    this._chart.$rbDecimals = inst.priceDecimals ?? 2;
 
     const elInitInfo = document.getElementById('rbCandleInfo');
     if (elInitInfo && bars && bars.length) {
@@ -3046,7 +3265,8 @@ const RangeEmaUI = {
       const arrow = chg >= 0 ? '▲' : '▼';
       const sign = chg >= 0 ? '+' : '';
       const col = chg >= 0 ? '#4ade80' : '#f87171';
-      elInitInfo.innerHTML = `<span style="color:#94a3b8;">Live:</span> <strong style="color:${col};">$${Number(last.c).toFixed(d)} (${arrow} ${sign}${chg.toFixed(2)}%)</strong> <span style="color:#64748b;">H: $${Number(last.h).toFixed(d)} · L: $${Number(last.l).toFixed(d)}</span>`;
+      const pfSummary = priorFibInfo ? ` · <span style="color:#64748b;">Prev Fib:</span> <span style="color:#4ade80;">H $${Number(priorFibInfo.high).toFixed(d)}</span> <span style="color:#38bdf8;">Mid $${Number(priorFibInfo.mid).toFixed(d)}</span> <span style="color:#f87171;">L $${Number(priorFibInfo.low).toFixed(d)}</span>` : '';
+      elInitInfo.innerHTML = `<span style="color:#94a3b8;">Live:</span> <strong style="color:${col};">$${Number(last.c).toFixed(d)} (${arrow} ${sign}${chg.toFixed(2)}%)</strong> <span style="color:#64748b;">H: $${Number(last.h).toFixed(d)} · L: $${Number(last.l).toFixed(d)}</span>${pfSummary}`;
     }
     // Flex / phone layout often settles after first paint — boxes/plugins need a
     // second resize+update or they stay invisible until the user taps the chart.
