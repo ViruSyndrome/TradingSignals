@@ -2097,11 +2097,11 @@ const RangeEmaUI = {
               ctx.fillRect(x0, top, x1 - x0, h);
             }
             const lines = [
-              { v: b.f1, c: 'rgba(148, 163, 184, 0.95)' },
-              { v: b.f56, c: 'rgba(74, 222, 128, 0.85)' },
-              { v: b.f50, c: 'rgba(56, 189, 248, 0.9)' },
-              { v: b.f44, c: 'rgba(74, 222, 128, 0.85)' },
-              { v: b.f0, c: 'rgba(249, 115, 22, 0.95)' },
+              { v: b.f1, c: 'rgba(148, 163, 184, 0.95)', name: '1.0' },
+              { v: b.f56, c: 'rgba(74, 222, 128, 0.85)', name: '0.56' },
+              { v: b.f50, c: 'rgba(56, 189, 248, 0.9)', name: '0.50' },
+              { v: b.f44, c: 'rgba(74, 222, 128, 0.85)', name: '0.44' },
+              { v: b.f0, c: 'rgba(249, 115, 22, 0.95)', name: '0.0' },
             ];
             ctx.setLineDash(b.locked === false ? [4, 4] : []);
             for (const ln of lines) {
@@ -2116,6 +2116,87 @@ const RangeEmaUI = {
               ctx.stroke();
             }
             ctx.setLineDash([]);
+
+            // Draw crisp price pills on the right edge of Today's current Fib box
+            if (i === n - 1) {
+              const d = chart.$rbDecimals ?? 2;
+              const compact = !!chart.$rbCompact;
+              ctx.save();
+              ctx.font = compact
+                ? '600 8.5px Outfit, system-ui, sans-serif'
+                : '600 9.5px Outfit, system-ui, sans-serif';
+              const minTagGap = compact ? 13 : 15;
+              const tagH = compact ? 12 : 14;
+
+              // Collect valid lines with natural Y positions (ordered 1.0 down to 0.0)
+              const validTags = lines.map((ln) => {
+                if (ln.v == null) return null;
+                const natY = yScale.getPixelForValue(ln.v);
+                if (!Number.isFinite(natY)) return null;
+                return { ln, natY, y: natY };
+              }).filter(Boolean);
+
+              // Downward pass: ensure each tag is at least minTagGap below previous tag
+              for (let t = 1; t < validTags.length; t++) {
+                if (validTags[t].y < validTags[t - 1].y + minTagGap) {
+                  validTags[t].y = validTags[t - 1].y + minTagGap;
+                }
+              }
+
+              // Upward pass if bottom tag exceeds chart area
+              const maxAllowedY = area.bottom - tagH / 2 - 2;
+              if (validTags.length && validTags[validTags.length - 1].y > maxAllowedY) {
+                validTags[validTags.length - 1].y = maxAllowedY;
+                for (let t = validTags.length - 2; t >= 0; t--) {
+                  if (validTags[t].y > validTags[t + 1].y - minTagGap) {
+                    validTags[t].y = validTags[t + 1].y - minTagGap;
+                  }
+                }
+              }
+
+              // Render tags neatly stacked at right edge
+              for (const item of validTags) {
+                const { ln, natY, y } = item;
+                if (y < area.top + tagH / 2 || y > area.bottom - tagH / 2) continue;
+
+                const priceStr = Number(ln.v).toFixed(compact ? 0 : d);
+                const tagTxt = `${ln.name} $${priceStr}`;
+                const tw = ctx.measureText(tagTxt).width;
+                const tagW = tw + (compact ? 6 : 8);
+                const tagX = Math.max(area.left + 4, area.right - tagW - (compact ? 2 : 4));
+                const tagY = y - tagH / 2;
+
+                // Subtle guide line if label was vertically shifted from its price line
+                if (Math.abs(y - natY) >= 3) {
+                  ctx.strokeStyle = ln.c;
+                  ctx.lineWidth = 0.75;
+                  ctx.setLineDash([2, 2]);
+                  ctx.beginPath();
+                  ctx.moveTo(x0, natY);
+                  ctx.lineTo(tagX, y);
+                  ctx.stroke();
+                  ctx.setLineDash([]);
+                }
+
+                ctx.fillStyle = 'rgba(15, 23, 42, 0.92)';
+                ctx.strokeStyle = ln.c;
+                ctx.lineWidth = 1;
+                ctx.beginPath();
+                if (typeof ctx.roundRect === 'function') {
+                  ctx.roundRect(tagX, tagY, tagW, tagH, 2.5);
+                } else {
+                  ctx.rect(tagX, tagY, tagW, tagH);
+                }
+                ctx.fill();
+                ctx.stroke();
+
+                ctx.fillStyle = ln.c;
+                ctx.textAlign = 'center';
+                ctx.textBaseline = 'middle';
+                ctx.fillText(tagTxt, tagX + tagW / 2, y);
+              }
+              ctx.restore();
+            }
             // Bracket the anchor mark-window candle(s) (02:30–03:30 IST) at the left edge
             // so you can see the exact candle(s) whose High & Low wicks define the Fib box.
             if (b.iMarkEnd != null && b.iMarkStart != null && b.iMarkEnd >= b.iMarkStart) {
@@ -3126,6 +3207,20 @@ const RangeEmaUI = {
     }
 
     this.destroyChart();
+    const buildTodaySummary = (band, dec, isCompact) => {
+      if (!band) return '';
+      const hi = Number(band.f1 ?? band.high);
+      const lo = Number(band.f0 ?? band.low);
+      if (!Number.isFinite(hi) || !Number.isFinite(lo)) return '';
+      const mid = band.f50 != null ? Number(band.f50) : (band.mid != null ? Number(band.mid) : ((hi + lo) / 2));
+      const f56 = band.f56 != null ? Number(band.f56) : (lo + (hi - lo) * 0.56);
+      const f44 = band.f44 != null ? Number(band.f44) : (lo + (hi - lo) * 0.44);
+      if (isCompact) {
+        return ` · <span style="color:#64748b;">Today Fib:</span> <span style="color:#94a3b8;">1.0 $${hi.toFixed(dec)}</span> <span style="color:#38bdf8;">Mid $${mid.toFixed(dec)}</span> <span style="color:#fb923c;">0.0 $${lo.toFixed(dec)}</span>`;
+      }
+      return ` · <span style="color:#64748b;">Today Fib:</span> <span style="color:#94a3b8;">1.0 $${hi.toFixed(dec)}</span> <span style="color:#4ade80;">.56 $${f56.toFixed(dec)}</span> <span style="color:#38bdf8;">.50 $${mid.toFixed(dec)}</span> <span style="color:#4ade80;">.44 $${f44.toFixed(dec)}</span> <span style="color:#fb923c;">0.0 $${lo.toFixed(dec)}</span>`;
+    };
+
     this._chart = new Chart(canvas.getContext('2d'), {
       type: 'line',
       data: { labels, datasets },
@@ -3147,6 +3242,7 @@ const RangeEmaUI = {
           const elInfo = document.getElementById('rbCandleInfo');
           const d = inst.priceDecimals ?? 2;
           const yScale = this._chart?.scales?.y;
+          const xScale = this._chart?.scales?.x;
           const area = this._chart?.chartArea;
 
           let evX = event.x;
@@ -3163,12 +3259,70 @@ const RangeEmaUI = {
             }
           }
 
-          // Check if tap was in empty space near a prior Fib or on a pill
+          const todayMapped = dayBands.find((db) => db.day === todayDayKey) || dayBands[dayBands.length - 1];
+          const todayX0 = (todayMapped?.i0 != null && xScale)
+            ? (xScale.getPixelForValue(todayMapped.i0) - 10)
+            : (area ? area.left + (area.right - area.left) * 0.5 : 0);
+          const isOverToday = (evX != null && evX >= todayX0);
+
+          // If tapped in Today's domain -> check Today's Fib levels first
+          if (isOverToday && todayBand && yScale && evY != null) {
+            const tF1 = Number(todayBand.f1 ?? todayBand.high);
+            const tF0 = Number(todayBand.f0 ?? todayBand.low);
+            const tF50 = todayBand.f50 != null ? Number(todayBand.f50) : (todayBand.mid != null ? Number(todayBand.mid) : ((tF1 + tF0) / 2));
+            const tF56 = todayBand.f56 != null ? Number(todayBand.f56) : (tF0 + (tF1 - tF0) * 0.56);
+            const tF44 = todayBand.f44 != null ? Number(todayBand.f44) : (tF0 + (tF1 - tF0) * 0.44);
+
+            const todayLevels = [
+              { name: '1.0 (High)', val: tF1, col: '#94a3b8', bg: 'rgba(148,163,184,0.18)' },
+              { name: '0.56', val: tF56, col: '#4ade80', bg: 'rgba(74,222,128,0.18)' },
+              { name: '0.50 (Median)', val: tF50, col: '#38bdf8', bg: 'rgba(56,189,248,0.18)' },
+              { name: '0.44', val: tF44, col: '#4ade80', bg: 'rgba(74,222,128,0.18)' },
+              { name: '0.0 (Low)', val: tF0, col: '#fb923c', bg: 'rgba(249,115,22,0.18)' },
+            ].filter((lvl) => lvl.val != null && Number.isFinite(lvl.val));
+
+            let closestLvl = null;
+            let minDist = Infinity;
+            for (const lvl of todayLevels) {
+              const yPx = yScale.getPixelForValue(lvl.val);
+              if (Number.isFinite(yPx)) {
+                const dist = Math.abs(evY - yPx);
+                if (dist < minDist) {
+                  minDist = dist;
+                  closestLvl = lvl;
+                }
+              }
+            }
+
+            if (closestLvl && minDist <= (compact ? 24 : 18)) {
+              if (elInfo) {
+                const diffPct = ((closestLvl.val - priceNow) / priceNow * 100);
+                elInfo.innerHTML = `<strong style="color:${closestLvl.col};background:${closestLvl.bg};padding:1px 6px;border-radius:4px;">🎯 Today's Fib ${closestLvl.name}: $${Number(closestLvl.val).toFixed(d)} (${diffPct >= 0 ? '+' : ''}${diffPct.toFixed(2)}%)</strong> <span style="color:#94a3b8;font-size:10px;">(Current Day Anchor · Tap to clear)</span>`;
+              }
+              return;
+            } else if (Number.isFinite(tF1) && Number.isFinite(tF0)) {
+              const yTop = Math.min(yScale.getPixelForValue(tF1), yScale.getPixelForValue(tF0));
+              const yBot = Math.max(yScale.getPixelForValue(tF1), yScale.getPixelForValue(tF0));
+              if (evY >= yTop - 4 && evY <= yBot + 4) {
+                if (elInfo) {
+                  const midStr = Number.isFinite(tF50) ? ` · Mid $${Number(tF50).toFixed(d)}` : '';
+                  elInfo.innerHTML = `<strong style="color:#38bdf8;background:rgba(56,189,248,0.15);padding:1px 6px;border-radius:4px;">🎯 Today's Fib Box: $${Number(tF0).toFixed(d)} – $${Number(tF1).toFixed(d)}${midStr}</strong> <span style="color:#94a3b8;font-size:10px;">(Current Day Anchor · Tap to clear)</span>`;
+                }
+                return;
+              }
+            }
+          }
+
+          // If tapped on left side (prior days) or on a prior Fib target line:
           let tappedCand = null;
           let tappedLevel = 'box';
           if (yScale && area && evY != null && evX != null) {
             const candidates = this._chart?.$rbPriorCandidates || (priorFibInfo ? [priorFibInfo] : []);
             for (const cand of candidates) {
+              const candX0 = (cand.band?.i0 != null && xScale) ? xScale.getPixelForValue(cand.band.i0) - 10 : area.left;
+              const candX1 = (cand.band?.i1 != null && xScale) ? xScale.getPixelForValue(cand.band.i1) + 10 : todayX0;
+              const isOverCandDay = (evX >= candX0 && evX <= candX1) || (evX <= area.left + 80);
+
               const yHi = yScale.getPixelForValue(cand.high);
               const yLo = yScale.getPixelForValue(cand.low);
               const yMid = cand.mid != null ? yScale.getPixelForValue(cand.mid) : null;
@@ -3177,12 +3331,13 @@ const RangeEmaUI = {
               const botY = Math.max(yHi, yLo);
               const padY = compact ? 28 : 22;
 
-              if (evY >= topY - padY && evY <= botY + padY) {
+              const dHi = Math.abs(evY - yHi);
+              const dMid = yMid != null ? Math.abs(evY - yMid) : Infinity;
+              const dLo = Math.abs(evY - yLo);
+              const minLineDist = Math.min(dHi, dMid, dLo);
+
+              if ((isOverCandDay && evY >= topY - padY && evY <= botY + padY) || (minLineDist <= 10)) {
                 tappedCand = cand;
-                const dHi = Math.abs(evY - yHi);
-                const dMid = yMid != null ? Math.abs(evY - yMid) : Infinity;
-                const dLo = Math.abs(evY - yLo);
-                const minLineDist = Math.min(dHi, dMid, dLo);
                 if (minLineDist <= (compact ? 24 : 16)) {
                   if (dHi <= minLineDist) tappedLevel = 'high';
                   else if (dMid <= minLineDist) tappedLevel = 'mid';
@@ -3196,7 +3351,7 @@ const RangeEmaUI = {
           }
 
           if (tappedCand) {
-            // If already pinned to this candidate & level, toggle off
+            // Toggle off if already pinned
             if (this._chart.$rbPinnedPriorFib === tappedCand && (!tappedLevel || this._chart.$rbHoveredLevel === tappedLevel)) {
               this._chart.$rbPinnedPriorFib = null;
               this._chart.$rbHoveredPriorFib = null;
@@ -3211,7 +3366,7 @@ const RangeEmaUI = {
                 const col = chg >= 0 ? '#4ade80' : '#f87171';
                 const dayStr = priorFibInfo?.dayLabel ? ` (${priorFibInfo.dayLabel})` : '';
                 const pfSummary = priorFibInfo ? ` · <span style="color:#64748b;">Prev Fib${dayStr}:</span> <span style="color:#4ade80;">H $${Number(priorFibInfo.high).toFixed(d)}</span> <span style="color:#38bdf8;">Mid $${Number(priorFibInfo.mid).toFixed(d)}</span> <span style="color:#f87171;">L $${Number(priorFibInfo.low).toFixed(d)}</span>` : '';
-                elInfo.innerHTML = `<span style="color:#94a3b8;">Live:</span> <strong style="color:${col};">$${Number(last.c).toFixed(d)} (${arrow} ${sign}${chg.toFixed(2)}%)</strong> <span style="color:#64748b;">H: $${Number(last.h).toFixed(d)} · L: $${Number(last.l).toFixed(d)}</span>${pfSummary}`;
+                elInfo.innerHTML = `<span style="color:#94a3b8;">Live:</span> <strong style="color:${col};">$${Number(last.c).toFixed(d)} (${arrow} ${sign}${chg.toFixed(2)}%)</strong> <span style="color:#64748b;">H: $${Number(last.h).toFixed(d)} · L: $${Number(last.l).toFixed(d)}</span>${buildTodaySummary(todayBand, d, compact)}${pfSummary}`;
               }
               return;
             }
@@ -3271,72 +3426,109 @@ const RangeEmaUI = {
             }
           }
           const yScale = this._chart?.scales?.y;
+          const xScale = this._chart?.scales?.x;
           const area = this._chart?.chartArea;
 
           let matchedCand = null;
           let matchedLevel = null;
           let hoverFibStr = null;
 
+          const todayMapped = dayBands.find((db) => db.day === todayDayKey) || dayBands[dayBands.length - 1];
+          const todayX0 = (todayMapped?.i0 != null && xScale)
+            ? (xScale.getPixelForValue(todayMapped.i0) - 10)
+            : (area ? area.left + (area.right - area.left) * 0.5 : 0);
+          const isOverToday = (evX != null && evX >= todayX0);
+
           if (yScale && area && evY != null && evX != null && evX >= area.left - 12 && evX <= area.right + 12) {
-            // Check all prior Fib candidates (or active prior Fib)
-            const candidates = this._chart?.$rbPriorCandidates || (priorFibInfo ? [priorFibInfo] : []);
-            for (const cand of candidates) {
-              const yHi = yScale.getPixelForValue(cand.high);
-              const yLo = yScale.getPixelForValue(cand.low);
-              const yMid = cand.mid != null ? yScale.getPixelForValue(cand.mid) : null;
-              if (!Number.isFinite(yHi) || !Number.isFinite(yLo)) continue;
+            // Priority 1: When cursor is in Today's session -> Check Today's Fib first!
+            if (isOverToday && todayBand) {
+              const tF1 = Number(todayBand.f1 ?? todayBand.high);
+              const tF0 = Number(todayBand.f0 ?? todayBand.low);
+              const tF50 = todayBand.f50 != null ? Number(todayBand.f50) : (todayBand.mid != null ? Number(todayBand.mid) : ((tF1 + tF0) / 2));
+              const tF56 = todayBand.f56 != null ? Number(todayBand.f56) : (tF0 + (tF1 - tF0) * 0.56);
+              const tF44 = todayBand.f44 != null ? Number(todayBand.f44) : (tF0 + (tF1 - tF0) * 0.44);
 
-              const topY = Math.min(yHi, yLo);
-              const botY = Math.max(yHi, yLo);
-              const padY = compact ? 26 : 22;
+              const todayLevels = [
+                { name: '1.0 (High)', val: tF1, col: '#94a3b8', bg: 'rgba(148,163,184,0.18)' },
+                { name: '0.56', val: tF56, col: '#4ade80', bg: 'rgba(74,222,128,0.18)' },
+                { name: '0.50 (Median)', val: tF50, col: '#38bdf8', bg: 'rgba(56,189,248,0.18)' },
+                { name: '0.44', val: tF44, col: '#4ade80', bg: 'rgba(74,222,128,0.18)' },
+                { name: '0.0 (Low)', val: tF0, col: '#fb923c', bg: 'rgba(249,115,22,0.18)' },
+              ].filter((lvl) => lvl.val != null && Number.isFinite(lvl.val));
 
-              // Check if evY is hovering inside or near this prior Fib box
-              if (evY >= topY - padY && evY <= botY + padY) {
-                matchedCand = cand;
+              let closestLvl = null;
+              let minDist = Infinity;
+              for (const lvl of todayLevels) {
+                const yPx = yScale.getPixelForValue(lvl.val);
+                if (Number.isFinite(yPx)) {
+                  const dist = Math.abs(evY - yPx);
+                  if (dist < minDist) {
+                    minDist = dist;
+                    closestLvl = lvl;
+                  }
+                }
+              }
+
+              if (closestLvl && minDist <= (compact ? 22 : 16)) {
+                const diffPct = ((closestLvl.val - priceNow) / priceNow * 100);
+                hoverFibStr = `<strong style="color:${closestLvl.col};background:${closestLvl.bg};padding:1px 6px;border-radius:4px;">🎯 Today's Fib ${closestLvl.name}: $${Number(closestLvl.val).toFixed(d)} (${diffPct >= 0 ? '+' : ''}${diffPct.toFixed(2)}%)</strong>`;
+              } else if (Number.isFinite(tF1) && Number.isFinite(tF0)) {
+                const yTop = Math.min(yScale.getPixelForValue(tF1), yScale.getPixelForValue(tF0));
+                const yBot = Math.max(yScale.getPixelForValue(tF1), yScale.getPixelForValue(tF0));
+                if (evY >= yTop - 4 && evY <= yBot + 4) {
+                  const midStr = Number.isFinite(tF50) ? ` · Mid $${Number(tF50).toFixed(d)}` : '';
+                  hoverFibStr = `<strong style="color:#38bdf8;background:rgba(56,189,248,0.15);padding:1px 6px;border-radius:4px;">🎯 Today's Fib Box: $${Number(tF0).toFixed(d)} – $${Number(tF1).toFixed(d)}${midStr}</strong>`;
+                }
+              }
+            }
+
+            // Priority 2: Check Prior Fib candidates
+            if (!hoverFibStr) {
+              const candidates = this._chart?.$rbPriorCandidates || (priorFibInfo ? [priorFibInfo] : []);
+              for (const cand of candidates) {
+                const candX0 = (cand.band?.i0 != null && xScale) ? xScale.getPixelForValue(cand.band.i0) - 10 : area.left;
+                const candX1 = (cand.band?.i1 != null && xScale) ? xScale.getPixelForValue(cand.band.i1) + 10 : todayX0;
+                const isOverCandDay = (evX >= candX0 && evX <= candX1) || (evX <= area.left + 80);
+
+                const yHi = yScale.getPixelForValue(cand.high);
+                const yLo = yScale.getPixelForValue(cand.low);
+                const yMid = cand.mid != null ? yScale.getPixelForValue(cand.mid) : null;
+                if (!Number.isFinite(yHi) || !Number.isFinite(yLo)) continue;
+
+                const topY = Math.min(yHi, yLo);
+                const botY = Math.max(yHi, yLo);
+                const padY = compact ? 26 : 22;
+
                 const dHi = Math.abs(evY - yHi);
                 const dMid = yMid != null ? Math.abs(evY - yMid) : Infinity;
                 const dLo = Math.abs(evY - yLo);
                 const minLineDist = Math.min(dHi, dMid, dLo);
 
-                const dayStr = cand.dayLabel ? ` (${cand.dayLabel})` : '';
-                if (minLineDist <= (compact ? 22 : 16)) {
-                  if (dHi <= minLineDist) {
-                    matchedLevel = 'high';
-                    const diffPct = ((cand.high - priceNow) / priceNow * 100);
-                    hoverFibStr = `<strong style="color:#4ade80;background:rgba(34,197,94,0.18);padding:1px 6px;border-radius:4px;">🎯 Hovering Prev Fib${dayStr} High: $${Number(cand.high).toFixed(d)} (${diffPct >= 0 ? '+' : ''}${diffPct.toFixed(2)}%)</strong>`;
-                  } else if (dMid <= minLineDist) {
-                    matchedLevel = 'mid';
-                    const diffPct = ((cand.mid - priceNow) / priceNow * 100);
-                    hoverFibStr = `<strong style="color:#38bdf8;background:rgba(56,189,248,0.18);padding:1px 6px;border-radius:4px;">🎯 Hovering Prev Fib${dayStr} Median: $${Number(cand.mid).toFixed(d)} (${diffPct >= 0 ? '+' : ''}${diffPct.toFixed(2)}%)</strong>`;
+                if ((isOverCandDay && evY >= topY - padY && evY <= botY + padY) || (minLineDist <= 10)) {
+                  matchedCand = cand;
+                  const dayStr = cand.dayLabel ? ` (${cand.dayLabel})` : '';
+                  if (minLineDist <= (compact ? 22 : 16)) {
+                    if (dHi <= minLineDist) {
+                      matchedLevel = 'high';
+                      const diffPct = ((cand.high - priceNow) / priceNow * 100);
+                      hoverFibStr = `<strong style="color:#4ade80;background:rgba(34,197,94,0.18);padding:1px 6px;border-radius:4px;">🎯 Hovering Prev Fib${dayStr} High: $${Number(cand.high).toFixed(d)} (${diffPct >= 0 ? '+' : ''}${diffPct.toFixed(2)}%)</strong>`;
+                    } else if (dMid <= minLineDist) {
+                      matchedLevel = 'mid';
+                      const diffPct = ((cand.mid - priceNow) / priceNow * 100);
+                      hoverFibStr = `<strong style="color:#38bdf8;background:rgba(56,189,248,0.18);padding:1px 6px;border-radius:4px;">🎯 Hovering Prev Fib${dayStr} Median: $${Number(cand.mid).toFixed(d)} (${diffPct >= 0 ? '+' : ''}${diffPct.toFixed(2)}%)</strong>`;
+                    } else {
+                      matchedLevel = 'low';
+                      const diffPct = ((cand.low - priceNow) / priceNow * 100);
+                      hoverFibStr = `<strong style="color:#f87171;background:rgba(239,68,68,0.18);padding:1px 6px;border-radius:4px;">🎯 Hovering Prev Fib${dayStr} Low: $${Number(cand.low).toFixed(d)} (${diffPct >= 0 ? '+' : ''}${diffPct.toFixed(2)}%)</strong>`;
+                    }
                   } else {
-                    matchedLevel = 'low';
-                    const diffPct = ((cand.low - priceNow) / priceNow * 100);
-                    hoverFibStr = `<strong style="color:#f87171;background:rgba(239,68,68,0.18);padding:1px 6px;border-radius:4px;">🎯 Hovering Prev Fib${dayStr} Low: $${Number(cand.low).toFixed(d)} (${diffPct >= 0 ? '+' : ''}${diffPct.toFixed(2)}%)</strong>`;
+                    matchedLevel = 'box';
+                    const diffPctMid = cand.mid != null ? ((cand.mid - priceNow) / priceNow * 100) : null;
+                    const diffStr = diffPctMid != null ? ` (${diffPctMid >= 0 ? '+' : ''}${diffPctMid.toFixed(2)}% to Mid)` : '';
+                    hoverFibStr = `<strong style="color:#38bdf8;background:rgba(56,189,248,0.18);padding:1px 6px;border-radius:4px;">🎯 Prev Fib Box${dayStr}: $${Number(cand.low).toFixed(d)} – $${Number(cand.high).toFixed(d)}${diffStr}</strong>`;
                   }
-                } else {
-                  matchedLevel = 'box';
-                  const diffPctMid = cand.mid != null ? ((cand.mid - priceNow) / priceNow * 100) : null;
-                  const diffStr = diffPctMid != null ? ` (${diffPctMid >= 0 ? '+' : ''}${diffPctMid.toFixed(2)}% to Mid)` : '';
-                  hoverFibStr = `<strong style="color:#38bdf8;background:rgba(56,189,248,0.18);padding:1px 6px;border-radius:4px;">🎯 Prev Fib Box${dayStr}: $${Number(cand.low).toFixed(d)} – $${Number(cand.high).toFixed(d)}${diffStr}</strong>`;
+                  break;
                 }
-                break;
-              }
-            }
-
-            // Also check Today's current band if no prior Fib matched
-            if (!matchedCand && todayBand && evY != null) {
-              const tHi = todayBand.f1 ?? todayBand.high;
-              const tMid = todayBand.f50 ?? todayBand.mid;
-              const tLo = todayBand.f0 ?? todayBand.low;
-              if (tHi != null && Math.abs(evY - yScale.getPixelForValue(tHi)) <= 12) {
-                const diffPct = ((tHi - priceNow) / priceNow * 100);
-                hoverFibStr = `<strong style="color:#4ade80;background:rgba(34,197,94,0.18);padding:1px 6px;border-radius:4px;">🎯 Today's Fib High: $${Number(tHi).toFixed(d)} (${diffPct >= 0 ? '+' : ''}${diffPct.toFixed(2)}%)</strong>`;
-              } else if (tMid != null && Math.abs(evY - yScale.getPixelForValue(tMid)) <= 12) {
-                const diffPct = ((tMid - priceNow) / priceNow * 100);
-                hoverFibStr = `<strong style="color:#38bdf8;background:rgba(56,189,248,0.18);padding:1px 6px;border-radius:4px;">🎯 Today's Fib Median: $${Number(tMid).toFixed(d)} (${diffPct >= 0 ? '+' : ''}${diffPct.toFixed(2)}%)</strong>`;
-              } else if (tLo != null && Math.abs(evY - yScale.getPixelForValue(tLo)) <= 12) {
-                const diffPct = ((tLo - priceNow) / priceNow * 100);
-                hoverFibStr = `<strong style="color:#f87171;background:rgba(239,68,68,0.18);padding:1px 6px;border-radius:4px;">🎯 Today's Fib Low: $${Number(tLo).toFixed(d)} (${diffPct >= 0 ? '+' : ''}${diffPct.toFixed(2)}%)</strong>`;
               }
             }
           }
@@ -3358,11 +3550,20 @@ const RangeEmaUI = {
           }
 
           if (hoverFibStr) {
-            const role = matchedCand ? (matchedCand.trendDir === 'UP' ? 'Overhead Reversal / TP Target' : 'Underhead Support / SL Target') : 'Current Range Level';
-            elInfo.innerHTML = `${hoverFibStr} <span style="color:#94a3b8;font-size:11px;">(${role})</span>`;
+            let candleExtra = '';
+            if (activeElements && activeElements.length) {
+              const b = bars[activeElements[0].index];
+              if (b) {
+                const t = times[activeElements[0].index] ? new Date(times[activeElements[0].index]).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', hour12: false }) : '';
+                candleExtra = ` <span style="color:#64748b;font-size:11px;">[${t} C: $${Number(b.c).toFixed(d)}]</span>`;
+              }
+            }
+            const role = matchedCand ? (matchedCand.trendDir === 'UP' ? 'Overhead Target' : 'Underhead Target') : 'Current Day Anchor';
+            elInfo.innerHTML = `${hoverFibStr}${candleExtra} <span style="color:#94a3b8;font-size:10.5px;">(${role})</span>`;
             return;
           }
 
+          const todaySummary = buildTodaySummary(todayBand, d, compact);
           const pf = this._chart?.$rbPriorFib || priorFibInfo;
           const dayStr = pf?.dayLabel ? ` (${pf.dayLabel})` : '';
           const pfSummary = pf ? ` · <span style="color:#64748b;">Prev Fib${dayStr}:</span> <span style="color:#4ade80;">H $${Number(pf.high).toFixed(d)}</span> <span style="color:#38bdf8;">Mid $${Number(pf.mid).toFixed(d)}</span> <span style="color:#f87171;">L $${Number(pf.low).toFixed(d)}</span>` : '';
@@ -3376,7 +3577,7 @@ const RangeEmaUI = {
               const sign = chg >= 0 ? '+' : '';
               const col = chg >= 0 ? '#4ade80' : '#f87171';
               const t = times[idx] ? new Date(times[idx]).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', hour12: false }) : '';
-              elInfo.innerHTML = `<span style="color:#94a3b8;">${t}</span> <strong style="color:${col};">$${Number(b.c).toFixed(d)} (${arrow} ${sign}${chg.toFixed(2)}%)</strong> <span style="color:#64748b;">H: $${Number(b.h).toFixed(d)} · L: $${Number(b.l).toFixed(d)}</span>${pfSummary}`;
+              elInfo.innerHTML = `<span style="color:#94a3b8;">${t}</span> <strong style="color:${col};">$${Number(b.c).toFixed(d)} (${arrow} ${sign}${chg.toFixed(2)}%)</strong> <span style="color:#64748b;">H: $${Number(b.h).toFixed(d)} · L: $${Number(b.l).toFixed(d)}</span>${todaySummary}${pfSummary}`;
               return;
             }
           }
@@ -3386,7 +3587,7 @@ const RangeEmaUI = {
             const arrow = chg >= 0 ? '▲' : '▼';
             const sign = chg >= 0 ? '+' : '';
             const col = chg >= 0 ? '#4ade80' : '#f87171';
-            elInfo.innerHTML = `<span style="color:#94a3b8;">Live:</span> <strong style="color:${col};">$${Number(last.c).toFixed(d)} (${arrow} ${sign}${chg.toFixed(2)}%)</strong> <span style="color:#64748b;">H: $${Number(last.h).toFixed(d)} · L: $${Number(last.l).toFixed(d)}</span>${pfSummary}`;
+            elInfo.innerHTML = `<span style="color:#94a3b8;">Live:</span> <strong style="color:${col};">$${Number(last.c).toFixed(d)} (${arrow} ${sign}${chg.toFixed(2)}%)</strong> <span style="color:#64748b;">H: $${Number(last.h).toFixed(d)} · L: $${Number(last.l).toFixed(d)}</span>${todaySummary}${pfSummary}`;
           }
         },
         layout: {
@@ -3561,16 +3762,18 @@ const RangeEmaUI = {
     this._chart.$rbDecimals = inst.priceDecimals ?? 2;
 
     const elInitInfo = document.getElementById('rbCandleInfo');
+    const d = inst.priceDecimals ?? 2;
+    const todaySummary = buildTodaySummary(todayBand, d, compact);
+
     if (elInitInfo && bars && bars.length) {
       const last = bars[bars.length - 1];
-      const d = inst.priceDecimals ?? 2;
       const chg = ((last.c - last.o) / last.o) * 100;
       const arrow = chg >= 0 ? '▲' : '▼';
       const sign = chg >= 0 ? '+' : '';
       const col = chg >= 0 ? '#4ade80' : '#f87171';
       const dayStr = priorFibInfo?.dayLabel ? ` (${priorFibInfo.dayLabel})` : '';
       const pfSummary = priorFibInfo ? ` · <span style="color:#64748b;">Prev Fib${dayStr}:</span> <span style="color:#4ade80;">H $${Number(priorFibInfo.high).toFixed(d)}</span> <span style="color:#38bdf8;">Mid $${Number(priorFibInfo.mid).toFixed(d)}</span> <span style="color:#f87171;">L $${Number(priorFibInfo.low).toFixed(d)}</span>` : '';
-      elInitInfo.innerHTML = `<span style="color:#94a3b8;">Live:</span> <strong style="color:${col};">$${Number(last.c).toFixed(d)} (${arrow} ${sign}${chg.toFixed(2)}%)</strong> <span style="color:#64748b;">H: $${Number(last.h).toFixed(d)} · L: $${Number(last.l).toFixed(d)}</span>${pfSummary}`;
+      elInitInfo.innerHTML = `<span style="color:#94a3b8;">Live:</span> <strong style="color:${col};">$${Number(last.c).toFixed(d)} (${arrow} ${sign}${chg.toFixed(2)}%)</strong> <span style="color:#64748b;">H: $${Number(last.h).toFixed(d)} · L: $${Number(last.l).toFixed(d)}</span>${todaySummary}${pfSummary}`;
     }
 
     // Smoothly clear hovered prior Fib lines when mouse leaves the canvas (unless pinned)
@@ -3588,14 +3791,13 @@ const RangeEmaUI = {
         }
         if (elInitInfo && bars && bars.length) {
           const last = bars[bars.length - 1];
-          const d = inst.priceDecimals ?? 2;
           const chg = ((last.c - last.o) / last.o) * 100;
           const arrow = chg >= 0 ? '▲' : '▼';
           const sign = chg >= 0 ? '+' : '';
           const col = chg >= 0 ? '#4ade80' : '#f87171';
           const dayStr = priorFibInfo?.dayLabel ? ` (${priorFibInfo.dayLabel})` : '';
           const pfSummary = priorFibInfo ? ` · <span style="color:#64748b;">Prev Fib${dayStr}:</span> <span style="color:#4ade80;">H $${Number(priorFibInfo.high).toFixed(d)}</span> <span style="color:#38bdf8;">Mid $${Number(priorFibInfo.mid).toFixed(d)}</span> <span style="color:#f87171;">L $${Number(priorFibInfo.low).toFixed(d)}</span>` : '';
-          elInitInfo.innerHTML = `<span style="color:#94a3b8;">Live:</span> <strong style="color:${col};">$${Number(last.c).toFixed(d)} (${arrow} ${sign}${chg.toFixed(2)}%)</strong> <span style="color:#64748b;">H: $${Number(last.h).toFixed(d)} · L: $${Number(last.l).toFixed(d)}</span>${pfSummary}`;
+          elInitInfo.innerHTML = `<span style="color:#94a3b8;">Live:</span> <strong style="color:${col};">$${Number(last.c).toFixed(d)} (${arrow} ${sign}${chg.toFixed(2)}%)</strong> <span style="color:#64748b;">H: $${Number(last.h).toFixed(d)} · L: $${Number(last.l).toFixed(d)}</span>${todaySummary}${pfSummary}`;
         }
       }
     };
