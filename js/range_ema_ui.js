@@ -1382,15 +1382,15 @@ const RangeEmaUI = {
           <div class="rb-beacon-right">
             ${prime.active ? `
               <span class="rb-prime-pill active" title="${prime.active.rule}">
-                🔥 <strong>PRIME ACTIVE:</strong> ${prime.active.flag} ${prime.active.name} (${prime.active.remStr} left · 🎯 ${prime.active.winRate})
+                <strong>PRIME ACTIVE:</strong> ${prime.active.name} (${prime.active.remStr} left · ${prime.active.winRate})
               </span>
             ` : prime.next?.isApproaching ? `
               <span class="rb-prime-pill alert" title="${prime.next.rule}">
-                ⚠️ <strong>PRIME IN ${prime.next.waitMins}m:</strong> ${prime.next.flag} ${prime.next.name} (${prime.next.startStrIst} IST / ${prime.next.localStart} ${prime.userTzName})
+                <strong>PRIME IN ${prime.next.waitMins}m:</strong> ${prime.next.name} (${prime.next.startStrIst} IST / ${prime.next.localStart} ${prime.userTzName})
               </span>
             ` : `
               <span class="rb-prime-pill next" title="${prime.next.rule}">
-                🎯 <strong>Next Prime:</strong> ${prime.next.flag} ${prime.next.name} in <strong>${prime.next.waitStr}</strong> (${prime.next.startStrIst} IST / ${prime.next.localStart} ${prime.userTzName})
+                <strong>Next Prime:</strong> ${prime.next.name} in <strong>${prime.next.waitStr}</strong> (${prime.next.startStrIst} IST / ${prime.next.localStart} ${prime.userTzName})
               </span>
             `}
             ${r.sessionTell ? `<span style="font-weight:600; color:${r.sessionTell.type === 'bullish' ? '#4ade80' : r.sessionTell.type === 'bearish' ? '#f87171' : '#7dd3fc'}; font-size:11px; background:rgba(255,255,255,0.05); padding:2px 8px; border-radius:4px;">${r.sessionTell.badge}</span>` : ''}
@@ -1566,7 +1566,7 @@ const RangeEmaUI = {
     const timelineHtml = `
       <div class="rb-session-timeline-card">
         <div class="rb-timeline-header">
-          <span style="font-weight:600; color:#cbd5e1;">🕒 24H Global Liquidity Rhythm</span>
+          <span style="font-weight:600; color:#cbd5e1;">24H Global Liquidity Rhythm</span>
           <span><span class="rb-live-pulse-dot"></span> Active: <strong style="color:#f8fafc;">${activeSessionName}</strong></span>
         </div>
         <div class="rb-timeline-track">
@@ -1574,17 +1574,20 @@ const RangeEmaUI = {
             <span class="seg-time">02:30</span>
             <span class="seg-name">Mark</span>
           </div>
-          <div class="rb-session-seg ${isAsia ? 'active' : ''}" style="border-bottom: 2px solid #38bdf8;">
+          <div class="rb-session-seg ${isAsia ? 'active' : ''} is-prime">
             <span class="seg-time">05:30</span>
-            <span class="seg-name">Asia 🎯</span>
+            <span class="seg-name">Asia</span>
+            <span class="seg-tag prime">71.7%</span>
           </div>
-          <div class="rb-session-seg ${isLon ? 'active' : ''}" style="border-bottom: 2px solid #f59e0b;">
+          <div class="rb-session-seg ${isLon ? 'active' : ''} is-prime-top">
             <span class="seg-time">12:30</span>
-            <span class="seg-name">London ⭐</span>
+            <span class="seg-name">London</span>
+            <span class="seg-tag top-edge">62.7% TOP</span>
           </div>
-          <div class="rb-session-seg ${isNy ? 'active' : ''}" style="border-bottom: 2px solid #38bdf8;">
+          <div class="rb-session-seg ${isNy ? 'active' : ''} is-prime">
             <span class="seg-time">18:30</span>
-            <span class="seg-name">NY Open 🎯</span>
+            <span class="seg-name">NY Open</span>
+            <span class="seg-tag prime">56.0%</span>
           </div>
           <div class="rb-session-seg ${isLonClose ? 'active' : ''}">
             <span class="seg-time">19:30</span>
@@ -1599,21 +1602,21 @@ const RangeEmaUI = {
         <!-- Prime Execution Windows Reference Matrix -->
         <div style="margin-top: 14px; padding-top: 10px; border-top: 1px solid rgba(255,255,255,0.06);">
           <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom: 8px;">
-            <span style="font-size: 11px; font-weight: 700; color: #94a3b8; text-transform: uppercase; letter-spacing: 0.04em;">🎯 3 Prime Entry Windows (Statistically Proven Edges)</span>
+            <span style="font-size: 11px; font-weight: 700; color: #94a3b8; text-transform: uppercase; letter-spacing: 0.04em;">3 Prime Entry Windows (Statistically Proven Edges)</span>
             <span style="font-size: 10.5px; color: #64748b;">Times in IST &amp; your ${prime.userTzName} timezone</span>
           </div>
           <div class="rb-prime-windows-grid">
             ${prime.allWindows.map(w => `
               <div class="rb-prime-win-card ${w.isCurrent ? 'active' : ''}">
                 <div class="win-card-top">
-                  <span>${w.flag} ${w.name}</span>
+                  <span>${w.name}</span>
                   ${w.badge ? `<span class="win-best-badge">${w.badge}</span>` : ''}
                 </div>
                 <div class="win-card-times">
                   <strong>${w.startStrIst}–${w.endStrIst} IST</strong>
                   <span class="win-local-time">(${w.localStart}–${w.localEnd} ${w.userTzName})</span>
                 </div>
-                <div class="win-card-edge">🎯 ${w.winRate}</div>
+                <div class="win-card-edge">${w.winRate}</div>
                 <div style="font-size: 10px; color: #94a3b8; line-height: 1.35; margin: 2px 0;">${w.rule}</div>
                 <div class="win-card-status">${w.statusBadge}</div>
               </div>
@@ -2336,7 +2339,6 @@ const RangeEmaUI = {
         id: 'asia',
         name: 'Asia Open / Daily Open',
         code: 'ASIA',
-        flag: '🌏',
         startIstMins: 330,   // 05:30 IST
         endIstMins: 420,     // 07:00 IST
         startStrIst: '05:30',
@@ -2349,7 +2351,6 @@ const RangeEmaUI = {
         id: 'london',
         name: 'London Judas Swing',
         code: 'LON',
-        flag: '🇬🇧',
         badge: 'TOP EDGE',
         startIstMins: 780,   // 13:00 IST
         endIstMins: 855,     // 14:15 IST
@@ -2363,7 +2364,6 @@ const RangeEmaUI = {
         id: 'ny',
         name: 'New York Opening Hunt',
         code: 'NY',
-        flag: '🇺🇸',
         startIstMins: 1110,  // 18:30 IST
         endIstMins: 1185,    // 19:45 IST
         startStrIst: '18:30',

@@ -3863,6 +3863,32 @@ html.is-phone body.redbar-only #rangeEmaDesk {
   color: #ffffff;
   font-weight: 700;
 }
+.rb-session-seg.is-prime {
+  border-bottom: 2px solid rgba(56, 189, 248, 0.65);
+}
+.rb-session-seg.is-prime-top {
+  border-bottom: 2px solid rgba(245, 158, 11, 0.85);
+}
+.rb-session-seg .seg-tag {
+  font-size: 8px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  padding: 1px 4px;
+  border-radius: 3px;
+  margin-top: 2px;
+  display: inline-block;
+  align-self: center;
+  line-height: 1.2;
+}
+.rb-session-seg .seg-tag.prime {
+  background: rgba(56, 189, 248, 0.15);
+  color: #38bdf8;
+}
+.rb-session-seg .seg-tag.top-edge {
+  background: rgba(245, 158, 11, 0.22);
+  color: #fbbf24;
+}
 
 /* Key Levels Matrix (3-Column clean grid) */
 .rb-levels-matrix {
