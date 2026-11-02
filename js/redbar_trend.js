@@ -888,8 +888,8 @@ const RedBarTrend = {
   },
 
   /**
-   * IST clock phase for BTC/XAU session flow (Sagar & Dr. Dev).
-   * Pre-London continuation → 12:45 PM Liquidity Hunt → London Asia sweep → US London/Asia hunt.
+   * IST clock phase for BTC — Dr. Dev session transition anchors:
+   * Asia/Daily 05:30 · London 13:00/13:30 · NY 19:00/20:00 (+ 12:45 liquidity hunt).
    */
   istClockPhase(ts) {
     const z = this.zonedHms(ts || Date.now(), 'Asia/Kolkata');
@@ -899,56 +899,348 @@ const RedBarTrend = {
       const r = m % 60;
       return h > 0 ? `${h}h ${r}m` : `${r}m`;
     };
-    // 12:15–13:15 IST: Dr. Dev 12:45 PM Institutional Liquidity Hunt before European open
     const isLiquidityHunt = mins >= 12 * 60 + 15 && mins <= 13 * 60 + 15;
-    if (mins < 12 * 60 + 30) {
-      const rem = (12 * 60 + 30) - mins;
+
+    // Before Asia daily open (00:00–05:30 IST) — dead hours for POB
+    if (mins < 5 * 60 + 30) {
+      const rem = (5 * 60 + 30) - mins;
+      return {
+        id: 'pre_asia',
+        label: 'Pre-Asia (dead hours)',
+        nextWindow: `Asia / Daily Open (05:30 IST) in ${fmtWait(rem)}`,
+        tip: 'No Red Bar POB here — wait for Asia 05:30 / UTC midnight open bell.',
+        isLiquidityHunt: false,
+        isPrimePob: false,
+      };
+    }
+    // Asia / Daily open — UTC midnight candle (05:30 IST)
+    if (mins < 12 * 60 + 15) {
+      const rem = (12 * 60 + 15) - mins;
+      return {
+        id: 'asia',
+        label: 'Asia / Daily Open (05:30 IST)',
+        nextWindow: `12:45 Liquidity Hunt in ${fmtWait(rem)}`,
+        tip: 'Prime POB window: first 5m red at 05:30 = X-Candle. Retest 44–56 → SHORT reject. No dead-hour chasing.',
+        isLiquidityHunt: false,
+        isPrimePob: true,
+      };
+    }
+    if (mins < 13 * 60) {
       return {
         id: 'pre_london',
-        label: isLiquidityHunt ? 'Pre-London · 12:45 PM Liquidity Hunt' : 'Pre-London',
-        nextWindow: isLiquidityHunt ? '12:45 PM Institutional Liquidity Hunt underway' : `London Open (12:30 PM IST) in ${fmtWait(rem)}`,
-        tip: isLiquidityHunt
-          ? '12:45 PM Liquidity Hunt: Morning H/L often swept before European open. Watch for traps & false breakouts.'
-          : 'Until ~12:30 IST, BTC often keeps the morning direction.',
-        isLiquidityHunt,
+        label: '12:45 PM Liquidity Hunt',
+        nextWindow: 'London Open 13:00/13:30 IST',
+        tip: 'Institutional hunt of morning H/L before Europe. Stand aside or wait confirmed sweep — not a fresh POB X yet.',
+        isLiquidityHunt: true,
+        isPrimePob: false,
       };
     }
     if (mins < 16 * 60 + 30) {
       const rem = (16 * 60 + 30) - mins;
       return {
         id: 'london',
-        label: isLiquidityHunt ? 'London Open · 12:45 PM Liquidity Hunt' : 'London Active (12:30–4:30 PM)',
-        nextWindow: `US Open (4:30 PM IST) in ${fmtWait(rem)}`,
-        tip: isLiquidityHunt
-          ? '12:45 PM Liquidity Hunt: European desks hunting morning extremes. Wait for confirmed sweep rejection.'
-          : 'London usually sweeps Asia high or low, then reverses.',
+        label: isLiquidityHunt ? 'London Open · Liquidity Hunt' : 'London Open (13:00/13:30 IST)',
+        nextWindow: `NY Open (19:00/20:00 IST) in ${fmtWait(rem)}`,
+        tip: 'Prime POB: first 5m red at London open = X-Candle (Judas swing risk). Retest 44–56 → SHORT; blow through 0.56 = dead.',
         isLiquidityHunt,
+        isPrimePob: true,
       };
     }
     if (mins < 19 * 60) {
       const rem = (19 * 60) - mins;
       return {
-        id: 'us_open',
-        label: 'US Open Active (4:30–7:00 PM)',
-        nextWindow: `US Heavy Window · ${fmtWait(rem)} left (till 7:00 PM IST)`,
-        tip: 'US hunts London H/L (Asia if untouched). Heavy window ~4:30–7:00 IST.',
+        id: 'us_wait',
+        label: 'Between London & NY',
+        nextWindow: `NY Open (19:00 IST) in ${fmtWait(rem)}`,
+        tip: 'Off-prime for new POB X-Candles. DNA Trade 1/2 / sweep still apply; wait NY open for next POB anchor.',
         isLiquidityHunt: false,
+        isPrimePob: false,
       };
     }
-    const remToLondon = (24 * 60 - mins) + (12 * 60 + 30);
+    if (mins < 22 * 60 + 30) {
+      return {
+        id: 'us_open',
+        label: 'NY Open (19:00/20:00 IST)',
+        nextWindow: 'Session wind-down after ~22:30 IST',
+        tip: 'Highest vol injection. Prime POB: first 5m red at NY open → POB retest SHORT. Bank Anchor low / 1R — no overnight hope.',
+        isLiquidityHunt: false,
+        isPrimePob: true,
+      };
+    }
+    const remToAsia = (24 * 60 - mins) + (5 * 60 + 30);
     return {
       id: 'late',
-      label: 'After US Open (Late Session)',
-      nextWindow: `Next Prime Session: London (12:30 PM IST) in ${fmtWait(remToLondon)}`,
-      tip: 'Pivot stays the first 1H red; watch prior-day H/L as book magnets.',
+      label: 'After NY (dead hours)',
+      nextWindow: `Next Prime: Asia / Daily Open (05:30 IST) in ${fmtWait(remToAsia)}`,
+      tip: 'No new POB anchors in dead hours. Use Renko to filter wick noise; wait next session bell.',
       isLiquidityHunt: false,
+      isPrimePob: false,
     };
   },
 
   /**
-   * Median + Fib 44/50/56 marked on the first 1H red candle high→low (not on 5m).
-   * Median = Fib 50 = midpoint of that 1H bar.
-   * Point of Balance (POB) = 0.50 fair value with ±6% tolerance band (0.44 to 0.56 corridor).
+   * Dr. Dev X-Candle: first 5m RED at/after a session open clock.
+   * NIFTY: 09:15 IST. BTC: London 13:00/13:30 or NY 19:00/20:00 IST (see findPrimeSessionXCandle5m).
+   */
+  findOpeningXCandle5m(bars5m, asOfTs, opts = {}) {
+    if (!Array.isArray(bars5m) || !bars5m.length) return null;
+    const tz = opts.timeZone || 'Asia/Kolkata';
+    const openH = opts.openHour != null ? opts.openHour : 9;
+    const openM = opts.openMinute != null ? opts.openMinute : 15;
+    const maxBars = opts.maxBars != null ? opts.maxBars : 6; // first 30m
+    const asOf = asOfTs != null ? asOfTs : Date.now();
+    const day = opts.day || this.zonedDay(asOf, tz);
+    const openTs = this.zonedClockToUtc(day, tz, openH, openM);
+    if (openTs == null) return null;
+    // X-Candle must already exist (open bar started) and asOf must be at/after open
+    if (asOf < openTs) return null;
+
+    const session = [];
+    for (let i = 0; i < bars5m.length; i++) {
+      const b = bars5m[i];
+      if (b.t < openTs) continue;
+      if (this.zonedDay(b.t, tz) !== day) break;
+      session.push(b);
+      if (session.length >= maxBars) break;
+    }
+    for (const b of session) {
+      if (b.c < b.o && b.h > b.l) {
+        return {
+          ...b,
+          high: b.h,
+          low: b.l,
+          open: b.o,
+          close: b.c,
+          sessionId: opts.sessionId || null,
+          sessionLabel: opts.sessionLabel || null,
+          openHour: openH,
+          openMinute: openM,
+        };
+      }
+    }
+    return null;
+  },
+
+  /**
+   * BTC crypto adaptation of Dr. Dev POB: first 5m red at a prime liquidity open (IST),
+   * not blind 24/7 scanning and not the Sagar 1H first-red / mark Fib.
+   * Asia/Daily 05:30 · London 13:00/13:30 · NY 19:00/20:00 (DST variants).
+   */
+  BTC_POB_PRIMES: [
+    { id: 'asia', label: 'Asia', opens: [[5, 30]], activeFrom: 5 * 60 + 30, activeTo: 8 * 60 + 30 },
+    { id: 'london', label: 'London', opens: [[13, 0], [13, 30]], activeFrom: 13 * 60, activeTo: 16 * 60 },
+    { id: 'ny', label: 'NY', opens: [[19, 0], [20, 0]], activeFrom: 19 * 60, activeTo: 22 * 60 + 30 },
+  ],
+
+  findPrimeSessionXCandle5m(bars5m, asOfTs, opts = {}) {
+    if (!Array.isArray(bars5m) || !bars5m.length) return null;
+    const tz = opts.timeZone || 'Asia/Kolkata';
+    const asOf = asOfTs != null ? asOfTs : Date.now();
+    const z = this.zonedHms(asOf, tz);
+    const mins = z.hour * 60 + z.minute;
+    const day = this.zonedDay(asOf, tz);
+    const primes = opts.primes || this.BTC_POB_PRIMES;
+    const maxBars = opts.maxBars != null ? opts.maxBars : 6;
+
+    // Strict: only while inside a prime window (no dead-hour fallback to a stale X)
+    const candidates = primes.filter((p) => mins >= p.activeFrom && mins < p.activeTo);
+    if (!candidates.length) return null;
+
+    for (const prime of candidates) {
+      for (const [oh, om] of prime.opens) {
+        const x = this.findOpeningXCandle5m(bars5m, asOf, {
+          timeZone: tz,
+          openHour: oh,
+          openMinute: om,
+          maxBars,
+          day,
+          sessionId: prime.id,
+          sessionLabel: `${prime.label} ${String(oh).padStart(2, '0')}:${String(om).padStart(2, '0')} IST`,
+        });
+        if (x) return x;
+      }
+    }
+    return null;
+  },
+
+  /**
+   * Dr. Dev Setup 1 — 5m X-Candle → POB retest → SHORT only.
+   * NIFTY: NSE 09:15. BTC: Asia 05:30 / London 13:00–13:30 / NY 19:00–20:00 IST.
+   * NOT Sagar Trade 1 leave. NOT a 1H candle. NOT a long setup.
+   *
+   *  1. X-Candle = first 5m red at session open (do not enter on it).
+   *  2. Draw POB 0.44–0.56 on that 5m bar.
+   *  3. Leave below → bounce retest → SHORT reject (5m close back below 0.44).
+   *  4. Close above 0.56 after retest → INVALID — stand down (no auto-long).
+   *  5. SL tight above POB high (0.56) / reject wick — NOT the X-Candle high (3–4R geometry).
+   *  6. TP1 = Anchor (X) low · TP2 = session extension / ~2R. Session-bounded entry.
+   */
+  detectPobReject(xCandle, bars5m, asOfTs, touchPct = 0.15, opts = {}) {
+    const fibs = this.firstRedFibs(xCandle);
+    if (!xCandle || !fibs?.pob || !Array.isArray(bars5m) || bars5m.length < 2) return null;
+    const pobHi = fibs.pob.high;
+    const pobLo = fibs.pob.low;
+    const tol = (touchPct / 100) * Math.max(xCandle.high, xCandle.h || 0, 1);
+    const asOf = asOfTs != null ? asOfTs : Date.now();
+    const tz = opts.timeZone || 'Asia/Kolkata';
+    const z = this.zonedHms(asOf, tz);
+    const mins = z.hour * 60 + z.minute;
+    const entryCutoff = opts.entryCutoffMins; // absolute IST minutes-of-day (optional)
+    const maxEntryMins = opts.maxEntryMins != null ? opts.maxEntryMins : 150; // ~2.5h after X
+    const barMs = 5 * 60 * 1000;
+    const sessBit = xCandle.sessionLabel ? ` · ${xCandle.sessionLabel}` : '';
+
+    // Do not enter on the X-Candle itself — need at least one later closed bar
+    const minutesSinceX = (asOf - xCandle.t) / 60000;
+    const withinRel = minutesSinceX <= maxEntryMins;
+    const withinAbs = entryCutoff == null || mins <= entryCutoff;
+    const beforeCutoff = withinRel && withinAbs;
+    if (minutesSinceX < 5) {
+      return {
+        status: 'x_candle_wait',
+        watching: true,
+        triggered: false,
+        side: null,
+        pobHi,
+        pobLo,
+        xCandle,
+        fibs,
+        label: `X-Candle marked${sessBit} @ ${pobLo.toFixed(1)}–${pobHi.toFixed(1)} — do not enter; wait for POB retest`,
+      };
+    }
+
+    const closed = [];
+    for (let k = 0; k < bars5m.length; k++) {
+      const b = bars5m[k];
+      if (b.t <= xCandle.t) continue;
+      if (b.t + barMs - 1500 > asOf) continue;
+      closed.push(b);
+    }
+    if (!closed.length) {
+      return {
+        status: 'await_retest',
+        watching: true,
+        triggered: false,
+        side: null,
+        pobHi,
+        pobLo,
+        xCandle,
+        fibs,
+        label: `Await POB retest of X-Candle${sessBit} ${pobLo.toFixed(1)}–${pobHi.toFixed(1)}`,
+      };
+    }
+
+    const touchesPob = (b) => b.h >= (pobLo - tol) && b.l <= (pobHi + tol);
+    // Classic Dr. Dev: pullback into 44–56 → 5m close back below 0.44.
+    // Close > 0.56 after touch = INVALID (no long). TP1 requires entry still above Anchor low.
+    const xLo = xCandle.low || xCandle.l;
+    let touched = false;
+    let invalid = false;
+    let rejectBar = null;
+    for (const b of closed) {
+      if (touchesPob(b)) touched = true;
+      if (!touched) {
+        if (b.c > pobHi + tol) {
+          invalid = true;
+          break;
+        }
+        continue;
+      }
+      if (b.c > pobHi + tol) {
+        invalid = true;
+        break;
+      }
+      if (b.c < pobLo - tol && b.c > xLo) {
+        rejectBar = b;
+        break;
+      }
+    }
+
+    const last = closed[closed.length - 1];
+    // Fresh impulse window ~20m (4× 5m) — not a multi-hour chase
+    const freshMs = (opts.freshMins != null ? opts.freshMins : 20) * 60 * 1000;
+
+    if (invalid) {
+      return {
+        status: 'short_invalidated',
+        watching: false,
+        triggered: false,
+        side: null,
+        pobHi,
+        pobLo,
+        xCandle,
+        fibs,
+        label: `POB blew through ${pobHi.toFixed(1)}${sessBit} — short INVALID (stand down, no long)`,
+      };
+    }
+
+    if (rejectBar) {
+      const rejectCloseTs = rejectBar.t + barMs;
+      const age = asOf - rejectCloseTs;
+      const stillBelow = last.c < pobLo - tol;
+      const triggered = age >= 0 && age <= freshMs && stillBelow && beforeCutoff;
+      return {
+        status: triggered ? 'triggered' : (stillBelow ? 'stale' : 'watching'),
+        watching: !triggered && touched && beforeCutoff,
+        triggered,
+        side: 'bearish',
+        pobHi,
+        pobLo,
+        xCandle,
+        fibs,
+        triggerBar: rejectBar,
+        triggerTs: rejectBar.t,
+        // Fill at POB edge (0.44) — Dr. Dev "enter near midpoint" for 3–4R; reject close is confirmation not chase fill
+        triggerPrice: pobLo,
+        // Asymmetric R:R — SL tight above POB 0.56 (NOT X-Candle high / wild wick)
+        stopHint: (() => {
+          const band = Math.max(pobHi - pobLo, (xCandle.high || xCandle.h) * 0.0002);
+          const wickCap = pobHi + band * 0.5;
+          const wick = rejectBar.h;
+          const raw = (wick > pobHi && wick <= wickCap) ? wick : pobHi;
+          return raw * 1.00008;
+        })(),
+        // TP1 magnet: Anchor candle low (0.0 Fib of X)
+        tpHint: xCandle.low || xCandle.l,
+        hoursSince: minutesSinceX / 60,
+        label: triggered
+          ? `Dr. Dev POB SHORT${sessBit} · 5m close < ${pobLo.toFixed(1)} after retest`
+          : (beforeCutoff
+            ? `POB rejected${sessBit} — wait fresh window / still below ${pobLo.toFixed(1)}`
+            : `POB reject${sessBit} outside session entry window — stand down`),
+      };
+    }
+
+    if (touched) {
+      return {
+        status: 'watching',
+        watching: beforeCutoff,
+        triggered: false,
+        side: 'bearish',
+        pobHi,
+        pobLo,
+        xCandle,
+        fibs,
+        label: `POB retested${sessBit} ${pobLo.toFixed(1)}–${pobHi.toFixed(1)} — wait 5m reject close < 0.44 (SHORT only)`,
+      };
+    }
+
+    return {
+      status: 'await_retest',
+      watching: beforeCutoff,
+      triggered: false,
+      side: null,
+      pobHi,
+      pobLo,
+      xCandle,
+      fibs,
+      label: `X-Candle (5m)${sessBit} — wait pullback into POB ${pobLo.toFixed(1)}–${pobHi.toFixed(1)} then SHORT reject`,
+    };
+  },
+
+  /**
+   * Median + Fib 44/50/56 on a candle high→low (Sagar 1H first-red OR Dr. Dev 5m X-Candle).
+   * Median = Fib 50. POB = 0.50 ±6% band (0.44–0.56).
    */
   firstRedFibs(firstRed) {
     if (!firstRed || firstRed.high == null || firstRed.low == null) return null;
@@ -1534,38 +1826,48 @@ const RedBarTrend = {
       }
     }
 
-    // Find Barricade (swing high if below EMA, swing low if above EMA)
+    // Barricade = last LTF swing against the dump/rally (Dr. Dev):
+    // oversold → most recent swing high before the extreme low;
+    // overbought → most recent swing low before the extreme high.
     let barricade = null;
+    let extremeIdx = 0;
     if (detachedType === 'below') {
-      let maxHigh = -Infinity;
-      for (let i = candidateLtf.length - 2; i >= 0; i--) {
-        const b = candidateLtf[i];
-        if (b.h > maxHigh) {
-          maxHigh = b.h;
-          barricade = b.h;
-          if (i > 0 && i < candidateLtf.length - 1 && b.h >= candidateLtf[i - 1].h && b.h >= candidateLtf[i + 1].h) {
-            barricade = b.h;
-            break;
-          }
-        }
+      let lo = Infinity;
+      for (let i = 0; i < candidateLtf.length; i++) {
+        if (candidateLtf[i].l < lo) { lo = candidateLtf[i].l; extremeIdx = i; }
       }
-      if (barricade == null || !Number.isFinite(barricade)) barricade = maxHigh > -Infinity ? maxHigh : latestBar.h;
+      const end = Math.max(1, extremeIdx);
+      for (let i = 1; i < end; i++) {
+        const b = candidateLtf[i];
+        const prev = candidateLtf[i - 1];
+        const next = candidateLtf[i + 1] || b;
+        if (b.h >= prev.h && b.h >= next.h) barricade = b.h;
+      }
+      if (barricade == null || !Number.isFinite(barricade)) {
+        let mh = -Infinity;
+        for (let i = 0; i <= end; i++) mh = Math.max(mh, candidateLtf[i].h);
+        barricade = mh > -Infinity ? mh : latestBar.h;
+      }
     } else {
-      let minLow = Infinity;
-      for (let i = candidateLtf.length - 2; i >= 0; i--) {
-        const b = candidateLtf[i];
-        if (b.l < minLow) {
-          minLow = b.l;
-          barricade = b.l;
-          if (i > 0 && i < candidateLtf.length - 1 && b.l <= candidateLtf[i - 1].l && b.l <= candidateLtf[i + 1].l) {
-            barricade = b.l;
-            break;
-          }
-        }
+      let hi = -Infinity;
+      for (let i = 0; i < candidateLtf.length; i++) {
+        if (candidateLtf[i].h > hi) { hi = candidateLtf[i].h; extremeIdx = i; }
       }
-      if (barricade == null || !Number.isFinite(barricade)) barricade = minLow < Infinity ? minLow : latestBar.l;
+      const end = Math.max(1, extremeIdx);
+      for (let i = 1; i < end; i++) {
+        const b = candidateLtf[i];
+        const prev = candidateLtf[i - 1];
+        const next = candidateLtf[i + 1] || b;
+        if (b.l <= prev.l && b.l <= next.l) barricade = b.l;
+      }
+      if (barricade == null || !Number.isFinite(barricade)) {
+        let ml = Infinity;
+        for (let i = 0; i <= end; i++) ml = Math.min(ml, candidateLtf[i].l);
+        barricade = ml < Infinity ? ml : latestBar.l;
+      }
     }
 
+    // Trigger only on a closed LTF close through the barricade (not a wick poke).
     const lastBar = candidateLtf[candidateLtf.length - 1] || latestBar;
     const currentPrice = lastBar.c;
     const triggered = detachedType === 'below' ? (currentPrice > barricade) : (currentPrice < barricade);
@@ -1593,8 +1895,8 @@ const RedBarTrend = {
       triggerTs: triggered ? lastBar.t : null,
       triggerPrice: triggered ? currentPrice : null,
       label: triggered
-        ? `Setup 3: 30m 5 EMA Rubber Band (${direction.toUpperCase()}) · Target: 5 EMA (${targetPrice.toFixed(1)})`
-        : `Setup 3 Primed: 30m 5 EMA Rubber Band (${detachedCount} bars detached) · Watch Barricade (${barricade.toFixed(1)})`,
+        ? `Setup 3 overlay: Barricade broken (${direction.toUpperCase()}) · 30m 5 EMA target ${targetPrice.toFixed(1)} — not DNA ENTER`
+        : `Setup 3 overlay primed: ${detachedCount}× 30m detached · Barricade ${barricade.toFixed(1)} · 5 EMA ${latestEma.toFixed(1)}`,
     };
   },
 
@@ -1636,6 +1938,7 @@ const RedBarTrend = {
     sweepExtreme = null,
     setupKind = null,
     setup3 = null,
+    pobReject = null,
   }) {
     if (trend !== 'bullish' && trend !== 'bearish') {
       return {
@@ -1652,6 +1955,44 @@ const RedBarTrend = {
         stopPct: null,
         targetPct: null,
         rr: null,
+      };
+    }
+
+    // Dr. Dev POB SHORT — SL above POB 0.56 / reject wick; TP1 Anchor low; TP2 ~2R extension
+    if (setupKind === 'pob_reject' && pobReject && pobReject.triggered) {
+      const stopPad = price * 0.00008;
+      let sp = pobReject.stopHint;
+      if (!(Number.isFinite(sp)) || sp <= price) {
+        sp = Math.max(pobReject.pobHi || 0, price) * 1.00015;
+      }
+      sp = sp + stopPad;
+      const xLow = pobReject.tpHint != null
+        ? pobReject.tpHint
+        : (pobReject.xCandle?.low ?? pobReject.xCandle?.l);
+      const riskDist = Math.abs(price - sp);
+      // Inherent 3–4R when entry is near mid and SL is only ~12% of candle above POB
+      let tp1 = Number.isFinite(xLow) && xLow < price ? xLow : price - riskDist;
+      if (!(tp1 < price)) tp1 = price - riskDist;
+      const tp2 = price - riskDist * 2; // session extension / 1:2R
+      const tp3 = price - riskDist * 3;
+      const rr = riskDist > 0 ? Math.abs(price - tp1) / riskDist : 1;
+      return {
+        invalidation: sp,
+        invalidationReason: 'above POB 0.56 / reject wick',
+        stopStructural: true,
+        tp1,
+        tp2,
+        tp3,
+        bookZone: tp1,
+        firstMagnet: { price: tp1, label: 'Anchor (X) low' },
+        bookReason: 'Dr. Dev POB SHORT · SL@POB0.56 · TP1 Anchor low · TP2 2R — no overnight',
+        bookIsMagnet: true,
+        stopPct: (riskDist / price) * 100,
+        targetPct: (Math.abs(tp1 - price) / price) * 100,
+        rr,
+        rrLadder: true,
+        prevSwingLow: null,
+        prevSwingHigh: sp,
       };
     }
 
@@ -2124,15 +2465,50 @@ const RedBarTrend = {
     const sweep = this.detectSessionSweep(slice, clock, asiaHl, londonHl, firstRed1h, evalTs);
     // Dr. Devendra Pratap Singh: Setup 3 (30m 5 EMA Rubber Band Mean Reversion)
     const setup3 = this.detect30m5EmaRubberBand(slice, bars5m, evalTs);
+    // Dr. Dev Setup 1 POB (5m X-Candle → retest → SHORT only). Never 1H first-red (tautology).
+    // NIFTY: NSE 09:15 IST. BTC: London 13:00/13:30 or NY 19:00/20:00 IST prime opens.
+    const instId = String(c.id || c.instrumentId || '').toUpperCase();
+    let xCandle5m = null;
+    let pobOpts = null;
+    if (bars5m && instId === 'NIFTY') {
+      xCandle5m = this.findOpeningXCandle5m(bars5m, evalTs, {
+        timeZone: 'Asia/Kolkata',
+        openHour: 9,
+        openMinute: 15,
+        maxBars: 6,
+        sessionId: 'nse',
+        sessionLabel: 'NSE 09:15 IST',
+      });
+      pobOpts = {
+        timeZone: 'Asia/Kolkata',
+        entryCutoffMins: 12 * 60 + 15,
+        maxEntryMins: 180,
+        freshMins: 20,
+      };
+    } else if (bars5m && instId === 'BTC') {
+      xCandle5m = this.findPrimeSessionXCandle5m(bars5m, evalTs, {
+        timeZone: 'Asia/Kolkata',
+        maxBars: 6,
+      });
+      pobOpts = {
+        timeZone: 'Asia/Kolkata',
+        maxEntryMins: 150, // ~2.5h after session X — no overnight hope
+        freshMins: 20,
+      };
+    }
+    const pobReject = xCandle5m
+      ? this.detectPobReject(xCandle5m, bars5m, evalTs, c.touchPct ?? 0.15, pobOpts)
+      : null;
 
-    // Composite trend & setup classification (Sagar & Dr. Dev playbook):
+    // Composite trend & setup classification (Sagar DNA + Dr. Dev):
     // 1. Mark window still forming -> WAIT
-    // 2. Trade 1 fresh departure WINS over Trade 2 (leave ≠ retest)
+    // 2. Trade 1 fresh departure (Sagar DNA) WINS over Trade 2
     // 3. Trade 2 revisit (H1 liquidity → 5m close-through)
     // 4. Session liquidity sweep
-    // 5. Setup 3: 30m 5 EMA Rubber Band reversal
-    // 6. Inside Fib box (no Trade 1/2/3/sweep) -> WAIT
-    // 7. Fib break bias / pullback
+    // 5. Dr. Dev POB reject (X-Candle retest) — own setup; WATCH until walk-forward PASS
+    // 6. Setup 3 rubber band — overlay only
+    // 7. Inside Fib box -> WAIT
+    // 8. Fib break bias / pullback
     let trend = 'neutral';
     let setupKind = 'wait';
     if (phase === 'first_candle') {
@@ -2152,6 +2528,12 @@ const RedBarTrend = {
     } else if (sweep) {
       trend = sweep.side;
       setupKind = 'session_sweep';
+    } else if (pobReject && pobReject.triggered && pobReject.side) {
+      trend = pobReject.side;
+      setupKind = 'pob_reject';
+    } else if (pobReject && (pobReject.watching || pobReject.status === 'await_retest' || pobReject.status === 'x_candle_wait')) {
+      if (pobReject.side) trend = pobReject.side;
+      setupKind = 'pob_reject_watch';
     } else if (setup3 && setup3.triggered) {
       trend = setup3.direction;
       setupKind = 'setup3_rubber_band';
@@ -2231,6 +2613,7 @@ const RedBarTrend = {
     const preferSwingStop = isTrade2
       || setupKind === 'trade1_departure'
       || setupKind === 'session_sweep'
+      || setupKind === 'pob_reject'
       || setupKind === 'setup3_rubber_band';
     const levels = this._resolveStopAndBook({
       trend,
@@ -2250,13 +2633,14 @@ const RedBarTrend = {
       red,
       sweep,
       cpr,
-      minRR: isTrade2 ? 1.0 : 1.5,
+      minRR: isTrade2 || setupKind === 'pob_reject' ? 1.0 : 1.5,
       preferSwingStop,
       rrLadder: isTrade2,
       bars5m,
       sweepExtreme: redSetup.sweepExtreme ?? null,
       setupKind,
       setup3,
+      pobReject,
     });
 
     const invalidation = levels.invalidation;
@@ -2264,16 +2648,20 @@ const RedBarTrend = {
 
     const setupTriggerTs = (setupKind === 'session_sweep' && sweep?.triggerTs != null)
       ? sweep.triggerTs
-      : (setupKind === 'setup3_rubber_band' && setup3?.triggerTs != null)
-        ? setup3.triggerTs
-        : (redSetup.triggerTs || null);
+      : (setupKind === 'pob_reject' && pobReject?.triggerTs != null)
+        ? pobReject.triggerTs
+        : (setupKind === 'setup3_rubber_band' && setup3?.triggerTs != null)
+          ? setup3.triggerTs
+          : (redSetup.triggerTs || null);
     const setupTriggerPrice = (setupKind === 'session_sweep' && sweep?.triggerPrice != null)
       ? sweep.triggerPrice
-      : (setupKind === 'setup3_rubber_band' && setup3?.triggerPrice != null)
-        ? setup3.triggerPrice
-        : (redSetup.triggerPrice != null ? redSetup.triggerPrice : price);
+      : (setupKind === 'pob_reject' && pobReject?.triggerPrice != null)
+        ? pobReject.triggerPrice
+        : (setupKind === 'setup3_rubber_band' && setup3?.triggerPrice != null)
+          ? setup3.triggerPrice
+          : (redSetup.triggerPrice != null ? redSetup.triggerPrice : price);
 
-    // Entry gate: full DNA pack (see entryGate docstring).
+    // Entry gate: full DNA pack + Dr. Dev session POB (see entryGate docstring).
     const { state: actionState, reason: actionReason } = this.entryGate({
       trend,
       setupKind,
@@ -2291,16 +2679,19 @@ const RedBarTrend = {
       stopPrice: invalidation,
       livePrice: price,
       revisitRead: redSetup.revisitRead || null,
+      tpHint: (setupKind === 'pob_reject' && pobReject?.tpHint != null) ? pobReject.tpHint : null,
     });
 
+    const sizingEntry = (setupKind === 'pob_reject' && setupTriggerPrice != null) ? setupTriggerPrice : price;
     const sizing = (actionState === 'enter' && invalidation != null && bookZone != null)
-      ? this.futuresSizing({ entry: price, stop: invalidation, exit: bookZone })
+      ? this.futuresSizing({ entry: sizingEntry, stop: invalidation, exit: bookZone })
       : null;
 
     const playbook = {
       clock,
       redSetup,
       setup3: setup3 || null,
+      pobReject: pobReject || null,
       renko,
       cpr,
       priorDay,
@@ -2355,9 +2746,12 @@ const RedBarTrend = {
       lastRedBar: red,
       firstRed1h,
       firstRedFibs,
-      pob: firstRedFibs?.pob || null,
-      pobStatus: redSetup?.pobStatus || null,
-      isXCandleTrap: redSetup?.isXCandleTrap || false,
+      xCandle5m: xCandle5m || null,
+      pob: pobReject?.fibs?.pob || firstRedFibs?.pob || null,
+      pobStatus: pobReject?.status || redSetup?.pobStatus || null,
+      isXCandleTrap: !!(xCandle5m && pobReject && !pobReject.triggered)
+        || redSetup?.isXCandleTrap || false,
+      pobReject: pobReject || null,
       setup3: setup3 || null,
       renko,
       cpr,
@@ -2439,10 +2833,11 @@ const RedBarTrend = {
   },
 
   /**
-   * Red Bar only — setups that may ENTER.
-   * Continuation / magnet / Renko / EMA are not strategies on this desk until taught.
+   * Red Bar DNA + Dr. Dev session POB — setups that may ENTER (Telegram / two-leg).
+   * Setup 3 rubber band stays WATCH/overlay until its own walk-forward PASS.
+   * Continuation / magnet / Renko are chart context only.
    */
-  ACTIONABLE_SETUPS: ['trade1_departure', 'trade2_confirmed', 'session_sweep', 'setup3_rubber_band'],
+  ACTIONABLE_SETUPS: ['trade1_departure', 'trade2_confirmed', 'session_sweep', 'pob_reject'],
 
   /** True in the first `quietMins` of London (12:30 IST) or US (16:30 IST). */
   _inSessionQuietWindow(asOfTs, quietMins = 45) {
@@ -2470,39 +2865,42 @@ const RedBarTrend = {
    * Full DNA ENTER pack (BTC public USD-M 5m-swing book Oct24–Sep26 unless noted).
    * LIVE must match this list — no partial ports.
    *
-   * BTC allow → ENTER when ALL pass:
-   *  1. Actionable setup: trade1_departure | trade2_confirmed | session_sweep
-   *  2. RR ≥ 1, structural stop, not Renko-overextended chase
-   *  3. Real 5m-swing SL (reject "% floor / too close" labels)
-   *  4. Clock: skip late only (best PASS +23%). US Open KEPT (n=37, +4% — small but not a loser).
-   *     Pre-London + London + US Open OK; late = WATCH
-   *  5. stopPct ≤ 1%
-   *  6. Skip T2 LONG + liq_sweep_low (PASS +18.9% vs baseline)
-   *  7. BTC anti-restart guard: ≤90m from trigger; price not already ≥1.5R into the trade
-   * Nifty extras: T1 only, skip APR–AUG, stopPct ≤ 0.65%, Gate 7 ≤20m & <0.5R
+   * BTC/NIFTY allow → ENTER when ALL pass:
+   *  1. Actionable: trade1_departure | trade2_confirmed | session_sweep | pob_reject
+   *  2. RR ≥ 1, structural stop
+   *  3. DNA T1/T2/sweep: real 5m-swing SL. POB: SL @ POB 0.56 (own structure)
+   *  4. Clock: skip late only (DNA). POB already session-bounded (Asia/London/NY or NSE)
+   *  5. stopPct ≤ 1% (POB uses tight corridor stop)
+   *  6. Skip T2 LONG + liq_sweep_low (BTC)
+   *  7. Freshness: T1/T2/sweep ≤90m BTC / ≤20m NIFTY; POB ≤20m scalp window
+   * Setup 3 = WATCH/overlay until its own PASS.
    */
   entryGate({
     trend, setupKind, rr, stopStructural, invalidationReason, stopPct, renko, clock,
     asOfTs, instrumentId, season, setupTriggerTs, entryPrice, stopPrice, livePrice,
-    revisitRead,
+    revisitRead, tpHint,
   }) {
     if (trend !== 'bullish' && trend !== 'bearish') {
       return { state: 'wait', reason: 'No directional setup.' };
     }
+    const isPob = setupKind === 'pob_reject';
     if (!this.ACTIONABLE_SETUPS.includes(setupKind)) {
       const why = {
-        trend_bias: 'Red Bar bias only — wait for Trade 1 departure, Trade 2 revisit, or session sweep.',
-        fib_pullback: 'Near mark-window Fibs (context) — wait for Trade 1 / Trade 2 / sweep.',
-        session_continuation: 'Continuation is not active — Red Bar only (Trade 1 / 2 / sweep).',
+        trend_bias: 'Red Bar bias only — wait for Trade 1 departure, Trade 2 revisit, session sweep, or Dr. Dev POB reject.',
+        fib_pullback: 'Near mark-window Fibs / POB (context) — wait for Trade 1 / Trade 2 / sweep / POB reject.',
+        session_continuation: 'Continuation is not active — Red Bar only (Trade 1 / 2 / sweep / POB).',
         magnet_reaction: 'Fib magnet is chart context — not a Red Bar ENTER.',
         magnet_bounce_watch: 'Fib bounce is chart context — not a Red Bar ENTER.',
         pivot_reversal: 'Price crossed the 1H red against Fib bias — conflicting, wait.',
         trade2_watch: 'H1→M5 Trade 2: wait for 1H high/low liquidity sweep, then 5m close back through that level (median confluence).',
-        setup3_primed: 'Setup 3 Primed: 30m candles detached ≥4 from 5 EMA (rubber band tension). Wait for LTF Barricade break.',
-      }[setupKind] || 'Red Bar: wait for Trade 1 / Trade 2 / session sweep / Setup 3.';
+        pob_reject_watch: 'Dr. Dev POB (5m): session X marked — wait retest of 44–56 then SHORT reject (fill@0.44, SL@0.56, TP1 Anchor). Asia 05:30 / London / NY or NSE 09:15.',
+        setup3_primed: 'Setup 3 Primed (overlay): ≥4× 30m candles detached from 5 EMA. Watch LTF Barricade — not ENTER until walk-forward PASS.',
+        setup3_rubber_band: 'Setup 3 Barricade broken (overlay): rubber-band snapback visible — chart guide only.',
+      }[setupKind] || 'Red Bar DNA: wait for Trade 1 / Trade 2 / session sweep / POB reject.';
       return { state: 'watch', reason: why };
     }
-    if (renko && renko.overextendedBar && setupKind !== 'session_sweep' && setupKind !== 'setup3_rubber_band') {
+
+    if (renko && renko.overextendedBar && setupKind !== 'session_sweep' && !isPob) {
       return {
         state: 'watch',
         reason: `Candle spiked >1.6× brick ruler ($${renko.brickSize.toFixed(0)}) in one bar — wait for pullback instead of chasing.`,
@@ -2515,15 +2913,25 @@ const RedBarTrend = {
       return { state: 'watch', reason: `Setup present but no real swing fits the stop window (${invalidationReason}).` };
     }
     const stopTag = String(invalidationReason || '');
-    const realFiveMinSwing = (/5m swing|extreme drop wick|extreme rally wick/i.test(stopTag)) && !/too close|floor|default|0\.28%|0\.5%/i.test(stopTag);
-    if (!realFiveMinSwing) {
-      return {
-        state: 'watch',
-        reason: `Setup present but SL is ${invalidationReason || 'not a 5m swing'} — wait until stop locks to a real 5m swing (not a % floor).`,
-      };
+    if (isPob) {
+      // POB SL is the corridor high (0.56) — not a 5m swing DNA stop
+      if (!/POB|0\.56|reject wick/i.test(stopTag)) {
+        return {
+          state: 'watch',
+          reason: `POB SHORT needs SL locked above POB 0.56 (got: ${invalidationReason || '—'}).`,
+        };
+      }
+    } else {
+      const realFiveMinSwing = (/5m swing|extreme drop wick|extreme rally wick/i.test(stopTag)) && !/too close|floor|default|0\.28%|0\.5%/i.test(stopTag);
+      if (!realFiveMinSwing) {
+        return {
+          state: 'watch',
+          reason: `Setup present but SL is ${invalidationReason || 'not a 5m swing'} — wait until stop locks to a real 5m swing (not a % floor).`,
+        };
+      }
     }
-    // Best clock PASS: skip late only (+23%). Do NOT blank US Open — DNA had n=37 WR~65% sum~+4%.
-    if (clock && clock.id === 'late') {
+    // Best clock PASS: skip late only (+23%). POB is already prime-session gated.
+    if (!isPob && clock && clock.id === 'late') {
       return {
         state: 'watch',
         reason: 'IST late session — stand aside (DNA loser cluster n=141, sum≈−8%). Wait for Pre-London / London / US Open.',
@@ -2532,7 +2940,7 @@ const RedBarTrend = {
     if (stopPct != null && Number.isFinite(stopPct) && stopPct > 1.0) {
       return {
         state: 'watch',
-        reason: `Setup present but stop is ${stopPct.toFixed(2)}% (>1%) — stand aside until a tighter 5m swing fits.`,
+        reason: `Setup present but stop is ${stopPct.toFixed(2)}% (>1%) — stand aside until a tighter structure fits.`,
       };
     }
     // BTC: skip T2 LONG sweep_low (PASS +18.9% vs keeping them).
@@ -2545,27 +2953,27 @@ const RedBarTrend = {
     ) {
       return {
         state: 'watch',
-        reason: 'BTC DNA: Trade 2 LONG after 1H low sweep is WATCH only (filter PASS +18.9%). Prefer T1 / T2 SHORT / sweep.',
+        reason: 'BTC DNA: Trade 2 LONG after 1H low sweep is WATCH only (filter PASS +18.9%). Prefer T1 / T2 SHORT / sweep / POB.',
       };
     }
 
     const isNifty = inst === 'NIFTY';
-    const freshMins = isNifty ? 20 : 90;
+    // POB is a quick session scalp — 20m fresh window on all assets
+    const freshMins = isPob ? 20 : (isNifty ? 20 : 90);
     const ENTER_FRESH_MS = freshMins * 60 * 1000;
-    const maxFavR = isNifty ? 0.5 : 1.5;
+    const maxFavR = isPob ? 99 : (isNifty ? 0.5 : 1.5); // POB: fill@0.44; reject close below is confirmation, not chase
     const asOf = asOfTs != null ? Number(asOfTs) : Date.now();
     const trigTs = setupTriggerTs != null ? Number(setupTriggerTs) : null;
-    // Refuse ENTER without a trigger anchor — missing trigTs used to bypass the freshness window (Bug #3).
     if (trigTs == null || !Number.isFinite(trigTs)) {
       return {
         state: 'watch',
-        reason: 'Setup missing trigger timestamp — refuse ENTER until Trade 1 / 2 / sweep is freshly anchored.',
+        reason: 'Setup missing trigger timestamp — refuse ENTER until the setup is freshly anchored.',
       };
     }
     if ((asOf - trigTs) > ENTER_FRESH_MS) {
       return {
         state: 'watch',
-        reason: `ENTER window closed (>${freshMins}m since trigger bar) — do not chase. Wait for the next Trade 1 / 2 / sweep.`,
+        reason: `ENTER window closed (>${freshMins}m since trigger bar) — do not chase. Wait for the next setup.`,
       };
     }
     const ep = Number(entryPrice);
@@ -2575,10 +2983,17 @@ const RedBarTrend = {
     if (!(R > 0) || !Number.isFinite(ep) || !Number.isFinite(lp)) {
       return {
         state: 'watch',
-        reason: 'Setup missing trigger/live price anchors — refuse ENTER (anti-chase Gate 7 needs both).',
+        reason: 'Setup missing trigger/live price anchors — refuse ENTER.',
       };
     }
-    {
+    // POB: if Anchor low already taken, TP1 thesis is done — stand down
+    if (isPob && tpHint != null && Number.isFinite(Number(tpHint)) && lp <= Number(tpHint)) {
+      return {
+        state: 'watch',
+        reason: 'POB SHORT: Anchor (X) low already traded through — TP1 done / late. Do not chase.',
+      };
+    }
+    if (!isPob) {
       const favR = trend === 'bullish' ? (lp - ep) / R : (ep - lp) / R;
       if (favR >= maxFavR) {
         return {
@@ -2591,34 +3006,30 @@ const RedBarTrend = {
     if (inst === 'NIFTY' && setupKind === 'trade2_confirmed') {
       return {
         state: 'watch',
-        reason: 'Nifty: Trade 2 confirmed is chart context only (OOS bled on 2y book). Prefer Trade 1 departure ENTER.',
+        reason: 'Nifty: Trade 2 confirmed is chart context only (OOS bled on 2y book). Prefer Trade 1 / POB.',
       };
     }
-    if (inst === 'NIFTY' && (season === 'APR–AUG' || (!season && asOfTs != null && this._istSeasonBucket(asOfTs) === 'APR–AUG'))) {
+    // Season filter is Trade 1 DNA — do not blank Dr. Dev POB on NIFTY
+    if (inst === 'NIFTY' && !isPob && (season === 'APR–AUG' || (!season && asOfTs != null && this._istSeasonBucket(asOfTs) === 'APR–AUG'))) {
       return {
         state: 'watch',
         reason: 'Nifty: APR–AUG season — stand aside (weaker half on 2y book). Prefer SEP–DEC / JAN–MAR Trade 1.',
       };
     }
-    if (inst === 'NIFTY' && stopPct != null && Number.isFinite(stopPct) && stopPct > 0.65) {
+    if (inst === 'NIFTY' && !isPob && stopPct != null && Number.isFinite(stopPct) && stopPct > 0.65) {
       return {
         state: 'watch',
         reason: `Nifty: stop ${stopPct.toFixed(2)}% (>0.65%) — wait for a tighter 5m swing.`,
       };
     }
 
-    if (setupKind === 'setup3_rubber_band') {
-      const dir = trend === 'bullish' ? 'LONG' : 'SHORT';
-      const tg = Number.isFinite(Number(entryPrice)) ? 'Target: 30m 5 EMA' : 'Target: 5 EMA';
-      return {
-        state: 'enter',
-        reason: `Dr. Dev Setup 3: 30m 5 EMA Rubber Band (${dir}) · Barricade broken · ${tg} · SL: extreme wick.`,
-      };
-    }
-
-    const trailBit = setupKind === 'trade2_confirmed'
-      ? 'H1→M5 sweep+close-through · SL 5m swing · 50% @ 1:1 → BE → trail 1:2 → TP 1:3'
-      : 'SL 5m swing · 50% TP at 1:1 → trail runner (stretch target)';
+    const trailBit = isPob
+      ? 'Dr. Dev POB SHORT · fill@POB0.44 · SL@POB0.56 · TP1 Anchor low · TP2 2R · no overnight'
+      : setupKind === 'trade2_confirmed'
+        ? 'H1→M5 sweep+close-through · SL 5m swing · 50% @ 1:1 → BE → trail 1:2 → TP 1:3'
+        : setupKind === 'trade1_departure'
+          ? 'Trade 1 leave · SL 5m swing · 50% TP at 1:1 → trail runner (stretch target)'
+          : 'SL 5m swing · 50% TP at 1:1 → trail runner (stretch target)';
     return { state: 'enter', reason: `Fresh trigger · ${trailBit}.` };
   },
 
@@ -2649,8 +3060,17 @@ const RedBarTrend = {
     if (phase === 'first_candle') {
       return 'Mark window still forming — record high/low only; do not trade until it locks.';
     }
+    if (playbook?.setupKind === 'pob_reject') {
+      return `Dr. Dev POB SHORT ENTER: session 5m X retested 44–56 and rejected — fill@0.44 · SL@0.56 · TP1 Anchor low · TP2 2R. Quick scalp, no overnight.${clockBit}`;
+    }
+    if (playbook?.setupKind === 'pob_reject_watch') {
+      return `Dr. Dev POB watch (SHORT only · Asia/London/NY or NSE): ${playbook?.pobReject?.label || 'await retest of 44–56 then reject <0.44'}.${clockBit}`;
+    }
     if (playbook?.setupKind === 'setup3_rubber_band') {
-      return `Setup 3: 30m 5 EMA Rubber Band snapback reversal (${trend}). Barricade broken; mean-reversion magnet target is 30m 5 EMA.${clockBit}`;
+      return `Setup 3 overlay: Barricade broken (${trend}) toward 30m 5 EMA — chart guide only, not DNA ENTER.${clockBit}`;
+    }
+    if (playbook?.setupKind === 'setup3_primed') {
+      return `Setup 3 overlay: rubber-band tension (≥4× 30m detached from 5 EMA). Watch Barricade — not an ENTER.${clockBit}`;
     }
     if (playbook?.setupKind === 'setup3_primed') {
       return `Setup 3 Primed: 30m candles detached from 5 EMA (rubber band tension). Watch for Barricade breakout.${clockBit}`;

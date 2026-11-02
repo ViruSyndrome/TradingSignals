@@ -79,7 +79,7 @@ const DeskAlerts = {
     return out;
   },
 
-  ACTIONABLE: ['trade1_departure', 'trade2_confirmed', 'session_sweep'],
+  ACTIONABLE: ['trade1_departure', 'trade2_confirmed', 'session_sweep', 'pob_reject'],
 
   _botBaseUrl() {
     try {

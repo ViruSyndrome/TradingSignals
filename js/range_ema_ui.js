@@ -287,7 +287,7 @@ const RangeEmaUI = {
     };
     this._pendingEnterAlert = payload;
     // Freeze levels for place/bot — live refresh was changing Entry/SL/TP mid-signal
-    const freshMins = String(inst.id || '').toUpperCase() === 'NIFTY' ? 20 : 90;
+    const freshMins = (String(inst.id || '').toUpperCase() === 'NIFTY' || payload.setupKind === 'pob_reject') ? 20 : 90;
     const snapKey = `${payload.dayKey}|${payload.side}|${payload.setupKind}|${payload.triggerTs}`;
     const prevSnap = this.state.enterSnapshot;
     const prevStale = prevSnap?.at ? ((Date.now() - prevSnap.at) / 60000 > freshMins) : false;
@@ -773,12 +773,15 @@ const RangeEmaUI = {
     const sagarExitStep = useLadder
       ? `2️⃣ 50% TP at 1:1: ${tp1Str}${oneRPctStr} → move SL to Breakeven · 3️⃣ Trail at 1:2: ${tp2Str} · 4️⃣ Take profit at 1:3: ${tp3Str}.`
       : `2️⃣ 50% TP at 1:1: ${tp1Str}${oneRPctStr} (bank 50% & SL→BE) · 3️⃣ Runner stretch: ${this._fmt(o.bookZone)} / 1:3 ${tp3Str}.`;
-    // Don't blank Trade 1 departure or Setup 3 just because price sits inside mark Fibs.
+    // Don't blank Trade 1 / POB / Setup 3 overlays just because price sits inside mark Fibs.
     if (
       (o.phase === 'first_candle' || o.phase === 'inside_or')
       && o.setupKind !== 'session_sweep'
       && o.setupKind !== 'trade1_departure'
+      && o.setupKind !== 'pob_reject'
+      && o.setupKind !== 'pob_reject_watch'
       && o.setupKind !== 'setup3_rubber_band'
+      && o.setupKind !== 'setup3_primed'
       && !trade2Live
     ) {
       const fibHi = o.currentBand?.high ?? o.refs?.orHigh;
@@ -810,38 +813,50 @@ const RangeEmaUI = {
       ? ` ⚠️ Stop is a ${stopTag} (not a tight local swing — watch size).`
       : '';
 
-    // 1. Red Bar ENTER: Trade 1 / Trade 2 / Session Sweep / Setup 3
+    // 1. ENTER: Trade 1 / Trade 2 / Session Sweep / Dr. Dev session POB SHORT
     if (isActionable) {
+      const isPob = o.setupKind === 'pob_reject';
       const setupLabel = o.setupKind === 'session_sweep'
         ? `Red Bar · Session Sweep · Futures ${biasDir}`
-        : o.setupKind === 'setup3_rubber_band'
-          ? `Dr. Dev Setup 3: 30m 5 EMA Rubber Band · Futures ${biasDir}`
-          : o.setupKind === 'trade2_confirmed'
-            ? `Red Bar · Trade 2 · Futures ${biasDir} (H1 sweep → M5 close-through)`
+        : o.setupKind === 'trade2_confirmed'
+          ? `Red Bar · Trade 2 · Futures ${biasDir} (H1 sweep → M5 close-through)`
+          : isPob
+            ? `Dr. Dev POB · Futures SHORT (session 5m X → 44–56 reject)`
             : `Red Bar · Trade 1 · Futures ${biasDir} (Left 1H Red)`;
-      const s3Note = o.setupKind === 'setup3_rubber_band'
-        ? ' (30m 5 EMA Rubber Band snapback — Barricade broken, target 30m 5 EMA)'
-        : (o.setupKind === 'trade2_confirmed' ? (biasDir === 'SHORT' ? ' (1H high swept → 5m closed below high & median — sells only)' : ' (1H low swept → 5m closed above low & median — buys only)') : '');
+      const t2Note = o.setupKind === 'trade2_confirmed'
+        ? (biasDir === 'SHORT' ? ' (1H high swept → 5m closed below high & median — sells only)' : ' (1H low swept → 5m closed above low & median — buys only)')
+        : '';
+      const pob = o.playbook?.pobReject || o.pobReject;
+      const entryPx = isPob && pob?.triggerPrice != null ? pob.triggerPrice : o.price;
+      const pobNote = isPob
+        ? ` Fill@POB 0.44 (${this._fmt(entryPx)}) · SL@0.56 · TP1 Anchor ${(pob?.xCandle?.sessionLabel || '')} low · TP2 2R.`
+        : '';
       return {
         side: biasDir,
         cls: biasDir === 'LONG' ? 'long' : 'short',
         title: setupLabel,
-        subtitle: `Red Bar ENTER · ${o.actionReason || (useLadder ? 'H1→M5 · SL 5m swing · 50% @ 1:1 → BE → 1:2 → 1:3' : 'SL 5m swing · 50% @ 1:1 + runner')}${emaNote}.`,
+        subtitle: isPob
+          ? `POB ENTER · ${o.actionReason || 'fill@0.44 · SL@0.56 · TP1 Anchor · TP2 2R'}${emaNote}.`
+          : `Red Bar ENTER · ${o.actionReason || (useLadder ? 'H1→M5 · SL 5m swing · 50% @ 1:1 → BE → 1:2 → 1:3' : 'SL 5m swing · 50% @ 1:1 + runner')}${emaNote}.`,
         steps: [
-          `${hint}: Enter Futures ${biasDir} near ${this._fmt(o.price)}${s3Note}.`,
-          `1️⃣ Stop-Loss First (${stopTag}): ${this._fmt(o.invalidation)}${stopPctStr}.${stopWarn}`,
-          sagarExitStep,
+          isPob
+            ? `${hint}: SHORT at POB 0.44 ${this._fmt(entryPx)} after session X-Candle reject${pob?.xCandle?.sessionLabel ? ` (${pob.xCandle.sessionLabel})` : ''}.`
+            : `${hint}: Enter Futures ${biasDir} near ${this._fmt(o.price)}${t2Note}.`,
+          `1️⃣ Stop-Loss First (${isPob ? 'POB 0.56 / reject wick' : stopTag}): ${this._fmt(o.invalidation)}${stopPctStr}.${stopWarn}`,
+          isPob
+            ? `2️⃣ TP1 Anchor low ${this._fmt(o.tp1)} → BE · 3️⃣ TP2 / 2R ${this._fmt(o.tp2)} — no overnight hold.`
+            : sagarExitStep,
           pivotStep,
           ...(liqStep ? [liqStep] : clockStep ? [clockStep] : []),
         ],
-        entry: o.price,
+        entry: entryPx,
         stop: o.invalidation,
         tp1: o.tp1,
         tp2: o.tp2,
         tp3: o.tp3,
         exit: o.bookZone,
         rr: o.rr,
-        rrLadder: useLadder,
+        rrLadder: isPob ? true : useLadder,
       };
     }
 
@@ -855,28 +870,41 @@ const RangeEmaUI = {
       const fmStep = (fibMagnet && (fibMagnet.state === 'PULL_ACTIVE' || fibMagnet.state === 'PULL_WATCH' || fibMagnet.state === 'ENTER'))
         ? `🧲 Equilibrium Magnet: Price stretched ${fibMagnet.distPct.toFixed(2)}% · Equilibrium pull destination @ ${this._fmt(fibMagnet.tp)} (Target only — wait for DNA trigger).`
         : null;
-      const s3 = o.playbook?.setup3;
-      const watchTitle = o.setupKind === 'setup3_primed'
-        ? `Setup 3 Watch · 30m 5 EMA Rubber Band Primed (${s3?.detachedCount || 4} bars detached) · Watch Barricade ($${this._fmt(s3?.barricade)})`
-        : o.setupKind === 'trade2_watch'
-          ? `Red Bar Watch · Trade 2 H1→M5 — need sweep of 1H H/L then 5m close-through (${biasDir})`
-          : o.setupKind === 'fib_pullback'
-            ? `Red Bar Bias: ${biasDir} · Near mark-window Fibs (targets) — not ENTER`
-            : o.setupKind === 'pivot_reversal'
-              ? `Bias Conflict · Crossed 1H Red vs Fibs (Stay Flat)`
-              : `Red Bar Bias: ${biasDir} · Waiting Trade 1 / Trade 2 / Sweep / Setup 3`;
+      const s3 = o.playbook?.setup3 || o.setup3;
+      const pr = o.playbook?.pobReject || o.pobReject;
+      const s3Step = (o.setupKind === 'setup3_primed' || o.setupKind === 'setup3_rubber_band') && s3
+        ? `Setup 3 overlay: ${s3.detachedCount || '≥4'}× 30m bars detached from 5 EMA · Barricade ${this._fmt(s3.barricade)} · Magnet TP ${this._fmt(s3.targetPrice || s3.ema5)} · SL wick ${this._fmt(s3.stopLoss)} — chart guide only (not Telegram ENTER).`
+        : null;
+      const pobStep = o.setupKind === 'pob_reject_watch' && pr
+        ? `Dr. Dev POB watch: ${pr.label || 'session 5m X → retest 44–56 → SHORT reject'} · POB ${this._fmt(pr.pobLo)}–${this._fmt(pr.pobHi)} · fill@0.44 · SL@0.56 · TP1 Anchor.`
+        : null;
+      const watchTitle = o.setupKind === 'pob_reject_watch'
+        ? `Dr. Dev POB Watch · ${pr?.label || 'Asia/London/NY or NSE: retest 44–56 → SHORT reject'}`
+        : o.setupKind === 'setup3_rubber_band'
+          ? `Setup 3 Watch · Barricade broken (${biasDir}) · overlay only — not ENTER`
+          : o.setupKind === 'setup3_primed'
+            ? `Setup 3 Watch · Rubber Band Primed (${s3?.detachedCount || 4} bars detached) · Barricade ${this._fmt(s3?.barricade)}`
+            : o.setupKind === 'trade2_watch'
+              ? `Red Bar Watch · Trade 2 H1→M5 — need sweep of 1H H/L then 5m close-through (${biasDir})`
+              : o.setupKind === 'fib_pullback'
+                ? `Red Bar Bias: ${biasDir} · Near mark-window Fibs / POB (targets) — not ENTER`
+                : o.setupKind === 'pivot_reversal'
+                  ? `Bias Conflict · Crossed 1H Red vs Fibs (Stay Flat)`
+                  : `Red Bar Bias: ${biasDir} · Waiting Trade 1 / Trade 2 / Sweep / POB`;
       const watchExit = useLadder
         ? `If Trade 2 prints — 1️⃣ Stop (${stopTag}): ${this._fmt(o.invalidation)}${stopPctStr} · 2️⃣ 50% @ 1:1 ${tp1Str} → SL→BE · 3️⃣ Trail 1:2 ${tp2Str} · 4️⃣ TP 1:3 ${tp3Str}.${stopWarn}`
-        : `If a Red Bar trigger prints — 1️⃣ Stop (${stopTag}): ${this._fmt(o.invalidation)}${stopPctStr} · 2️⃣ 50% TP (1:1): ${tp1Str}${oneRPctStr} · 3️⃣ Runner (Stretch ${this._fmt(o.bookZone)} · ${rrStr}).${stopWarn}`;
+        : `If ENTER prints — Trade 1 / Trade 2 / sweep / POB reject · 1️⃣ Stop (${stopTag}): ${this._fmt(o.invalidation)}${stopPctStr} · 2️⃣ book plan.${stopWarn}`;
       return {
         side: 'WATCH',
         cls: 'wait',
         title: watchTitle,
-        subtitle: `${o.actionReason || 'Bias only — no Telegram until ENTER (setup + 5m swing SL)'}${emaNote}.`,
+        subtitle: `${o.actionReason || 'Bias only — Telegram on Trade 1 / Trade 2 / sweep / POB ENTER'}${emaNote}.`,
         steps: [
-          `WATCH ≠ signal. Bias is ${biasDir}. ENTER + Telegram need Trade 1 / Trade 2 / sweep with SL locked to a 5m swing.`,
+          `WATCH ≠ signal. Bias is ${biasDir}. ENTER needs Trade 1, Trade 2, session sweep, or Dr. Dev POB reject.`,
+          ...(pobStep ? [pobStep] : []),
           ...(magStep ? [magStep] : []),
           ...(fmStep ? [fmStep] : []),
+          ...(s3Step ? [s3Step] : []),
           watchExit,
           pivotStep,
           ...(liqStep ? [liqStep] : clockStep ? [clockStep] : []),
@@ -923,9 +951,9 @@ const RangeEmaUI = {
       side: 'WAIT',
       cls: 'wait',
       title: 'No clear bias · Stay Flat',
-      subtitle: 'Waiting for Trade 1 departure, Trade 2 (5m vs median), or session sweep.',
+      subtitle: 'Waiting for Trade 1 leave, Trade 2 (5m vs median), or session sweep.',
       steps: [
-        'Mark-window Fibs = targets. Ladder H1→M5: mark 1H first-red HIGH/LOW + median; Trade 2 = sweep → 5m close back through.',
+        'ENTER: Trade 1 / Trade 2 / session sweep / Dr. Dev POB SHORT (Asia 05:30 · London 13:00–13:30 · NY 19:00–20:00 · NIFTY 09:15) · fill@0.44 · SL@0.56 · TP1 Anchor · TP2 2R. Setup 3 = overlay. Renko filters wick noise. Leverage 5–10×.',
         pivotStep,
         `Prior-day H/L magnets: ${this._fmt(pdh)} / ${this._fmt(pdl)}.`,
         ...(clockStep ? [clockStep] : []),
@@ -1053,7 +1081,7 @@ const RangeEmaUI = {
       <div class="section-heading">
         <h1>🟥 Red Bar Desk</h1>
         <p class="section-sub">
-          ${inst.label} on <strong>${tf}</strong>: Red Bar · ladder <strong>H1→M5</strong> · 1H first-red H/L liquidity + median · Trade 2 = sweep → 5m close-through · ENTER only with SL on 5m swing · 1:1→BE→1:2→1:3.
+          ${inst.label} on <strong>${tf}</strong>: Red Bar DNA · Trade 1 / Trade 2 / sweep · Dr. Dev <strong>POB ENTER</strong> (Asia/London/NY or NSE · fill@0.44 · SL@0.56) · Setup 3 overlay · Renko · leverage 5–10×.
           <span class="range-desk-meta">${inst.tradeHint || ''} · Updated ${when}${this.state.loading ? ' · refreshing…' : ''}</span>
         </p>
       </div>
@@ -1326,15 +1354,20 @@ const RangeEmaUI = {
     const isAsia = (curMins >= 330 && curMins < lonOpenMins);
     const isNy = (curMins >= nyOpenMins && curMins < nyOpenMins + 60);
     const isLon = (curMins >= lonOpenMins && curMins < nyOpenMins);
-    const isLonClose = (curMins >= lonCloseMins - 60 && curMins <= lonCloseMins);
-    const isUsClose = (curMins > 1290 || curMins < 150);
+    // Match FibMagnet london_close_fix: 60m before London 16:30 → 30m after (DST-aware)
+    const lonCloseStart = lonCloseMins - 60;
+    const lonCloseEnd = lonCloseMins + 30;
+    const isLonClose = (curMins >= lonCloseStart && curMins <= lonCloseEnd);
+    // US equity cash close / CME settle only (01:15–02:30 IST) — NOT the whole evening
+    const isUsClose = (curMins >= 75 && curMins < 150);
 
     const activeSessionName = isMark ? 'Daily Mark Window (02:30–03:30 IST)'
       : isNy ? `New York Open (${nyOpenStr}–${nyEndStr} IST)`
       : isAsia ? `Asia Session (05:30–${lonOpenStr} IST)`
       : isLon ? `London Session (${lonOpenStr}–${nyOpenStr} IST)`
-      : isLonClose ? `London Close / 4 PM Fix (${fmtHm(lonCloseMins - 90)}–${lonCloseStr} IST)`
-      : 'US Cash Close & CME Settle (21:30–02:30 IST)';
+      : isLonClose ? `London Close / 4 PM Fix (${fmtHm(lonCloseStart)}–${fmtHm(lonCloseEnd)} IST)`
+      : isUsClose ? 'US Cash Close & CME Settle (01:15–02:30 IST)'
+      : 'Off-prime / dead hours';
 
     // Trigger level text for Stepper
     const trigLevelStr = o.firstRed1h
@@ -1422,7 +1455,7 @@ const RangeEmaUI = {
 
     // 2. Action & Status HUD
     const isEnter = a.side === 'LONG' || a.side === 'SHORT';
-    const freshMins = String(r.instrument?.id || '').toUpperCase() === 'NIFTY' ? 20 : 90;
+    const freshMins = (String(r.instrument?.id || '').toUpperCase() === 'NIFTY' || o.setupKind === 'pob_reject') ? 20 : 90;
     const snap = this.state.enterSnapshot;
     const snapAgeMin = snap?.at ? (Date.now() - snap.at) / 60000 : 0;
     const reasonStale = /stale|do not chase|window closed|already \d/i.test(String(o.actionReason || ''));
@@ -1463,14 +1496,26 @@ const RangeEmaUI = {
       `;
     }
 
+    const escTxt = (s) => String(s || '').replace(/[<>&]/g, '');
+    const watchHeadline = escTxt(a.title || '');
+    const watchDetail = escTxt(a.subtitle || o.actionReason || '');
+    const isSetup3Watch = o.setupKind === 'setup3_primed' || o.setupKind === 'setup3_rubber_band';
+    const isPobWatch = o.setupKind === 'pob_reject_watch';
+    const isPobEnter = o.setupKind === 'pob_reject' && showEnter;
     const statusBanner = a.isFibMagnet
-      ? `<div class="rb-signal-banner wait" style="background:rgba(56,189,248,0.10); border:1px solid rgba(56,189,248,0.35); color:#7dd3fc;">🧲 CONTEXT RADAR · Equilibrium pull towards Mark Fib @ ${this._fmt(a.tp1)} (Context tell only — wait for Red Bar DNA to ENTER)</div>`
+      ? `<div class="rb-signal-banner wait" style="background:rgba(56,189,248,0.10); border:1px solid rgba(56,189,248,0.35); color:#7dd3fc;">🧲 CONTEXT RADAR · Equilibrium pull towards Mark Fib @ ${this._fmt(a.tp1)} (Context tell only — wait for Red Bar DNA / POB to ENTER)</div>`
       : (showEnter
-        ? `<div class="rb-signal-banner enter">LIVE ENTER · ${a.side} — fresh window (~${freshMins}m). Levels ${useSnap ? 'frozen at first alert' : 'live'}.</div>`
+        ? `<div class="rb-signal-banner enter">${isPobEnter ? '⚖️ POB ENTER' : 'LIVE ENTER'} · ${a.side} — fresh window (~${freshMins}m). Levels ${useSnap ? 'frozen at first alert' : 'live'}.</div>`
         : (isEnter || reasonStale || snapStale)
-          ? `<div class="rb-signal-banner watch">STALE — ENTER already fired; do <em>not</em> chase. ${o.actionReason ? String(o.actionReason).replace(/[<>&]/g, '') : 'Wait for the next Trade 1 / 2 / sweep.'}</div>`
+          ? `<div class="rb-signal-banner watch">STALE — ENTER already fired; do <em>not</em> chase. ${escTxt(o.actionReason) || 'Wait for the next Trade 1 / 2 / sweep / POB.'}</div>`
         : a.side === 'WATCH'
-          ? `<div class="rb-signal-banner watch">👀 WATCHING (Setup Developing) — Bias is ${trendWord}; waiting for confirmed trigger. Do NOT enter yet.</div>`
+          ? `<div class="rb-signal-banner watch">${
+              isPobWatch
+                ? `⚖️ ${watchHeadline || 'Dr. Dev POB — awaiting retest / reject'}`
+                : isSetup3Watch
+                  ? `🧲 ${watchHeadline || 'Setup 3 Watch — rubber band overlay (not ENTER)'}`
+                  : `👀 ${watchHeadline || `WATCHING — Bias ${trendWord}; waiting for confirmed trigger`}`
+            }${watchDetail ? `<div style="margin-top:4px;font-size:11.5px;font-weight:500;opacity:0.92;">${watchDetail}</div>` : ''}</div>`
           : `<div class="rb-signal-banner wait">⏳ WAITING (Market in Equilibrium) — No active entry setup. Stay in cash.</div>`);
 
     const pos = this.state.futuresStatus;
@@ -1537,6 +1582,64 @@ const RangeEmaUI = {
           <div class="rb-step-body">
             <div class="rb-step-name">4. Execution Gated</div>
             <div class="rb-step-val">DNA Required to Enter</div>
+          </div>
+        </div>
+      ` : isPobWatch ? `
+        <div class="rb-step done">
+          <div class="rb-step-icon">🕯️</div>
+          <div class="rb-step-body">
+            <div class="rb-step-name">1. X-Candle</div>
+            <div class="rb-step-val">${(o.playbook?.pobReject || o.pobReject)?.xCandle?.sessionLabel || '5m first red @ session open'}</div>
+          </div>
+        </div>
+        <div class="rb-step ${['await_retest', 'watching'].includes((o.playbook?.pobReject || o.pobReject)?.status) ? 'active' : 'done'}">
+          <div class="rb-step-icon">⚖️</div>
+          <div class="rb-step-body">
+            <div class="rb-step-name">2. POB Retest (44–56)</div>
+            <div class="rb-step-val">${this._fmt((o.playbook?.pobReject || o.pobReject)?.pobLo)}–${this._fmt((o.playbook?.pobReject || o.pobReject)?.pobHi)}</div>
+          </div>
+        </div>
+        <div class="rb-step active">
+          <div class="rb-step-icon">⏳</div>
+          <div class="rb-step-body">
+            <div class="rb-step-name">3. SHORT Reject</div>
+            <div class="rb-step-val">Wait close &lt; 0.44 · stand down if &gt; 0.56</div>
+          </div>
+        </div>
+        <div class="rb-step pending">
+          <div class="rb-step-icon">🎯</div>
+          <div class="rb-step-body">
+            <div class="rb-step-name">4. ENTER</div>
+            <div class="rb-step-val">fill@0.44 · SL@0.56 · TP1 Anchor</div>
+          </div>
+        </div>
+      ` : isSetup3Watch ? `
+        <div class="rb-step done">
+          <div class="rb-step-icon">🧲</div>
+          <div class="rb-step-body">
+            <div class="rb-step-name">1. 30m Detach</div>
+            <div class="rb-step-val">${(o.setup3 || o.playbook?.setup3)?.detachedCount || '≥4'} bars</div>
+          </div>
+        </div>
+        <div class="rb-step ${o.setupKind === 'setup3_rubber_band' ? 'done' : 'active'}">
+          <div class="rb-step-icon">🚧</div>
+          <div class="rb-step-body">
+            <div class="rb-step-name">2. Barricade</div>
+            <div class="rb-step-val">${this._fmt((o.setup3 || o.playbook?.setup3)?.barricade)}</div>
+          </div>
+        </div>
+        <div class="rb-step ${o.setupKind === 'setup3_rubber_band' ? 'active' : 'pending'}">
+          <div class="rb-step-icon">🎯</div>
+          <div class="rb-step-body">
+            <div class="rb-step-name">3. 30m 5 EMA Target</div>
+            <div class="rb-step-val">${this._fmt((o.setup3 || o.playbook?.setup3)?.ema5)}</div>
+          </div>
+        </div>
+        <div class="rb-step pending">
+          <div class="rb-step-icon">🔒</div>
+          <div class="rb-step-body">
+            <div class="rb-step-name">4. DNA Gate</div>
+            <div class="rb-step-val">Overlay only · not ENTER</div>
           </div>
         </div>
       ` : `
@@ -1611,12 +1714,12 @@ const RangeEmaUI = {
             <span class="seg-time">${nyOpenStr}</span>
             <span class="seg-name">NY Open</span>
           </div>
-          <div class="rb-session-seg ${isLonClose ? 'active' : ''}">
-            <span class="seg-time">${fmtHm(lonCloseMins - 90)}</span>
+          <div class="rb-session-seg ${isLonClose ? 'active' : ''}" title="London 4 PM Fix · ${fmtHm(lonCloseStart)}–${fmtHm(lonCloseEnd)} IST">
+            <span class="seg-time">${fmtHm(lonCloseStart)}</span>
             <span class="seg-name">Lon Close</span>
           </div>
-          <div class="rb-session-seg ${isUsClose ? 'active' : ''}">
-            <span class="seg-time">01:30</span>
+          <div class="rb-session-seg ${isUsClose ? 'active' : ''}" title="US equity close / CME settle · 01:15–02:30 IST">
+            <span class="seg-time">01:15</span>
             <span class="seg-name">US Close</span>
           </div>
         </div>

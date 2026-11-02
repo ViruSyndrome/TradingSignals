@@ -337,7 +337,7 @@
       <div class="section-block">
         <div class="section-heading">
           <h2>📚 Learn — Red Bar Futures Desk</h2>
-          <p class="section-sub">Mark-window Fibs · H1→M5 Trade 1 / Trade 2 · ENTER only with 5m swing SL · Telegram on ENTER · Futures sizing</p>
+          <p class="section-sub">ENTER: Trade 1 / Trade 2 / sweep / Dr. Dev POB SHORT · Setup 3 overlay · Telegram on ENTER · leverage 5–10×</p>
         </div>
 
         <div class="edu-full-grid">
@@ -346,10 +346,11 @@
             <div class="edu-header"><span>⚖️</span><h3>1. Point of Balance (POB 44–56) &amp; Mark-Window Fibs</h3></div>
             <p>Each session starts with an institutional mark window drawn forward across the chart with Fibonacci levels <code>0, 0.44, 0.5, 0.56, 1</code>:</p>
             <ul>
-              <li><strong>Point of Balance (POB):</strong> The <code>0.44–0.56</code> zone is the institutional mean fair value with a &plusmn;6% deviation band.</li>
-              <li><strong>The "X Candle" Trap:</strong> The first red candle of the session is a retail trap. Rather than jumping into puts immediately, institutional confirmation requires waiting for price to retest the 0.44–0.56 POB. If price rejects and stays below POB, downward control is confirmed.</li>
+              <li><strong>Point of Balance (POB):</strong> The <code>0.44–0.56</code> corridor is <code>0.50</code> fair value &plusmn;6% — institutional battlefield on the first red (X-Candle).</li>
+              <li><strong>Dr. Dev entry:</strong> Session 5m X-Candle (BTC: Asia 05:30 / London 13:00–13:30 / NY 19:00–20:00 · NIFTY: 09:15). Retest 44–56 → <strong>SHORT</strong> reject below 0.44 (fill@0.44 · SL@0.56 · TP1 Anchor). Blow through 0.56 = invalid — no long.</li>
+              <li><strong>Desk status:</strong> POB SHORT is a live <strong>ENTER</strong> (Telegram) alongside Trade 1 / Trade 2 / sweep. Setup 3 rubber band stays overlay.</li>
               <li><strong>BTC Mark Window:</strong> <code>02:30–03:30 IST</code> (1H wick H/L) · <strong>XAU:</strong> <code>01:30–02:30 IST</code> · <strong>NIFTY:</strong> <code>15:15–15:45 IST</code>.</li>
-              <li><strong>Inside [0, 1]:</strong> Sideways accumulation zone &rarr; <strong>WAIT</strong> (Fibs are context &amp; targets only).</li>
+              <li><strong>Inside [0, 1]:</strong> Sideways accumulation zone &rarr; <strong>WAIT</strong> (Fibs / POB are context &amp; targets only).</li>
             </ul>
           </div>
 
@@ -357,9 +358,9 @@
             <div class="edu-header"><span>🕯️</span><h3>2. The 1H First Red Pivot (Trade 1 &amp; Trade 2)</h3></div>
             <p>On the 1H chart, mark the <strong>first closed 1H red candle</strong> of the IST day — HIGH/LOW (liquidity) + median + Fib 44/50/56. Desk ladder is <strong>H1 &rarr; M5</strong>:</p>
             <ul>
-              <li><strong>Trade 1 (Departure):</strong> Price leaves the 1H first-red bar — bias in that direction.</li>
+              <li><strong>Trade 1 (Departure — Sagar DNA):</strong> Price leaves the 1H first-red H/L with a fresh 5m/15m close-through.</li>
               <li><strong>Trade 2 (Revisit):</strong> Sweep of 1H high or low liquidity, then a <strong>5m close back through</strong> that level (median confluence).</li>
-              <li><strong>ENTER gate:</strong> Telegram / action strip only go <strong>ENTER</strong> when the stop locks to a <strong>5m swing</strong> (quality filter from public USD-M outcomes).</li>
+              <li><strong>ENTER:</strong> Trade 1 / Trade 2 / session sweep (5m swing SL) <strong>or</strong> Dr. Dev POB SHORT (SL@POB 0.56).</li>
             </ul>
             <div class="edu-tip">💡 Keep <strong>Alerts ON</strong> — you should not stare at the desk. Worker + open-tab relay push Telegram on ENTER (~1–2&times;/day on average).</div>
           </div>
@@ -368,9 +369,10 @@
             <div class="edu-header"><span>🧲</span><h3>3. Setup 3: 30m 5 EMA "Rubber Band" Mean Reversion</h3></div>
             <p>Intraday option buying &amp; futures mean-reversion setup taught by <strong>Dr. Devendra Pratap Singh</strong>:</p>
             <ul>
-              <li><strong>The Magnet Rule:</strong> When candles detach completely from the 30m 5 EMA for <strong>&ge;4 consecutive candles</strong>, tension stretches like a rubber band. Price mathematically must return to touch the 5 EMA within 5–6 candles.</li>
-              <li><strong>The "Barricade" Breakout:</strong> Draw a horizontal line at the recent swing high (falling market) or swing low (rallying market) on the 5m chart. When price breaks this Barricade, enter the snapback reversal.</li>
-              <li><strong>Target:</strong> The 30m 5 EMA line. <strong>Stop-Loss:</strong> Placed just beyond the extreme wick of the drop (ultra-tight risk, high R:R).</li>
+              <li><strong>The Magnet Rule:</strong> When candles detach completely from the 30m 5 EMA for <strong>&ge;4 consecutive candles</strong>, tension stretches like a rubber band toward the 5 EMA.</li>
+              <li><strong>The "Barricade":</strong> Desk draws the LTF swing high (dump) or swing low (rally). A close through it marks the snapback.</li>
+              <li><strong>On TrendRunner:</strong> Barricade + 30m 5 EMA target are drawn as an <strong>overlay / WATCH guide</strong>. Not a DNA Telegram ENTER until a walk-forward PASS — use it to avoid chasing dumps and to eye the mean-reversion magnet.</li>
+              <li><strong>If you discretionary-trade it:</strong> Target = 30m 5 EMA only · SL = extreme wick (single destination, not the 1:1 / 1:3 DNA ladder).</li>
             </ul>
           </div>
 
@@ -634,11 +636,11 @@
   <script src="js/config.js?v=7.23" defer></script>
   <script src="js/api.js?v=6.99" defer></script>
   <script src="js/indicators.js?v=6.60" defer></script>
-  <script src="js/redbar_trend.js?v=2.00" defer></script>
+  <script src="js/redbar_trend.js?v=2.07" defer></script>
   <script src="js/fib_magnet.js?v=1.04" defer></script>
   <script src="js/range_ema_engine.js?v=1.2" defer></script>
   <script src="js/desk_alerts.js?v=1.11" defer></script>
-  <script src="js/range_ema_ui.js?v=2.13" defer></script>
+  <script src="js/range_ema_ui.js?v=2.22" defer></script>
   <script src="js/signals.js?v=6.70" defer></script>
   <script src="js/charts.js?v=6.60" defer></script>
   
@@ -844,20 +846,20 @@
         
         <div style="display:grid; grid-template-columns:1fr 1fr; gap:16px; margin-bottom:16px;">
           <div style="background:rgba(255,255,255,0.03); border:1px solid rgba(255,255,255,0.07); border-radius:8px; padding:12px;">
-            <h3 style="font-size:13px; font-weight:700; color:#38bdf8; margin:0 0 6px;">🎯 Trade 1: Departure</h3>
-            <p style="margin:0; font-size:12px; color:#94a3b8;">Price decisively leaves the 02:30 IST Mark Window or 1H First Red Bar. Entry fires when candle breaks out with EMA agreement. Stop loss is fixed at the opposite boundary with an initial 1:1 profit target.</p>
+            <h3 style="font-size:13px; font-weight:700; color:#38bdf8; margin:0 0 6px;">🎯 Trade 1: Departure (Sagar DNA)</h3>
+            <p style="margin:0; font-size:12px; color:#94a3b8;">Price leaves the 1H First Red H/L on a fresh close-through. ENTER with 5m swing SL · 50% @ 1:1 &rarr; BE &rarr; runner. This is <strong>not</strong> the same as Dr. Dev’s POB reject.</p>
           </div>
           <div style="background:rgba(255,255,255,0.03); border:1px solid rgba(255,255,255,0.07); border-radius:8px; padding:12px;">
             <h3 style="font-size:13px; font-weight:700; color:#4ade80; margin:0 0 6px;">⚡ Trade 2: H1→M5 Revisit &amp; Sweep</h3>
-            <p style="margin:0; font-size:12px; color:#94a3b8;">Price sweeps the 1H First Red high or low (liquidity grab), then prints a 5m close back inside with median confluence. Stop loss is locked to the 5m swing wick, giving an ultra-tight risk with 1:3 runner potential.</p>
+            <p style="margin:0; font-size:12px; color:#94a3b8;">Price sweeps the 1H First Red high or low (liquidity grab), then prints a 5m close back through with median confluence. Stop loss locked to the 5m swing wick · 1:1 &rarr; 1:2 &rarr; 1:3 ladder.</p>
           </div>
           <div style="background:rgba(255,255,255,0.03); border:1px solid rgba(255,255,255,0.07); border-radius:8px; padding:12px;">
-            <h3 style="font-size:13px; font-weight:700; color:#fbbf24; margin:0 0 6px;">⚖️ Point of Balance (POB 44–56) &amp; X-Candle Rule</h3>
-            <p style="margin:0; font-size:12px; color:#94a3b8;"><strong>Dr. Devendra Pratap Singh:</strong> The first red candle is an institutional trap (&ldquo;X Candle&rdquo;). Retail option buyers rushing in on candle 1 get caught. Instead, mark the <strong>Point of Balance</strong> (0.50 fair value with a &plusmn;6% deviation band, 0.44–0.56 corridor). Wait for a retest: if price stays below POB, downward control is confirmed.</p>
+            <h3 style="font-size:13px; font-weight:700; color:#fbbf24; margin:0 0 6px;">⚖️ Dr. Dev POB Reject (own setup)</h3>
+            <p style="margin:0; font-size:12px; color:#94a3b8;"><strong>Session 5m X → retest 44–56 → SHORT reject.</strong> Fill@0.44 · SL@0.56 · TP1 Anchor low · TP2 2R. Live ENTER on BTC (Asia/London/NY) and NIFTY (09:15) — not bolted onto Trade 1 leave.</p>
           </div>
           <div style="background:rgba(255,255,255,0.03); border:1px solid rgba(255,255,255,0.07); border-radius:8px; padding:12px;">
-            <h3 style="font-size:13px; font-weight:700; color:#a78bfa; margin:0 0 6px;">🧲 Setup 3: 30m 5 EMA Rubber Band Reversal</h3>
-            <p style="margin:0; font-size:12px; color:#94a3b8;"><strong>Dr. Devendra Pratap Singh:</strong> When price candles pull detached from the 30m 5 EMA for &ge;4 candles, rubber band tension builds. Price mathematically must touch the 5 EMA within 5–6 candles. Draw a &ldquo;Barricade&rdquo; at the LTF swing high/low. When broken, enter the snapback reversal targeting the 30m 5 EMA with Stop Loss at the extreme wick.</p>
+            <h3 style="font-size:13px; font-weight:700; color:#a78bfa; margin:0 0 6px;">🧲 Setup 3: 30m 5 EMA Rubber Band (Overlay)</h3>
+            <p style="margin:0; font-size:12px; color:#94a3b8;"><strong>Dr. Dev:</strong> &ge;4× 30m candles detached from 5 EMA &rarr; rubber-band tension. Desk draws Barricade + 30m 5 EMA target. <strong>WATCH / chart guide only</strong> — not Telegram DNA ENTER until walk-forward PASS. Discretionary: single TP at 5 EMA, SL at extreme wick.</p>
           </div>
         </div>
 
