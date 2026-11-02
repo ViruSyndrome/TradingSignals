@@ -198,6 +198,26 @@ const FibMagnet = {
     const minute = inv.getMinutes();
     const mins = hour * 60 + minute;
 
+    // Dynamic conversion tracking US & European Daylight Saving Time (DST)
+    const getSessionMins = (tz, h, m) => {
+      try {
+        const dIso = new Date(d.toLocaleString('en-US', { timeZone: tz }));
+        const dUtc = new Date(d.toLocaleString('en-US', { timeZone: 'UTC' }));
+        const diffHours = (dUtc - dIso) / (3600 * 1000);
+        return (h * 60 + m + Math.round(diffHours * 60) + (5 * 60 + 30) + 1440) % 1440;
+      } catch (_) {
+        return h * 60 + m;
+      }
+    };
+    const nyOpenMins = getSessionMins('America/New_York', 9, 30);
+    const lonOpenMins = getSessionMins('Europe/London', 8, 0);
+    const lonCloseMins = getSessionMins('Europe/London', 16, 30);
+    const fmtHm = (m) => `${String(Math.floor(((m % 1440) + 1440) % 1440 / 60)).padStart(2, '0')}:${String(((m % 1440) + 1440) % 1440 % 60).padStart(2, '0')}`;
+    const nyOpenStr = fmtHm(nyOpenMins);
+    const nyEndStr = fmtHm(nyOpenMins + 60);
+    const lonOpenStr = fmtHm(lonOpenMins);
+    const lonEndStr = fmtHm(lonOpenMins + 75);
+
     if (!bars || bars.length < 5) return null;
     const lastBar = bars[bars.length - 1];
     const price = lastBar.c;
@@ -303,13 +323,13 @@ const FibMagnet = {
       }
     }
 
-    // 4. London Open Window: 12:30 to 14:15 IST (mins 750 to 855)
-    if (mins >= 750 && mins <= 855) {
+    // 4. London Open Window (dynamic: 13:30 in winter GMT, 12:30 in summer BST)
+    if (mins >= lonOpenMins && mins <= lonOpenMins + 75) {
       if (asiaLow != null && minRecent < asiaLow && price >= asiaLow * 0.998) {
         return {
           id: 'london_judas_low',
           badge: '⚡ ASIA LOW SWEPT',
-          session: 'London Open (13:00–14:15 IST)',
+          session: `London Open (${lonOpenStr}–${lonEndStr} IST)`,
           predictedDir: 'POTENTIAL BOUNCE',
           confidence: '62.7% Session Extreme Window',
           headline: `⚡ Asia Low Swept ($${Number(asiaLow).toFixed(1)}) — London Judas Swing`,
@@ -322,7 +342,7 @@ const FibMagnet = {
         return {
           id: 'london_judas_high',
           badge: '⚡ ASIA HIGH SWEPT',
-          session: 'London Open (13:00–14:15 IST)',
+          session: `London Open (${lonOpenStr}–${lonEndStr} IST)`,
           predictedDir: 'POTENTIAL FADE',
           confidence: '62.7% Session Extreme Window',
           headline: `⚡ Asia High Swept ($${Number(asiaHigh).toFixed(1)}) — London Judas Swing`,
@@ -334,7 +354,7 @@ const FibMagnet = {
       return {
         id: 'london_open_hunt',
         badge: '🕒 LONDON OPEN WINDOW',
-        session: 'London Open Active (13:00–14:30 IST)',
+        session: `London Open Active (${lonOpenStr}–${lonEndStr} IST)`,
         predictedDir: 'WATCH FOR OPENING SWEEP',
         confidence: '62.7% Session Extreme Window',
         headline: '🕒 London Opening Liquidity Hunt in Progress',
@@ -344,28 +364,13 @@ const FibMagnet = {
       };
     }
 
-    // 5. London Close / 4 PM Fix Window: 19:30 to 21:30 IST (mins 1170 to 1290)
-    if (mins >= 1170 && mins <= 1290) {
-      return {
-        id: 'london_close_fix',
-        badge: '🇬🇧 LONDON CLOSE / 4PM FIX',
-        session: 'London Close (19:30–21:30 IST)',
-        predictedDir: 'REVERSAL / CHOP WARNING',
-        confidence: '61.8% Non-Continuation Rate',
-        headline: '🇬🇧 London 4 PM Fix — Institutional Rebalancing',
-        detail: '61.8% of trend days reverse (46%) or chop (16%) during London close as European desks square books. Avoid chasing late breakout momentum; watch for squeezes back to VWAP.',
-        candleTime: lastBar.t,
-        type: 'neutral',
-      };
-    }
-
-    // 6. New York Open Window: 18:30 to 19:30 IST (mins 1110 to 1170)
-    if (mins >= 1110 && mins < 1170) {
+    // 5. New York Open Window (dynamic: 20:00 in winter EST, 19:00 in summer EDT)
+    if (mins >= nyOpenMins && mins < nyOpenMins + 60) {
       if (lonLow != null && minRecent < lonLow && price >= lonLow * 0.998) {
         return {
           id: 'ny_sweep_lon_low',
           badge: '⚡ LONDON LOW SWEPT',
-          session: 'New York Open (18:30–19:30 IST)',
+          session: `New York Open (${nyOpenStr}–${nyEndStr} IST)`,
           predictedDir: 'BULLISH BOUNCE',
           confidence: '53.7% Historical Range Return',
           headline: `⚡ London Low Swept ($${Number(lonLow).toFixed(1)}) — NY Opening Tell`,
@@ -378,7 +383,7 @@ const FibMagnet = {
         return {
           id: 'ny_sweep_lon_high',
           badge: '⚡ LONDON HIGH SWEPT',
-          session: 'New York Open (18:30–19:30 IST)',
+          session: `New York Open (${nyOpenStr}–${nyEndStr} IST)`,
           predictedDir: 'POTENTIAL RETRACE',
           confidence: '48.4% Historical Range Return',
           headline: `⚡ London High Swept ($${Number(lonHigh).toFixed(1)}) — NY Opening Tell`,
@@ -390,11 +395,26 @@ const FibMagnet = {
       return {
         id: 'ny_open_window',
         badge: '🕒 NY OPEN WINDOW',
-        session: 'New York Open Active (18:30–19:30 IST)',
+        session: `New York Open Active (${nyOpenStr}–${nyEndStr} IST)`,
         predictedDir: 'WATCH NY SWEEP OF LONDON H/L',
         confidence: '56% Extreme Window',
         headline: '🕒 New York Opening Volatility Active',
         detail: '56.0% of days form NY session extreme in first 45m. Watch how price reacts around London High/Low levels.',
+        candleTime: lastBar.t,
+        type: 'neutral',
+      };
+    }
+
+    // 6. London Close / 4 PM Fix Window: (dynamic: 21:00 to 22:30 in winter, 20:00 to 21:30 in summer)
+    if (mins >= lonCloseMins - 60 && mins <= lonCloseMins + 30) {
+      return {
+        id: 'london_close_fix',
+        badge: '🇬🇧 LONDON CLOSE / 4PM FIX',
+        session: `London Close (${fmtHm(lonCloseMins - 60)}–${fmtHm(lonCloseMins + 30)} IST)`,
+        predictedDir: 'REVERSAL / CHOP WARNING',
+        confidence: '61.8% Non-Continuation Rate',
+        headline: '🇬🇧 London 4 PM Fix — Institutional Rebalancing',
+        detail: '61.8% of trend days reverse (46%) or chop (16%) during London close as European desks square books. Avoid chasing late breakout momentum; watch for squeezes back to VWAP.',
         candleTime: lastBar.t,
         type: 'neutral',
       };
@@ -452,12 +472,12 @@ const FibMagnet = {
     // 5. Default Session Context
     return {
       id: 'session_standard',
-      badge: hour < 12 ? '🌏 ASIA SESSION' : hour < 18 ? '🇬🇧 LONDON SESSION' : '🇺🇸 NY SESSION',
+      badge: mins < lonOpenMins ? '🌏 ASIA SESSION' : mins < nyOpenMins ? '🇬🇧 LONDON SESSION' : '🇺🇸 NY SESSION',
       session: 'Standard Flow',
       predictedDir: 'WAIT FOR SESSION OPEN OR FIB STRETCH',
       confidence: 'Market in Equilibrium',
       headline: `Holding between Fib Anchor & Session Pivots`,
-      detail: `Price is trading near fair value. High-conviction tells appear at London Open (13:00 IST), NY Open (18:30 IST), or when price stretches ≥0.5% away from the Fib box.`,
+      detail: `Price is trading near fair value. High-conviction tells appear at London Open (${lonOpenStr} IST), NY Open (${nyOpenStr} IST), or when price stretches ≥0.5% away from the Fib box.`,
       candleTime: lastBar.t,
       type: 'neutral',
     };

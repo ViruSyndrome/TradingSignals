@@ -1310,18 +1310,30 @@ const RangeEmaUI = {
 
     const invDate = new Date(new Date(nowMs).toLocaleString('en-US', { timeZone: 'Asia/Kolkata' }));
     const curMins = invDate.getHours() * 60 + invDate.getMinutes();
+
+    // Dynamic session times tracking US/London Daylight Saving Time (DST)
+    const nyOpenMins = this._getSessionOpenMins(nowMs, 'America/New_York', 9, 30);
+    const lonOpenMins = this._getSessionOpenMins(nowMs, 'Europe/London', 8, 0);
+    const lonCloseMins = this._getSessionOpenMins(nowMs, 'Europe/London', 16, 30);
+
+    const fmtHm = (m) => `${String(Math.floor(((m % 1440) + 1440) % 1440 / 60)).padStart(2, '0')}:${String(((m % 1440) + 1440) % 1440 % 60).padStart(2, '0')}`;
+    const nyOpenStr = fmtHm(nyOpenMins);
+    const nyEndStr = fmtHm(nyOpenMins + 60);
+    const lonOpenStr = fmtHm(lonOpenMins);
+    const lonCloseStr = fmtHm(lonCloseMins);
+
     const isMark = (curMins >= 150 && curMins < 210);
-    const isAsia = (curMins >= 330 && curMins < 750);
-    const isLon = (curMins >= 750 && curMins < 1110);
-    const isNy = (curMins >= 1110 && curMins < 1170);
-    const isLonClose = (curMins >= 1170 && curMins <= 1290);
+    const isAsia = (curMins >= 330 && curMins < lonOpenMins);
+    const isNy = (curMins >= nyOpenMins && curMins < nyOpenMins + 60);
+    const isLon = (curMins >= lonOpenMins && curMins < nyOpenMins);
+    const isLonClose = (curMins >= lonCloseMins - 60 && curMins <= lonCloseMins);
     const isUsClose = (curMins > 1290 || curMins < 150);
 
     const activeSessionName = isMark ? 'Daily Mark Window (02:30–03:30 IST)'
-      : isAsia ? 'Asia Session (05:30–12:30 IST)'
-      : isLon ? 'London Session (12:30–18:30 IST)'
-      : isNy ? 'New York Open (18:30–19:30 IST)'
-      : isLonClose ? 'London Close / 4 PM Fix (19:30–21:30 IST)'
+      : isNy ? `New York Open (${nyOpenStr}–${nyEndStr} IST)`
+      : isAsia ? `Asia Session (05:30–${lonOpenStr} IST)`
+      : isLon ? `London Session (${lonOpenStr}–${nyOpenStr} IST)`
+      : isLonClose ? `London Close / 4 PM Fix (${fmtHm(lonCloseMins - 90)}–${lonCloseStr} IST)`
       : 'US Cash Close & CME Settle (21:30–02:30 IST)';
 
     // Trigger level text for Stepper
@@ -1592,15 +1604,15 @@ const RangeEmaUI = {
             <span class="seg-name">Asia</span>
           </div>
           <div class="rb-session-seg ${isLon ? 'active' : ''} is-prime">
-            <span class="seg-time">13:00</span>
+            <span class="seg-time">${lonOpenStr}</span>
             <span class="seg-name">London</span>
           </div>
           <div class="rb-session-seg ${isNy ? 'active' : ''} is-prime">
-            <span class="seg-time">18:30</span>
+            <span class="seg-time">${nyOpenStr}</span>
             <span class="seg-name">NY Open</span>
           </div>
           <div class="rb-session-seg ${isLonClose ? 'active' : ''}">
-            <span class="seg-time">19:30</span>
+            <span class="seg-time">${fmtHm(lonCloseMins - 90)}</span>
             <span class="seg-name">Lon Close</span>
           </div>
           <div class="rb-session-seg ${isUsClose ? 'active' : ''}">
@@ -1707,6 +1719,20 @@ const RangeEmaUI = {
       return compact ? `${day}` : `${day} ${time}`;
     }
     return time;
+  },
+
+  /** Dynamic conversion of local market time to IST minute-of-day with DST tracking. */
+  _getSessionOpenMins(ts = Date.now(), timeZone = 'America/New_York', targetHour = 9, targetMinute = 30) {
+    try {
+      const d = new Date(ts);
+      const dIso = new Date(d.toLocaleString('en-US', { timeZone }));
+      const dUtc = new Date(d.toLocaleString('en-US', { timeZone: 'UTC' }));
+      const diffHours = (dUtc - dIso) / (3600 * 1000);
+      const istMins = targetHour * 60 + targetMinute + Math.round(diffHours * 60) + (5 * 60 + 30);
+      return ((istMins % 1440) + 1440) % 1440;
+    } catch (_) {
+      return (targetHour * 60 + targetMinute);
+    }
   },
 
   /** UTC ms when `hour:minute` occurs in `timeZone` on calendar `dayStr` (YYYY-MM-DD in that zone). */
@@ -2591,6 +2617,10 @@ const RangeEmaUI = {
       }
     })();
 
+    const nyOpenMins = this._getSessionOpenMins(nowMs, 'America/New_York', 9, 30);
+    const lonOpenMins = this._getSessionOpenMins(nowMs, 'Europe/London', 8, 0);
+    const fmtMins = (m) => `${String(Math.floor(((m % 1440) + 1440) % 1440 / 60)).padStart(2, '0')}:${String(((m % 1440) + 1440) % 1440 % 60).padStart(2, '0')}`;
+
     const windows = [
       {
         id: 'asia',
@@ -2608,10 +2638,10 @@ const RangeEmaUI = {
         id: 'london',
         name: 'London Open Window',
         code: 'LON',
-        startIstMins: 780,   // 13:00 IST
-        endIstMins: 855,     // 14:15 IST
-        startStrIst: '13:00',
-        endStrIst: '14:15',
+        startIstMins: lonOpenMins,
+        endIstMins: lonOpenMins + 75,
+        startStrIst: fmtMins(lonOpenMins),
+        endStrIst: fmtMins(lonOpenMins + 75),
         winRate: '62.7% Session Extreme',
         headline: 'European Opening Liquidity Window',
         rule: '62.7% of days print London high/low in first 45m; sweeps Asia H/L (Context tell — wait for Red Bar DNA)'
@@ -2620,10 +2650,10 @@ const RangeEmaUI = {
         id: 'ny',
         name: 'New York Open Window',
         code: 'NY',
-        startIstMins: 1110,  // 18:30 IST
-        endIstMins: 1185,    // 19:45 IST
-        startStrIst: '18:30',
-        endStrIst: '19:45',
+        startIstMins: nyOpenMins,
+        endIstMins: nyOpenMins + 75,
+        startStrIst: fmtMins(nyOpenMins),
+        endStrIst: fmtMins(nyOpenMins + 75),
         winRate: '56.0% Session Extreme',
         headline: 'US Cash Open Window',
         rule: '56.0% of days print NY high/low in first 45m; early sweeps often retrace (Context tell — wait for Red Bar DNA)'
