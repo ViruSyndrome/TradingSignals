@@ -2797,6 +2797,7 @@ const RangeEmaUI = {
     }).filter(Boolean);
 
     const priceNow = Number(o.price);
+    const action = row.action || this._actionPlan(o, row.emaAgree);
 
     // Identify trend-targeted prior Fib box (where price is heading to touch and reverse/TP)
     const todayDayKey = sortedBandDays.length ? sortedBandDays[sortedBandDays.length - 1] : null;
@@ -2818,7 +2819,7 @@ const RangeEmaUI = {
       } else if (todayLo != null && priceNow < todayLo) {
         trendDir = 'DOWN';
       } else {
-        const isBull = (row.bias === 'BULLISH' || o.trend === 'BULLISH' || action.side === 'LONG' || (todayMid != null && priceNow >= todayMid));
+        const isBull = (row.bias === 'BULLISH' || o.trend === 'BULLISH' || action?.side === 'LONG' || (todayMid != null && priceNow >= todayMid));
         trendDir = isBull ? 'UP' : 'DOWN';
       }
 
@@ -2963,8 +2964,7 @@ const RangeEmaUI = {
       exit: '#4ade80',
     };
 
-    const action = row.action || this._actionPlan(o, row.emaAgree);
-    const trading = action.side === 'LONG' || action.side === 'SHORT';
+    const trading = action?.side === 'LONG' || action?.side === 'SHORT';
     const stopPx = trading ? (action.stop ?? o.invalidation) : null;
     const exitPx = trading ? (action.exit ?? o.bookZone) : null;
 
