@@ -888,8 +888,8 @@ const RedBarTrend = {
   },
 
   /**
-   * IST clock phase for BTC/XAU session flow (Sagar).
-   * Pre-London continuation → London Asia sweep → US London/Asia hunt.
+   * IST clock phase for BTC/XAU session flow (Sagar & Dr. Dev).
+   * Pre-London continuation → 12:45 PM Liquidity Hunt → London Asia sweep → US London/Asia hunt.
    */
   istClockPhase(ts) {
     const z = this.zonedHms(ts || Date.now(), 'Asia/Kolkata');
@@ -899,22 +899,30 @@ const RedBarTrend = {
       const r = m % 60;
       return h > 0 ? `${h}h ${r}m` : `${r}m`;
     };
+    // 12:15–13:15 IST: Dr. Dev 12:45 PM Institutional Liquidity Hunt before European open
+    const isLiquidityHunt = mins >= 12 * 60 + 15 && mins <= 13 * 60 + 15;
     if (mins < 12 * 60 + 30) {
       const rem = (12 * 60 + 30) - mins;
       return {
         id: 'pre_london',
-        label: 'Pre-London',
-        nextWindow: `London Open (12:30 PM IST) in ${fmtWait(rem)}`,
-        tip: 'Until ~12:30 IST, BTC often keeps the morning direction.',
+        label: isLiquidityHunt ? 'Pre-London · 12:45 PM Liquidity Hunt' : 'Pre-London',
+        nextWindow: isLiquidityHunt ? '12:45 PM Institutional Liquidity Hunt underway' : `London Open (12:30 PM IST) in ${fmtWait(rem)}`,
+        tip: isLiquidityHunt
+          ? '12:45 PM Liquidity Hunt: Morning H/L often swept before European open. Watch for traps & false breakouts.'
+          : 'Until ~12:30 IST, BTC often keeps the morning direction.',
+        isLiquidityHunt,
       };
     }
     if (mins < 16 * 60 + 30) {
       const rem = (16 * 60 + 30) - mins;
       return {
         id: 'london',
-        label: 'London Active (12:30–4:30 PM)',
+        label: isLiquidityHunt ? 'London Open · 12:45 PM Liquidity Hunt' : 'London Active (12:30–4:30 PM)',
         nextWindow: `US Open (4:30 PM IST) in ${fmtWait(rem)}`,
-        tip: 'London usually sweeps Asia high or low, then reverses.',
+        tip: isLiquidityHunt
+          ? '12:45 PM Liquidity Hunt: European desks hunting morning extremes. Wait for confirmed sweep rejection.'
+          : 'London usually sweeps Asia high or low, then reverses.',
+        isLiquidityHunt,
       };
     }
     if (mins < 19 * 60) {
@@ -924,6 +932,7 @@ const RedBarTrend = {
         label: 'US Open Active (4:30–7:00 PM)',
         nextWindow: `US Heavy Window · ${fmtWait(rem)} left (till 7:00 PM IST)`,
         tip: 'US hunts London H/L (Asia if untouched). Heavy window ~4:30–7:00 IST.',
+        isLiquidityHunt: false,
       };
     }
     const remToLondon = (24 * 60 - mins) + (12 * 60 + 30);
@@ -932,12 +941,14 @@ const RedBarTrend = {
       label: 'After US Open (Late Session)',
       nextWindow: `Next Prime Session: London (12:30 PM IST) in ${fmtWait(remToLondon)}`,
       tip: 'Pivot stays the first 1H red; watch prior-day H/L as book magnets.',
+      isLiquidityHunt: false,
     };
   },
 
   /**
    * Median + Fib 44/50/56 marked on the first 1H red candle high→low (not on 5m).
    * Median = Fib 50 = midpoint of that 1H bar.
+   * Point of Balance (POB) = 0.50 fair value with ±6% tolerance band (0.44 to 0.56 corridor).
    */
   firstRedFibs(firstRed) {
     if (!firstRed || firstRed.high == null || firstRed.low == null) return null;
@@ -956,6 +967,15 @@ const RedBarTrend = {
       f56,
       f1: high,
       median: f50,
+      // Dr. Devendra Pratap Singh Point of Balance (POB 44–56):
+      // Midpoint (0.50 fair value) with ±6% deviation corridor (0.44 to 0.56).
+      pob: {
+        high: Math.max(f44, f56),
+        low: Math.min(f44, f56),
+        mid: f50,
+        deviationPct: 6,
+        label: 'POB (Point of Balance 44–56)',
+      },
     };
   },
 
@@ -1132,6 +1152,43 @@ const RedBarTrend = {
       : near;
 
     const leftThen = hadLeftAbove || hadLeftBelow;
+
+    // Dr. Devendra Pratap Singh: Point of Balance (POB 44–56) Retest & Rejection rule
+    // First red candle is an "X Candle / Trap" — institutional confirmation requires
+    // waiting for price to retest the POB (0.44–0.56) and reject.
+    const pobHi = fibs?.pob?.high ?? (fibs ? Math.max(fibs.f44, fibs.f56) : null);
+    const pobLo = fibs?.pob?.low ?? (fibs ? Math.min(fibs.f44, fibs.f56) : null);
+    let pobRetested = false;
+    let inPob = false;
+    let pobRejectedBearish = false;
+    let pobRejectedBullish = false;
+    if (pobHi != null && pobLo != null) {
+      inPob = price <= (pobHi + tol) && price >= (pobLo - tol);
+      if (Array.isArray(bars5m) && bars5m.length) {
+        for (let k = 0; k < bars5m.length; k++) {
+          const b = bars5m[k];
+          if (b.t <= firstRed.t) continue;
+          if (asOfTs != null && b.t + 5 * 60 * 1000 - 1500 > asOfTs) continue;
+          if (b.h >= (pobLo - tol) && b.l <= (pobHi + tol)) {
+            pobRetested = true;
+          }
+        }
+      }
+      if (pobRetested && price < pobLo) {
+        pobRejectedBearish = true;
+      } else if (pobRetested && price > pobHi) {
+        pobRejectedBullish = true;
+      }
+    }
+    const pobStatus = inPob
+      ? 'in_pob'
+      : pobRejectedBearish
+        ? 'pob_rejected_bearish'
+        : pobRejectedBullish
+          ? 'pob_rejected_bullish'
+          : (pobRetested ? 'pob_retested' : 'pob_untested');
+    const isXCandleTrap = (hoursSince != null && hoursSince < 0.25) || (!pobRetested && !sweptHigh5 && !sweptLow5 && inside);
+
     // Active when revisiting zone OR after a 5m liquidity sweep of 1H H/L
     const revisitWindow = (near || barTouchedPivot || sweptHigh5 || sweptLow5 || (near && leftThen))
       && hoursSince != null && hoursSince >= (5 / 60) && hoursSince <= 20;
@@ -1277,6 +1334,13 @@ const RedBarTrend = {
       pivotLow: firstRed.low,
       pivotMid,
       fibs,
+      pob: fibs?.pob || null,
+      pobStatus,
+      pobRetested,
+      pobRejectedBearish,
+      pobRejectedBullish,
+      inPob,
+      isXCandleTrap,
       sweepExtreme,
       sellsOnly,
       buysOnly,
@@ -1353,6 +1417,188 @@ const RedBarTrend = {
   },
 
   /**
+   * Aggregate smaller timeframe bars (e.g. 5m, 15m) into 30m bars aligned to 30m epoch boundaries.
+   */
+  aggregateBarsTo30m(bars) {
+    if (!Array.isArray(bars) || !bars.length) return [];
+    const bucketMs = 30 * 60 * 1000;
+    const dur = bars.length >= 2 ? (bars[bars.length - 1].t - bars[bars.length - 2].t) : 0;
+    if (dur >= 25 * 60 * 1000 && dur <= 35 * 60 * 1000) {
+      return bars.slice();
+    }
+    const map = new Map();
+    for (let i = 0; i < bars.length; i++) {
+      const b = bars[i];
+      if (b.t == null || !Number.isFinite(b.c)) continue;
+      const t0 = Math.floor(b.t / bucketMs) * bucketMs;
+      const ex = map.get(t0);
+      if (!ex) {
+        map.set(t0, { t: t0, o: b.o, h: b.h, l: b.l, c: b.c, v: b.v || 0 });
+      } else {
+        ex.h = Math.max(ex.h, b.h);
+        ex.l = Math.min(ex.l, b.l);
+        ex.c = b.c;
+        ex.v += (b.v || 0);
+      }
+    }
+    return Array.from(map.values()).sort((a, b) => a.t - b.t);
+  },
+
+  /**
+   * Dr. Devendra Pratap Singh — Setup 3: 30m 5 EMA "Rubber Band" Mean Reversion Reversal.
+   *
+   * Principle:
+   * 1. On a 30m chart with 5 EMA, candles cannot stay detached for long.
+   *    Within 4 to 6 candles (usually ~5), price mathematically snaps back like a stretched rubber band.
+   * 2. Detachment:
+   *    - Oversold: 30m candle high is strictly below 5 EMA (bar.h < ema).
+   *    - Overbought: 30m candle low is strictly above 5 EMA (bar.l > ema).
+   *    - Consecutive detached count >= 4 primes the setup.
+   * 3. The "Barricade" Entry:
+   *    - On LTF (5m/15m), find the recent swing lower-high (oversold) or higher-low (overbought).
+   *    - When price breaks and closes across the Barricade, tension snaps!
+   *    - Target = 30m 5 EMA line (mean reversion magnet).
+   *    - Stop Loss = Extreme wick of the drop/rally (extremely tight risk, high R:R).
+   */
+  detect30m5EmaRubberBand(bars, bars5m = null, evalTs = null) {
+    if (!Array.isArray(bars) || bars.length < 5) return null;
+    const bucketMs = 30 * 60 * 1000;
+    const bars30 = this.aggregateBarsTo30m(bars);
+    if (bars30.length < 6) return null;
+
+    // Compute 5 EMA on 30m bars
+    const k = 2 / (5 + 1); // 1/3
+    let ema = 0;
+    for (let i = 0; i < 5; i++) ema += bars30[i].c;
+    ema /= 5;
+    const emaSeries = [{ t: bars30[4].t, ema, bar: bars30[4] }];
+    for (let i = 5; i < bars30.length; i++) {
+      ema = bars30[i].c * k + ema * (1 - k);
+      emaSeries.push({ t: bars30[i].t, ema, bar: bars30[i] });
+    }
+
+    const evalT = evalTs != null ? evalTs : Date.now();
+    // Only evaluate completed or nearly completed 30m bars
+    const closedEmas = emaSeries.filter((e) => e.t + bucketMs - 1500 <= evalT);
+    if (!closedEmas.length) return null;
+
+    const latest = closedEmas[closedEmas.length - 1];
+    const latestBar = latest.bar;
+    const latestEma = latest.ema;
+
+    let detachedType = null; // 'below' (oversold -> bullish snapback) | 'above' (overbought -> bearish snapback)
+    if (latestBar.h < latestEma) detachedType = 'below';
+    else if (latestBar.l > latestEma) detachedType = 'above';
+    else return null;
+
+    let detachedCount = 0;
+    const detachedBars = [];
+    for (let i = closedEmas.length - 1; i >= 0; i--) {
+      const item = closedEmas[i];
+      if (detachedType === 'below' && item.bar.h < item.ema) {
+        detachedCount++;
+        detachedBars.push(item.bar);
+      } else if (detachedType === 'above' && item.bar.l > item.ema) {
+        detachedCount++;
+        detachedBars.push(item.bar);
+      } else {
+        break;
+      }
+    }
+
+    if (detachedCount < 4) {
+      return {
+        status: 'building',
+        primed: false,
+        triggered: false,
+        detachedCount,
+        detachedType,
+        ema5: latestEma,
+      };
+    }
+
+    // >= 4 bars detached: Rubber Band is Primed!
+    const ltfBars = (Array.isArray(bars5m) && bars5m.length) ? bars5m : bars;
+    const oldestDetachedT = detachedBars[detachedBars.length - 1].t;
+    const candidateLtf = ltfBars.filter((b) => b.t >= oldestDetachedT && b.t <= evalT);
+
+    let extremePrice = detachedType === 'below' ? Infinity : -Infinity;
+    let extremeBar = null;
+    for (const b of candidateLtf) {
+      if (detachedType === 'below' && b.l < extremePrice) {
+        extremePrice = b.l;
+        extremeBar = b;
+      } else if (detachedType === 'above' && b.h > extremePrice) {
+        extremePrice = b.h;
+        extremeBar = b;
+      }
+    }
+
+    // Find Barricade (swing high if below EMA, swing low if above EMA)
+    let barricade = null;
+    if (detachedType === 'below') {
+      let maxHigh = -Infinity;
+      for (let i = candidateLtf.length - 2; i >= 0; i--) {
+        const b = candidateLtf[i];
+        if (b.h > maxHigh) {
+          maxHigh = b.h;
+          barricade = b.h;
+          if (i > 0 && i < candidateLtf.length - 1 && b.h >= candidateLtf[i - 1].h && b.h >= candidateLtf[i + 1].h) {
+            barricade = b.h;
+            break;
+          }
+        }
+      }
+      if (barricade == null || !Number.isFinite(barricade)) barricade = maxHigh > -Infinity ? maxHigh : latestBar.h;
+    } else {
+      let minLow = Infinity;
+      for (let i = candidateLtf.length - 2; i >= 0; i--) {
+        const b = candidateLtf[i];
+        if (b.l < minLow) {
+          minLow = b.l;
+          barricade = b.l;
+          if (i > 0 && i < candidateLtf.length - 1 && b.l <= candidateLtf[i - 1].l && b.l <= candidateLtf[i + 1].l) {
+            barricade = b.l;
+            break;
+          }
+        }
+      }
+      if (barricade == null || !Number.isFinite(barricade)) barricade = minLow < Infinity ? minLow : latestBar.l;
+    }
+
+    const lastBar = candidateLtf[candidateLtf.length - 1] || latestBar;
+    const currentPrice = lastBar.c;
+    const triggered = detachedType === 'below' ? (currentPrice > barricade) : (currentPrice < barricade);
+    const direction = detachedType === 'below' ? 'bullish' : 'bearish';
+    const targetPrice = latestEma;
+    const stopLoss = extremePrice;
+    const risk = Math.abs(currentPrice - stopLoss);
+    const reward = Math.abs(targetPrice - currentPrice);
+    const rr = risk > 0 ? (reward / risk) : 1;
+
+    return {
+      status: triggered ? 'triggered' : 'primed',
+      triggered,
+      primed: true,
+      direction,
+      detachedCount,
+      detachedType,
+      ema5: latestEma,
+      targetPrice,
+      stopLoss,
+      barricade,
+      extremePrice,
+      rr,
+      triggerBar: triggered ? lastBar : null,
+      triggerTs: triggered ? lastBar.t : null,
+      triggerPrice: triggered ? currentPrice : null,
+      label: triggered
+        ? `Setup 3: 30m 5 EMA Rubber Band (${direction.toUpperCase()}) · Target: 5 EMA (${targetPrice.toFixed(1)})`
+        : `Setup 3 Primed: 30m 5 EMA Rubber Band (${detachedCount} bars detached) · Watch Barricade (${barricade.toFixed(1)})`,
+    };
+  },
+
+  /**
    * Smart structural stop + ordered liquidity-magnet book target.
    * Fixes inverted R:R by:
    *  1. Using tight local structure (1H red pivot / recent 10-bar swing / Fib edge) for the stop,
@@ -1388,6 +1634,8 @@ const RedBarTrend = {
     bars5m = null,
     /** Trade 2 liquidity-sweep wick extreme (beyond 1H high/low) */
     sweepExtreme = null,
+    setupKind = null,
+    setup3 = null,
   }) {
     if (trend !== 'bullish' && trend !== 'bearish') {
       return {
@@ -1404,6 +1652,38 @@ const RedBarTrend = {
         stopPct: null,
         targetPct: null,
         rr: null,
+      };
+    }
+
+    // Dr. Devendra Pratap Singh Setup 3: 30m 5 EMA Rubber Band
+    if (setupKind === 'setup3_rubber_band' && setup3 && setup3.triggered) {
+      const stopPad = price * 0.0006;
+      const sp = setup3.direction === 'bullish'
+        ? setup3.stopLoss - stopPad
+        : setup3.stopLoss + stopPad;
+      const tp = setup3.targetPrice;
+      const riskDist = Math.abs(price - sp);
+      const rewDist = Math.abs(tp - price);
+      const rr = riskDist > 0 ? (rewDist / riskDist) : 1.5;
+      const stopPct = (riskDist / price) * 100;
+      const targetPct = (rewDist / price) * 100;
+      const tp1 = setup3.direction === 'bullish' ? price + riskDist : price - riskDist;
+      return {
+        invalidation: sp,
+        invalidationReason: setup3.direction === 'bullish' ? 'extreme drop wick (Setup 3 SL)' : 'extreme rally wick (Setup 3 SL)',
+        stopStructural: true,
+        tp1,
+        tp2: tp,
+        tp3: setup3.direction === 'bullish' ? tp * 1.005 : tp * 0.995,
+        bookZone: tp,
+        firstMagnet: { price: tp, label: '30m 5 EMA Line' },
+        bookReason: '30m 5 EMA Mean Reversion Magnet (Dr. Dev Setup 3)',
+        bookIsMagnet: true,
+        stopPct,
+        targetPct,
+        rr,
+        prevSwingLow: setup3.direction === 'bullish' ? setup3.stopLoss : null,
+        prevSwingHigh: setup3.direction === 'bearish' ? setup3.stopLoss : null,
       };
     }
 
@@ -1842,14 +2122,17 @@ const RedBarTrend = {
     const nyHl = nySess ? this.sessionHlForIstDay(slice, nySess, bars[i].t) : null;
     const asiaUntouched = !!(asiaHl && price < asiaHl.high && price > asiaHl.low);
     const sweep = this.detectSessionSweep(slice, clock, asiaHl, londonHl, firstRed1h, evalTs);
+    // Dr. Devendra Pratap Singh: Setup 3 (30m 5 EMA Rubber Band Mean Reversion)
+    const setup3 = this.detect30m5EmaRubberBand(slice, bars5m, evalTs);
 
-    // Composite trend & setup classification (Sagar playbook):
+    // Composite trend & setup classification (Sagar & Dr. Dev playbook):
     // 1. Mark window still forming -> WAIT
     // 2. Trade 1 fresh departure WINS over Trade 2 (leave ≠ retest)
     // 3. Trade 2 revisit (H1 liquidity → 5m close-through)
     // 4. Session liquidity sweep
-    // 5. Inside Fib box (no Trade 1/2/sweep) -> WAIT
-    // 6. Fib break bias / pullback
+    // 5. Setup 3: 30m 5 EMA Rubber Band reversal
+    // 6. Inside Fib box (no Trade 1/2/3/sweep) -> WAIT
+    // 7. Fib break bias / pullback
     let trend = 'neutral';
     let setupKind = 'wait';
     if (phase === 'first_candle') {
@@ -1869,6 +2152,12 @@ const RedBarTrend = {
     } else if (sweep) {
       trend = sweep.side;
       setupKind = 'session_sweep';
+    } else if (setup3 && setup3.triggered) {
+      trend = setup3.direction;
+      setupKind = 'setup3_rubber_band';
+    } else if (setup3 && setup3.primed) {
+      trend = setup3.direction;
+      setupKind = 'setup3_primed';
     } else if (phase === 'inside_or') {
       trend = 'neutral';
       setupKind = 'wait';
@@ -1941,7 +2230,8 @@ const RedBarTrend = {
     // Prefer 5m structure for Trade 1 / Trade 2 / sweep — not only Trade 2.
     const preferSwingStop = isTrade2
       || setupKind === 'trade1_departure'
-      || setupKind === 'session_sweep';
+      || setupKind === 'session_sweep'
+      || setupKind === 'setup3_rubber_band';
     const levels = this._resolveStopAndBook({
       trend,
       price,
@@ -1965,6 +2255,8 @@ const RedBarTrend = {
       rrLadder: isTrade2,
       bars5m,
       sweepExtreme: redSetup.sweepExtreme ?? null,
+      setupKind,
+      setup3,
     });
 
     const invalidation = levels.invalidation;
@@ -1972,10 +2264,14 @@ const RedBarTrend = {
 
     const setupTriggerTs = (setupKind === 'session_sweep' && sweep?.triggerTs != null)
       ? sweep.triggerTs
-      : (redSetup.triggerTs || null);
+      : (setupKind === 'setup3_rubber_band' && setup3?.triggerTs != null)
+        ? setup3.triggerTs
+        : (redSetup.triggerTs || null);
     const setupTriggerPrice = (setupKind === 'session_sweep' && sweep?.triggerPrice != null)
       ? sweep.triggerPrice
-      : (redSetup.triggerPrice != null ? redSetup.triggerPrice : price);
+      : (setupKind === 'setup3_rubber_band' && setup3?.triggerPrice != null)
+        ? setup3.triggerPrice
+        : (redSetup.triggerPrice != null ? redSetup.triggerPrice : price);
 
     // Entry gate: full DNA pack (see entryGate docstring).
     const { state: actionState, reason: actionReason } = this.entryGate({
@@ -2004,6 +2300,7 @@ const RedBarTrend = {
     const playbook = {
       clock,
       redSetup,
+      setup3: setup3 || null,
       renko,
       cpr,
       priorDay,
@@ -2058,6 +2355,10 @@ const RedBarTrend = {
       lastRedBar: red,
       firstRed1h,
       firstRedFibs,
+      pob: firstRedFibs?.pob || null,
+      pobStatus: redSetup?.pobStatus || null,
+      isXCandleTrap: redSetup?.isXCandleTrap || false,
+      setup3: setup3 || null,
       renko,
       cpr,
       playbook,
@@ -2074,6 +2375,13 @@ const RedBarTrend = {
         f50: b.f50,
         f56: b.f56,
         f1: b.f1,
+        pob: (b.f44 != null && b.f56 != null) ? {
+          high: Math.max(b.f44, b.f56),
+          low: Math.min(b.f44, b.f56),
+          mid: b.f50 ?? b.mid ?? ((b.f44 + b.f56) / 2),
+          deviationPct: 6,
+          label: 'POB (Point of Balance 44–56)',
+        } : null,
         openT: b.openT,
         endT: b.endT,
         index: b.index,
@@ -2091,6 +2399,13 @@ const RedBarTrend = {
         return {
           ...cb,
           locked: or ? !!or.locked : true,
+          pob: (cb.f44 != null && cb.f56 != null) ? {
+            high: Math.max(cb.f44, cb.f56),
+            low: Math.min(cb.f44, cb.f56),
+            mid: cb.f50 ?? cb.mid ?? ((cb.f44 + cb.f56) / 2),
+            deviationPct: 6,
+            label: 'POB (Point of Balance 44–56)',
+          } : null,
         };
       })(),
       refs: {
@@ -2127,7 +2442,7 @@ const RedBarTrend = {
    * Red Bar only — setups that may ENTER.
    * Continuation / magnet / Renko / EMA are not strategies on this desk until taught.
    */
-  ACTIONABLE_SETUPS: ['trade1_departure', 'trade2_confirmed', 'session_sweep'],
+  ACTIONABLE_SETUPS: ['trade1_departure', 'trade2_confirmed', 'session_sweep', 'setup3_rubber_band'],
 
   /** True in the first `quietMins` of London (12:30 IST) or US (16:30 IST). */
   _inSessionQuietWindow(asOfTs, quietMins = 45) {
@@ -2183,10 +2498,11 @@ const RedBarTrend = {
         magnet_bounce_watch: 'Fib bounce is chart context — not a Red Bar ENTER.',
         pivot_reversal: 'Price crossed the 1H red against Fib bias — conflicting, wait.',
         trade2_watch: 'H1→M5 Trade 2: wait for 1H high/low liquidity sweep, then 5m close back through that level (median confluence).',
-      }[setupKind] || 'Red Bar: wait for Trade 1 / Trade 2 / session sweep.';
+        setup3_primed: 'Setup 3 Primed: 30m candles detached ≥4 from 5 EMA (rubber band tension). Wait for LTF Barricade break.',
+      }[setupKind] || 'Red Bar: wait for Trade 1 / Trade 2 / session sweep / Setup 3.';
       return { state: 'watch', reason: why };
     }
-    if (renko && renko.overextendedBar && setupKind !== 'session_sweep') {
+    if (renko && renko.overextendedBar && setupKind !== 'session_sweep' && setupKind !== 'setup3_rubber_band') {
       return {
         state: 'watch',
         reason: `Candle spiked >1.6× brick ruler ($${renko.brickSize.toFixed(0)}) in one bar — wait for pullback instead of chasing.`,
@@ -2199,7 +2515,7 @@ const RedBarTrend = {
       return { state: 'watch', reason: `Setup present but no real swing fits the stop window (${invalidationReason}).` };
     }
     const stopTag = String(invalidationReason || '');
-    const realFiveMinSwing = /5m swing/i.test(stopTag) && !/too close|floor|default|0\.28%|0\.5%/i.test(stopTag);
+    const realFiveMinSwing = (/5m swing|extreme drop wick|extreme rally wick/i.test(stopTag)) && !/too close|floor|default|0\.28%|0\.5%/i.test(stopTag);
     if (!realFiveMinSwing) {
       return {
         state: 'watch',
@@ -2291,6 +2607,15 @@ const RedBarTrend = {
       };
     }
 
+    if (setupKind === 'setup3_rubber_band') {
+      const dir = trend === 'bullish' ? 'LONG' : 'SHORT';
+      const tg = Number.isFinite(Number(entryPrice)) ? 'Target: 30m 5 EMA' : 'Target: 5 EMA';
+      return {
+        state: 'enter',
+        reason: `Dr. Dev Setup 3: 30m 5 EMA Rubber Band (${dir}) · Barricade broken · ${tg} · SL: extreme wick.`,
+      };
+    }
+
     const trailBit = setupKind === 'trade2_confirmed'
       ? 'H1→M5 sweep+close-through · SL 5m swing · 50% @ 1:1 → BE → trail 1:2 → TP 1:3'
       : 'SL 5m swing · 50% TP at 1:1 → trail runner (stretch target)';
@@ -2323,6 +2648,12 @@ const RedBarTrend = {
 
     if (phase === 'first_candle') {
       return 'Mark window still forming — record high/low only; do not trade until it locks.';
+    }
+    if (playbook?.setupKind === 'setup3_rubber_band') {
+      return `Setup 3: 30m 5 EMA Rubber Band snapback reversal (${trend}). Barricade broken; mean-reversion magnet target is 30m 5 EMA.${clockBit}`;
+    }
+    if (playbook?.setupKind === 'setup3_primed') {
+      return `Setup 3 Primed: 30m candles detached from 5 EMA (rubber band tension). Watch for Barricade breakout.${clockBit}`;
     }
     if (playbook?.setupKind === 'trade2_confirmed' || playbook?.setupKind === 'trade2_watch') {
       return `Trade 2 at 1H first-red Fibs (44/50/56).${redBit}${clockBit}`;

@@ -750,11 +750,16 @@ const RangeEmaUI = {
     const liqStep = pb.liquidityTip && pb.liquidityTip !== clock.tip ? pb.liquidityTip : null;
     const frFib = o.firstRedFibs || red.fibs || null;
     const pivL = o.firstRedLabel || (this.activeInstrument()?.firstRedTf === '30m' ? '30M' : '1H');
+    const pobInfo = frFib?.pob || null;
+    const pobStr = pobInfo
+      ? `POB (Point of Balance 44–56: ${this._fmt(pobInfo.low)}–${this._fmt(pobInfo.high)}, Fair Value ${this._fmt(pobInfo.mid)})`
+      : (frFib ? `POB 44–56 (${this._fmt(frFib.f44)}–${this._fmt(frFib.f56)})` : '');
+    const xTrapStr = o.isXCandleTrap ? ' ⚠️ Candle 1 is the "X Candle" (retail trap) — wait for POB retest or 1H sweep.' : '';
     const pivotStep = o.firstRed1h
       ? (frFib
-        ? `${pivL}→M5 ladder: mark ${pivL} first-red HIGH/LOW (liquidity) ${this._fmt(o.firstRed1h.high)} / ${this._fmt(o.firstRed1h.low)} + median ${this._fmt(frFib.f50)} (Fib 44/56: ${this._fmt(frFib.f44)} / ${this._fmt(frFib.f56)}). Trade 2: sweep H/L → 5m close back through (+ median).`
+        ? `${pivL}→M5 ladder: mark ${pivL} first-red HIGH/LOW (liquidity) ${this._fmt(o.firstRed1h.high)} / ${this._fmt(o.firstRed1h.low)} + ${pobStr}.${xTrapStr} Trade 2: sweep H/L → 5m close back through (+ median).`
         : `${pivL}→M5: mark ${pivL} first-red H/L ${this._fmt(o.firstRed1h.high)} / ${this._fmt(o.firstRed1h.low)} as liquidity, then enter on 5m close-through.`)
-      : `Waiting for the first ${pivL} red — mark that bar’s HIGH/LOW (liquidity) + median, then drop to 5m.`;
+      : `Waiting for the first ${pivL} red — mark that bar’s HIGH/LOW (liquidity) + POB (44–56), then drop to 5m.`;
     const pdh = o.refs?.priorDayHigh;
     const pdl = o.refs?.priorDayLow;
     const rrStr = o.rr != null ? `1:${o.rr.toFixed(2)}` : '—';
@@ -768,11 +773,12 @@ const RangeEmaUI = {
     const sagarExitStep = useLadder
       ? `2️⃣ 50% TP at 1:1: ${tp1Str}${oneRPctStr} → move SL to Breakeven · 3️⃣ Trail at 1:2: ${tp2Str} · 4️⃣ Take profit at 1:3: ${tp3Str}.`
       : `2️⃣ 50% TP at 1:1: ${tp1Str}${oneRPctStr} (bank 50% & SL→BE) · 3️⃣ Runner stretch: ${this._fmt(o.bookZone)} / 1:3 ${tp3Str}.`;
-    // Don't blank Trade 1 departure just because price sits inside mark Fibs.
+    // Don't blank Trade 1 departure or Setup 3 just because price sits inside mark Fibs.
     if (
       (o.phase === 'first_candle' || o.phase === 'inside_or')
       && o.setupKind !== 'session_sweep'
       && o.setupKind !== 'trade1_departure'
+      && o.setupKind !== 'setup3_rubber_band'
       && !trade2Live
     ) {
       const fibHi = o.currentBand?.high ?? o.refs?.orHigh;
@@ -804,20 +810,25 @@ const RangeEmaUI = {
       ? ` ⚠️ Stop is a ${stopTag} (not a tight local swing — watch size).`
       : '';
 
-    // 1. Red Bar ENTER only: Trade 1 / Trade 2 / Session Sweep
+    // 1. Red Bar ENTER: Trade 1 / Trade 2 / Session Sweep / Setup 3
     if (isActionable) {
       const setupLabel = o.setupKind === 'session_sweep'
         ? `Red Bar · Session Sweep · Futures ${biasDir}`
-        : o.setupKind === 'trade2_confirmed'
-          ? `Red Bar · Trade 2 · Futures ${biasDir} (H1 sweep → M5 close-through)`
-          : `Red Bar · Trade 1 · Futures ${biasDir} (Left 1H Red)`;
+        : o.setupKind === 'setup3_rubber_band'
+          ? `Dr. Dev Setup 3: 30m 5 EMA Rubber Band · Futures ${biasDir}`
+          : o.setupKind === 'trade2_confirmed'
+            ? `Red Bar · Trade 2 · Futures ${biasDir} (H1 sweep → M5 close-through)`
+            : `Red Bar · Trade 1 · Futures ${biasDir} (Left 1H Red)`;
+      const s3Note = o.setupKind === 'setup3_rubber_band'
+        ? ' (30m 5 EMA Rubber Band snapback — Barricade broken, target 30m 5 EMA)'
+        : (o.setupKind === 'trade2_confirmed' ? (biasDir === 'SHORT' ? ' (1H high swept → 5m closed below high & median — sells only)' : ' (1H low swept → 5m closed above low & median — buys only)') : '');
       return {
         side: biasDir,
         cls: biasDir === 'LONG' ? 'long' : 'short',
         title: setupLabel,
         subtitle: `Red Bar ENTER · ${o.actionReason || (useLadder ? 'H1→M5 · SL 5m swing · 50% @ 1:1 → BE → 1:2 → 1:3' : 'SL 5m swing · 50% @ 1:1 + runner')}${emaNote}.`,
         steps: [
-          `${hint}: Enter Futures ${biasDir} near ${this._fmt(o.price)}${o.setupKind === 'trade2_confirmed' ? (biasDir === 'SHORT' ? ' (1H high swept → 5m closed below high & median — sells only)' : ' (1H low swept → 5m closed above low & median — buys only)') : ''}.`,
+          `${hint}: Enter Futures ${biasDir} near ${this._fmt(o.price)}${s3Note}.`,
           `1️⃣ Stop-Loss First (${stopTag}): ${this._fmt(o.invalidation)}${stopPctStr}.${stopWarn}`,
           sagarExitStep,
           pivotStep,
@@ -844,13 +855,16 @@ const RangeEmaUI = {
       const fmStep = (fibMagnet && (fibMagnet.state === 'PULL_ACTIVE' || fibMagnet.state === 'PULL_WATCH' || fibMagnet.state === 'ENTER'))
         ? `🧲 Equilibrium Magnet: Price stretched ${fibMagnet.distPct.toFixed(2)}% · Equilibrium pull destination @ ${this._fmt(fibMagnet.tp)} (Target only — wait for DNA trigger).`
         : null;
-      const watchTitle = o.setupKind === 'trade2_watch'
-        ? `Red Bar Watch · Trade 2 H1→M5 — need sweep of 1H H/L then 5m close-through (${biasDir})`
-        : o.setupKind === 'fib_pullback'
-          ? `Red Bar Bias: ${biasDir} · Near mark-window Fibs (targets) — not ENTER`
-          : o.setupKind === 'pivot_reversal'
-            ? `Bias Conflict · Crossed 1H Red vs Fibs (Stay Flat)`
-            : `Red Bar Bias: ${biasDir} · Waiting Trade 1 / Trade 2 / Sweep`;
+      const s3 = o.playbook?.setup3;
+      const watchTitle = o.setupKind === 'setup3_primed'
+        ? `Setup 3 Watch · 30m 5 EMA Rubber Band Primed (${s3?.detachedCount || 4} bars detached) · Watch Barricade ($${this._fmt(s3?.barricade)})`
+        : o.setupKind === 'trade2_watch'
+          ? `Red Bar Watch · Trade 2 H1→M5 — need sweep of 1H H/L then 5m close-through (${biasDir})`
+          : o.setupKind === 'fib_pullback'
+            ? `Red Bar Bias: ${biasDir} · Near mark-window Fibs (targets) — not ENTER`
+            : o.setupKind === 'pivot_reversal'
+              ? `Bias Conflict · Crossed 1H Red vs Fibs (Stay Flat)`
+              : `Red Bar Bias: ${biasDir} · Waiting Trade 1 / Trade 2 / Sweep / Setup 3`;
       const watchExit = useLadder
         ? `If Trade 2 prints — 1️⃣ Stop (${stopTag}): ${this._fmt(o.invalidation)}${stopPctStr} · 2️⃣ 50% @ 1:1 ${tp1Str} → SL→BE · 3️⃣ Trail 1:2 ${tp2Str} · 4️⃣ TP 1:3 ${tp3Str}.${stopWarn}`
         : `If a Red Bar trigger prints — 1️⃣ Stop (${stopTag}): ${this._fmt(o.invalidation)}${stopPctStr} · 2️⃣ 50% TP (1:1): ${tp1Str}${oneRPctStr} · 3️⃣ Runner (Stretch ${this._fmt(o.bookZone)} · ${rrStr}).${stopWarn}`;
@@ -1368,7 +1382,7 @@ const RangeEmaUI = {
           <span class="lg price">Candles (${this.activeTf()})</span>
           <span class="lg ema10">EMA ${c.emaFast || 10}</span>
           <span class="lg ema30">EMA ${c.emaSlow || 30}</span>
-          <span class="lg band">${this._isFibStyle(r) ? `Fib 0·44·50·56·1${r.instrument?.markLabel ? ` · ${r.instrument.markLabel}` : ''}` : 'Day ranges'}</span>
+          <span class="lg band">${this._isFibStyle(r) ? `POB 44–56 (Point of Balance) · Fib 0/1${r.instrument?.markLabel ? ` · ${r.instrument.markLabel}` : ''}` : 'Day ranges'}</span>
           <span class="lg stop">${o.firstRedLabel || '1H'} first red H/L</span>
           <span class="lg sess-london rb-lg-desk">Session opens</span>
           <span class="lg rb-lg-desk" style="border-left:3px solid #22c55e; color:#94a3b8; padding-left:4px;">Prev Fib Box</span>
@@ -2388,6 +2402,73 @@ const RangeEmaUI = {
   },
 
   /**
+   * Dr. Devendra Pratap Singh Setup 3: 30m 5 EMA Rubber Band overlay (Barricade & 30m 5 EMA Target).
+   */
+  _setup3Plugin() {
+    return {
+      id: 'rbSetup3',
+      afterDatasetsDraw(chart) {
+        const s3 = chart.$rbSetup3;
+        if (!s3 || (!s3.primed && !s3.triggered)) return;
+        const yScale = chart.scales.y;
+        const area = chart.chartArea;
+        if (!yScale || !area) return;
+        const ctx = chart.ctx;
+        const compact = !!chart.$rbCompact;
+
+        ctx.save();
+
+        // 1. Barricade level line (Amber dotted)
+        if (s3.barricade != null && Number.isFinite(s3.barricade)) {
+          const yB = yScale.getPixelForValue(s3.barricade);
+          if (Number.isFinite(yB) && yB >= area.top && yB <= area.bottom) {
+            ctx.strokeStyle = 'rgba(251, 191, 36, 0.85)';
+            ctx.lineWidth = 1.3;
+            ctx.setLineDash([4, 3]);
+            ctx.beginPath();
+            ctx.moveTo(area.left, yB);
+            ctx.lineTo(area.right, yB);
+            ctx.stroke();
+
+            ctx.fillStyle = 'rgba(251, 191, 36, 0.95)';
+            ctx.font = compact
+              ? 'bold 8.5px Outfit, system-ui, sans-serif'
+              : 'bold 9.5px Outfit, system-ui, sans-serif';
+            ctx.textAlign = 'left';
+            ctx.textBaseline = 'bottom';
+            ctx.fillText(`🚧 Barricade ${Number(s3.barricade).toFixed(0)}`, area.left + 6, yB - 2);
+          }
+        }
+
+        // 2. 30m 5 EMA Target line (Cyan dashed)
+        if (s3.ema5 != null && Number.isFinite(s3.ema5)) {
+          const yEma = yScale.getPixelForValue(s3.ema5);
+          if (Number.isFinite(yEma) && yEma >= area.top && yEma <= area.bottom) {
+            ctx.strokeStyle = 'rgba(56, 189, 248, 0.85)';
+            ctx.lineWidth = 1.3;
+            ctx.setLineDash([6, 4]);
+            ctx.beginPath();
+            ctx.moveTo(area.left, yEma);
+            ctx.lineTo(area.right, yEma);
+            ctx.stroke();
+
+            ctx.fillStyle = 'rgba(56, 189, 248, 0.95)';
+            ctx.font = compact
+              ? 'bold 8.5px Outfit, system-ui, sans-serif'
+              : 'bold 9.5px Outfit, system-ui, sans-serif';
+            ctx.textAlign = 'right';
+            ctx.textBaseline = 'bottom';
+            ctx.fillText(`🧲 30m 5 EMA Target ${Number(s3.ema5).toFixed(0)}`, area.right - 6, yEma - 2);
+          }
+        }
+
+        ctx.setLineDash([]);
+        ctx.restore();
+      },
+    };
+  },
+
+  /**
    * Price markers on the RIGHT Y-axis (TradingView-style) — replaces chart-wide dotted levels.
    */
   _levelTagsPlugin() {
@@ -3133,6 +3214,7 @@ const RangeEmaUI = {
         this._bandZonesPlugin(),
         this._priorFibPlugin(),
         this._firstRed1hPlugin(),
+        this._setup3Plugin(),
         this._candlePlugin(),
         this._sessionPlugin(),
         this._levelTagsPlugin(),
@@ -3547,6 +3629,7 @@ const RangeEmaUI = {
     this._chart.$rbFirstRed1h = o.firstRed1h || null;
     this._chart.$rbFirstRedFibs = o.firstRedFibs || o.playbook?.redSetup?.fibs || null;
     this._chart.$rbShowFirstRed = showPivot;
+    this._chart.$rbSetup3 = o.setup3 || o.playbook?.setup3 || null;
     this._chart.$rbLevelTags = levelTags;
     this._chart.$rbCompact = compact;
     this._chart.$rbUI = this;
