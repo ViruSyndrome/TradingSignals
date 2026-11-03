@@ -1141,16 +1141,19 @@ const RangeEmaUI = {
     document.querySelectorAll('[data-rb-tf]').forEach((btn) => {
       btn.addEventListener('click', () => this.setTf(btn.getAttribute('data-rb-tf')));
     });
-    document.getElementById('rbZoomIn')?.addEventListener('click', () => {
-      try { this._chart?.zoom?.(1.35); } catch (_) {}
-    });
-    document.getElementById('rbZoomOut')?.addEventListener('click', () => {
-      try { this._chart?.zoom?.(0.75); } catch (_) {}
-    });
+    const doZoom = (factor) => {
+      if (!this._chart) return;
+      this._chart.$rbUserZoomed = true;
+      try { this._chart.zoom?.(factor); } catch (_) {}
+    };
+    document.getElementById('rbZoomIn')?.addEventListener('click', () => doZoom(1.35));
+    document.getElementById('rbZoomOut')?.addEventListener('click', () => doZoom(0.75));
     const resetChartFit = () => {
       this.state.chartPanOffset = 0;
+      this._forceResetZoom = true;
       const ch = this._chart;
       if (ch) {
+        ch.$rbUserZoomed = false;
         if (ch.scales?.y) {
           delete ch.scales.y.options.min;
           delete ch.scales.y.options.max;
@@ -1168,6 +1171,7 @@ const RangeEmaUI = {
       if (!ch) return;
       const yScale = ch.scales?.y;
       if (!yScale) return;
+      ch.$rbUserZoomed = true;
       const span = (yScale.max - yScale.min);
       const delta = span * 0.15 * dir;
       // dir = +1 means shift view UP (increase min & max), dir = -1 means shift DOWN
@@ -1179,23 +1183,20 @@ const RangeEmaUI = {
     document.getElementById('rbFloatPanDown')?.addEventListener('click', () => panPrice(-1));
     document.getElementById('rbPanUp')?.addEventListener('click', () => panPrice(1));
     document.getElementById('rbPanDown')?.addEventListener('click', () => panPrice(-1));
-    document.getElementById('rbFloatZoomIn')?.addEventListener('click', () => {
-      try { this._chart?.zoom?.(1.35); } catch (_) {}
-    });
-    document.getElementById('rbFloatZoomOut')?.addEventListener('click', () => {
-      try { this._chart?.zoom?.(0.75); } catch (_) {}
-    });
+    document.getElementById('rbFloatZoomIn')?.addEventListener('click', () => doZoom(1.35));
+    document.getElementById('rbFloatZoomOut')?.addEventListener('click', () => doZoom(0.75));
     const panBy = (dir) => {
       const ch = this._chart;
       let panned = false;
       if (ch && typeof ch.pan === 'function') {
         const xScale = ch.scales?.x;
-        const isZoomed = ch.isZoomedOrPanned ? ch.isZoomedOrPanned() : (xScale && (xScale.min > 0.5 || xScale.max < (ch.$rbBars?.length - 1.5)));
+        const isZoomed = ch.$rbUserZoomed || (ch.isZoomedOrPanned ? ch.isZoomedOrPanned() : (xScale && (xScale.min > 0.5 || xScale.max < (ch.$rbBars?.length - 1.5))));
         if (isZoomed && xScale) {
           try {
             const prevMin = xScale.min;
             ch.pan({ x: dir * 80 }, undefined, 'default');
             if (Math.abs(xScale.min - prevMin) > 0.1) {
+              ch.$rbUserZoomed = true;
               panned = true;
             }
           } catch (_) {}
@@ -3843,6 +3844,52 @@ const RangeEmaUI = {
       levelTags.length = 3;
     }
 
+    // Binance / Dhan-style Viewport Lock:
+    // Preserve user's X and Y zoom/pan across background auto-refreshes on the same instrument + timeframe
+    const viewKey = `${inst.id || priceLabel}:${tf}:${this.state.chartMode || 'candles'}`;
+    let savedXMin = undefined;
+    let savedXMax = undefined;
+    let savedYMin = yLo - pad;
+    let savedYMax = yHi + pad;
+    let preservedUserZoom = false;
+    let isSameView = false;
+
+    if (this._forceResetZoom) {
+      this._forceResetZoom = false;
+    } else if (this._chart && this._chart.$rbViewKey === viewKey) {
+      isSameView = true;
+      const prevX = this._chart.scales?.x;
+      const prevY = this._chart.scales?.y;
+      const prevN = this._chart.$rbBars?.length || n;
+      const wasZoomed = !!(
+        this._chart.$rbUserZoomed
+        || (this._chart.isZoomedOrPanned && this._chart.isZoomedOrPanned())
+        || (prevX && (prevX.min > 0.5 || prevX.max < prevN - 1.5))
+      );
+      if (wasZoomed && prevX && Number.isFinite(prevX.min) && Number.isFinite(prevX.max)) {
+        preservedUserZoom = true;
+        const visCount = Math.max(8, prevX.max - prevX.min);
+        const atRightEdge = (prevN - 1 - prevX.max) <= 1.5;
+        if (atRightEdge) {
+          // User was zoomed in at the live right edge — keep the exact bar count anchored to latest candle
+          savedXMax = n - 1;
+          savedXMin = Math.max(0, Math.round(n - 1 - visCount));
+        } else {
+          // User panned back in history — keep the same timestamp window locked
+          const prevTimes = this._chart.$rbTimes || [];
+          const prevStartTs = prevTimes[Math.max(0, Math.round(prevX.min))];
+          let matchedIdx = prevStartTs != null ? times.findIndex((t) => t >= prevStartTs) : -1;
+          if (matchedIdx < 0) matchedIdx = Math.max(0, Math.min(n - 1, Math.round(prevX.min)));
+          savedXMin = matchedIdx;
+          savedXMax = Math.min(n - 1, Math.round(matchedIdx + visCount));
+        }
+        if (prevY && Number.isFinite(prevY.min) && Number.isFinite(prevY.max)) {
+          savedYMin = prevY.min;
+          savedYMax = prevY.max;
+        }
+      }
+    }
+
     this.destroyChart();
     this._chart = new Chart(canvas.getContext('2d'), {
       type: 'line',
@@ -3860,7 +3907,7 @@ const RangeEmaUI = {
       options: {
         responsive: true,
         maintainAspectRatio: false,
-        animation: { duration: compact ? 0 : 280 },
+        animation: { duration: (compact || isSameView) ? 0 : 280 },
         interaction: { mode: 'index', intersect: false },
         events: ['mousemove', 'mouseout', 'click', 'touchstart', 'touchmove'],
         onClick: (event, activeElements) => {
@@ -4317,6 +4364,10 @@ const RangeEmaUI = {
               mode: 'xy',
               threshold: 6,
               modifierKey: null,
+              onPanComplete({ chart }) {
+                chart.$rbUserZoomed = true;
+                try { chart.update('none'); } catch (_) {}
+              },
             },
             zoom: {
               wheel: { enabled: !compact, speed: 0.12 },
@@ -4330,9 +4381,11 @@ const RangeEmaUI = {
               // Pinch/wheel zoom both axes so day-range gaps open up
               mode: 'xy',
               onZoomComplete({ chart }) {
+                chart.$rbUserZoomed = true;
                 try { chart.update('none'); } catch (_) {}
               },
               onPanComplete({ chart }) {
+                chart.$rbUserZoomed = true;
                 try { chart.update('none'); } catch (_) {}
               },
             },
@@ -4342,6 +4395,8 @@ const RangeEmaUI = {
           x: {
             type: 'category',
             offset: true,
+            ...(savedXMin != null ? { min: savedXMin } : {}),
+            ...(savedXMax != null ? { max: savedXMax } : {}),
             grid: {
               color: 'rgba(255,255,255,0.05)',
               display: !compact,
@@ -4384,8 +4439,8 @@ const RangeEmaUI = {
           },
           y: {
             position: 'right',
-            min: yLo - pad,
-            max: yHi + pad,
+            min: savedYMin,
+            max: savedYMax,
             grid: { color: 'rgba(255,255,255,0.06)' },
             ticks: {
               color: 'rgba(255,255,255,0.45)',
@@ -4398,6 +4453,8 @@ const RangeEmaUI = {
         },
       },
     });
+    this._chart.$rbViewKey = viewKey;
+    this._chart.$rbUserZoomed = preservedUserZoom;
     this._chart.$rbBars = bars;
     this._chart.$rbChartMode = this.state.chartMode || 'candles';
     if (this._chart.$rbChartMode === 'renko' && typeof RedBarTrend !== 'undefined' && RedBarTrend.buildRenkoSeries) {
