@@ -2720,12 +2720,10 @@ const RedBarTrend = {
         maxEntryMins: 180,
         freshMins: 20,
       };
-    } else if (bars5m && (instId === 'BTC' || instId === 'XAU' || instId === 'NG')) {
+    } else if (bars5m && (instId === 'XAU' || instId === 'NG')) {
       const primes = instId === 'XAU'
         ? this.XAU_POB_PRIMES
-        : instId === 'NG'
-          ? this.NG_POB_PRIMES
-          : this.BTC_POB_PRIMES;
+        : this.NG_POB_PRIMES;
       xCandle5m = this.findPrimeSessionXCandle5m(bars5m, evalTs, {
         timeZone: 'Asia/Kolkata',
         primes,
