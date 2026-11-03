@@ -60,7 +60,7 @@ const Dashboard = {
   },
 
   _tradeBotUrl() {
-    const fallback = 'https://precision-helmet-belfast-republic.trycloudflare.com';
+    const fallback = 'https://real-follows-wav-seal.trycloudflare.com';
     try {
       const local = localStorage.getItem(this.TRADE_BOT_URL_KEY);
       if (local && local.trim()) return local.trim().replace(/\/$/, '');

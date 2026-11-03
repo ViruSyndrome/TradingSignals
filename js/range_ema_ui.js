@@ -320,7 +320,7 @@ const RangeEmaUI = {
       if (ls && String(ls).trim()) return String(ls).trim().replace(/\/$/, '');
     } catch (_) {}
     if (typeof DeskAlerts !== 'undefined') return DeskAlerts._botBaseUrl?.() || DeskAlerts.DEFAULT_BOT_URL;
-    return 'https://precision-helmet-belfast-republic.trycloudflare.com';
+    return 'https://real-follows-wav-seal.trycloudflare.com';
   },
 
   _tradeSecret() {

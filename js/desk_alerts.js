@@ -10,7 +10,7 @@ const DeskAlerts = {
   TTL_MS: 4 * 60 * 60 * 1000,
   // Oracle bot via Cloudflare quick tunnel (Render is alert-only / outdated).
   // If tunnel URL rotates after cloudflared restart, update Settings → Bot URL.
-  DEFAULT_BOT_URL: 'https://precision-helmet-belfast-republic.trycloudflare.com',
+  DEFAULT_BOT_URL: 'https://real-follows-wav-seal.trycloudflare.com',
 
   enabled() {
     try {
@@ -48,8 +48,8 @@ const DeskAlerts = {
     if (!url) return '';
     try {
       const cur = String(localStorage.getItem('trade_bot_url') || '').trim();
-      // Migrate off dead/outdated Render host so Place two-leg hits Oracle
-      if (!cur || /onrender\.com/i.test(cur)) {
+      // Migrate off dead/outdated Render host or rotated trycloudflare tunnel so Place two-leg hits Oracle
+      if (!cur || /onrender\.com|precision-helmet-belfast-republic\.trycloudflare\.com/i.test(cur)) {
         localStorage.setItem('trade_bot_url', url);
         return url;
       }
