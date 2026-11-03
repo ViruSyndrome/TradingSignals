@@ -665,14 +665,24 @@ const RedBarTrend = {
     const dayMode = cfg.dayMode || 'ist';
     const now = cfg.asOfTs != null ? cfg.asOfTs : Date.now();
     const barMs = cfg.barMs != null ? cfg.barMs : 3600000; // 1H default
+    // On 24/7 early-morning session-Fib assets (BTC 02:30–03:30 IST, XAU 01:30–02:30 IST),
+    // 00:30 & 01:30 IST belong to the prior US close and the mark window is the day's open anchor.
+    // Anchor today's 1H first-red only after that early mark window completes (endHour <= 6).
+    const window = this.getMarkWindow(cfg);
+    const isEarlyMark = !!(window && this.isSessionFib(cfg) && Number(window.endHour) <= 6);
+    const markEndTs = isEarlyMark
+      ? this.zonedClockToUtc(asOfDay, window.timeZone || 'Asia/Kolkata', window.endHour, window.endMinute)
+      : null;
     const dayBars = [];
     for (let i = 0; i < bars.length; i++) {
       if (this.dayKey(bars[i].t, dayMode) !== asOfDay) continue;
       if (bars[i].t + barMs > now) continue; // still forming
+      if (markEndTs != null && bars[i].t < markEndTs - 1000) continue;
       dayBars.push({ bar: bars[i], index: i });
     }
-    // Need at least open bar + one later bar
-    for (let j = 1; j < dayBars.length; j++) {
+    // If markEndTs already skipped the mark-window open candle, start at 0; else skip dayBars[0]
+    const startJ = markEndTs != null ? 0 : 1;
+    for (let j = startJ; j < dayBars.length; j++) {
       const { bar, index } = dayBars[j];
       if (bar.c < bar.o) {
         return {
@@ -1297,93 +1307,80 @@ const RedBarTrend = {
     }
     if (!closed.length) return null;
 
-    // Newest closed bars first — require sweep on the trigger bar or earlier
-    for (let i = closed.length - 1; i >= 0; i--) {
-      const trig = closed[i];
-      // Fresh trigger only — stale ENTERs were sitting on the desk for ~1h and inviting chases
-      if (asOfTs != null && (asOfTs - trig.t) > 20 * 60 * 1000) break;
-
-      let sweepHi = trig.h > hi ? trig.h : null;
-      let sweepLo = trig.l < lo ? trig.l : null;
-      for (let j = 0; j < i; j++) {
-        if (closed[j].h > hi) sweepHi = sweepHi == null ? closed[j].h : Math.max(sweepHi, closed[j].h);
-        if (closed[j].l < lo) sweepLo = sweepLo == null ? closed[j].l : Math.min(sweepLo, closed[j].l);
+    // Sticky confirm bar per sweep episode:
+    // A sweep episode begins when a 5m bar wicks beyond 1H high (or low) and confirms on
+    // the FIRST bar of that episode that closes back inside (< hi for short, > lo for long).
+    // Do NOT slide trig onto later bars after the sweep is already confirmed.
+    let activeSweepHi = null;
+    let activeSweepLo = null;
+    let lastShortConfirm = null;
+    let lastLongConfirm = null;
+    for (let i = 0; i < closed.length; i++) {
+      const b = closed[i];
+      if (b.h > hi) {
+        activeSweepHi = activeSweepHi == null ? b.h : Math.max(activeSweepHi, b.h);
       }
-
-      // SHORT: swept high, closed back below high (reel: CLOSED BELOW)
-      const shortTrig = sweepHi != null && trig.c < hi;
-      // LONG: swept low, closed back above low
-      const longTrig = sweepLo != null && trig.c > lo;
-
-      if (shortTrig && !longTrig) {
-        const medOk = trig.c < median;
-        return {
+      if (b.l < lo) {
+        activeSweepLo = activeSweepLo == null ? b.l : Math.min(activeSweepLo, b.l);
+      }
+      if (activeSweepHi != null && b.c < hi) {
+        lastShortConfirm = {
           side: 'bearish',
           read: 'liq_sweep_high',
-          bar: trig,
-          strong: medOk,
-          sweepExtreme: sweepHi,
+          bar: b,
+          strong: b.c < median,
+          sweepExtreme: activeSweepHi,
           level: hi,
           sellsOnly: true,
-          medianOk: medOk,
+          medianOk: b.c < median,
         };
+        activeSweepHi = null;
       }
-      if (longTrig && !shortTrig) {
-        const medOk = trig.c > median;
-        return {
+      if (activeSweepLo != null && b.c > lo) {
+        lastLongConfirm = {
           side: 'bullish',
           read: 'liq_sweep_low',
-          bar: trig,
-          strong: medOk,
-          sweepExtreme: sweepLo,
+          bar: b,
+          strong: b.c > median,
+          sweepExtreme: activeSweepLo,
           level: lo,
           buysOnly: true,
-          medianOk: medOk,
+          medianOk: b.c > median,
         };
-      }
-      // Both possible (rare): prefer the side that closed through relative to median
-      if (shortTrig && longTrig) {
-        if (trig.c < median) {
-          return {
-            side: 'bearish',
-            read: 'liq_sweep_high',
-            bar: trig,
-            strong: true,
-            sweepExtreme: sweepHi,
-            level: hi,
-            sellsOnly: true,
-            medianOk: true,
-          };
-        }
-        if (trig.c > median) {
-          return {
-            side: 'bullish',
-            read: 'liq_sweep_low',
-            bar: trig,
-            strong: true,
-            sweepExtreme: sweepLo,
-            level: lo,
-            buysOnly: true,
-            medianOk: true,
-          };
-        }
+        activeSweepLo = null;
       }
     }
 
-    // No liquidity close-through — median in zone = WATCH
+    const lastBar = closed[closed.length - 1];
+    const freshLimitMs = 20 * 60 * 1000;
+    const shortValid = lastShortConfirm
+      && (asOfTs == null || (asOfTs - lastShortConfirm.bar.t) <= freshLimitMs)
+      && lastBar.c < hi;
+    const longValid = lastLongConfirm
+      && (asOfTs == null || (asOfTs - lastLongConfirm.bar.t) <= freshLimitMs)
+      && lastBar.c > lo;
+
+    if (shortValid && !longValid) return lastShortConfirm;
+    if (longValid && !shortValid) return lastLongConfirm;
+    if (shortValid && longValid) {
+      if (lastShortConfirm.bar.t !== lastLongConfirm.bar.t) {
+        return lastShortConfirm.bar.t > lastLongConfirm.bar.t ? lastShortConfirm : lastLongConfirm;
+      }
+      return lastBar.c <= median ? lastShortConfirm : lastLongConfirm;
+    }
+
+    // No fresh liquidity close-through — check ONLY the latest closed 5m bar in zone for WATCH
     const tol = (touchPct / 100) * firstRed.high;
     const zoneHi = Math.max(hi, fibs.f44) + tol;
     const zoneLo = Math.min(lo, fibs.f56) - tol;
-    for (let i = closed.length - 1; i >= 0; i--) {
-      const b = closed[i];
-      if (!(b.l <= zoneHi && b.h >= zoneLo)) continue;
-      if (b.c > median) {
-        return { side: 'bullish', read: 'median_watch', bar: b, strong: false, sweepExtreme: null, medianOk: true };
+    if (lastBar && lastBar.l <= zoneHi && lastBar.h >= zoneLo) {
+      if (lastBar.c > median) {
+        return { side: 'bullish', read: 'median_watch', bar: lastBar, strong: false, sweepExtreme: null, medianOk: true };
       }
-      if (b.c < median) {
-        return { side: 'bearish', read: 'median_watch', bar: b, strong: false, sweepExtreme: null, medianOk: true };
+      if (lastBar.c < median) {
+        return { side: 'bearish', read: 'median_watch', bar: lastBar, strong: false, sweepExtreme: null, medianOk: true };
       }
-      return { side: null, read: 'at_median', bar: b, strong: false, sweepExtreme: null };
+      return { side: null, read: 'at_median', bar: lastBar, strong: false, sweepExtreme: null };
     }
     return null;
   },
@@ -2033,13 +2030,33 @@ const RedBarTrend = {
     let localHigh = workRecent.length ? Math.max(...workRecent.map((b) => b.h)) : null;
     let swingStopTagLow = 'prev swing low';
     let swingStopTagHigh = 'prev swing high';
-    // Trade 2: lock SL to 5m swing (not working-TF / 15m yet)
+    const extra5mLowCands = [];
+    const extra5mHighCands = [];
+    // Trade 2 / DNA: lock SL to 5m swing (not working-TF / 15m yet)
     if (preferSwingStop && Array.isArray(bars5m) && bars5m.length >= 10) {
       const i5 = bars5m.length - 1;
       const sw5 = this.nearestSwings(bars5m, i5, 2);
       const recent5 = bars5m.slice(-24); // ~2h of 5m structure
       const min5 = Math.min(...recent5.map((b) => b.l));
       const max5 = Math.max(...recent5.map((b) => b.h));
+      // Collect all completed 5m fractal swings in the last ~4h so a micro-wick <0.28%
+      // does not hide a real 5m swing low/high sitting inside the 0.28%–1.0% stop window.
+      const start5 = Math.max(2, i5 - 48);
+      for (let j = start5; j <= i5 - 2; j++) {
+        const b = bars5m[j];
+        if (b.l < bars5m[j - 1].l && b.l < bars5m[j - 2].l && b.l < bars5m[j + 1].l && b.l < bars5m[j + 2].l) {
+          extra5mLowCands.push(b.l);
+        }
+        if (b.h > bars5m[j - 1].h && b.h > bars5m[j - 2].h && b.h > bars5m[j + 1].h && b.h > bars5m[j + 2].h) {
+          extra5mHighCands.push(b.h);
+        }
+      }
+      if (sw5.swingLow != null) extra5mLowCands.push(sw5.swingLow);
+      if (sw5.nearLow != null) extra5mLowCands.push(sw5.nearLow);
+      if (Number.isFinite(min5)) extra5mLowCands.push(min5);
+      if (sw5.swingHigh != null) extra5mHighCands.push(sw5.swingHigh);
+      if (sw5.nearHigh != null) extra5mHighCands.push(sw5.nearHigh);
+      if (Number.isFinite(max5)) extra5mHighCands.push(max5);
       // Prefer nearest completed 5m swing; fall back to recent 5m extreme
       localLow = (sw5.nearLow != null ? sw5.nearLow : sw5.swingLow) ?? min5;
       localHigh = (sw5.nearHigh != null ? sw5.nearHigh : sw5.swingHigh) ?? max5;
@@ -2066,6 +2083,7 @@ const RedBarTrend = {
         ? [
           // Public USD-M winners: prefer 5m swing over sweep wick / 1H red (wick-only bled)
           localLow != null && localLow < price ? { v: localLow - pad, tag: swingStopTagLow } : null,
+          ...extra5mLowCands.filter((v) => v != null && v < price).map((v) => ({ v: v - pad, tag: '5m swing low' })),
           sweepExtreme != null && sweepExtreme < price ? { v: sweepExtreme - pad, tag: '5m sweep wick (1H low)' } : null,
           sweep?.side === 'bullish' && sweep.wickExtreme != null ? { v: sweep.wickExtreme - pad, tag: 'session sweep wick' } : null,
           firstRed1h?.low != null && firstRed1h.low < price ? { v: firstRed1h.low - pad, tag: '1H red low' } : null,
@@ -2122,6 +2140,7 @@ const RedBarTrend = {
       const rawCands = preferSwingStop
         ? [
           localHigh != null && localHigh > price ? { v: localHigh + pad, tag: swingStopTagHigh } : null,
+          ...extra5mHighCands.filter((v) => v != null && v > price).map((v) => ({ v: v + pad, tag: '5m swing high' })),
           sweepExtreme != null && sweepExtreme > price ? { v: sweepExtreme + pad, tag: '5m sweep wick (1H high)' } : null,
           sweep?.side === 'bearish' && sweep.wickExtreme != null ? { v: sweep.wickExtreme + pad, tag: 'session sweep wick' } : null,
           firstRed1h?.high != null && firstRed1h.high > price ? { v: firstRed1h.high + pad, tag: '1H red high' } : null,
@@ -2502,13 +2521,15 @@ const RedBarTrend = {
 
     // Composite trend & setup classification (Sagar DNA + Dr. Dev):
     // 1. Mark window still forming -> WAIT
-    // 2. Trade 1 fresh departure (Sagar DNA) WINS over Trade 2
-    // 3. Trade 2 revisit (H1 liquidity → 5m close-through)
-    // 4. Session liquidity sweep
-    // 5. Dr. Dev POB reject (X-Candle retest) — own setup; WATCH until walk-forward PASS
-    // 6. Setup 3 rubber band — overlay only
-    // 7. Inside Fib box -> WAIT
-    // 8. Fib break bias / pullback
+    // 2. Actionable setups ALWAYS beat passive watch states:
+    //    trade1_departure -> pob_reject -> trade2_confirmed -> session_sweep
+    // 3. Active Prime-Session POB watch (5m X-Candle marked, awaiting 44-56 retest/reject)
+    // 4. Setup 3 rubber band overlay -> Trade 2 revisit watch
+    // 5. Inside Fib box -> WAIT
+    // 6. Fib break bias / pullback
+    const isBtcWatchOnlyT2 = (!instId || instId === 'BTC')
+      && redSetup.revisitSide === 'bullish'
+      && redSetup.revisitRead === 'liq_sweep_low';
     let trend = 'neutral';
     let setupKind = 'wait';
     if (phase === 'first_candle') {
@@ -2518,21 +2539,17 @@ const RedBarTrend = {
       // Fresh leave of 1H first-red — do not steal into Trade 2 sweep window
       trend = redSetup.leftAbove ? 'bullish' : 'bearish';
       setupKind = 'trade1_departure';
-    } else if (redSetup.revisitSide) {
-      trend = redSetup.revisitSide;
-      setupKind = redSetup.revisitStrong ? 'trade2_confirmed' : 'trade2_watch';
-    } else if (redSetup.revisitWindow) {
-      trend = orBias === 'bull' ? 'bullish' : orBias === 'bear' ? 'bearish' : 'neutral';
-      setupKind = 'trade2_watch';
-      if (trend === 'neutral') trend = redSetup.leftAbove ? 'bullish' : redSetup.leftBelow ? 'bearish' : 'neutral';
-    } else if (sweep) {
-      trend = sweep.side;
-      setupKind = 'session_sweep';
     } else if (pobReject && pobReject.triggered && pobReject.side) {
       trend = pobReject.side;
       setupKind = 'pob_reject';
-    } else if (pobReject && (pobReject.watching || pobReject.status === 'await_retest' || pobReject.status === 'x_candle_wait')) {
-      if (pobReject.side) trend = pobReject.side;
+    } else if (redSetup.revisitSide && redSetup.revisitStrong && !isBtcWatchOnlyT2) {
+      trend = redSetup.revisitSide;
+      setupKind = 'trade2_confirmed';
+    } else if (sweep) {
+      trend = sweep.side;
+      setupKind = 'session_sweep';
+    } else if (pobReject && pobReject.watching) {
+      trend = pobReject.side || 'bearish';
       setupKind = 'pob_reject_watch';
     } else if (setup3 && setup3.triggered) {
       trend = setup3.direction;
@@ -2540,6 +2557,16 @@ const RedBarTrend = {
     } else if (setup3 && setup3.primed) {
       trend = setup3.direction;
       setupKind = 'setup3_primed';
+    } else if (redSetup.revisitSide) {
+      trend = redSetup.revisitSide;
+      setupKind = redSetup.revisitStrong ? 'trade2_confirmed' : 'trade2_watch';
+    } else if (redSetup.revisitWindow) {
+      trend = orBias === 'bull' ? 'bullish' : orBias === 'bear' ? 'bearish' : 'neutral';
+      setupKind = 'trade2_watch';
+      if (trend === 'neutral') trend = redSetup.leftAbove ? 'bullish' : redSetup.leftBelow ? 'bearish' : 'neutral';
+    } else if (pobReject && (pobReject.status === 'await_retest' || pobReject.status === 'x_candle_wait')) {
+      trend = pobReject.side || 'bearish';
+      setupKind = 'pob_reject_watch';
     } else if (phase === 'inside_or') {
       trend = 'neutral';
       setupKind = 'wait';

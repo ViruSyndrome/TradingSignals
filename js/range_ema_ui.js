@@ -707,6 +707,7 @@ const RangeEmaUI = {
           bars: bars30,
           sessionBand: readout?.currentBand,
           refs: readout?.refs,
+          instrumentId: instrument.id,
         });
       }
     } catch (e) {
@@ -1361,7 +1362,19 @@ const RangeEmaUI = {
     // US equity cash close / CME settle only (01:15–02:30 IST) — NOT the whole evening
     const isUsClose = (curMins >= 75 && curMins < 150);
 
-    const activeSessionName = isMark ? 'Daily Mark Window (02:30–03:30 IST)'
+    const isNiftyInst = String(r.instrument?.id || '').toUpperCase() === 'NIFTY';
+    const isNsePrime = isNiftyInst && curMins >= 555 && curMins < 735;
+    const isNseHunt = isNiftyInst && curMins >= 735 && curMins <= 795;
+    const isNseAfternoon = isNiftyInst && curMins > 795 && curMins < 915;
+    const isNseMark = isNiftyInst && curMins >= 915 && curMins <= 945;
+
+    const activeSessionName = isNiftyInst
+      ? (isNsePrime ? 'NSE Prime POB & Trade 1 (09:15–12:15 IST)'
+        : isNseHunt ? '12:45 PM Liquidity Hunt (12:15–13:15 IST)'
+        : isNseAfternoon ? 'NSE Afternoon Session (13:15–15:15 IST)'
+        : isNseMark ? 'NSE Close Mark Window (15:15–15:45 IST)'
+        : 'NSE Closed (Opens 09:15 IST)')
+      : isMark ? 'Daily Mark Window (02:30–03:30 IST)'
       : isNy ? `New York Open (${nyOpenStr}–${nyEndStr} IST)`
       : isAsia ? `Asia Session (05:30–${lonOpenStr} IST)`
       : isLon ? `London Session (${lonOpenStr}–${nyOpenStr} IST)`
@@ -1370,15 +1383,18 @@ const RangeEmaUI = {
       : 'Off-prime / dead hours';
 
     // Trigger level text for Stepper
-    const trigLevelStr = o.firstRed1h
-      ? `1H Red ${this._fmt(o.firstRed1h.low)}–${this._fmt(o.firstRed1h.high)}`
-      : o.playbook?.magnetBelow
-        ? `Fib ↓ ${this._fmt(o.playbook.magnetBelow.price)}`
-        : o.playbook?.magnetAbove
-          ? `Fib ↑ ${this._fmt(o.playbook.magnetAbove.price)}`
-          : 'Testing Equilibrium';
+    const activePob = o.pobReject || o.playbook?.pobReject;
+    const trigLevelStr = (activePob?.pobLo != null && (o.setupKind === 'pob_reject' || o.setupKind === 'pob_reject_watch'))
+      ? `POB 44–56: ${this._fmt(activePob.pobLo)}–${this._fmt(activePob.pobHi)}`
+      : o.firstRed1h
+        ? `1H Red ${this._fmt(o.firstRed1h.low)}–${this._fmt(o.firstRed1h.high)}`
+        : o.playbook?.magnetBelow
+          ? `Fib ↓ ${this._fmt(o.playbook.magnetBelow.price)}`
+          : o.playbook?.magnetAbove
+            ? `Fib ↑ ${this._fmt(o.playbook.magnetAbove.price)}`
+            : 'Testing Equilibrium';
 
-    const prime = this._getPrimeWindowStatus(nowMs);
+    const prime = this._getPrimeWindowStatus(nowMs, r.instrument?.id);
 
     // 1. Chart Wrap (TOP PRIORITY)
     const chartHtml = `
@@ -1694,10 +1710,28 @@ const RangeEmaUI = {
     const timelineHtml = `
       <div class="rb-session-timeline-card">
         <div class="rb-timeline-header">
-          <span style="font-weight:600; color:#cbd5e1;">24H Global Liquidity Rhythm</span>
+          <span style="font-weight:600; color:#cbd5e1;">${isNiftyInst ? '🇮🇳 NSE Intraday Liquidity Rhythm' : '24H Global Liquidity Rhythm'}</span>
           <span><span class="rb-live-pulse-dot"></span> Active: <strong style="color:#f8fafc;">${activeSessionName}</strong></span>
         </div>
         <div class="rb-timeline-track">
+          ${isNiftyInst ? `
+          <div class="rb-session-seg ${isNsePrime ? 'active' : ''} is-prime" title="09:15 IST 5m X-Candle POB &amp; 1H Trade 1 Window">
+            <span class="seg-time">09:15</span>
+            <span class="seg-name">NSE POB</span>
+          </div>
+          <div class="rb-session-seg ${isNseHunt ? 'active' : ''} is-prime" title="Dr. Dev 12:45 PM Institutional Liquidity Hunt (12:15–13:15 IST)">
+            <span class="seg-time">12:45</span>
+            <span class="seg-name">Liq Hunt</span>
+          </div>
+          <div class="rb-session-seg ${isNseAfternoon ? 'active' : ''}" title="NSE Afternoon Trend &amp; Setup 3 Window (13:15–15:15 IST)">
+            <span class="seg-time">13:15</span>
+            <span class="seg-name">Afternoon</span>
+          </div>
+          <div class="rb-session-seg ${isNseMark ? 'active' : ''}" title="NSE Closing Range Mark Window (15:15–15:45 IST)">
+            <span class="seg-time">15:15</span>
+            <span class="seg-name">Close Fib</span>
+          </div>
+          ` : `
           <div class="rb-session-seg ${isMark ? 'active' : ''}">
             <span class="seg-time">02:30</span>
             <span class="seg-name">Mark</span>
@@ -1722,6 +1756,7 @@ const RangeEmaUI = {
             <span class="seg-time">01:15</span>
             <span class="seg-name">US Close</span>
           </div>
+          `}
         </div>
 
         <!-- Prime Execution Windows Reference Matrix -->
@@ -2531,6 +2566,82 @@ const RangeEmaUI = {
   },
 
   /**
+   * Dr. Devendra Pratap Singh Setup 1: 5m Session X-Candle POB (0.44–0.56) corridor & Anchor Low (0.0) overlay.
+   */
+  _pobPlugin() {
+    return {
+      id: 'rbPobCorridor',
+      afterDatasetsDraw(chart) {
+        const pob = chart.$rbPobReject;
+        if (!pob || (!pob.watching && !pob.triggered && pob.status !== 'await_retest')) return;
+        if (pob.pobHi == null || pob.pobLo == null) return;
+        const xScale = chart.scales.x;
+        const yScale = chart.scales.y;
+        const area = chart.chartArea;
+        if (!yScale || !area) return;
+        const ctx = chart.ctx;
+        const compact = !!chart.$rbCompact;
+
+        let x0 = area.left;
+        const times = chart.$rbTimes;
+        const xT = pob.xCandle?.t;
+        if (xScale && Array.isArray(times) && times.length && xT != null && xT > times[0]) {
+          const firstIdx = times.findIndex((t) => t >= xT - 15 * 60000);
+          if (firstIdx >= 0) {
+            const px = xScale.getPixelForValue(firstIdx);
+            if (Number.isFinite(px)) x0 = Math.max(area.left, px);
+          }
+        }
+        if (x0 >= area.right) return;
+
+        const yHi = yScale.getPixelForValue(pob.pobHi);
+        const yLo = yScale.getPixelForValue(pob.pobLo);
+        if (!Number.isFinite(yHi) || !Number.isFinite(yLo)) return;
+
+        ctx.save();
+        const top = Math.min(yHi, yLo);
+        const h = Math.max(2, Math.abs(yLo - yHi));
+        ctx.fillStyle = pob.triggered ? 'rgba(244, 63, 94, 0.14)' : 'rgba(168, 85, 247, 0.12)';
+        ctx.fillRect(x0, top, area.right - x0, h);
+
+        // POB 0.56 (SL ceiling) & POB 0.44 (entry edge)
+        const lines = [
+          { y: yHi, col: 'rgba(244, 63, 94, 0.85)', dash: [4, 3], txt: `POB 0.56 (SL) ${Number(pob.pobHi).toFixed(0)}` },
+          { y: yLo, col: 'rgba(192, 132, 252, 0.90)', dash: [5, 3], txt: `POB 0.44 (Entry) ${Number(pob.pobLo).toFixed(0)}` },
+        ];
+        const anchorLow = pob.xCandle?.low ?? pob.xCandle?.l;
+        if (anchorLow != null && Number.isFinite(anchorLow)) {
+          lines.push({
+            y: yScale.getPixelForValue(anchorLow),
+            col: 'rgba(74, 222, 128, 0.80)',
+            dash: [3, 3],
+            txt: `X-Low (TP1) ${Number(anchorLow).toFixed(0)}`,
+          });
+        }
+        ctx.font = compact
+          ? 'bold 8px Outfit, system-ui, sans-serif'
+          : 'bold 9px Outfit, system-ui, sans-serif';
+        for (const ln of lines) {
+          if (!Number.isFinite(ln.y) || ln.y < area.top || ln.y > area.bottom) continue;
+          ctx.strokeStyle = ln.col;
+          ctx.lineWidth = 1.25;
+          ctx.setLineDash(ln.dash);
+          ctx.beginPath();
+          ctx.moveTo(x0, ln.y);
+          ctx.lineTo(area.right, ln.y);
+          ctx.stroke();
+          ctx.fillStyle = ln.col;
+          ctx.textAlign = 'left';
+          ctx.textBaseline = 'bottom';
+          ctx.fillText(ln.txt, x0 + 6, ln.y - 2);
+        }
+        ctx.setLineDash([]);
+        ctx.restore();
+      },
+    };
+  },
+
+  /**
    * Dr. Devendra Pratap Singh Setup 3: 30m 5 EMA Rubber Band overlay (Barricade & 30m 5 EMA Target).
    */
   _setup3Plugin() {
@@ -2685,7 +2796,7 @@ const RangeEmaUI = {
     };
   },
 
-  _getPrimeWindowStatus(nowMs = Date.now()) {
+  _getPrimeWindowStatus(nowMs = Date.now(), instId = null) {
     const d = new Date(nowMs);
     const utcMins = d.getUTCHours() * 60 + d.getUTCMinutes() + (d.getUTCSeconds() / 60);
     const istMins = (utcMins + 330) % 1440;
@@ -2724,7 +2835,45 @@ const RangeEmaUI = {
     const lonOpenMins = this._getSessionOpenMins(nowMs, 'Europe/London', 8, 0);
     const fmtMins = (m) => `${String(Math.floor(((m % 1440) + 1440) % 1440 / 60)).padStart(2, '0')}:${String(((m % 1440) + 1440) % 1440 % 60).padStart(2, '0')}`;
 
-    const windows = [
+    const isNifty = String(instId || this.activeInstrument()?.id || '').toUpperCase() === 'NIFTY';
+    const windows = isNifty ? [
+      {
+        id: 'nse_open',
+        name: 'NSE Open · 5m POB & Trade 1',
+        code: 'NSE OPEN',
+        startIstMins: 555,   // 09:15 IST
+        endIstMins: 735,     // 12:15 IST
+        startStrIst: '09:15',
+        endStrIst: '12:15',
+        winRate: '94.9% 2Y POB WR',
+        headline: 'Dr. Dev 09:15 5m X-Candle POB & 1H Trade 1',
+        rule: 'First 5m red @ 09:15 = X-Candle → retest POB 44–56 → SHORT reject (Fill@0.44, SL@0.56, TP1 Anchor Low) or 1H Trade 1 leave'
+      },
+      {
+        id: 'nse_hunt',
+        name: '12:45 PM Liquidity Hunt',
+        code: '12:45 HUNT',
+        startIstMins: 735,   // 12:15 IST
+        endIstMins: 795,     // 13:15 IST
+        startStrIst: '12:15',
+        endStrIst: '13:15',
+        winRate: 'Dr. Dev Stop Hunt',
+        headline: 'Midday Institutional Liquidity Sweep',
+        rule: 'Flatten morning POB scalps by 12:45 PM; institutions hunt morning High/Low before European desks open'
+      },
+      {
+        id: 'nse_close',
+        name: 'NSE Close Mark Window',
+        code: 'CLOSE FIB',
+        startIstMins: 915,   // 15:15 IST
+        endIstMins: 945,     // 15:45 IST
+        startStrIst: '15:15',
+        endStrIst: '15:45',
+        winRate: 'Fib 0–1 Anchor',
+        headline: 'Closing Range Fib Anchor (15:15–15:45 IST)',
+        rule: 'High/Low wicks of 15:15–15:45 IST lock the Fib 0, POB 44–56, and Fib 1 levels for the next NSE session'
+      }
+    ] : [
       {
         id: 'asia',
         name: 'Asia Open / Daily Open',
@@ -3347,6 +3496,7 @@ const RangeEmaUI = {
         this._bandZonesPlugin(),
         this._priorFibPlugin(),
         this._firstRed1hPlugin(),
+        this._pobPlugin(),
         this._setup3Plugin(),
         this._candlePlugin(),
         this._sessionPlugin(),
@@ -3762,6 +3912,7 @@ const RangeEmaUI = {
     this._chart.$rbFirstRed1h = o.firstRed1h || null;
     this._chart.$rbFirstRedFibs = o.firstRedFibs || o.playbook?.redSetup?.fibs || null;
     this._chart.$rbShowFirstRed = showPivot;
+    this._chart.$rbPobReject = o.pobReject || o.playbook?.pobReject || null;
     this._chart.$rbSetup3 = o.setup3 || o.playbook?.setup3 || null;
     this._chart.$rbLevelTags = levelTags;
     this._chart.$rbCompact = compact;

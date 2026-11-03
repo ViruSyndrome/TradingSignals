@@ -190,13 +190,83 @@ const FibMagnet = {
    *  3. Pre-London Ramp/Drift (12:00-13:00 IST)
    *  4. Fib Magnet Pull (69.2% reversion probability)
    */
-  detectSessionTell({ bars, sessionBand, refs, asOfTs }) {
+  detectSessionTell({ bars, sessionBand, refs, asOfTs, instrumentId }) {
     const now = asOfTs || (bars && bars.length ? bars[bars.length - 1].t : Date.now());
     const d = new Date(now);
     const inv = new Date(d.toLocaleString('en-US', { timeZone: 'Asia/Kolkata' }));
     const hour = inv.getHours();
     const minute = inv.getMinutes();
     const mins = hour * 60 + minute;
+
+    if (!bars || bars.length < 5) return null;
+    const lastBar = bars[bars.length - 1];
+    const price = lastBar.c;
+
+    if (String(instrumentId || '').toUpperCase() === 'NIFTY') {
+      if (mins >= 555 && mins < 735) {
+        return {
+          id: 'nifty_prime_pob',
+          badge: '🇮🇳 NSE PRIME WINDOW',
+          session: 'NSE Open · POB & Trade 1 (09:15–12:15 IST)',
+          predictedDir: 'WATCH 09:15 5m X-CANDLE POB 44–56 OR 1H FIRST RED LEAVE',
+          confidence: '94.9% 2Y POB Win Rate',
+          headline: '🇮🇳 Dr. Dev 09:15 5m X-Candle POB & Sagar 1H Trade 1 Active',
+          detail: 'First 5m red candle at 09:15 IST = X-Candle. Wait for retest of POB 0.44–0.56 and 5m close < 0.44 for SHORT (SL @ 0.56, TP1 @ Anchor Low), or Trade 1 departure of 1H First Red.',
+          candleTime: lastBar.t,
+          type: 'neutral',
+        };
+      }
+      if (mins >= 735 && mins <= 795) {
+        return {
+          id: 'nifty_1245_hunt',
+          badge: '⚡ 12:45 PM LIQUIDITY HUNT',
+          session: 'Dr. Dev 12:45 PM Hunt Window (12:15–13:15 IST)',
+          predictedDir: 'FLATTEN MORNING SCALPS · WATCH H/L SWEEP',
+          confidence: 'Institutional Stop Hunt Window',
+          headline: '⚡ 12:45 PM IST Institutional Liquidity Sweep Window',
+          detail: 'Dr. Dev rule: flatten morning POB scalps by 12:45 PM. Institutions sweep morning High/Low around 12:45 PM before European desks open.',
+          candleTime: lastBar.t,
+          type: 'neutral',
+        };
+      }
+      if (mins >= 915 && mins <= 945) {
+        return {
+          id: 'nifty_close_mark',
+          badge: '📐 15:15–15:45 MARK WINDOW',
+          session: 'NSE Closing Range Mark Window (15:15–15:45 IST)',
+          predictedDir: 'LOCKING NEXT SESSION FIB 0 / POB 44–56 / FIB 1',
+          confidence: 'Closing Anchor Window',
+          headline: '📐 NSE 15:15–15:45 IST Closing Fib Box Forming',
+          detail: 'High and Low wicks of 15:15–15:45 IST lock the Fib 0, POB 44–56, and Fib 1 levels for the next NSE session.',
+          candleTime: lastBar.t,
+          type: 'neutral',
+        };
+      }
+      if (mins < 555 || mins > 945) {
+        return {
+          id: 'nifty_closed',
+          badge: '⏸️ NSE CLOSED',
+          session: 'NSE Cash Hours: 09:15–15:30 IST',
+          predictedDir: 'WAIT FOR 09:15 IST NSE OPEN BELL',
+          confidence: '94.9% 2Y POB Win Rate',
+          headline: '🇮🇳 NSE Closed — Next Prime POB X-Candle at 09:15 IST',
+          detail: 'Prior day 15:15–15:45 IST Mark Fibs and 1H First Red levels are locked on chart. Next live X-Candle forms at 09:15 IST.',
+          candleTime: lastBar.t,
+          type: 'neutral',
+        };
+      }
+      return {
+        id: 'nifty_afternoon',
+        badge: '🇮🇳 NSE AFTERNOON',
+        session: 'NSE Afternoon Session (13:15–15:15 IST)',
+        predictedDir: 'TRADE 1 DEPARTURE OR SETUP 3 RUBBER BAND',
+        confidence: 'Post-12:45 Trend Window',
+        headline: '🇮🇳 Post-12:45 PM Afternoon Continuation / Mean Reversion',
+        detail: 'Morning POB window closed (12:15 cutoff). Watch 1H First Red Trade 1 leave or 30m 5 EMA Rubber Band (Setup 3).',
+        candleTime: lastBar.t,
+        type: 'neutral',
+      };
+    }
 
     // Dynamic conversion tracking US & European Daylight Saving Time (DST)
     const getSessionMins = (tz, h, m) => {
@@ -217,10 +287,6 @@ const FibMagnet = {
     const nyEndStr = fmtHm(nyOpenMins + 60);
     const lonOpenStr = fmtHm(lonOpenMins);
     const lonEndStr = fmtHm(lonOpenMins + 75);
-
-    if (!bars || bars.length < 5) return null;
-    const lastBar = bars[bars.length - 1];
-    const price = lastBar.c;
 
     const asiaHigh = refs?.asiaHigh;
     const asiaLow = refs?.asiaLow;
