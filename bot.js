@@ -1025,21 +1025,24 @@ async function _maybeAutoFuturesTwoLeg({ inst, side, readout, alertKey, dayKey }
     console.warn('[RedBarBot] AUTO_TRADE skip — incomplete levels');
     return;
   }
-  // Sizing: REDBAR_TRADE_CAPITAL_USDT matches the desk risk calculator (default mental model $1000 @ 1%).
-  // Else fixed isolated margin via REDBAR_TRADE_MARGIN_USDT (legacy small-size mode).
-  const capital = Number(process.env.REDBAR_TRADE_CAPITAL_USDT) || 0;
-  const riskPct = Math.max(0.1, Math.min(5, Number(process.env.REDBAR_RISK_PCT) || 1));
-  const sz = readout.sizing || RedBarTrend.futuresSizing({
-    entry, stop, exit: tpB, capital: capital > 0 ? capital : 1000, riskPct,
+  // Risk Sizing: Lock max dollar loss at stop to REDBAR_RISK_USD (default $10.00).
+  const targetRiskUsd = Number(process.env.REDBAR_RISK_USD)
+    || (Number(process.env.REDBAR_TRADE_CAPITAL_USDT) > 0
+        ? Number(process.env.REDBAR_TRADE_CAPITAL_USDT) * ((Number(process.env.REDBAR_RISK_PCT) || 2.5) / 100)
+        : 10);
+  const riskUsd = Math.max(2, Math.min(50, targetRiskUsd));
+  const sz = RedBarTrend.futuresSizing({
+    entry,
+    stop,
+    exit: tpB,
+    capital: riskUsd * 100, // capital * 1% riskPct = exact riskUsd
+    riskPct: 1,
   });
-  const leverage = Math.min(10, Math.max(1, Number(sz?.recLeverage) || 3));
-  let marginUsdt;
-  if (capital >= 100 && sz?.marginRequiredUsd > 0) {
-    marginUsdt = Math.max(5, Number(sz.marginRequiredUsd));
-    const capMax = Number(process.env.REDBAR_TRADE_MARGIN_USDT) || Number(process.env.TRADE_MAX_USDT) || 0;
-    if (capMax > 0) marginUsdt = Math.min(marginUsdt, capMax);
-  } else {
-    marginUsdt = Math.max(5, Number(process.env.REDBAR_TRADE_MARGIN_USDT) || Number(process.env.TRADE_MAX_USDT) || 25);
+  const leverage = Math.min(10, Math.max(1, Number(sz?.recLeverage) || 5));
+  let marginUsdt = sz?.marginRequiredUsd ? Math.max(5, Number(sz.marginRequiredUsd)) : (riskUsd * 10 / leverage);
+  const maxMarginCap = Number(process.env.REDBAR_MAX_MARGIN_USDT) || Number(process.env.TRADE_MAX_USDT) || 200;
+  if (maxMarginCap > 0 && marginUsdt > maxMarginCap) {
+    marginUsdt = maxMarginCap;
   }
   try {
     const { createBinanceFuturesTrade } = require('./js/binance_futures_trade.js');
@@ -1053,7 +1056,7 @@ async function _maybeAutoFuturesTwoLeg({ inst, side, readout, alertKey, dayKey }
       console.log(`[RedBarBot] ${inst.id}: open ${inst.symbol} ${openSide} (${Math.abs(openAmt)}) already active — skip auto-entry for ${alertKey}`);
       return;
     }
-    console.log(`[RedBarBot] AUTO_TRADE ${side} ${inst.symbol} margin=$${marginUsdt.toFixed(2)} lev=${leverage}× notional≈$${(marginUsdt * leverage).toFixed(0)}`);
+    console.log(`[RedBarBot] AUTO_TRADE ${side} ${inst.symbol} risk=$${riskUsd.toFixed(2)} margin=$${marginUsdt.toFixed(2)} lev=${leverage}× notional≈$${(marginUsdt * leverage).toFixed(0)}`);
     const result = await fut.openTwoLegDeskTrade({
       symbol: inst.symbol,
       side,
