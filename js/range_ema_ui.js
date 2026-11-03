@@ -555,14 +555,16 @@ const RangeEmaUI = {
     const lim = this._ohlcLimit(tf, c, instrument);
     // Sagar: NIFTY uses 15m first-red (locks morning Red Bar box by 09:45 IST); NG/Crude/metals use 30m; BTC uses 1H
     const instUpperId = String(instrument.id || '').toUpperCase();
-    let firstRedTf = instrument.firstRedTf || (instUpperId === 'NIFTY' ? '15m' : '1h');
+    let firstRedTf = instrument.firstRedTf !== undefined
+      ? instrument.firstRedTf
+      : (instUpperId === 'NIFTY' ? '15m' : (instUpperId === 'BTC' ? null : '1h'));
     const firstRedBarMs = firstRedTf === '30m' ? 30 * 60000
       : firstRedTf === '15m' ? 15 * 60000
         : firstRedTf === '5m' ? 5 * 60000
           : 3600000;
     const firstRedMinBars = firstRedTf === '30m' ? 48 : 24;
-    let firstRedLabel = firstRedTf === '1h' ? '1H' : firstRedTf.toUpperCase();
-    const limPivot = this._ohlcLimit(firstRedTf, c, instrument);
+    let firstRedLabel = !firstRedTf ? '' : (firstRedTf === '1h' ? '1H' : firstRedTf.toUpperCase());
+    const limPivot = firstRedTf ? this._ohlcLimit(firstRedTf, c, instrument) : 0;
     const lim5m = this._ohlcLimit('5m', c, instrument);
     let raw;
     let rawPivot = null;
@@ -579,7 +581,7 @@ const RangeEmaUI = {
         ? (((mw.endHour * 60 + (mw.endMinute || 0)) - (mw.startHour * 60 + (mw.startMinute || 0)) + 1440) % 1440) || 60
         : 60;
       const need5m = tf !== '5m';
-      const needPivotFetch = tf !== firstRedTf;
+      const needPivotFetch = !!firstRedTf && tf !== firstRedTf;
       const needFib30m = tf === '1h' && mwMins < 60 && firstRedTf !== '30m';
       const need1m = (typeof FibMagnet !== 'undefined');
       const workTf = c.workingTf || '15m';
@@ -655,49 +657,51 @@ const RangeEmaUI = {
     const barsWork = rawWork ? this._klinesToBars(rawWork) : bars30;
     const evalBars = (barsWork && barsWork.length >= 40) ? barsWork : bars30;
     const bars5m = tf === '5m' ? bars30 : this._klinesToBars(raw5m);
-    try {
-      bars1h = this._klinesToBars(rawPivot);
-      const lastT = evalBars[evalBars.length - 1].t;
-      const calDay = RedBarTrend.dayKey(lastT, readCfg.dayMode || 'ist');
-      if (bars1h.length >= firstRedMinBars) {
-        firstRed1h = RedBarTrend.firstRedBarOfSession(bars1h, calDay, {
-          ...readCfg,
-          asOfTs: nowTs,
-          barMs: firstRedBarMs,
-        });
-      }
-      // Fallback: if primary TF (e.g. 1H or 30m) has no closed Red Bar yet on a strong morning trend,
-      // fall back to 15m working bars (or 5m on NSE) so you don't miss Trade 1 / Trade 2
-      if (!firstRed1h && evalBars && evalBars.length >= 24 && firstRedTf !== '15m') {
-        const fb15 = RedBarTrend.firstRedBarOfSession(evalBars, calDay, {
-          ...readCfg,
-          asOfTs: nowTs,
-          barMs: 15 * 60000,
-        });
-        if (fb15) {
-          firstRed1h = fb15;
-          firstRedTf = '15m';
-          firstRedLabel = '15M';
-          readCfg.firstRedTf = '15m';
-          readCfg.firstRedLabel = '15M';
+    if (firstRedTf) {
+      try {
+        bars1h = this._klinesToBars(rawPivot);
+        const lastT = evalBars[evalBars.length - 1].t;
+        const calDay = RedBarTrend.dayKey(lastT, readCfg.dayMode || 'ist');
+        if (bars1h.length >= firstRedMinBars) {
+          firstRed1h = RedBarTrend.firstRedBarOfSession(bars1h, calDay, {
+            ...readCfg,
+            asOfTs: nowTs,
+            barMs: firstRedBarMs,
+          });
         }
-      }
-      if (!firstRed1h && instUpperId === 'NIFTY' && bars5m && bars5m.length >= 24) {
-        const fb5 = RedBarTrend.firstRedBarOfSession(bars5m, calDay, {
-          ...readCfg,
-          asOfTs: nowTs,
-          barMs: 5 * 60000,
-        });
-        if (fb5) {
-          firstRed1h = fb5;
-          firstRedTf = '5m';
-          firstRedLabel = '5M';
-          readCfg.firstRedTf = '5m';
-          readCfg.firstRedLabel = '5M';
+        // Fallback: if primary TF (e.g. 1H or 30m) has no closed Red Bar yet on a strong morning trend,
+        // fall back to 15m working bars (or 5m on NSE) so you don't miss Trade 1 / Trade 2
+        if (!firstRed1h && evalBars && evalBars.length >= 24 && firstRedTf !== '15m') {
+          const fb15 = RedBarTrend.firstRedBarOfSession(evalBars, calDay, {
+            ...readCfg,
+            asOfTs: nowTs,
+            barMs: 15 * 60000,
+          });
+          if (fb15) {
+            firstRed1h = fb15;
+            firstRedTf = '15m';
+            firstRedLabel = '15M';
+            readCfg.firstRedTf = '15m';
+            readCfg.firstRedLabel = '15M';
+          }
         }
+        if (!firstRed1h && instUpperId === 'NIFTY' && bars5m && bars5m.length >= 24) {
+          const fb5 = RedBarTrend.firstRedBarOfSession(bars5m, calDay, {
+            ...readCfg,
+            asOfTs: nowTs,
+            barMs: 5 * 60000,
+          });
+          if (fb5) {
+            firstRed1h = fb5;
+            firstRedTf = '5m';
+            firstRedLabel = '5M';
+            readCfg.firstRedTf = '5m';
+            readCfg.firstRedLabel = '5M';
+          }
+        }
+      } catch (e) {
+        console.warn(`[RangeEmaUI] ${firstRedLabel} first-red parse failed:`, e.message || e);
       }
-    } catch (e) {
-      console.warn(`[RangeEmaUI] ${firstRedLabel} first-red parse failed:`, e.message || e);
     }
 
     const barsFib = rawFib30m ? this._klinesToBars(rawFib30m) : null;
@@ -2736,7 +2740,7 @@ const RangeEmaUI = {
       afterDatasetsDraw(chart) {
         if (chart.$rbShowFirstRed === false) return;
         const red = chart.$rbFirstRed1h;
-        if (!red || red.high == null || red.low == null) return;
+        if (!red || red.isMarkWindow || red.high == null || red.low == null) return;
         const xScale = chart.scales.x;
         const yScale = chart.scales.y;
         const area = chart.chartArea;

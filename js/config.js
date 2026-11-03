@@ -115,6 +115,7 @@ const CONFIG = {
         priceDecimals: 2,
         tradeHint: 'Binance USDⓈ-M · BTCUSDT · Fib 02:30–03:30 IST (1H wick H/L)',
         showSessionMarkers: true,
+        firstRedTf: null, // BTC uses only the single 02:30–03:30 mark window at start of day
         sessions: [
           { id: 'asia', label: 'Asia', timeZone: 'Asia/Tokyo', open: [9, 0], close: [15, 0], color: '#818cf8' },
           { id: 'london', label: 'London', timeZone: 'Europe/London', open: [8, 0], close: [16, 30], color: '#f472b6' },

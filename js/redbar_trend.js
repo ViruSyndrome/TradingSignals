@@ -2674,7 +2674,17 @@ const RedBarTrend = {
       bandPhase = 'bear_held_below_bands';
     }
 
-    const firstRed1h = c.firstRed1h || null;
+    const isEarlyMarkAsset = !!(window && this.isSessionFib(c) && Number(window.endHour) <= 6);
+    const cb = bands.find((b) => b.day === asOfDay) || null;
+    const firstRed1h = c.firstRed1h || (isEarlyMarkAsset && cb ? {
+      high: cb.high,
+      low: cb.low,
+      open: cb.low,
+      close: cb.high,
+      t: cb.t0,
+      asOfDay,
+      isMarkWindow: true,
+    } : null);
     const firstRedFibs = this.firstRedFibs(firstRed1h);
     const bars5m = Array.isArray(c.bars5m) && c.bars5m.length ? c.bars5m : null;
     const dayMode = c.dayMode || 'ist';
