@@ -1574,6 +1574,7 @@ const RangeEmaUI = {
 
         <div class="rb-chart-legend">
           <span class="lg price">Candles (${this.activeTf()})</span>
+          ${this.activeTf() === '30m' ? '<span class="lg ema5" style="color:#c084fc;"><i style="display:inline-block;width:10px;height:2px;background:#c084fc;vertical-align:middle;margin-right:4px;"></i>EMA 5 (Rubber Band)</span>' : ''}
           <span class="lg ema10">EMA ${c.emaFast || 10}</span>
           <span class="lg ema30">EMA ${c.emaSlow || 30}</span>
           <span class="lg band">${this._isFibStyle(r) ? `POB 44–56 (Point of Balance) · Fib 0/1${r.instrument?.markLabel ? ` · ${r.instrument.markLabel}` : ''}` : 'Day ranges'}</span>
@@ -3586,6 +3587,7 @@ const RangeEmaUI = {
 
     // Distinct palette (avoid overlapping blues/reds/greens across layers)
     const COL = {
+      ema5: '#c084fc',
       ema10: '#22d3ee',
       ema30: '#f97316',
       or: '#eab308',
@@ -3598,6 +3600,14 @@ const RangeEmaUI = {
     const trading = action?.side === 'LONG' || action?.side === 'SHORT';
     const stopPx = trading ? (action.stop ?? o.invalidation) : null;
     const exitPx = trading ? (action.exit ?? o.bookZone) : null;
+
+    // On 30m chart, compute Dr. Dev's 5 EMA (Rubber Band Mean Reversion line)
+    let ema5Slice = null;
+    if (tf === '30m') {
+      const fullCloses = isRenkoMode ? bars.map((b) => b.c) : row.bars.map((b) => b.c);
+      const fullEma5 = this._emaSeries(fullCloses, 5);
+      ema5Slice = isRenkoMode ? fullEma5 : fullEma5.slice(visStart, visStart + bars.length);
+    }
 
     // Invisible close series: hit-testing + tooltip OHLC (candles drawn by plugin)
     const datasets = [
@@ -3613,6 +3623,17 @@ const RangeEmaUI = {
         tension: 0,
         order: 1,
       },
+      ...(ema5Slice ? [{
+        label: 'EMA 5 (30m Rubber Band)',
+        data: ema5Slice,
+        borderColor: COL.ema5,
+        borderWidth: 1.75,
+        borderDash: [4, 2],
+        pointRadius: 0,
+        fill: false,
+        tension: 0.1,
+        order: 2,
+      }] : []),
       {
         label: `EMA ${c.emaFast || 10}`,
         data: emaF,
