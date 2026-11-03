@@ -2774,9 +2774,6 @@ const RedBarTrend = {
     } else if (sweep) {
       trend = sweep.side;
       setupKind = 'session_sweep';
-    } else if (pobReject && pobReject.watching) {
-      trend = pobReject.side || 'bearish';
-      setupKind = 'pob_reject_watch';
     } else if (redSetup.revisitSide) {
       trend = redSetup.revisitSide;
       setupKind = redSetup.revisitStrong ? 'trade2_confirmed' : 'trade2_watch';
@@ -2787,9 +2784,6 @@ const RedBarTrend = {
     } else if (setup3 && setup3.triggered) {
       trend = setup3.direction;
       setupKind = 'setup3_rubber_band';
-    } else if (pobReject && (pobReject.status === 'await_retest' || pobReject.status === 'x_candle_wait')) {
-      trend = pobReject.side || 'bearish';
-      setupKind = 'pob_reject_watch';
     } else if (phase === 'inside_or') {
       trend = 'neutral';
       setupKind = 'wait';
