@@ -1362,11 +1362,26 @@ const RangeEmaUI = {
     // US equity cash close / CME settle only (01:15–02:30 IST) — NOT the whole evening
     const isUsClose = (curMins >= 75 && curMins < 150);
 
-    const isNiftyInst = String(r.instrument?.id || '').toUpperCase() === 'NIFTY';
+    const instUpper = String(r.instrument?.id || '').toUpperCase();
+    const isNiftyInst = instUpper === 'NIFTY';
+    const isXauInst = instUpper === 'XAU';
+    const isNgInst = instUpper === 'NG';
     const isNsePrime = isNiftyInst && curMins >= 555 && curMins < 735;
     const isNseHunt = isNiftyInst && curMins >= 735 && curMins <= 795;
     const isNseAfternoon = isNiftyInst && curMins > 795 && curMins < 915;
     const isNseMark = isNiftyInst && curMins >= 915 && curMins <= 945;
+
+    const isXauMark = isXauInst && curMins >= 90 && curMins < 150; // 01:30–02:30 IST
+    const comexOpenMins = this._getSessionOpenMins(nowMs, 'America/New_York', 8, 30);
+    const comexOpenStr = fmtHm(comexOpenMins);
+    const isComexOpen = isXauInst && curMins >= comexOpenMins && curMins < comexOpenMins + 90;
+
+    const nymexOpenMins = this._getSessionOpenMins(nowMs, 'America/New_York', 9, 0);
+    const nymexOpenStr = fmtHm(nymexOpenMins);
+    const isMcxDay = isNgInst && curMins >= 540 && curMins < 1020; // 09:00–17:00 IST
+    const isMcxEve = isNgInst && curMins >= 1020 && curMins < nymexOpenMins; // 17:00–NYMEX
+    const isNymex = isNgInst && curMins >= nymexOpenMins && curMins < 1380; // NYMEX–23:00 IST
+    const isNgMark = isNgInst && curMins >= 1380 && curMins <= 1410; // 23:00–23:30 IST
 
     const activeSessionName = isNiftyInst
       ? (isNsePrime ? 'NSE Prime POB & Trade 1 (09:15–12:15 IST)'
@@ -1374,6 +1389,19 @@ const RangeEmaUI = {
         : isNseAfternoon ? 'NSE Afternoon Session (13:15–15:15 IST)'
         : isNseMark ? 'NSE Close Mark Window (15:15–15:45 IST)'
         : 'NSE Closed (Opens 09:15 IST)')
+      : isNgInst
+        ? (isMcxDay ? 'MCX Morning Session · POB & 30m Trade 1 (09:00–17:00 IST)'
+          : isMcxEve ? `MCX Evening Open · Trikal POB (17:00–${nymexOpenStr} IST)`
+          : isNymex ? `US NYMEX Open · Prime Energy Session (${nymexOpenStr}–23:00 IST)`
+          : isNgMark ? 'MCX Close Mark Window (23:00–23:30 IST)'
+          : 'MCX Closed · Globex Overnight (MCX Opens 09:00 IST)')
+      : isXauInst
+        ? (isXauMark ? 'Gold Daily Mark Window (01:30–02:30 IST)'
+          : isComexOpen ? `COMEX / US Bullion Open (${comexOpenStr}–${nyEndStr} IST)`
+          : isAsia ? `Asia Bullion Session (05:30–${lonOpenStr} IST)`
+          : isLon ? `London Bullion / LBMA (${lonOpenStr}–${comexOpenStr} IST)`
+          : isLonClose ? `London Close / LBMA Fix (${fmtHm(lonCloseStart)}–${fmtHm(lonCloseEnd)} IST)`
+          : 'Off-prime Bullion Hours')
       : isMark ? 'Daily Mark Window (02:30–03:30 IST)'
       : isNy ? `New York Open (${nyOpenStr}–${nyEndStr} IST)`
       : isAsia ? `Asia Session (05:30–${lonOpenStr} IST)`
@@ -1383,11 +1411,12 @@ const RangeEmaUI = {
       : 'Off-prime / dead hours';
 
     // Trigger level text for Stepper
+    const firstRedTag = o.firstRedLabel || (r.instrument?.firstRedTf === '30m' ? '30m' : '1H');
     const activePob = o.pobReject || o.playbook?.pobReject;
     const trigLevelStr = (activePob?.pobLo != null && (o.setupKind === 'pob_reject' || o.setupKind === 'pob_reject_watch'))
       ? `POB 44–56: ${this._fmt(activePob.pobLo)}–${this._fmt(activePob.pobHi)}`
       : o.firstRed1h
-        ? `1H Red ${this._fmt(o.firstRed1h.low)}–${this._fmt(o.firstRed1h.high)}`
+        ? `${firstRedTag} Red ${this._fmt(o.firstRed1h.low)}–${this._fmt(o.firstRed1h.high)}`
         : o.playbook?.magnetBelow
           ? `Fib ↓ ${this._fmt(o.playbook.magnetBelow.price)}`
           : o.playbook?.magnetAbove
@@ -1731,6 +1760,44 @@ const RangeEmaUI = {
             <span class="seg-time">15:15</span>
             <span class="seg-name">Close Fib</span>
           </div>
+          ` : isNgInst ? `
+          <div class="rb-session-seg ${isMcxDay ? 'active' : ''} is-prime" title="MCX Morning Open · 09:00 IST 5m X-Candle POB &amp; 30m First Red">
+            <span class="seg-time">09:00</span>
+            <span class="seg-name">MCX Day</span>
+          </div>
+          <div class="rb-session-seg ${isMcxEve ? 'active' : ''} is-prime" title="Dr. Dev 17:00 IST MCX Evening / European Energy Open POB">
+            <span class="seg-time">17:00</span>
+            <span class="seg-name">MCX Eve</span>
+          </div>
+          <div class="rb-session-seg ${isNymex ? 'active' : ''} is-prime" title="US NYMEX Pit Open (${nymexOpenStr} IST) · Highest NatGas Volatility">
+            <span class="seg-time">${nymexOpenStr}</span>
+            <span class="seg-name">NYMEX</span>
+          </div>
+          <div class="rb-session-seg ${isNgMark ? 'active' : ''}" title="MCX Closing Range Mark Window (23:00–23:30 IST)">
+            <span class="seg-time">23:00</span>
+            <span class="seg-name">Close Fib</span>
+          </div>
+          ` : isXauInst ? `
+          <div class="rb-session-seg ${isXauMark ? 'active' : ''}" title="Gold Daily Mark Window (01:30–02:30 IST)">
+            <span class="seg-time">01:30</span>
+            <span class="seg-name">Mark</span>
+          </div>
+          <div class="rb-session-seg ${isAsia ? 'active' : ''} is-prime" title="Asia / Tokyo Bullion Open (05:30 IST)">
+            <span class="seg-time">05:30</span>
+            <span class="seg-name">Asia</span>
+          </div>
+          <div class="rb-session-seg ${isLon ? 'active' : ''} is-prime" title="London Bullion / LBMA Open (${lonOpenStr} IST)">
+            <span class="seg-time">${lonOpenStr}</span>
+            <span class="seg-name">London</span>
+          </div>
+          <div class="rb-session-seg ${isComexOpen || isNy ? 'active' : ''} is-prime" title="US COMEX / NY Bullion Open (${comexOpenStr} IST)">
+            <span class="seg-time">${comexOpenStr}</span>
+            <span class="seg-name">COMEX/NY</span>
+          </div>
+          <div class="rb-session-seg ${isLonClose ? 'active' : ''}" title="LBMA / London Close Fix · ${fmtHm(lonCloseStart)}–${fmtHm(lonCloseEnd)} IST">
+            <span class="seg-time">${fmtHm(lonCloseStart)}</span>
+            <span class="seg-name">LBMA Fix</span>
+          </div>
           ` : `
           <div class="rb-session-seg ${isMark ? 'active' : ''}">
             <span class="seg-time">02:30</span>
@@ -1787,18 +1854,23 @@ const RangeEmaUI = {
     `;
 
     // 4. Key Levels Matrix (3-Column clean grid)
+    const markTag = isNiftyInst ? '15:15 Mark Fib' : isNgInst ? '23:00 Mark Fib' : isXauInst ? '01:30 Mark Fib' : '02:30 Mark Fib';
+    const sess1Tag = isNgInst ? 'MCX Day H/L' : isNiftyInst ? 'NSE Morning H/L' : 'Asia H/L';
+    const sess2Tag = isNgInst ? 'MCX Eve H/L' : isNiftyInst ? 'NSE Midday H/L' : 'London H/L';
+    const sess3Tag = isNgInst ? 'NYMEX H/L' : isXauInst ? 'COMEX/NY H/L' : isNiftyInst ? 'NSE Session H/L' : 'NY H/L';
     const levelsMatrixHtml = `
       <div class="rb-levels-matrix">
         <div class="rb-levels-col">
           <div class="col-title">📌 Session Extremes</div>
-          <div class="level-row"><span>Asia H/L:</span> <strong>${this._fmt(o.refs?.asiaHigh)} / ${this._fmt(o.refs?.asiaLow)}</strong></div>
-          <div class="level-row"><span>London H/L:</span> <strong>${this._fmt(o.refs?.londonHigh)} / ${this._fmt(o.refs?.londonLow)}</strong></div>
-          <div class="level-row"><span>NY H/L:</span> <strong>${this._fmt(o.refs?.nyHigh)} / ${this._fmt(o.refs?.nyLow)}</strong></div>
+          <div class="level-row"><span>${sess1Tag}:</span> <strong>${this._fmt(o.refs?.asiaHigh)} / ${this._fmt(o.refs?.asiaLow)}</strong></div>
+          <div class="level-row"><span>${sess2Tag}:</span> <strong>${this._fmt(o.refs?.londonHigh)} / ${this._fmt(o.refs?.londonLow)}</strong></div>
+          <div class="level-row"><span>${sess3Tag}:</span> <strong>${this._fmt(o.refs?.nyHigh)} / ${this._fmt(o.refs?.nyLow)}</strong></div>
         </div>
         <div class="rb-levels-col">
           <div class="col-title">🧲 Equilibrium Anchors</div>
-          <div class="level-row"><span>02:30 Mark Fib:</span> <strong>${this._fmt(o.currentBand?.high)} / ${this._fmt(o.currentBand?.low)}</strong></div>
-          <div class="level-row"><span>1H First Red:</span> <strong>${this._fmt(o.firstRed1h?.high)} / ${this._fmt(o.firstRed1h?.low)}</strong></div>
+          <div class="level-row"><span>${markTag}:</span> <strong>${this._fmt(o.currentBand?.high)} / ${this._fmt(o.currentBand?.low)}</strong></div>
+          <div class="level-row"><span>${firstRedTag} First Red:</span> <strong>${this._fmt(o.firstRed1h?.high)} / ${this._fmt(o.firstRed1h?.low)}</strong></div>
+          <div class="level-row"><span>5m Session POB:</span> <strong>${activePob?.pobLo != null ? `${this._fmt(activePob.pobLo)} / ${this._fmt(activePob.pobHi)}` : '—'}</strong></div>
           <div class="level-row"><span>Dr. Dev CPR:</span> <strong>${this._fmt((o.cpr || o.playbook?.cpr)?.pivot)}</strong></div>
         </div>
         <div class="rb-levels-col">
@@ -2835,7 +2907,12 @@ const RangeEmaUI = {
     const lonOpenMins = this._getSessionOpenMins(nowMs, 'Europe/London', 8, 0);
     const fmtMins = (m) => `${String(Math.floor(((m % 1440) + 1440) % 1440 / 60)).padStart(2, '0')}:${String(((m % 1440) + 1440) % 1440 % 60).padStart(2, '0')}`;
 
-    const isNifty = String(instId || this.activeInstrument()?.id || '').toUpperCase() === 'NIFTY';
+    const instUpper = String(instId || this.activeInstrument()?.id || '').toUpperCase();
+    const isNifty = instUpper === 'NIFTY';
+    const isXau = instUpper === 'XAU';
+    const isNg = instUpper === 'NG';
+    const comexOpenMins = this._getSessionOpenMins(nowMs, 'America/New_York', 8, 30);
+    const nymexOpenMins = this._getSessionOpenMins(nowMs, 'America/New_York', 9, 0);
     const windows = isNifty ? [
       {
         id: 'nse_open',
@@ -2873,6 +2950,80 @@ const RangeEmaUI = {
         headline: 'Closing Range Fib Anchor (15:15–15:45 IST)',
         rule: 'High/Low wicks of 15:15–15:45 IST lock the Fib 0, POB 44–56, and Fib 1 levels for the next NSE session'
       }
+    ] : isNg ? [
+      {
+        id: 'mcx_open',
+        name: 'MCX Morning Open · POB & 30m Red',
+        code: 'MCX DAY',
+        startIstMins: 540,   // 09:00 IST
+        endIstMins: 720,     // 12:00 IST
+        startStrIst: '09:00',
+        endStrIst: '12:00',
+        winRate: 'Trikal Morning Open',
+        headline: 'MCX 09:00 5m X-Candle POB & 30m First Red',
+        rule: 'First 5m red @ 09:00 = X-Candle → POB 44–56 retest SHORT, plus 30m First Red Trade 1 / Trade 2 anchor'
+      },
+      {
+        id: 'mcx_eve',
+        name: 'MCX Evening · 5 PM Energy Open',
+        code: 'MCX EVE',
+        startIstMins: 1020,  // 17:00 IST
+        endIstMins: 1110,    // 18:30 IST
+        startStrIst: '17:00',
+        endStrIst: '18:30',
+        winRate: 'Dr. Dev 5 PM Energy Slot',
+        headline: 'European / MCX Evening Liquidity Injection',
+        rule: 'Dr. Dev 5:00 PM IST commodity window: 5m X-Candle POB 44–56 & MCX Day High/Low liquidity sweep'
+      },
+      {
+        id: 'nymex',
+        name: 'US NYMEX Pit Open',
+        code: 'NYMEX',
+        startIstMins: nymexOpenMins,
+        endIstMins: nymexOpenMins + 120,
+        startStrIst: fmtMins(nymexOpenMins),
+        endStrIst: fmtMins(nymexOpenMins + 120),
+        winRate: 'Peak NatGas Volatility',
+        headline: 'US NYMEX Open & 23:00–23:30 IST Close Fib',
+        rule: 'NYMEX 09:00 ET pit open drives largest Natural Gas impulse; 23:00–23:30 IST locks next day Mark Fibs'
+      }
+    ] : isXau ? [
+      {
+        id: 'xau_asia',
+        name: 'Asia Bullion Open',
+        code: 'ASIA',
+        startIstMins: 330,   // 05:30 IST
+        endIstMins: 510,     // 08:30 IST
+        startStrIst: '05:30',
+        endStrIst: '08:30',
+        winRate: 'Brahmastra Asia Open',
+        headline: '01:30–02:30 Mark Fib + 05:30 POB & 30m Red',
+        rule: 'After 01:30–02:30 IST Mark Fibs lock, watch 30m First Red Trade 1/2 & 05:30 IST 5m X-Candle POB 44–56'
+      },
+      {
+        id: 'xau_london',
+        name: 'London Bullion / LBMA Open',
+        code: 'LONDON',
+        startIstMins: lonOpenMins,
+        endIstMins: lonOpenMins + 120,
+        startStrIst: fmtMins(lonOpenMins),
+        endStrIst: fmtMins(lonOpenMins + 120),
+        winRate: 'Brahmastra LBMA Sweep',
+        headline: 'London Bullion Liquidity Sweep & POB',
+        rule: 'London sweeps Asia Bullion H/L; watch 5m X-Candle POB 44–56 & 30m First Red Trade 2 revisit'
+      },
+      {
+        id: 'xau_comex',
+        name: 'US COMEX / NY Bullion Open',
+        code: 'COMEX',
+        startIstMins: comexOpenMins,
+        endIstMins: comexOpenMins + 150,
+        startStrIst: fmtMins(comexOpenMins),
+        endStrIst: fmtMins(comexOpenMins + 150),
+        winRate: 'Peak Gold Volatility',
+        headline: 'COMEX 08:30 ET & NY Cash Open Window',
+        rule: 'Dr. Dev Brahmastra prime window: COMEX open hunts London H/L + 5m X-Candle POB 44–56 + 30m 5 EMA Rubber Band'
+      }
     ] : [
       {
         id: 'asia',
@@ -2884,7 +3035,7 @@ const RangeEmaUI = {
         endStrIst: '07:00',
         winRate: '71.7% Session Extreme',
         headline: 'Daily Open Discovery Window',
-        rule: '71.7% of days print Asia high/low in first 90m (Context tell — wait for Red Bar DNA)'
+        rule: '71.7% of days print Asia high/low in first 90m; 05:30 IST 5m X-Candle POB 44–56 & 1H Trade 1'
       },
       {
         id: 'london',
@@ -2896,7 +3047,7 @@ const RangeEmaUI = {
         endStrIst: fmtMins(lonOpenMins + 75),
         winRate: '62.7% Session Extreme',
         headline: 'European Opening Liquidity Window',
-        rule: '62.7% of days print London high/low in first 45m; sweeps Asia H/L (Context tell — wait for Red Bar DNA)'
+        rule: '62.7% of days print London high/low in first 45m; sweeps Asia H/L + London 5m X-Candle POB 44–56'
       },
       {
         id: 'ny',
@@ -2908,7 +3059,7 @@ const RangeEmaUI = {
         endStrIst: fmtMins(nyOpenMins + 75),
         winRate: '56.0% Session Extreme',
         headline: 'US Cash Open Window',
-        rule: '56.0% of days print NY high/low in first 45m; early sweeps often retrace (Context tell — wait for Red Bar DNA)'
+        rule: '56.0% of days print NY high/low in first 45m; NY 5m X-Candle POB 44–56 (86.2% 2Y WR) & 1H Trade 2'
       }
     ];
 

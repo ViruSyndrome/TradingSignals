@@ -669,10 +669,13 @@ const RedBarTrend = {
     // 00:30 & 01:30 IST belong to the prior US close and the mark window is the day's open anchor.
     // Anchor today's 1H first-red only after that early mark window completes (endHour <= 6).
     const window = this.getMarkWindow(cfg);
+    const instId = String(cfg.id || cfg.instrumentId || '').toUpperCase();
     const isEarlyMark = !!(window && this.isSessionFib(cfg) && Number(window.endHour) <= 6);
     const markEndTs = isEarlyMark
       ? this.zonedClockToUtc(asOfDay, window.timeZone || 'Asia/Kolkata', window.endHour, window.endMinute)
-      : null;
+      : (instId === 'NG'
+        ? this.zonedClockToUtc(asOfDay, 'Asia/Kolkata', 9, 0)
+        : null);
     const dayBars = [];
     for (let i = 0; i < bars.length; i++) {
       if (this.dayKey(bars[i].t, dayMode) !== asOfDay) continue;
@@ -680,8 +683,8 @@ const RedBarTrend = {
       if (markEndTs != null && bars[i].t < markEndTs - 1000) continue;
       dayBars.push({ bar: bars[i], index: i });
     }
-    // If markEndTs already skipped the mark-window open candle, start at 0; else skip dayBars[0]
-    const startJ = markEndTs != null ? 0 : 1;
+    // If markEndTs already skipped the mark-window open candle (BTC/XAU), start at 0; for NG/NSE skip open bar [0]
+    const startJ = (markEndTs != null && instId !== 'NG') ? 0 : 1;
     for (let j = startJ; j < dayBars.length; j++) {
       const { bar, index } = dayBars[j];
       if (bar.c < bar.o) {
@@ -1040,6 +1043,26 @@ const RedBarTrend = {
     { id: 'asia', label: 'Asia', opens: [[5, 30]], activeFrom: 5 * 60 + 30, activeTo: 8 * 60 + 30 },
     { id: 'london', label: 'London', opens: [[13, 0], [13, 30]], activeFrom: 13 * 60, activeTo: 16 * 60 },
     { id: 'ny', label: 'NY', opens: [[19, 0], [20, 0]], activeFrom: 19 * 60, activeTo: 22 * 60 + 30 },
+  ],
+
+  /**
+   * Dr. Dev Brahmastra / Trikal Gold (XAUUSD) prime session transitions (IST):
+   * Asia Bullion 05:30 · London Bullion (LBMA) 13:00/13:30 · COMEX / US 18:00/19:00/20:00.
+   */
+  XAU_POB_PRIMES: [
+    { id: 'asia', label: 'Asia Bullion', opens: [[5, 30]], activeFrom: 5 * 60 + 30, activeTo: 8 * 60 + 30 },
+    { id: 'london', label: 'London Bullion', opens: [[13, 0], [13, 30]], activeFrom: 13 * 60, activeTo: 16 * 60 },
+    { id: 'ny', label: 'COMEX/NY', opens: [[18, 0], [19, 0], [20, 0]], activeFrom: 18 * 60, activeTo: 22 * 60 + 30 },
+  ],
+
+  /**
+   * Dr. Dev Trikal Commodity / Natural Gas (MCX & NYMEX) prime session transitions (IST):
+   * MCX Morning 09:00 · MCX Evening (Europe energy) 17:00 · US NYMEX Pit 18:30/19:30.
+   */
+  NG_POB_PRIMES: [
+    { id: 'mcx_day', label: 'MCX Open', opens: [[9, 0]], activeFrom: 9 * 60, activeTo: 12 * 60 },
+    { id: 'mcx_eve', label: 'MCX Eve', opens: [[17, 0]], activeFrom: 17 * 60, activeTo: 18 * 60 + 30 },
+    { id: 'us', label: 'NYMEX Open', opens: [[18, 30], [19, 30]], activeFrom: 18 * 60 + 30, activeTo: 22 * 60 },
   ],
 
   findPrimeSessionXCandle5m(bars5m, asOfTs, opts = {}) {
@@ -2471,10 +2494,10 @@ const RedBarTrend = {
     );
 
     const sessions = Array.isArray(c.sessions) ? c.sessions : [];
-    const asiaSess = sessions.find((s) => (s.id || '').toLowerCase() === 'asia')
-      || sessions.find((s) => /asia/i.test(s.label || ''));
-    const londonSess = sessions.find((s) => (s.id || '').toLowerCase() === 'london')
-      || sessions.find((s) => /london/i.test(s.label || ''));
+    const asiaSess = sessions.find((s) => ['asia', 'mcx_day'].includes((s.id || '').toLowerCase()))
+      || sessions.find((s) => /asia|mcx\s*day/i.test(s.label || ''));
+    const londonSess = sessions.find((s) => ['london', 'mcx_eve'].includes((s.id || '').toLowerCase()))
+      || sessions.find((s) => /london|mcx\s*eve/i.test(s.label || ''));
     const nySess = sessions.find((s) => ['ny', 'us', 'newyork'].includes((s.id || '').toLowerCase()))
       || sessions.find((s) => /us|ny|new\s*york/i.test(s.label || ''));
     const asiaHl = asiaSess ? this.sessionHlForIstDay(slice, asiaSess, bars[i].t) : null;
@@ -2485,7 +2508,7 @@ const RedBarTrend = {
     // Dr. Devendra Pratap Singh: Setup 3 (30m 5 EMA Rubber Band Mean Reversion)
     const setup3 = this.detect30m5EmaRubberBand(slice, bars5m, evalTs);
     // Dr. Dev Setup 1 POB (5m X-Candle → retest → SHORT only). Never 1H first-red (tautology).
-    // NIFTY: NSE 09:15 IST. BTC: London 13:00/13:30 or NY 19:00/20:00 IST prime opens.
+    // NIFTY: NSE 09:15 IST. BTC: Asia/London/NY. XAU: Asia/London/COMEX. NG: MCX 09:00 / MCX Eve 17:00 / NYMEX 18:30–19:30.
     const instId = String(c.id || c.instrumentId || '').toUpperCase();
     let xCandle5m = null;
     let pobOpts = null;
@@ -2504,9 +2527,15 @@ const RedBarTrend = {
         maxEntryMins: 180,
         freshMins: 20,
       };
-    } else if (bars5m && instId === 'BTC') {
+    } else if (bars5m && (instId === 'BTC' || instId === 'XAU' || instId === 'NG')) {
+      const primes = instId === 'XAU'
+        ? this.XAU_POB_PRIMES
+        : instId === 'NG'
+          ? this.NG_POB_PRIMES
+          : this.BTC_POB_PRIMES;
       xCandle5m = this.findPrimeSessionXCandle5m(bars5m, evalTs, {
         timeZone: 'Asia/Kolkata',
+        primes,
         maxBars: 6,
       });
       pobOpts = {
