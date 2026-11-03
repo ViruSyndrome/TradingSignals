@@ -634,7 +634,13 @@ async function _scanOneRedBarInstrument(inst, rbCfg) {
         const rsSl = Math.round(riskPts * delta * lot), rsTp = Math.round(tgtPts * delta * lot);
         return `\nDHAN (1 lot ${lot}): option SL = buy price - ${optSl} pts · TP = buy price + ${optTp} pts\nSet P&L Exit: Max Loss ~Rs ${rsSl} · Max Profit ~Rs ${rsTp} (kill switch OFF)\nExit manually if NIFTY closes 5m beyond ${fmt(s)}`;
       })();
-      const alertOnlyNote = !isBinance ? dhanNote + '\n⚠️ Alert only — place manually on Dhan (no auto-order)' : '';
+      const dhanAutoOn = String(process.env.DHAN_AUTO_TRADE || '').toLowerCase() === 'true'
+        && String(inst.id || '').toUpperCase() === 'NIFTY';
+      const alertOnlyNote = !isBinance
+        ? (dhanAutoOn
+          ? dhanNote + '\n🤖 Dhan AUTO on — bot will place option Super Order (entry+SL+TP)'
+          : dhanNote + '\n⚠️ Alert only — place manually on Dhan (set DHAN_AUTO_TRADE=true for auto)')
+        : '';
       const subject = `Red Bar ${side}: ${inst.label} · ${setupLabel}`;
       const htmlMsg = `${emoji} <b>ENTER NOW · Red Bar ${_escHtml(inst.label)} ${side}</b>
 ${_escHtml(setupLabel)} (${_escHtml(setupKind)})
@@ -644,7 +650,7 @@ Entry <b>${pxPrefix}${fmt(readout.price)}</b> · Stop <b>${pxPrefix}${fmt(readou
         `ENTER NOW · ${inst.label} ${side}`,
         `${setupLabel}`,
         `Entry ${pxPrefix}${fmt(readout.price)} · Stop ${pxPrefix}${fmt(readout.invalidation)} · 1:1 ${pxPrefix}${fmt(readout.tp1)}`,
-        !isBinance ? 'Alert only — place manually on Dhan' : null,
+        !isBinance ? (dhanAutoOn ? 'Dhan AUTO placing option order' : 'Alert only — place manually on Dhan') : null,
         deskUrl,
       ].filter(Boolean).join('\n');
 
@@ -672,14 +678,23 @@ Entry <b>${pxPrefix}${fmt(readout.price)}</b> · Stop <b>${pxPrefix}${fmt(readou
         alertKey,
         dayKey,
       });
+      await _maybeAutoDhanNifty({
+        inst,
+        side,
+        readout,
+        alertKey,
+        dayKey,
+        setupKind,
+      });
     }
   }
   // Do NOT clear RB keys when leaving ENTER — that re-armed spam on flicker.
 }
 
-/** DNA / researched setups eligible for Binance auto two-leg. */
+/** DNA / researched setups eligible for auto (Binance + Dhan). Trade 3 = setup3_rubber_band. */
 function _autoSetupAllowed(setupKind) {
-  const raw = envTrim('REDBAR_AUTO_SETUPS') || 'trade1_departure,trade2_confirmed,session_sweep,pob_reject';
+  const raw = envTrim('REDBAR_AUTO_SETUPS')
+    || 'trade1_departure,trade2_confirmed,session_sweep,pob_reject,setup3_rubber_band';
   const allow = raw.split(',').map((s) => s.trim()).filter(Boolean);
   return allow.includes(String(setupKind || ''));
 }
@@ -723,20 +738,252 @@ function saveManagedTrades(rows) {
   }
 }
 
-/** Live Telegram ENTER allow-list. Default BTC; add NIFTY for alert-only (no Dhan auto-order yet). */
+/** Live Telegram ENTER allow-list. Default BTC+NIFTY. */
 function _redBarBotInstrumentAllowed(inst) {
-  const raw = envTrim('REDBAR_BOT_INSTRUMENTS') || 'BTC';
+  const raw = envTrim('REDBAR_BOT_INSTRUMENTS') || 'BTC,NIFTY';
   const allow = raw.split(',').map((s) => s.trim().toUpperCase()).filter(Boolean);
   const id = String(inst?.id || '').toUpperCase();
   const sym = String(inst?.symbol || '').toUpperCase();
   return allow.includes(id) || allow.includes(sym);
 }
 
-/** Only BTCUSDT on Binance USD-M — Nifty stays Telegram alert-only until Dhan F&O + funds. */
+/** Only BTCUSDT on Binance USD-M. */
 function _canAutoTradeBinanceFutures(inst) {
   if (!_redBarBotInstrumentAllowed(inst)) return false;
   const sym = String(inst?.symbol || '').toUpperCase();
   return sym === 'BTCUSDT';
+}
+
+function _canAutoTradeDhanNifty(inst) {
+  if (!_redBarBotInstrumentAllowed(inst)) return false;
+  return String(inst?.id || '').toUpperCase() === 'NIFTY';
+}
+
+const MANAGED_DHAN_FILE = 'managed_dhan_trades.json';
+function loadManagedDhanTrades() {
+  try {
+    const rows = JSON.parse(fs.readFileSync(MANAGED_DHAN_FILE, 'utf8'));
+    return Array.isArray(rows) ? rows : [];
+  } catch {
+    return [];
+  }
+}
+function saveManagedDhanTrades(rows) {
+  try {
+    fs.writeFileSync(MANAGED_DHAN_FILE, JSON.stringify(rows, null, 2));
+  } catch (e) {
+    console.warn('[RedBarBot] Could not save managed Dhan trades:', e.message);
+  }
+}
+
+/** IST minutes since midnight. */
+function _istMinsNow() {
+  const z = new Date(new Date().toLocaleString('en-US', { timeZone: 'Asia/Kolkata' }));
+  return z.getHours() * 60 + z.getMinutes();
+}
+
+async function _maybeAutoDhanNifty({ inst, side, readout, alertKey, dayKey, setupKind }) {
+  if (String(process.env.DHAN_AUTO_TRADE || '').toLowerCase() !== 'true') return;
+  if (String(process.env.TRADE_ENABLED || '').toLowerCase() !== 'true') return;
+  if (!_canAutoTradeDhanNifty(inst)) return;
+  if (!envTrim('DHAN_CLIENT_ID') || !envTrim('DHAN_ACCESS_TOKEN')) {
+    console.warn('[RedBarBot] DHAN_AUTO_TRADE on but DHAN_CLIENT_ID / DHAN_ACCESS_TOKEN missing');
+    return;
+  }
+  // Hard flat window — no new entries after 15:05 IST
+  const mins = _istMinsNow();
+  if (mins >= 15 * 60 + 5) {
+    console.log('[RedBarBot] NIFTY: past 15:05 IST — no new Dhan entries');
+    return;
+  }
+  if (lastAlerted[`DHAN_TRADE_${inst.id}_DETAIL`] === alertKey) {
+    console.log(`[RedBarBot] ${inst.id}: Dhan already opened for ${alertKey}`);
+    return;
+  }
+  const maxPerDay = Math.max(1, Math.min(8, Number(process.env.DHAN_AUTO_MAX_PER_DAY) || Number(process.env.REDBAR_AUTO_MAX_PER_DAY) || 3));
+  const cooldownMs = Math.max(15 * 60 * 1000, Number(process.env.DHAN_AUTO_COOLDOWN_MS) || Number(process.env.REDBAR_AUTO_COOLDOWN_MS) || 75 * 60 * 1000);
+  const countKey = `DHAN_TRADE_COUNT_${inst.id}_${dayKey || 'noday'}`;
+  const dayCount = Number(lastAlerted[countKey]) || 0;
+  if (dayCount >= maxPerDay) {
+    console.log(`[RedBarBot] ${inst.id}: Dhan day cap ${dayCount}/${maxPerDay} — skip ${alertKey}`);
+    return;
+  }
+  const lastTs = Number(lastAlerted[`DHAN_TRADE_${inst.id}_LAST_TS`]) || 0;
+  if (lastTs && Date.now() - lastTs < cooldownMs) {
+    const left = Math.ceil((cooldownMs - (Date.now() - lastTs)) / 60000);
+    console.log(`[RedBarBot] ${inst.id}: Dhan cooldown ${left}m — skip ${alertKey}`);
+    return;
+  }
+
+  const indexEntry = Number(readout.price);
+  const indexStop = Number(readout.invalidation);
+  const indexTp1 = Number(readout.tp1);
+  if (!(indexEntry > 0 && indexStop > 0 && indexTp1 > 0)) {
+    console.warn('[RedBarBot] Dhan AUTO skip — incomplete index levels');
+    return;
+  }
+
+  try {
+    const { createDhanNiftyTrade } = require('./js/dhan_nifty_trade.js');
+    const trader = createDhanNiftyTrade();
+    if (await trader.hasOpenNiftyOptionPosition()) {
+      console.log('[RedBarBot] NIFTY: open F&O position already — skip new Dhan entry');
+      return;
+    }
+    console.log(`[RedBarBot] DHAN_AUTO ${side} ${setupKind} index=${indexEntry} stop=${indexStop} tp1=${indexTp1}`);
+    const result = await trader.openOptionSuperTrade({
+      side,
+      indexEntry,
+      indexStop,
+      indexTp1,
+      correlationId: `rb-${setupKind}-${Date.now()}`.replace(/[^a-zA-Z0-9_-]/g, '').slice(0, 30),
+    });
+
+    if (result.ok && result.orderId) {
+      lastAlerted[`DHAN_TRADE_${inst.id}_DETAIL`] = alertKey;
+      lastAlerted[`DHAN_TRADE_${inst.id}_LAST_TS`] = Date.now();
+      lastAlerted[countKey] = dayCount + 1;
+      saveAlertState(lastAlerted);
+      const managed = loadManagedDhanTrades().filter((t) => t.status !== 'open');
+      managed.push({
+        status: 'open',
+        instrumentId: 'NIFTY',
+        side,
+        setupKind,
+        alertKey,
+        orderId: result.orderId,
+        securityId: result.contract.securityId,
+        symbolHint: result.contract.symbolHint,
+        strike: result.contract.strike,
+        expiry: result.contract.expiry,
+        optSide: result.contract.optSide,
+        entryPremium: result.contract.ltp,
+        stopLossPrice: result.levels.stopLossPrice,
+        targetPrice: result.levels.targetPrice,
+        qty: result.qty,
+        indexEntry,
+        indexStop,
+        indexTp1,
+        beMoved: false,
+        openedAt: Date.now(),
+      });
+      saveManagedDhanTrades(managed);
+    }
+
+    const summary = result.ok
+      ? `✅ Dhan AUTO ${side} ${result.contract.symbolHint}\nQty ${result.qty} · prem≈${result.contract.ltp} · SL ${result.levels.stopLossPrice} · TP ${result.levels.targetPrice}\nSuperOrder ${result.orderId} · (${setupKind})`
+      : `⚠️ Dhan AUTO failed / no orderId · ${JSON.stringify(result.orderStatus || result)}`;
+    console.log('[RedBarBot]', summary.replace(/\n/g, ' | '));
+    if (bot && chatId) {
+      await bot.sendMessage(chatId, summary, { disable_web_page_preview: true }).catch(() => {});
+    }
+  } catch (e) {
+    console.error('[RedBarBot] DHAN_AUTO failed:', e.message);
+    if (bot && chatId) {
+      await bot.sendMessage(chatId, `❌ Dhan AUTO failed NIFTY ${side}: ${e.message}`, {
+        disable_web_page_preview: true,
+      }).catch(() => {});
+    }
+  }
+}
+
+/**
+ * Manage open Dhan Super Orders:
+ *  - When option LTP ≥ entry + 1R (to target distance), move SL → BE
+ *  - Hard flat at 15:10 IST
+ */
+async function pollManagedDhanStops() {
+  if (String(process.env.DHAN_AUTO_TRADE || '').toLowerCase() !== 'true') return;
+  if (String(process.env.TRADE_ENABLED || '').toLowerCase() !== 'true') return;
+  if (!envTrim('DHAN_CLIENT_ID') || !envTrim('DHAN_ACCESS_TOKEN')) return;
+
+  let rows = loadManagedDhanTrades().filter((t) => t.status === 'open');
+  if (!rows.length) return;
+
+  const { createDhanNiftyTrade } = require('./js/dhan_nifty_trade.js');
+  let trader;
+  try {
+    trader = createDhanNiftyTrade();
+  } catch (e) {
+    console.warn('[RedBarBot] Dhan manage init:', e.message);
+    return;
+  }
+
+  const mins = _istMinsNow();
+  const flatMins = Number(process.env.DHAN_FLAT_IST_MINS) || (15 * 60 + 10);
+  const next = [];
+
+  for (const t of rows) {
+    try {
+      if (mins >= flatMins) {
+        console.log(`[RedBarBot] Dhan flat@15:10 — closing ${t.symbolHint || t.orderId}`);
+        await trader.flattenTrade({
+          orderId: t.orderId,
+          securityId: t.securityId,
+          quantity: t.qty,
+        });
+        t.status = 'flattened_eod';
+        t.closedAt = Date.now();
+        if (bot && chatId) {
+          await bot.sendMessage(chatId, `🕔 Dhan EOD flat · ${t.symbolHint || t.orderId}`, {
+            disable_web_page_preview: true,
+          }).catch(() => {});
+        }
+        next.push(t);
+        continue;
+      }
+
+      // BE trail: option moved ≥ halfway to TP (≈1R on mapped premium)
+      if (!t.beMoved && t.entryPremium > 0 && t.targetPrice > t.entryPremium) {
+        const oneR = t.targetPrice - t.entryPremium;
+        // Re-fetch chain LTP for this strike is heavy; use super-order list LTP if present
+        let ltp = null;
+        try {
+          const supers = await trader.dhan.getSuperOrders();
+          const book = Array.isArray(supers) ? supers : [];
+          const row = book.find((o) => String(o.orderId) === String(t.orderId));
+          ltp = row?.ltp != null ? Number(row.ltp) : null;
+        } catch (_) { /* ignore */ }
+
+        if (ltp != null && ltp >= t.entryPremium + oneR * 0.95) {
+          await trader.moveStopToBreakeven(t.orderId, t.entryPremium, 0.5);
+          t.beMoved = true;
+          t.beMovedAt = Date.now();
+          console.log(`[RedBarBot] Dhan BE stop moved · ${t.symbolHint} @ ${t.entryPremium}`);
+          if (bot && chatId) {
+            await bot.sendMessage(
+              chatId,
+              `🛡️ Dhan SL → BE · ${t.symbolHint}\nEntry ${t.entryPremium} · LTP ${ltp}`,
+              { disable_web_page_preview: true },
+            ).catch(() => {});
+          }
+        }
+      }
+
+      // Drop if super order closed
+      try {
+        const supers = await trader.dhan.getSuperOrders();
+        const book = Array.isArray(supers) ? supers : [];
+        const row = book.find((o) => String(o.orderId) === String(t.orderId));
+        if (row && ['CLOSED', 'CANCELLED', 'REJECTED', 'TRADED'].includes(String(row.orderStatus))
+          && String(row.orderStatus) !== 'TRADED') {
+          // CLOSED / CANCELLED → done; TRADED on entry alone still has legs
+        }
+        if (row && String(row.orderStatus) === 'CLOSED') {
+          t.status = 'closed';
+          t.closedAt = Date.now();
+        }
+      } catch (_) { /* keep managing */ }
+
+      if (t.status === 'open') next.push(t);
+      else next.push(t);
+    } catch (e) {
+      console.warn('[RedBarBot] Dhan manage row failed:', e.message);
+      next.push(t);
+    }
+  }
+
+  saveManagedDhanTrades(next);
 }
 
 async function _maybeAutoFuturesTwoLeg({ inst, side, readout, alertKey, dayKey }) {
@@ -1306,9 +1553,11 @@ setTimeout(scanMarket, 15000);
 const MANAGE_POLL_MS = Math.max(10000, Number(process.env.REDBAR_MANAGE_POLL_MS) || 20000);
 setInterval(() => {
   pollManagedFuturesStops().catch((e) => console.warn('[RedBarBot] manage poll:', e.message));
+  pollManagedDhanStops().catch((e) => console.warn('[RedBarBot] Dhan manage poll:', e.message));
 }, MANAGE_POLL_MS);
 setTimeout(() => {
   pollManagedFuturesStops().catch(() => {});
+  pollManagedDhanStops().catch(() => {});
 }, 25000);
 
 // ─── New listing announcements (alert only — never auto-buy) ─────────────────

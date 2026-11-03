@@ -3139,7 +3139,10 @@ const RedBarTrend = {
       return { state: 'wait', reason: 'No directional setup.' };
     }
     const isPob = setupKind === 'pob_reject';
-    if (!this.ACTIONABLE_SETUPS.includes(setupKind)) {
+    const instEarly = String(instrumentId || '').toUpperCase();
+    // NIFTY Trade 3 (Setup 3 rubber band) may ENTER when enabled — BTC keeps it overlay-only
+    const niftySetup3 = instEarly === 'NIFTY' && setupKind === 'setup3_rubber_band';
+    if (!this.ACTIONABLE_SETUPS.includes(setupKind) && !niftySetup3) {
       const why = {
         trend_bias: 'Red Bar bias only — wait for Trade 1 departure, Trade 2 revisit, session sweep, or Dr. Dev POB reject.',
         fib_pullback: 'Near mark-window Fibs / POB (context) — wait for Trade 1 / Trade 2 / sweep / POB reject.',
@@ -3155,7 +3158,7 @@ const RedBarTrend = {
       return { state: 'watch', reason: why };
     }
 
-    if (renko && renko.overextendedBar && setupKind !== 'session_sweep' && !isPob) {
+    if (renko && renko.overextendedBar && setupKind !== 'session_sweep' && !isPob && !niftySetup3) {
       return {
         state: 'watch',
         reason: `Candle spiked >1.6× brick ruler ($${renko.brickSize.toFixed(0)}) in one bar — wait for pullback instead of chasing.`,
@@ -3175,6 +3178,16 @@ const RedBarTrend = {
           state: 'watch',
           reason: `POB SHORT needs SL locked above POB 0.56 (got: ${invalidationReason || '—'}).`,
         };
+      }
+    } else if (niftySetup3) {
+      if (!/extreme drop wick|extreme rally wick|5m swing|barricade|setup 3/i.test(stopTag)) {
+        // still allow if structural flag set from Setup 3 book
+        if (!stopStructural) {
+          return {
+            state: 'watch',
+            reason: `Setup 3 needs structural SL (got: ${invalidationReason || '—'}).`,
+          };
+        }
       }
     } else {
       const realFiveMinSwing = (/5m swing|extreme drop wick|extreme rally wick/i.test(stopTag)) && !/too close|floor|default|0\.28%|0\.5%/i.test(stopTag);
