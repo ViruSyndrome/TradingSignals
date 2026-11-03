@@ -2674,7 +2674,8 @@ const RedBarTrend = {
       bandPhase = 'bear_held_below_bands';
     }
 
-    const isEarlyMarkAsset = !!(window && this.isSessionFib(c) && Number(window.endHour) <= 6);
+    const markWin = this.getMarkWindow(c);
+    const isEarlyMarkAsset = !!(markWin && this.isSessionFib(c) && Number(markWin.endHour) <= 6);
     const cb = bands.find((b) => b.day === asOfDay) || null;
     const firstRed1h = c.firstRed1h || (isEarlyMarkAsset && cb ? {
       high: cb.high,
