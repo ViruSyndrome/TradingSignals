@@ -581,12 +581,15 @@ const RangeEmaUI = {
       const needPivotFetch = tf !== firstRedTf;
       const needFib30m = tf === '1h' && mwMins < 60 && firstRedTf !== '30m';
       const need1m = (typeof FibMagnet !== 'undefined');
+      const workTf = c.workingTf || '15m';
+      const needWorkTf = tf !== workTf;
       const pair = await Promise.allSettled([
         get(tf, lim),
         needPivotFetch ? get(firstRedTf, limPivot) : Promise.resolve(null),
         need5m ? get('5m', lim5m) : Promise.resolve(null),
         needFib30m ? get('30m', 500) : Promise.resolve(null),
         need1m ? get('1m', 50) : Promise.resolve(null),
+        needWorkTf ? get(workTf, 500) : Promise.resolve(null),
       ]);
       if (pair[0].status !== 'fulfilled') throw pair[0].reason;
       raw = pair[0].value;
@@ -608,6 +611,7 @@ const RangeEmaUI = {
       if (need1m && pair[4]?.status === 'fulfilled') {
         raw1m = pair[4].value;
       }
+      var rawWork = needWorkTf && pair[5]?.status === 'fulfilled' ? pair[5].value : null;
     } catch (e) {
       return {
         symbol: instrument.symbol,
@@ -644,16 +648,19 @@ const RangeEmaUI = {
 
     // Sagar pivot: first CLOSED red on pivot TF AFTER the calendar day’s first candle
     // (never the open bar itself). Calendar IST day — not mark-window session day.
+    const nowTs = Date.now();
     let firstRed1h = null;
     let bars1h = null;
+    const barsWork = rawWork ? this._klinesToBars(rawWork) : bars30;
+    const evalBars = (barsWork && barsWork.length >= 40) ? barsWork : bars30;
     try {
       bars1h = this._klinesToBars(rawPivot);
       if (bars1h.length >= firstRedMinBars) {
-        const lastT = bars30[bars30.length - 1].t;
+        const lastT = evalBars[evalBars.length - 1].t;
         const calDay = RedBarTrend.dayKey(lastT, readCfg.dayMode || 'ist');
         firstRed1h = RedBarTrend.firstRedBarOfSession(bars1h, calDay, {
           ...readCfg,
-          asOfTs: Date.now(),
+          asOfTs: nowTs,
           barMs: firstRedBarMs,
         });
       }
@@ -663,8 +670,9 @@ const RangeEmaUI = {
 
     const bars5m = tf === '5m' ? bars30 : this._klinesToBars(raw5m);
     const barsFib = rawFib30m ? this._klinesToBars(rawFib30m) : null;
-    const readout = RedBarTrend.read(bars30, {
+    const readout = RedBarTrend.read(evalBars, {
       ...readCfg,
+      asOfTs: nowTs,
       firstRed1h,
       bars1h,
       bars5m: bars5m && bars5m.length ? bars5m : null,

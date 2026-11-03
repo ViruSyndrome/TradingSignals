@@ -660,7 +660,7 @@ Entry <b>${pxPrefix}${fmt(readout.price)}</b> · Stop <b>${pxPrefix}${fmt(readou
 
 /** DNA / researched setups eligible for Binance auto two-leg. */
 function _autoSetupAllowed(setupKind) {
-  const raw = envTrim('REDBAR_AUTO_SETUPS') || 'trade1_departure,trade2_confirmed,session_sweep';
+  const raw = envTrim('REDBAR_AUTO_SETUPS') || 'trade1_departure,trade2_confirmed,session_sweep,pob_reject';
   const allow = raw.split(',').map((s) => s.trim()).filter(Boolean);
   return allow.includes(String(setupKind || ''));
 }
