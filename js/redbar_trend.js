@@ -1332,16 +1332,25 @@ const RedBarTrend = {
 
     // Sticky confirm bar per sweep OR post-Trade-1 pullback retest episode:
     // 1. Liquidity sweep: price briefly wicks beyond Red Bar high (or low) for <2 closes and rejects back inside.
-    // 2. Sagar Trade 2 Pullback Re-test: after a real Trade 1 breakout (>=2 closes outside the Red Bar box),
-    //    price pulls back into the Red Bar box [lo, hi] as support/resistance and bounces back out in trend direction!
+    // 2. Sagar / Dr. Dev Trade 2 Pullback Re-test:
+    //    a) First, price must complete a real Trade 1 departure (closes clear of the box: b.l > hi for LONG, b.h < lo for SHORT).
+    //    b) Second, on a later bar, price pulls back to touch/enter the box (b.l <= hi + ptol and b.c <= hi + boxRange * 0.35).
+    //    c) Third, on a subsequent bar after the dip, a 5m candle closes back out in trend direction (once per session box).
     const tol = (touchPct / 100) * firstRed.high;
-    const ptol = firstRed.high * 0.00008; // pullback must really tag the box edge (~2 pts), not just come within 0.15%
+    const boxRange = Math.max(1, hi - lo);
+    const ptol = Math.max(firstRed.high * 0.00015, boxRange * 0.12); // ~3.5 pts on NIFTY: real retest of box top/bottom
     let activeSweepHi = null;
     let activeSweepLo = null;
     let barsClosedAboveHi = 0;
     let barsClosedBelowLo = 0;
+    let clearedAboveHi = false;
+    let clearedBelowLo = false;
     let pullbackFromAboveLo = null;
+    let pullbackFromAboveBarIdx = -1;
     let pullbackFromBelowHi = null;
+    let pullbackFromBelowBarIdx = -1;
+    let didPullbackLong = false;
+    let didPullbackShort = false;
     let lastShortConfirm = null;
     let lastLongConfirm = null;
     for (let i = 0; i < closed.length; i++) {
@@ -1349,25 +1358,33 @@ const RedBarTrend = {
       if (b.c > hi) {
         barsClosedAboveHi++;
         barsClosedBelowLo = 0;
+        if (barsClosedAboveHi >= 2 && b.l > hi) clearedAboveHi = true;
       } else if (b.c < lo) {
         barsClosedBelowLo++;
         barsClosedAboveHi = 0;
-      }
-
-      // Track post-Trade-1 pullback into the Red Bar box
-      if (barsClosedAboveHi >= 2 && b.l <= hi + ptol && b.l >= lo - tol) {
-        pullbackFromAboveLo = pullbackFromAboveLo == null ? b.l : Math.min(pullbackFromAboveLo, b.l);
-      }
-      if (barsClosedBelowLo >= 2 && b.h >= lo - ptol && b.h <= hi + tol) {
-        pullbackFromBelowHi = pullbackFromBelowHi == null ? b.h : Math.max(pullbackFromBelowHi, b.h);
+        if (barsClosedBelowLo >= 2 && b.h < lo) clearedBelowLo = true;
       }
 
       // If price breaks all the way through the opposite side of the box, reset pullback state
-      if (b.c < lo - tol) pullbackFromAboveLo = null;
-      if (b.c > hi + tol) pullbackFromBelowHi = null;
+      if (b.c < lo - tol) {
+        pullbackFromAboveLo = null;
+        clearedAboveHi = false;
+      }
+      if (b.c > hi + tol) {
+        pullbackFromBelowHi = null;
+        clearedBelowLo = false;
+      }
 
-      // Confirm Trade 2 Bullish Pullback Continuation: dipped into box from above & 5m green bar closes back > hi
-      if (pullbackFromAboveLo != null && b.c > hi && b.c > b.o) {
+      // Confirm Trade 2 Bullish Pullback Continuation on a bar AFTER the pullback dip bar (once per box)
+      const maxReclaimChase = hi + Math.max(boxRange * 1.1, firstRed.high * 0.0016);
+      if (
+        !didPullbackLong
+        && pullbackFromAboveLo != null
+        && i > pullbackFromAboveBarIdx
+        && b.c > hi
+        && b.c > b.o
+        && b.c <= maxReclaimChase
+      ) {
         lastLongConfirm = {
           side: 'bullish',
           read: 'pullback_reclaim_high',
@@ -1378,12 +1395,21 @@ const RedBarTrend = {
           buysOnly: true,
           medianOk: true,
         };
+        didPullbackLong = true;
         pullbackFromAboveLo = null;
         activeSweepHi = null;
         continue;
       }
-      // Confirm Trade 2 Bearish Pullback Continuation: bounced into box from below & 5m red bar closes back < lo
-      if (pullbackFromBelowHi != null && b.c < lo && b.c < b.o) {
+      // Confirm Trade 2 Bearish Pullback Continuation on a bar AFTER the pullback bounce bar (once per box)
+      const minRejectChase = lo - Math.max(boxRange * 1.1, firstRed.high * 0.0016);
+      if (
+        !didPullbackShort
+        && pullbackFromBelowHi != null
+        && i > pullbackFromBelowBarIdx
+        && b.c < lo
+        && b.c < b.o
+        && b.c >= minRejectChase
+      ) {
         lastShortConfirm = {
           side: 'bearish',
           read: 'pullback_reject_low',
@@ -1394,9 +1420,20 @@ const RedBarTrend = {
           sellsOnly: true,
           medianOk: true,
         };
+        didPullbackShort = true;
         pullbackFromBelowHi = null;
         activeSweepLo = null;
         continue;
+      }
+
+      // Track post-Trade-1 pullback into the Red Bar box (only AFTER price first cleared the box)
+      if (!didPullbackLong && clearedAboveHi && b.l <= hi + ptol && b.l >= lo - tol && (b.c <= b.o || b.c <= hi + ptol)) {
+        if (pullbackFromAboveLo == null) pullbackFromAboveBarIdx = i;
+        pullbackFromAboveLo = pullbackFromAboveLo == null ? b.l : Math.min(pullbackFromAboveLo, b.l);
+      }
+      if (!didPullbackShort && clearedBelowLo && b.h >= lo - ptol && b.h <= hi + tol && (b.c >= b.o || b.c >= lo - ptol)) {
+        if (pullbackFromBelowHi == null) pullbackFromBelowBarIdx = i;
+        pullbackFromBelowHi = pullbackFromBelowHi == null ? b.h : Math.max(pullbackFromBelowHi, b.h);
       }
 
       // Classic liquidity sweep (only when NOT a multi-bar trend breakout pulling back into support/resistance)
@@ -2315,20 +2352,58 @@ const RedBarTrend = {
       }
     }
 
-    // NIFTY (Sagar): Trade 1 / Trade 2 stop sits at the Red Bar box edge (opposite side), not a 30m swing.
+    // NIFTY (Dr. Devendra & Sagar 09:45 / Red Bar rules):
+    // Stop sits at the trigger/prev 5m candle low/high, pullback wick, box 50% midpoint, or Red Bar box edge
+    // ("Mujhe bada SL nahi chahiye" — keep NIFTY option SL tight: ~20 to 38 index pts, never 80–300 pts).
     if (
       String(instId).toUpperCase() === 'NIFTY'
       && firstRed1h && Number.isFinite(firstRed1h.low) && Number.isFinite(firstRed1h.high)
       && (setupKind === 'trade1_departure' || setupKind === 'trade2_confirmed')
     ) {
-      const boxPad = price * 0.00017; // ~4 pts on NIFTY
-      if (trend === 'bullish' && firstRed1h.low < price) {
-        invalidation = firstRed1h.low - boxPad;
-        invalidationReason = '5m swing (Red Bar box low)';
+      const boxPad = price * 0.00015; // ~3.5 pts on NIFTY
+      const minNiftyStop = price * 0.0008; // ~19 pts minimum
+      const maxNiftyStop = price * 0.0016; // ~38 pts maximum
+      const boxMid = (firstRed1h.high + firstRed1h.low) / 2;
+      const last2 = Array.isArray(bars5m) && bars5m.length >= 2 ? bars5m.slice(-2) : [];
+      const prev5Lo = last2.length ? Math.min(...last2.map((b) => b.l)) : null;
+      const prev5Hi = last2.length ? Math.max(...last2.map((b) => b.h)) : null;
+      if (trend === 'bullish') {
+        const cands = [
+          sweepExtreme != null && sweepExtreme < price ? { v: sweepExtreme - boxPad, tag: '5m swing (pullback low)' } : null,
+          prev5Lo != null && prev5Lo < price ? { v: prev5Lo - boxPad, tag: '5m swing (prev candle low)' } : null,
+          boxMid < price ? { v: boxMid - boxPad, tag: '5m swing (Red Bar 50% mid)' } : null,
+          firstRed1h.low < price ? { v: firstRed1h.low - boxPad, tag: '5m swing (Red Bar box low)' } : null,
+        ].filter((x) => x && Number.isFinite(x.v) && x.v < price);
+        const inWin = cands
+          .filter((x) => (price - x.v) >= minNiftyStop && (price - x.v) <= maxNiftyStop)
+          .sort((a, b) => b.v - a.v);
+        if (inWin[0]) {
+          invalidation = inWin[0].v;
+          invalidationReason = inWin[0].tag;
+        } else if (cands[0]) {
+          const d = Math.min(maxNiftyStop, Math.max(minNiftyStop, price - cands[0].v));
+          invalidation = price - d;
+          invalidationReason = cands[0].tag;
+        }
         stopStructural = true;
-      } else if (trend === 'bearish' && firstRed1h.high > price) {
-        invalidation = firstRed1h.high + boxPad;
-        invalidationReason = '5m swing (Red Bar box high)';
+      } else if (trend === 'bearish') {
+        const cands = [
+          sweepExtreme != null && sweepExtreme > price ? { v: sweepExtreme + boxPad, tag: '5m swing (pullback high)' } : null,
+          prev5Hi != null && prev5Hi > price ? { v: prev5Hi + boxPad, tag: '5m swing (prev candle high)' } : null,
+          boxMid > price ? { v: boxMid + boxPad, tag: '5m swing (Red Bar 50% mid)' } : null,
+          firstRed1h.high > price ? { v: firstRed1h.high + boxPad, tag: '5m swing (Red Bar box high)' } : null,
+        ].filter((x) => x && Number.isFinite(x.v) && x.v > price);
+        const inWin = cands
+          .filter((x) => (x.v - price) >= minNiftyStop && (x.v - price) <= maxNiftyStop)
+          .sort((a, b) => a.v - b.v);
+        if (inWin[0]) {
+          invalidation = inWin[0].v;
+          invalidationReason = inWin[0].tag;
+        } else if (cands[0]) {
+          const d = Math.min(maxNiftyStop, Math.max(minNiftyStop, cands[0].v - price));
+          invalidation = price + d;
+          invalidationReason = cands[0].tag;
+        }
         stopStructural = true;
       }
     }
