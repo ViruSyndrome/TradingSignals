@@ -34,7 +34,7 @@ const ist = (t) => new Date(t + 5.5 * 3600e3).toISOString().slice(11, 16);
     if (!r) continue;
     if (process.env.DETAIL) {
       const h = ist(t);
-      if (h >= process.env.DETAIL) console.log(`${h} px=${s5[i].c.toFixed(1)} ${r.actionState} ${r.trend} ${r.setupKind} stop=${r.invalidation ? (+r.invalidation).toFixed(1) : '-'} why=${String(r.actionReason || '').slice(0, 110)}`);
+      if (h >= process.env.DETAIL) console.log(`${h} px=${s5[i].c.toFixed(1)} ${r.actionState} ${r.trend} ${r.setupKind} stop=${r.invalidation ? (+r.invalidation).toFixed(1) : '-'} read=${r.playbook?.redSetup?.revisitRead} trig=${r.triggerTs ? ist(r.triggerTs) : "-"} why=${String(r.actionReason || '').slice(0, 110)}`);
     }
     const key = `${r.actionState}|${r.trend}|${r.setupKind}`;
     if (key !== last) {

@@ -1335,6 +1335,7 @@ const RedBarTrend = {
     // 2. Sagar Trade 2 Pullback Re-test: after a real Trade 1 breakout (>=2 closes outside the Red Bar box),
     //    price pulls back into the Red Bar box [lo, hi] as support/resistance and bounces back out in trend direction!
     const tol = (touchPct / 100) * firstRed.high;
+    const ptol = firstRed.high * 0.00008; // pullback must really tag the box edge (~2 pts), not just come within 0.15%
     let activeSweepHi = null;
     let activeSweepLo = null;
     let barsClosedAboveHi = 0;
@@ -1354,10 +1355,10 @@ const RedBarTrend = {
       }
 
       // Track post-Trade-1 pullback into the Red Bar box
-      if (barsClosedAboveHi >= 2 && b.l <= hi + tol && b.l >= lo - tol) {
+      if (barsClosedAboveHi >= 2 && b.l <= hi + ptol && b.l >= lo - tol) {
         pullbackFromAboveLo = pullbackFromAboveLo == null ? b.l : Math.min(pullbackFromAboveLo, b.l);
       }
-      if (barsClosedBelowLo >= 2 && b.h >= lo - tol && b.h <= hi + tol) {
+      if (barsClosedBelowLo >= 2 && b.h >= lo - ptol && b.h <= hi + tol) {
         pullbackFromBelowHi = pullbackFromBelowHi == null ? b.h : Math.max(pullbackFromBelowHi, b.h);
       }
 
