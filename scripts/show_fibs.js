@@ -7,14 +7,27 @@ const RedBarTrend = require('../js/redbar_trend.js');
 
 async function main() {
   const sym = process.argv[2] || 'BTCUSDT';
-  const url = `https://fapi.binance.com/fapi/v1/klines?symbol=${sym}&interval=30m&limit=120`;
+  const url = `https://fapi.binance.com/fapi/v1/klines?symbol=${sym}&interval=15m&limit=300`;
   const res = await fetch(url);
   const rows = await res.json();
   const bars = rows.map((r) => [r[0], +r[1], +r[2], +r[3], +r[4], +r[5]]);
   const klines = bars.map((b) => ({ t: b[0], o: b[1], h: b[2], l: b[3], c: b[4], v: b[5] }));
   const readout = RedBarTrend.read(klines, {
-    instrument: { id: 'BTC', markWindow: '02:30-03:30', bandStyle: 'sessionFib', firstRedTf: '30m' },
-    markWindow: '02:30-03:30',
+    instrument: {
+      id: 'BTC',
+      markWindow: {
+        timeZone: 'Asia/Kolkata',
+        startHour: 2, startMinute: 30,
+        endHour: 3, endMinute: 30,
+      },
+      bandStyle: 'sessionFib',
+      firstRedTf: '15m',
+    },
+    markWindow: {
+      timeZone: 'Asia/Kolkata',
+      startHour: 2, startMinute: 30,
+      endHour: 3, endMinute: 30,
+    },
     bandStyle: 'sessionFib',
     fibLevels: [0, 0.44, 0.5, 0.56, 1],
   });
