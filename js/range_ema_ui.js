@@ -2258,7 +2258,7 @@ const RangeEmaUI = {
         const slot = n > 1
           ? Math.abs(xScale.getPixelForValue(1) - xScale.getPixelForValue(0))
           : 8;
-        const bodyW = Math.max(3, Math.min(slot * 0.72, 16));
+        const bodyW = Math.max(3.5, Math.min(slot * 0.78, 18));
 
         ctx.save();
         const isRenko = chart.$rbChartMode === 'renko';
@@ -3260,10 +3260,10 @@ const RangeEmaUI = {
     const inst = row.instrument || this.activeInstrument() || { label: 'BTC', dayMode: 'utc' };
     const priceLabel = inst.label || 'Price';
     const tf = row.tf || this.activeTf();
-    // Generous context on phones; ◀ ▶ buttons and pinch allow smooth scrub
-    const wantDesktop = (c.chartBars && c.chartBars[tf]) || 120;
+    // Crisp TradingView/Binance-style candle density; ◀ ▶ buttons and pinch allow smooth scrub
+    const wantDesktop = (c.chartBars && c.chartBars[tf]) || 100;
     const wantMobile = (c.chartBarsMobile && c.chartBarsMobile[tf])
-      || ({ '5m': 140, '15m': 120, '30m': 100, '1h': 84 }[tf] || 100);
+      || ({ '5m': 56, '15m': 48, '30m': 48, '1h': 42 }[tf] || 48);
     const want = compact ? wantMobile : wantDesktop;
     const o = row.readout;
     const isRenkoMode = this.state.chartMode === 'renko';
@@ -3545,9 +3545,16 @@ const RangeEmaUI = {
       }
     }
 
-    // Fit Y to candles + magnet levels
-    const barHi = Math.max(...bars.map((b) => b.h));
-    const barLo = Math.min(...bars.map((b) => b.l));
+    // Fit Y to recent visible candles + nearby active levels so far-away historical wicks
+    // never crush today's candles into a flat horizontal ribbon (especially on mobile)
+    const focusBars = bars.slice(-Math.min(bars.length, compact ? 36 : 72));
+    const focusHi = Math.max(...focusBars.map((b) => b.h));
+    const focusLo = Math.min(...focusBars.map((b) => b.l));
+    const focusSpan = Math.max(focusHi - focusLo, priceNow * 0.0025);
+    const maxLevelReach = Math.max(focusSpan * (compact ? 1.35 : 1.85), priceNow * (compact ? 0.009 : 0.015));
+
+    const barHi = compact ? focusHi : Math.max(...bars.map((b) => b.h));
+    const barLo = compact ? focusLo : Math.min(...bars.map((b) => b.l));
     const bandPrices = dayBands.flatMap((b) => (
       (b.style === 'sessionFib' || b.style === 'istFib0230')
         ? [b.f0, b.f44, b.f50, b.f56, b.f1]
@@ -3563,7 +3570,7 @@ const RangeEmaUI = {
         || Math.abs(c.low - priceNow) / priceNow <= 0.04
       ))
       .flatMap((c) => [c.high, c.low]);
-    const nearLevels = [
+    const rawNearLevels = [
       o.currentBand?.high, o.currentBand?.low,
       o.invalidation, o.bookZone,
       o.firstRed1h?.high, o.firstRed1h?.low,
@@ -3574,6 +3581,9 @@ const RangeEmaUI = {
       ...nearPriorPrices,
       ...bandPrices,
     ].filter((v) => v != null && Number.isFinite(Number(v))).map(Number);
+    // Only expand initial Y-scale for levels within reasonable reach of current price action
+    // (levels further away are still drawn if you zoom out or pan ▲/▼)
+    const nearLevels = rawNearLevels.filter((v) => v >= focusLo - maxLevelReach && v <= focusHi + maxLevelReach);
     const yHi = Math.max(barHi, ...nearLevels);
     const yLo = Math.min(barLo, ...nearLevels);
     const barSpan = (yHi - yLo) || 1;

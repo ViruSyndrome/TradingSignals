@@ -3432,7 +3432,7 @@ body.redbar-only .site-footer-copyright {
    */
   body.redbar-only #dashboardSection.main-section.active {
     display: block;
-    padding: 10px 10px 4px;
+    padding: 6px 6px 4px;
     overflow-x: hidden;
     overflow-y: auto;
     -webkit-overflow-scrolling: touch;
@@ -3445,18 +3445,27 @@ body.redbar-only .site-footer-copyright {
     min-height: 0;
     gap: 0;
   }
+  body.redbar-only .section-heading {
+    margin-bottom: 4px;
+  }
+  body.redbar-only .section-heading h1 {
+    font-size: 1.05rem;
+  }
+  body.redbar-only .section-sub {
+    display: none;
+  }
   body.redbar-only .rb-chart-wrap {
     display: block;
     flex: none;
     height: auto;
     min-height: 0;
-    padding: 10px 8px 8px;
-    margin: 0 0 10px;
+    padding: 8px 6px 6px;
+    margin: 0 0 8px;
   }
   body.redbar-only .rb-chart-box {
     flex: none;
-    height: min(58vh, 460px);
-    min-height: 320px;
+    height: min(68dvh, 560px);
+    min-height: 390px;
   }
   body.redbar-only .site-footer {
     padding: 8px 10px calc(10px + env(safe-area-inset-bottom, 0px));
@@ -3557,11 +3566,11 @@ body.redbar-only .site-footer-copyright {
     border: 1px solid rgba(255, 255, 255, 0.05);
   }
   .rb-chart-legend .rb-lg-desk { display: none; }
-  .rb-zoom-hint { font-size: 10px; margin-bottom: 4px; }
+  .rb-zoom-hint { display: none; }
   .rb-chart-box {
     position: relative;
-    height: min(58vh, 460px);
-    min-height: 320px;
+    height: min(68dvh, 560px);
+    min-height: 390px;
     touch-action: pan-x pan-y pinch-zoom;
   }
   #redBarChart { touch-action: pan-x pan-y pinch-zoom; }
@@ -3673,12 +3682,18 @@ html.is-phone .rb-zoom-group #rbZoomReset {
 }
 html.is-phone .rb-floating-dpad {
   display: flex !important;
+  transform: scale(0.88);
+  transform-origin: bottom left;
+}
+html.is-phone .rb-zoom-hint,
+html.is-phone body.redbar-only .section-sub {
+  display: none !important;
 }
 html.is-phone .rb-chart-box,
 html.is-phone body.redbar-only .rb-chart-box {
   position: relative !important;
-  height: min(58vh, 460px) !important;
-  min-height: 320px !important;
+  height: min(68dvh, 560px) !important;
+  min-height: 390px !important;
   touch-action: pan-x pan-y pinch-zoom !important;
 }
 html.is-phone #redBarChart { touch-action: pan-x pan-y pinch-zoom !important; }
