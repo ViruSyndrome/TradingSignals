@@ -623,7 +623,18 @@ async function _scanOneRedBarInstrument(inst, rbCfg) {
       const pxPrefix = isBinance ? '$' : '';
       const emoji = side === 'LONG' ? '🟢' : '🔴';
       const setupLabel = readout.playbook?.redSetup?.label || setupKind;
-      const alertOnlyNote = !isBinance ? '\n⚠️ Alert only — place manually on Dhan (no auto-order)' : '';
+      const dhanNote = (() => {
+        if (isBinance) return '';
+        const e = Number(readout.price), s = Number(readout.invalidation), t = Number(readout.tp1);
+        if (!(e > 0 && s > 0 && t > 0)) return '';
+        const lot = Number(process.env.NIFTY_LOT_SIZE) || 65;
+        const delta = Number(process.env.NIFTY_OPT_DELTA) || 0.7; // observed ~0.7 on ITM/ATM today
+        const riskPts = Math.abs(e - s), tgtPts = Math.abs(t - e);
+        const optSl = (riskPts * delta).toFixed(0), optTp = (tgtPts * delta).toFixed(0);
+        const rsSl = Math.round(riskPts * delta * lot), rsTp = Math.round(tgtPts * delta * lot);
+        return `\nDHAN (1 lot ${lot}): option SL = buy price - ${optSl} pts · TP = buy price + ${optTp} pts\nSet P&L Exit: Max Loss ~Rs ${rsSl} · Max Profit ~Rs ${rsTp} (kill switch OFF)\nExit manually if NIFTY closes 5m beyond ${fmt(s)}`;
+      })();
+      const alertOnlyNote = !isBinance ? dhanNote + '\n⚠️ Alert only — place manually on Dhan (no auto-order)' : '';
       const subject = `Red Bar ${side}: ${inst.label} · ${setupLabel}`;
       const htmlMsg = `${emoji} <b>ENTER NOW · Red Bar ${_escHtml(inst.label)} ${side}</b>
 ${_escHtml(setupLabel)} (${_escHtml(setupKind)})

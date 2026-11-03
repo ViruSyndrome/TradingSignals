@@ -1736,6 +1736,8 @@ const RedBarTrend = {
         || (conf5 && conf5.bar && conf5.bar.c)
         || null,
       distFromPivotPct,
+      trade2TriggerTs: (conf5 && conf5.bar && conf5.bar.t) || null,
+      trade2TriggerPrice: (conf5 && conf5.bar && conf5.bar.c) || null,
       leftAbove,
       leftBelow,
       pivotHigh: firstRed.high,
@@ -2055,6 +2057,7 @@ const RedBarTrend = {
     setupKind = null,
     setup3 = null,
     pobReject = null,
+    instId = '',
   }) {
     if (trend !== 'bullish' && trend !== 'bearish') {
       return {
@@ -2308,6 +2311,24 @@ const RedBarTrend = {
           invalidationReason = '0.65% default — no structure found';
           stopStructural = false;
         }
+      }
+    }
+
+    // NIFTY (Sagar): Trade 1 / Trade 2 stop sits at the Red Bar box edge (opposite side), not a 30m swing.
+    if (
+      String(instId).toUpperCase() === 'NIFTY'
+      && firstRed1h && Number.isFinite(firstRed1h.low) && Number.isFinite(firstRed1h.high)
+      && (setupKind === 'trade1_departure' || setupKind === 'trade2_confirmed')
+    ) {
+      const boxPad = price * 0.00017; // ~4 pts on NIFTY
+      if (trend === 'bullish' && firstRed1h.low < price) {
+        invalidation = firstRed1h.low - boxPad;
+        invalidationReason = '5m swing (Red Bar box low)';
+        stopStructural = true;
+      } else if (trend === 'bearish' && firstRed1h.high > price) {
+        invalidation = firstRed1h.high + boxPad;
+        invalidationReason = '5m swing (Red Bar box high)';
+        stopStructural = true;
       }
     }
 
@@ -2660,7 +2681,11 @@ const RedBarTrend = {
     if (phase === 'first_candle') {
       trend = 'neutral';
       setupKind = 'wait';
-    } else if (redSetup.trade1Fresh && (redSetup.leftAbove || redSetup.leftBelow)) {
+    } else if (
+      redSetup.trade1Fresh && (redSetup.leftAbove || redSetup.leftBelow)
+      && !(redSetup.revisitSide && redSetup.revisitStrong
+        && redSetup.triggerTs != null && (evalTs - Number(redSetup.triggerTs)) > 20 * 60000)
+    ) {
       // Fresh leave of 1H first-red — do not steal into Trade 2 sweep window
       trend = redSetup.leftAbove ? 'bullish' : 'bearish';
       setupKind = 'trade1_departure';
@@ -2790,25 +2815,30 @@ const RedBarTrend = {
       setupKind,
       setup3,
       pobReject,
+      instId,
     });
 
     const invalidation = levels.invalidation;
     const bookZone = levels.bookZone;
 
-    const setupTriggerTs = (setupKind === 'session_sweep' && sweep?.triggerTs != null)
+    const setupTriggerTs0 = (setupKind === 'session_sweep' && sweep?.triggerTs != null)
       ? sweep.triggerTs
       : (setupKind === 'pob_reject' && pobReject?.triggerTs != null)
         ? pobReject.triggerTs
         : (setupKind === 'setup3_rubber_band' && setup3?.triggerTs != null)
           ? setup3.triggerTs
           : (redSetup.triggerTs || null);
+    const t2Stale = setupKind === 'trade2_confirmed' && redSetup.trade1Fresh && redSetup.trade2TriggerTs != null
+      && redSetup.triggerTs != null && (evalTs - Number(redSetup.triggerTs)) > 20 * 60000;
+    const setupTriggerTs = t2Stale ? redSetup.trade2TriggerTs : setupTriggerTs0;
     const setupTriggerPrice = (setupKind === 'session_sweep' && sweep?.triggerPrice != null)
       ? sweep.triggerPrice
       : (setupKind === 'pob_reject' && pobReject?.triggerPrice != null)
         ? pobReject.triggerPrice
         : (setupKind === 'setup3_rubber_band' && setup3?.triggerPrice != null)
           ? setup3.triggerPrice
-          : (redSetup.triggerPrice != null ? redSetup.triggerPrice : price);
+          : (t2Stale && redSetup.trade2TriggerPrice != null ? redSetup.trade2TriggerPrice
+            : (redSetup.triggerPrice != null ? redSetup.triggerPrice : price));
 
     // Entry gate: full DNA pack + Dr. Dev session POB (see entryGate docstring).
     const { state: actionState, reason: actionReason } = this.entryGate({
