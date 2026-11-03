@@ -2830,56 +2830,112 @@ const RangeEmaUI = {
       id: 'rbSetup3',
       afterDatasetsDraw(chart) {
         const s3 = chart.$rbSetup3;
-        if (!s3 || (!s3.primed && !s3.triggered)) return;
+        const hl = chart.$rbHoveredHorizLine;
+        const hasS3 = !!(s3 && (s3.primed || s3.triggered));
+        if (!hasS3 && !hl) return;
         const yScale = chart.scales.y;
         const area = chart.chartArea;
         if (!yScale || !area) return;
         const ctx = chart.ctx;
         const compact = !!chart.$rbCompact;
+        const d = chart.$rbDecimals ?? 2;
+        const hovId = hl?.id;
 
         ctx.save();
+        ctx.font = compact
+          ? 'bold 8.5px Outfit, system-ui, sans-serif'
+          : 'bold 9.5px Outfit, system-ui, sans-serif';
 
-        // 1. Barricade level line (Amber dotted)
-        if (s3.barricade != null && Number.isFinite(s3.barricade)) {
-          const yB = yScale.getPixelForValue(s3.barricade);
-          if (Number.isFinite(yB) && yB >= area.top && yB <= area.bottom) {
-            ctx.strokeStyle = 'rgba(251, 191, 36, 0.85)';
-            ctx.lineWidth = 1.3;
-            ctx.setLineDash([4, 3]);
+        if (hasS3) {
+          const yB = (s3.barricade != null && Number.isFinite(s3.barricade))
+            ? yScale.getPixelForValue(s3.barricade)
+            : null;
+          const yEma = (s3.ema5 != null && Number.isFinite(s3.ema5))
+            ? yScale.getPixelForValue(s3.ema5)
+            : null;
+          const closeTogether = (yB != null && yEma != null && Math.abs(yB - yEma) < 18);
+
+          // 1. Barricade level line (Amber dotted) — label aligned on the RIGHT near live candles
+          if (yB != null && Number.isFinite(yB) && yB >= area.top && yB <= area.bottom) {
+            const isHov = hovId === 's3_barricade';
+            ctx.strokeStyle = isHov ? 'rgba(251, 191, 36, 1)' : 'rgba(251, 191, 36, 0.85)';
+            ctx.lineWidth = isHov ? 2.4 : 1.35;
+            ctx.setLineDash(isHov ? [6, 3] : [4, 3]);
             ctx.beginPath();
             ctx.moveTo(area.left, yB);
             ctx.lineTo(area.right, yB);
             ctx.stroke();
 
-            ctx.fillStyle = 'rgba(251, 191, 36, 0.95)';
-            ctx.font = compact
-              ? 'bold 8.5px Outfit, system-ui, sans-serif'
-              : 'bold 9.5px Outfit, system-ui, sans-serif';
-            ctx.textAlign = 'left';
-            ctx.textBaseline = 'bottom';
-            ctx.fillText(`🚧 Barricade ${Number(s3.barricade).toFixed(0)}`, area.left + 6, yB - 2);
+            const labelB = `🚧 Barricade ${Number(s3.barricade).toFixed(d === 0 ? 0 : (s3.barricade % 1 === 0 ? 0 : d))}`;
+            ctx.fillStyle = isHov ? '#fde68a' : 'rgba(251, 191, 36, 0.96)';
+            ctx.textAlign = 'right';
+            // If Barricade and 5 EMA lines are very close, place the upper label above its line and lower label below its line
+            const putBelow = closeTogether && yB > yEma;
+            ctx.textBaseline = putBelow ? 'top' : 'bottom';
+            ctx.fillText(labelB, area.right - 8, putBelow ? yB + 3 : yB - 3);
           }
-        }
 
-        // 2. 30m 5 EMA Target line (Cyan dashed)
-        if (s3.ema5 != null && Number.isFinite(s3.ema5)) {
-          const yEma = yScale.getPixelForValue(s3.ema5);
-          if (Number.isFinite(yEma) && yEma >= area.top && yEma <= area.bottom) {
-            ctx.strokeStyle = 'rgba(56, 189, 248, 0.85)';
-            ctx.lineWidth = 1.3;
-            ctx.setLineDash([6, 4]);
+          // 2. 30m 5 EMA Target line (Cyan dashed) — label aligned on the RIGHT near live candles
+          if (yEma != null && Number.isFinite(yEma) && yEma >= area.top && yEma <= area.bottom) {
+            const isHov = hovId === 's3_ema5';
+            ctx.strokeStyle = isHov ? 'rgba(56, 189, 248, 1)' : 'rgba(56, 189, 248, 0.85)';
+            ctx.lineWidth = isHov ? 2.4 : 1.35;
+            ctx.setLineDash(isHov ? [8, 3] : [6, 4]);
             ctx.beginPath();
             ctx.moveTo(area.left, yEma);
             ctx.lineTo(area.right, yEma);
             ctx.stroke();
 
-            ctx.fillStyle = 'rgba(56, 189, 248, 0.95)';
-            ctx.font = compact
-              ? 'bold 8.5px Outfit, system-ui, sans-serif'
-              : 'bold 9.5px Outfit, system-ui, sans-serif';
+            const labelEma = `🧲 30m 5 EMA Target ${Number(s3.ema5).toFixed(d === 0 ? 0 : (s3.ema5 % 1 === 0 ? 0 : d))}`;
+            ctx.fillStyle = isHov ? '#bae6fd' : 'rgba(56, 189, 248, 0.96)';
             ctx.textAlign = 'right';
-            ctx.textBaseline = 'bottom';
-            ctx.fillText(`🧲 30m 5 EMA Target ${Number(s3.ema5).toFixed(0)}`, area.right - 6, yEma - 2);
+            const putBelow = closeTogether && yEma >= yB;
+            ctx.textBaseline = putBelow ? 'top' : 'bottom';
+            ctx.fillText(labelEma, area.right - 8, putBelow ? yEma + 3 : yEma - 3);
+          }
+        }
+
+        // 3. If user is hovering ANY horizontal setup/level line, draw a crisp highlight line + floating badge at cursor
+        if (hl && Number.isFinite(hl.value)) {
+          const yH = yScale.getPixelForValue(hl.value);
+          if (Number.isFinite(yH) && yH >= area.top - 2 && yH <= area.bottom + 2) {
+            ctx.strokeStyle = hl.color || '#38bdf8';
+            ctx.lineWidth = 2.2;
+            ctx.setLineDash([6, 3]);
+            ctx.beginPath();
+            ctx.moveTo(area.left, yH);
+            ctx.lineTo(area.right, yH);
+            ctx.stroke();
+            ctx.setLineDash([]);
+
+            const pillText = `${hl.title}: ${Number(hl.value).toFixed(d)} (${hl.diffStr})`;
+            ctx.font = compact
+              ? 'bold 9.5px Outfit, system-ui, sans-serif'
+              : 'bold 10.5px Outfit, system-ui, sans-serif';
+            const tw = ctx.measureText(pillText).width;
+            const padX = 8;
+            const boxW = tw + padX * 2;
+            const boxH = compact ? 18 : 20;
+            const rawX = Number.isFinite(hl.evX) ? hl.evX - boxW / 2 : (area.left + area.right - boxW) / 2;
+            const boxX = Math.max(area.left + 6, Math.min(area.right - boxW - 6, rawX));
+            const boxY = (yH - boxH - 6 >= area.top + 4) ? (yH - boxH - 6) : (yH + 6);
+
+            ctx.fillStyle = 'rgba(15, 23, 42, 0.96)';
+            ctx.strokeStyle = hl.color || '#38bdf8';
+            ctx.lineWidth = 1.4;
+            ctx.beginPath();
+            if (typeof ctx.roundRect === 'function') {
+              ctx.roundRect(boxX, boxY, boxW, boxH, 5);
+            } else {
+              ctx.rect(boxX, boxY, boxW, boxH);
+            }
+            ctx.fill();
+            ctx.stroke();
+
+            ctx.fillStyle = '#f8fafc';
+            ctx.textAlign = 'left';
+            ctx.textBaseline = 'middle';
+            ctx.fillText(pillText, boxX + padX, boxY + boxH / 2);
           }
         }
 
@@ -4017,6 +4073,141 @@ const RangeEmaUI = {
             }
           }
 
+          // Check active horizontal setup & level lines (Barricade, 30m 5 EMA Target, 1H First Red H/L, POB 0.44/0.56, and Y-axis level tags)
+          let matchedHoriz = null;
+          if (yScale && area && evY != null && evX != null && evX >= area.left - 12 && evX <= area.right + 12) {
+            const horizLines = [];
+            const s3 = this._chart?.$rbSetup3;
+            if (s3 && (s3.primed || s3.triggered)) {
+              if (s3.barricade != null && Number.isFinite(s3.barricade)) {
+                horizLines.push({
+                  id: 's3_barricade',
+                  title: '🚧 Barricade (Setup 3 Trigger)',
+                  value: Number(s3.barricade),
+                  color: '#fbbf24',
+                  bg: 'rgba(251, 191, 36, 0.18)',
+                  role: '5m close across Barricade triggers Rubber Band pullback toward 30m 5 EMA',
+                });
+              }
+              if (s3.ema5 != null && Number.isFinite(s3.ema5)) {
+                horizLines.push({
+                  id: 's3_ema5',
+                  title: '🧲 30m 5 EMA Target (Rubber Band)',
+                  value: Number(s3.ema5),
+                  color: '#38bdf8',
+                  bg: 'rgba(56, 189, 248, 0.18)',
+                  role: 'Mean-reversion magnet after 4+ detached 30m candles',
+                });
+              }
+            }
+            const fr = this._chart?.$rbFirstRed1h;
+            if (fr && this._chart?.$rbShowFirstRed !== false) {
+              const rLbl = o.firstRedLabel || '1H';
+              if (fr.high != null && Number.isFinite(fr.high)) {
+                horizLines.push({
+                  id: 'fr_high',
+                  title: `🟥 ${rLbl} First Red High`,
+                  value: Number(fr.high),
+                  color: '#f43f5e',
+                  bg: 'rgba(244, 63, 94, 0.18)',
+                  role: 'Trade 1 Breakout Long above High / Trade 2 Short Resistance',
+                });
+              }
+              if (fr.low != null && Number.isFinite(fr.low)) {
+                horizLines.push({
+                  id: 'fr_low',
+                  title: `🟥 ${rLbl} First Red Low`,
+                  value: Number(fr.low),
+                  color: '#fb7185',
+                  bg: 'rgba(244, 63, 94, 0.16)',
+                  role: 'Trade 1 Breakdown Short below Low / Trade 2 Long Support',
+                });
+              }
+            }
+            const pob = this._chart?.$rbPobReject;
+            if (pob && (pob.watching || pob.triggered || pob.status === 'await_retest')) {
+              if (pob.pobHi != null && Number.isFinite(pob.pobHi)) {
+                horizLines.push({
+                  id: 'pob_hi',
+                  title: '🛑 POB 0.56 (Stop Loss Ceiling)',
+                  value: Number(pob.pobHi),
+                  color: '#f43f5e',
+                  bg: 'rgba(244, 63, 94, 0.18)',
+                  role: '5m close above 0.56 invalidates X-Candle POB Short',
+                });
+              }
+              if (pob.pobLo != null && Number.isFinite(pob.pobLo)) {
+                horizLines.push({
+                  id: 'pob_lo',
+                  title: '🎯 POB 0.44 (Short Entry Edge)',
+                  value: Number(pob.pobLo),
+                  color: '#c084fc',
+                  bg: 'rgba(192, 132, 252, 0.18)',
+                  role: 'Retest of 0.44–0.56 + 5m close below 0.44 triggers POB Short',
+                });
+              }
+              const xLo = pob.xCandle?.low ?? pob.xCandle?.l;
+              if (xLo != null && Number.isFinite(xLo)) {
+                horizLines.push({
+                  id: 'pob_xlo',
+                  title: '✅ X-Candle Low (POB TP1)',
+                  value: Number(xLo),
+                  color: '#4ade80',
+                  bg: 'rgba(74, 222, 128, 0.18)',
+                  role: 'First take-profit target (Fib 0.0 Anchor Low)',
+                });
+              }
+            }
+            const lTags = this._chart?.$rbLevelTags || [];
+            for (const lt of lTags) {
+              if (lt && lt.value != null && Number.isFinite(lt.value)) {
+                horizLines.push({
+                  id: `tag_${lt.name}`,
+                  title: `📌 ${lt.name}`,
+                  value: Number(lt.value),
+                  color: lt.color || '#38bdf8',
+                  bg: 'rgba(56, 189, 248, 0.16)',
+                  role: 'Key Session / Swing Reference Level',
+                });
+              }
+            }
+
+            const hitTol = compact ? 16 : 11;
+            let bestDist = Infinity;
+            for (const hl of horizLines) {
+              const py = yScale.getPixelForValue(hl.value);
+              if (!Number.isFinite(py)) continue;
+              const dist = Math.abs(evY - py);
+              if (dist <= hitTol && dist < bestDist) {
+                bestDist = dist;
+                const diffPts = hl.value - priceNow;
+                const diffPct = priceNow ? (diffPts / priceNow) * 100 : 0;
+                const sign = diffPts >= 0 ? '+' : '';
+                matchedHoriz = {
+                  ...hl,
+                  evX,
+                  diffStr: `${sign}${diffPts.toFixed(d)} pts / ${sign}${diffPct.toFixed(2)}%`,
+                };
+              }
+            }
+          }
+
+          const prevHorizId = this._chart?.$rbHoveredHorizLine?.id || null;
+          const nextHorizId = matchedHoriz?.id || null;
+          if (this._chart && (prevHorizId !== nextHorizId || (matchedHoriz && Math.abs((this._chart.$rbHoveredHorizLine?.evX || 0) - evX) > 6))) {
+            this._chart.$rbHoveredHorizLine = matchedHoriz;
+            try {
+              this._chart.draw();
+            } catch (_) {
+              try { this._chart.update('none'); } catch (_) {}
+            }
+          }
+
+          if (matchedHoriz) {
+            elInfo.innerHTML = `<strong style="color:${matchedHoriz.color};background:${matchedHoriz.bg};padding:1px 6px;border-radius:4px;">${matchedHoriz.title}: $${Number(matchedHoriz.value).toFixed(d)} (${matchedHoriz.diffStr})</strong> <span style="color:#94a3b8;font-size:11px;">— ${matchedHoriz.role}</span>`;
+            return;
+          }
+
           // If not currently pinned, update hovered state
           if (!this._chart.$rbPinnedPriorFib) {
             const newKey = matchedCand ? `${matchedCand.dayKey}:${matchedLevel}` : null;
@@ -4087,6 +4278,7 @@ const RangeEmaUI = {
             displayColors: false,
             caretPadding: 8,
             filter(item) {
+              if (self._chart?.$rbHoveredHorizLine) return false;
               return item.dataset.label === priceLabel;
             },
             callbacks: {
@@ -4254,10 +4446,11 @@ const RangeEmaUI = {
     // Smoothly clear hovered prior Fib lines when mouse leaves the canvas (unless pinned)
     canvas.onmouseleave = () => {
       if (this._chart && !this._chart.$rbPinnedPriorFib) {
-        if (this._chart.$rbHoveredPriorFib) {
+        if (this._chart.$rbHoveredPriorFib || this._chart.$rbHoveredHorizLine) {
           this._chart.$rbHoveredKey = null;
           this._chart.$rbHoveredPriorFib = null;
           this._chart.$rbHoveredLevel = null;
+          this._chart.$rbHoveredHorizLine = null;
           try {
             this._chart.draw();
           } catch (_) {
