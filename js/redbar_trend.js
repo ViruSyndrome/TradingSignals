@@ -1330,21 +1330,84 @@ const RedBarTrend = {
     }
     if (!closed.length) return null;
 
-    // Sticky confirm bar per sweep episode:
-    // A sweep episode begins when a 5m bar wicks beyond 1H high (or low) and confirms on
-    // the FIRST bar of that episode that closes back inside (< hi for short, > lo for long).
-    // Do NOT slide trig onto later bars after the sweep is already confirmed.
+    // Sticky confirm bar per sweep OR post-Trade-1 pullback retest episode:
+    // 1. Liquidity sweep: price briefly wicks beyond Red Bar high (or low) for <2 closes and rejects back inside.
+    // 2. Sagar Trade 2 Pullback Re-test: after a real Trade 1 breakout (>=2 closes outside the Red Bar box),
+    //    price pulls back into the Red Bar box [lo, hi] as support/resistance and bounces back out in trend direction!
+    const tol = (touchPct / 100) * firstRed.high;
     let activeSweepHi = null;
     let activeSweepLo = null;
+    let barsClosedAboveHi = 0;
+    let barsClosedBelowLo = 0;
+    let pullbackFromAboveLo = null;
+    let pullbackFromBelowHi = null;
     let lastShortConfirm = null;
     let lastLongConfirm = null;
     for (let i = 0; i < closed.length; i++) {
       const b = closed[i];
-      if (b.h > hi) {
-        activeSweepHi = activeSweepHi == null ? b.h : Math.max(activeSweepHi, b.h);
+      if (b.c > hi) {
+        barsClosedAboveHi++;
+        barsClosedBelowLo = 0;
+      } else if (b.c < lo) {
+        barsClosedBelowLo++;
+        barsClosedAboveHi = 0;
       }
-      if (b.l < lo) {
+
+      // Track post-Trade-1 pullback into the Red Bar box
+      if (barsClosedAboveHi >= 2 && b.l <= hi + tol && b.l >= lo - tol) {
+        pullbackFromAboveLo = pullbackFromAboveLo == null ? b.l : Math.min(pullbackFromAboveLo, b.l);
+      }
+      if (barsClosedBelowLo >= 2 && b.h >= lo - tol && b.h <= hi + tol) {
+        pullbackFromBelowHi = pullbackFromBelowHi == null ? b.h : Math.max(pullbackFromBelowHi, b.h);
+      }
+
+      // If price breaks all the way through the opposite side of the box, reset pullback state
+      if (b.c < lo - tol) pullbackFromAboveLo = null;
+      if (b.c > hi + tol) pullbackFromBelowHi = null;
+
+      // Confirm Trade 2 Bullish Pullback Continuation: dipped into box from above & 5m green bar closes back > hi
+      if (pullbackFromAboveLo != null && b.c > hi && b.c > b.o) {
+        lastLongConfirm = {
+          side: 'bullish',
+          read: 'pullback_reclaim_high',
+          bar: b,
+          strong: true,
+          sweepExtreme: pullbackFromAboveLo,
+          level: hi,
+          buysOnly: true,
+          medianOk: true,
+        };
+        pullbackFromAboveLo = null;
+        activeSweepHi = null;
+        continue;
+      }
+      // Confirm Trade 2 Bearish Pullback Continuation: bounced into box from below & 5m red bar closes back < lo
+      if (pullbackFromBelowHi != null && b.c < lo && b.c < b.o) {
+        lastShortConfirm = {
+          side: 'bearish',
+          read: 'pullback_reject_low',
+          bar: b,
+          strong: true,
+          sweepExtreme: pullbackFromBelowHi,
+          level: lo,
+          sellsOnly: true,
+          medianOk: true,
+        };
+        pullbackFromBelowHi = null;
+        activeSweepLo = null;
+        continue;
+      }
+
+      // Classic liquidity sweep (only when NOT a multi-bar trend breakout pulling back into support/resistance)
+      if (b.h > hi && barsClosedAboveHi <= 2) {
+        activeSweepHi = activeSweepHi == null ? b.h : Math.max(activeSweepHi, b.h);
+      } else if (barsClosedAboveHi > 2) {
+        activeSweepHi = null;
+      }
+      if (b.l < lo && barsClosedBelowLo <= 2) {
         activeSweepLo = activeSweepLo == null ? b.l : Math.min(activeSweepLo, b.l);
+      } else if (barsClosedBelowLo > 2) {
+        activeSweepLo = null;
       }
       if (activeSweepHi != null && b.c < hi) {
         lastShortConfirm = {
@@ -1378,10 +1441,10 @@ const RedBarTrend = {
     const freshLimitMs = 20 * 60 * 1000;
     const shortValid = lastShortConfirm
       && (asOfTs == null || (asOfTs - lastShortConfirm.bar.t) <= freshLimitMs)
-      && lastBar.c < hi;
+      && (lastShortConfirm.read === 'pullback_reject_low' ? lastBar.c < lo : lastBar.c < hi);
     const longValid = lastLongConfirm
       && (asOfTs == null || (asOfTs - lastLongConfirm.bar.t) <= freshLimitMs)
-      && lastBar.c > lo;
+      && (lastLongConfirm.read === 'pullback_reclaim_high' ? lastBar.c > hi : lastBar.c > lo);
 
     if (shortValid && !longValid) return lastShortConfirm;
     if (longValid && !shortValid) return lastLongConfirm;
@@ -1392,8 +1455,33 @@ const RedBarTrend = {
       return lastBar.c <= median ? lastShortConfirm : lastLongConfirm;
     }
 
+    // Active post-Trade-1 pullback inside the Red Bar box (waiting for 5m close back outside box)
+    if (pullbackFromAboveLo != null && lastBar && lastBar.c >= lo - tol && lastBar.c <= hi + tol) {
+      return {
+        side: 'bullish',
+        read: 'pullback_watch_long',
+        bar: lastBar,
+        strong: false,
+        sweepExtreme: pullbackFromAboveLo,
+        level: hi,
+        buysOnly: true,
+        medianOk: lastBar.c >= median,
+      };
+    }
+    if (pullbackFromBelowHi != null && lastBar && lastBar.c <= hi + tol && lastBar.c >= lo - tol) {
+      return {
+        side: 'bearish',
+        read: 'pullback_watch_short',
+        bar: lastBar,
+        strong: false,
+        sweepExtreme: pullbackFromBelowHi,
+        level: lo,
+        sellsOnly: true,
+        medianOk: lastBar.c <= median,
+      };
+    }
+
     // No fresh liquidity close-through — check ONLY the latest closed 5m bar in zone for WATCH
-    const tol = (touchPct / 100) * firstRed.high;
     const zoneHi = Math.max(hi, fibs.f44) + tol;
     const zoneLo = Math.min(lo, fibs.f56) - tol;
     if (lastBar && lastBar.l <= zoneHi && lastBar.h >= zoneLo) {
@@ -1601,19 +1689,27 @@ const RedBarTrend = {
     let label = '1H first red marked (H/L liquidity + median)';
     if (revisitWindow) {
       id = 'trade2_revisit';
-      label = revisitRead === 'liq_sweep_high'
-        ? (revisitStrong
-          ? 'Trade 2 · 1H high swept → 5m closed below (SHORT)'
-          : 'Trade 2 · 1H high swept — wait 5m close below high & median')
-        : revisitRead === 'liq_sweep_low'
-          ? (revisitStrong
-            ? 'Trade 2 · 1H low swept → 5m closed above (LONG)'
-            : 'Trade 2 · 1H low swept — wait 5m close above low & median')
-          : revisitRead === 'median_watch'
-            ? (revisitSide === 'bullish'
-              ? 'Trade 2 WATCH · 5m above median — need liquidity sweep of 1H low'
-              : 'Trade 2 WATCH · 5m below median — need liquidity sweep of 1H high')
-            : 'Trade 2 · H1→M5 — wait sweep of 1H H/L then close back through';
+      label = revisitRead === 'pullback_reclaim_high'
+        ? 'Trade 2 · Red Bar box retested from above → 5m reclaimed High (LONG)'
+        : revisitRead === 'pullback_reject_low'
+          ? 'Trade 2 · Red Bar box retested from below → 5m rejected Low (SHORT)'
+          : revisitRead === 'pullback_watch_long'
+            ? 'Trade 2 WATCH · Bullish pullback inside Red Bar box — wait 5m close > High for LONG'
+            : revisitRead === 'pullback_watch_short'
+              ? 'Trade 2 WATCH · Bearish pullback inside Red Bar box — wait 5m close < Low for SHORT'
+              : revisitRead === 'liq_sweep_high'
+                ? (revisitStrong
+                  ? 'Trade 2 · Red Bar high swept → 5m closed below (SHORT)'
+                  : 'Trade 2 · Red Bar high swept — wait 5m close below high & median')
+                : revisitRead === 'liq_sweep_low'
+                  ? (revisitStrong
+                    ? 'Trade 2 · Red Bar low swept → 5m closed above (LONG)'
+                    : 'Trade 2 · Red Bar low swept — wait 5m close above low & median')
+                  : revisitRead === 'median_watch'
+                    ? (revisitSide === 'bullish'
+                      ? 'Trade 2 WATCH · 5m above median — wait close > Red Bar High or low sweep'
+                      : 'Trade 2 WATCH · 5m below median — wait close < Red Bar Low or high sweep')
+                    : 'Trade 2 · Revisit of Red Bar H/L — wait 5m close-through confirmation';
     } else if (leftAbove || leftBelow) {
       id = 'trade1_away';
       label = leftAbove ? 'Trade 1 · left above first red' : 'Trade 1 · left below first red';
@@ -2580,12 +2676,6 @@ const RedBarTrend = {
     } else if (pobReject && pobReject.watching) {
       trend = pobReject.side || 'bearish';
       setupKind = 'pob_reject_watch';
-    } else if (setup3 && setup3.triggered) {
-      trend = setup3.direction;
-      setupKind = 'setup3_rubber_band';
-    } else if (setup3 && setup3.primed) {
-      trend = setup3.direction;
-      setupKind = 'setup3_primed';
     } else if (redSetup.revisitSide) {
       trend = redSetup.revisitSide;
       setupKind = redSetup.revisitStrong ? 'trade2_confirmed' : 'trade2_watch';
@@ -2593,6 +2683,9 @@ const RedBarTrend = {
       trend = orBias === 'bull' ? 'bullish' : orBias === 'bear' ? 'bearish' : 'neutral';
       setupKind = 'trade2_watch';
       if (trend === 'neutral') trend = redSetup.leftAbove ? 'bullish' : redSetup.leftBelow ? 'bearish' : 'neutral';
+    } else if (setup3 && setup3.triggered) {
+      trend = setup3.direction;
+      setupKind = 'setup3_rubber_band';
     } else if (pobReject && (pobReject.status === 'await_retest' || pobReject.status === 'x_candle_wait')) {
       trend = pobReject.side || 'bearish';
       setupKind = 'pob_reject_watch';
@@ -3059,12 +3152,6 @@ const RedBarTrend = {
       }
     }
 
-    if (inst === 'NIFTY' && setupKind === 'trade2_confirmed') {
-      return {
-        state: 'watch',
-        reason: 'Nifty: Trade 2 confirmed is chart context only (OOS bled on 2y book). Prefer Trade 1 / POB.',
-      };
-    }
     // Season filter is Trade 1 DNA — do not blank Dr. Dev POB on NIFTY
     if (inst === 'NIFTY' && !isPob && (season === 'APR–AUG' || (!season && asOfTs != null && this._istSeasonBucket(asOfTs) === 'APR–AUG'))) {
       return {

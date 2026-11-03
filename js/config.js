@@ -91,9 +91,9 @@ const CONFIG = {
     emaFast: 10,
     emaSlow: 30,
     ohlcLimit: { '5m': 1000, '15m': 1000, '30m': 1000, '1h': 720 },
-    chartBars: { '5m': 360, '15m': 240, '30m': 240, '1h': 168 },
-    // Generous context on phones; ◀ ▶ buttons and pinch allow smooth scrub
-    chartBarsMobile: { '5m': 140, '15m': 120, '30m': 100, '1h': 84 },
+    chartBars: { '5m': 120, '15m': 100, '30m': 96, '1h': 84 },
+    // Crisp, thick TradingView/Binance-style candles on phones (◀ ▶ / drag pans earlier)
+    chartBarsMobile: { '5m': 56, '15m': 48, '30m': 48, '1h': 42 },
     defaultInstrument: 'BTC',
     instruments: [
       {
@@ -129,6 +129,8 @@ const CONFIG = {
         dayMode: 'ist',
         // Cash close window 15:15–15:45 IST (15:30 close + 15:45 bar)
         bandStyle: 'sessionFib',
+        // Sagar NSE intraday: 15m First Red candle after 09:15 open bar (e.g. 09:30–09:45) locks the morning Red Bar box
+        firstRedTf: '15m',
         markWindow: {
           timeZone: 'Asia/Kolkata',
           startHour: 15, startMinute: 15,

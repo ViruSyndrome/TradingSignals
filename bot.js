@@ -525,12 +525,12 @@ async function _deskBars(inst, interval, limit) {
 async function _scanOneRedBarInstrument(inst, rbCfg) {
   const workTf = rbCfg.workingTf || '15m';
   const need5m = workTf !== '5m';
-  const firstRedTf = inst.firstRedTf || '1h';
+  const firstRedTf = inst.firstRedTf || (inst.id === 'NIFTY' ? '15m' : '1h');
   const firstRedBarMs = firstRedTf === '30m' ? 30 * 60000
     : firstRedTf === '15m' ? 15 * 60000
       : firstRedTf === '5m' ? 5 * 60000
         : 3600000;
-  const firstRedMinBars = firstRedTf === '30m' ? 48 : 24;
+  const firstRedMinBars = (firstRedTf === '15m' || firstRedTf === '5m') ? 6 : firstRedTf === '30m' ? 48 : 24;
   const needPivotFetch = workTf !== firstRedTf;
   const rawPair = await _withTimeout(
     Promise.all([
@@ -556,11 +556,19 @@ async function _scanOneRedBarInstrument(inst, rbCfg) {
   const lastT = barsWork[barsWork.length - 1].t;
   const nowTs = Date.now();
   const calDay = RedBarTrend.dayKey(lastT, inst.dayMode || rbCfg.dayMode || 'ist');
-  const firstRed1h = bars1h && bars1h.length >= firstRedMinBars
+  let firstRed1h = bars1h && bars1h.length >= firstRedMinBars
     ? RedBarTrend.firstRedBarOfSession(bars1h, calDay, {
       ...rbCfg, ...inst, asOfTs: nowTs, barMs: firstRedBarMs,
     })
     : null;
+  if (!firstRed1h && inst.id === 'NIFTY' && bars5m && bars5m.length >= 6) {
+    firstRed1h = RedBarTrend.firstRedBarOfSession(bars5m, calDay, {
+      ...rbCfg, ...inst, asOfTs: nowTs, barMs: 5 * 60000,
+    });
+    if (firstRed1h) firstRed1h = { ...firstRed1h, anchorTf: '5m' };
+  } else if (firstRed1h) {
+    firstRed1h = { ...firstRed1h, anchorTf: firstRedTf };
+  }
   const readout = RedBarTrend.readAt(barsWork, barsWork.length - 1, {
     ...rbCfg,
     ...inst,

@@ -553,14 +553,15 @@ const RangeEmaUI = {
       : (inst || this.activeInstrument());
     const tf = this.activeTf();
     const lim = this._ohlcLimit(tf, c, instrument);
-    // Sagar: BTC uses 1H first-red; NG/Crude/metals use 30m (instrument.firstRedTf)
-    const firstRedTf = instrument.firstRedTf || '1h';
+    // Sagar: NIFTY uses 15m first-red (locks morning Red Bar box by 09:45 IST); NG/Crude/metals use 30m; BTC uses 1H
+    const instUpperId = String(instrument.id || '').toUpperCase();
+    let firstRedTf = instrument.firstRedTf || (instUpperId === 'NIFTY' ? '15m' : '1h');
     const firstRedBarMs = firstRedTf === '30m' ? 30 * 60000
       : firstRedTf === '15m' ? 15 * 60000
         : firstRedTf === '5m' ? 5 * 60000
           : 3600000;
     const firstRedMinBars = firstRedTf === '30m' ? 48 : 24;
-    const firstRedLabel = firstRedTf === '1h' ? '1H' : firstRedTf.toUpperCase();
+    let firstRedLabel = firstRedTf === '1h' ? '1H' : firstRedTf.toUpperCase();
     const limPivot = this._ohlcLimit(firstRedTf, c, instrument);
     const lim5m = this._ohlcLimit('5m', c, instrument);
     let raw;
@@ -653,22 +654,52 @@ const RangeEmaUI = {
     let bars1h = null;
     const barsWork = rawWork ? this._klinesToBars(rawWork) : bars30;
     const evalBars = (barsWork && barsWork.length >= 40) ? barsWork : bars30;
+    const bars5m = tf === '5m' ? bars30 : this._klinesToBars(raw5m);
     try {
       bars1h = this._klinesToBars(rawPivot);
+      const lastT = evalBars[evalBars.length - 1].t;
+      const calDay = RedBarTrend.dayKey(lastT, readCfg.dayMode || 'ist');
       if (bars1h.length >= firstRedMinBars) {
-        const lastT = evalBars[evalBars.length - 1].t;
-        const calDay = RedBarTrend.dayKey(lastT, readCfg.dayMode || 'ist');
         firstRed1h = RedBarTrend.firstRedBarOfSession(bars1h, calDay, {
           ...readCfg,
           asOfTs: nowTs,
           barMs: firstRedBarMs,
         });
       }
+      // Fallback: if primary TF (e.g. 1H or 30m) has no closed Red Bar yet on a strong morning trend,
+      // fall back to 15m working bars (or 5m on NSE) so you don't miss Trade 1 / Trade 2
+      if (!firstRed1h && evalBars && evalBars.length >= 24 && firstRedTf !== '15m') {
+        const fb15 = RedBarTrend.firstRedBarOfSession(evalBars, calDay, {
+          ...readCfg,
+          asOfTs: nowTs,
+          barMs: 15 * 60000,
+        });
+        if (fb15) {
+          firstRed1h = fb15;
+          firstRedTf = '15m';
+          firstRedLabel = '15M';
+          readCfg.firstRedTf = '15m';
+          readCfg.firstRedLabel = '15M';
+        }
+      }
+      if (!firstRed1h && instUpperId === 'NIFTY' && bars5m && bars5m.length >= 24) {
+        const fb5 = RedBarTrend.firstRedBarOfSession(bars5m, calDay, {
+          ...readCfg,
+          asOfTs: nowTs,
+          barMs: 5 * 60000,
+        });
+        if (fb5) {
+          firstRed1h = fb5;
+          firstRedTf = '5m';
+          firstRedLabel = '5M';
+          readCfg.firstRedTf = '5m';
+          readCfg.firstRedLabel = '5M';
+        }
+      }
     } catch (e) {
       console.warn(`[RangeEmaUI] ${firstRedLabel} first-red parse failed:`, e.message || e);
     }
 
-    const bars5m = tf === '5m' ? bars30 : this._klinesToBars(raw5m);
     const barsFib = rawFib30m ? this._klinesToBars(rawFib30m) : null;
     const readout = RedBarTrend.read(evalBars, {
       ...readCfg,
@@ -2697,18 +2728,20 @@ const RangeEmaUI = {
     };
   },
 
-  /** Clean 1H first-red High & Low lines only (anchored from that 1H red bar forward; no 44/MED/56 clutter). */
+  /** Shaded First-Red Box (High, Median 0.50, and Low anchored from that Red Bar forward — matches Sagar's chart box). */
   _firstRed1hPlugin() {
     return {
       id: 'rbFirstRed1h',
       afterDatasetsDraw(chart) {
         if (chart.$rbShowFirstRed === false) return;
         const red = chart.$rbFirstRed1h;
-        if (!red || red.high == null) return;
+        if (!red || red.high == null || red.low == null) return;
         const xScale = chart.scales.x;
         const yScale = chart.scales.y;
         const area = chart.chartArea;
         if (!yScale || !area) return;
+        const compact = !!chart.$rbCompact;
+        const d = chart.$rbDecimals ?? 2;
 
         let x0 = area.left;
         const times = chart.$rbTimes;
@@ -2723,23 +2756,48 @@ const RangeEmaUI = {
         }
         if (x0 >= area.right) return;
 
-        const levels = [
-          { v: red.high, style: 'rgba(244, 63, 94, 0.85)', w: 1.4, dash: [6, 4] },
-          { v: red.low, style: 'rgba(244, 63, 94, 0.55)', w: 1.2, dash: [4, 4] },
-        ];
+        const yHi = yScale.getPixelForValue(red.high);
+        const yLo = yScale.getPixelForValue(red.low);
+        const midVal = (red.high + red.low) / 2;
+        const yMid = yScale.getPixelForValue(midVal);
+        if (!Number.isFinite(yHi) || !Number.isFinite(yLo)) return;
+
         const ctx = chart.ctx;
         ctx.save();
+
+        // 1. Shaded Red Bar Box from x0 to right edge
+        const boxTop = Math.max(area.top, Math.min(yHi, yLo));
+        const boxBot = Math.min(area.bottom, Math.max(yHi, yLo));
+        if (boxBot > boxTop) {
+          ctx.fillStyle = 'rgba(244, 63, 94, 0.11)';
+          ctx.fillRect(x0, boxTop, area.right - x0, boxBot - boxTop);
+        }
+
+        // 2. High, Median (0.50), and Low lines
+        const rLbl = chart.$rbFirstRedLabel || 'Red';
+        const fmtV = (v) => Number(v).toFixed(d === 0 ? 0 : (v % 1 === 0 ? 0 : d));
+        const levels = [
+          { v: red.high, y: yHi, style: 'rgba(244, 63, 94, 0.92)', w: 1.5, dash: [6, 3], txt: `🟥 ${rLbl} High ${fmtV(red.high)}`, pos: 'top' },
+          { v: midVal, y: yMid, style: 'rgba(251, 191, 36, 0.78)', w: 1.15, dash: [3, 3], txt: `Mid ${fmtV(midVal)}`, pos: 'mid' },
+          { v: red.low, y: yLo, style: 'rgba(244, 63, 94, 0.78)', w: 1.35, dash: [5, 3], txt: `🟥 ${rLbl} Low ${fmtV(red.low)}`, pos: 'bot' },
+        ];
+        ctx.font = compact
+          ? 'bold 8px Outfit, system-ui, sans-serif'
+          : 'bold 9px Outfit, system-ui, sans-serif';
         for (const lv of levels) {
-          if (lv.v == null || !Number.isFinite(lv.v)) continue;
-          const y = yScale.getPixelForValue(lv.v);
-          if (!Number.isFinite(y) || y < area.top || y > area.bottom) continue;
+          if (lv.v == null || !Number.isFinite(lv.y) || lv.y < area.top || lv.y > area.bottom) continue;
           ctx.strokeStyle = lv.style;
           ctx.lineWidth = lv.w;
           ctx.setLineDash(lv.dash);
           ctx.beginPath();
-          ctx.moveTo(x0, y);
-          ctx.lineTo(area.right, y);
+          ctx.moveTo(x0, lv.y);
+          ctx.lineTo(area.right, lv.y);
           ctx.stroke();
+
+          ctx.fillStyle = lv.style;
+          ctx.textAlign = 'left';
+          ctx.textBaseline = lv.pos === 'bot' ? 'top' : 'bottom';
+          ctx.fillText(lv.txt, x0 + 6, lv.pos === 'bot' ? lv.y + 2 : lv.y - 2);
         }
         ctx.setLineDash([]);
         ctx.restore();
@@ -4470,6 +4528,7 @@ const RangeEmaUI = {
       ? dayBands.slice(-5)
       : dayBands;
     this._chart.$rbFirstRed1h = o.firstRed1h || null;
+    this._chart.$rbFirstRedLabel = o.firstRedLabel || '1H';
     this._chart.$rbFirstRedFibs = o.firstRedFibs || o.playbook?.redSetup?.fibs || null;
     this._chart.$rbShowFirstRed = showPivot;
     this._chart.$rbPobReject = o.pobReject || o.playbook?.pobReject || null;
