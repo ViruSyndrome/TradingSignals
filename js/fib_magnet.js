@@ -211,7 +211,7 @@ const FibMagnet = {
           session: 'NSE Open · POB & Trade 1 (09:15–12:15 IST)',
           predictedDir: 'WATCH 09:15 5m X-CANDLE POB 44–56 OR 1H FIRST RED LEAVE',
           confidence: '94.9% 2Y POB Win Rate',
-          headline: '🇮🇳 Dr. Dev 09:15 5m X-Candle POB & Sagar 1H Trade 1 Active',
+          headline: '🇮🇳 Dr. Dev 09:15 5m X-Candle POB & 1H Trade 1 Active',
           detail: 'First 5m red candle at 09:15 IST = X-Candle. Wait for retest of POB 0.44–0.56 and 5m close < 0.44 for SHORT (SL @ 0.56, TP1 @ Anchor Low), or Trade 1 departure of 1H First Red.',
           candleTime: lastBar.t,
           type: 'neutral',

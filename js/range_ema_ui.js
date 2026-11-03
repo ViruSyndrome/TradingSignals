@@ -1221,6 +1221,102 @@ const RangeEmaUI = {
     document.getElementById('rbFloatPanLeft')?.addEventListener('click', () => panBy(1));
     document.getElementById('rbFloatPanRight')?.addEventListener('click', () => panBy(-1));
 
+    // Movable / Dockable Floating D-Pad (defaults to bottom-left so latest candles on the right are unobstructed)
+    const dpad = document.getElementById('rbFloatingDpad');
+    const dpadGrip = document.getElementById('rbDpadGrip');
+    const dpadDockBtn = document.getElementById('rbDpadDockToggle');
+    if (dpad) {
+      try {
+        const savedCustom = localStorage.getItem('trendrunner_dpad_pos');
+        if (savedCustom) {
+          const pos = JSON.parse(savedCustom);
+          if (pos && Number.isFinite(pos.left) && Number.isFinite(pos.top)) {
+            dpad.classList.remove('is-left');
+            dpad.style.left = `${pos.left}px`;
+            dpad.style.top = `${pos.top}px`;
+            dpad.style.right = 'auto';
+            dpad.style.bottom = 'auto';
+          }
+        }
+      } catch (_) {}
+
+      const toggleDockSide = (e) => {
+        if (e) e.stopPropagation();
+        dpad.style.left = '';
+        dpad.style.top = '';
+        dpad.style.right = '';
+        dpad.style.bottom = '';
+        try { localStorage.removeItem('trendrunner_dpad_pos'); } catch (_) {}
+        const nowLeft = dpad.classList.toggle('is-left');
+        try { localStorage.setItem('trendrunner_dpad_side', nowLeft ? 'left' : 'right'); } catch (_) {}
+      };
+      dpadDockBtn?.addEventListener('click', toggleDockSide);
+      dpadGrip?.addEventListener('dblclick', toggleDockSide);
+
+      if (dpadGrip) {
+        let dragging = false;
+        let startX = 0;
+        let startY = 0;
+        let origLeft = 0;
+        let origTop = 0;
+
+        const onPointerDown = (ev) => {
+          if (ev.target === dpadDockBtn) return;
+          const box = dpad.parentElement;
+          if (!box) return;
+          dragging = true;
+          const pt = ev.touches ? ev.touches[0] : ev;
+          startX = pt.clientX;
+          startY = pt.clientY;
+          const boxRect = box.getBoundingClientRect();
+          const dpadRect = dpad.getBoundingClientRect();
+          origLeft = dpadRect.left - boxRect.left;
+          origTop = dpadRect.top - boxRect.top;
+          dpad.classList.add('is-dragging');
+          if (ev.cancelable) ev.preventDefault();
+        };
+
+        const onPointerMove = (ev) => {
+          if (!dragging) return;
+          const box = dpad.parentElement;
+          if (!box) return;
+          const pt = ev.touches ? ev.touches[0] : ev;
+          const dx = pt.clientX - startX;
+          const dy = pt.clientY - startY;
+          const maxLeft = Math.max(0, box.clientWidth - dpad.offsetWidth - 6);
+          const maxTop = Math.max(0, box.clientHeight - dpad.offsetHeight - 6);
+          const nextLeft = Math.max(6, Math.min(maxLeft, Math.round(origLeft + dx)));
+          const nextTop = Math.max(6, Math.min(maxTop, Math.round(origTop + dy)));
+          dpad.classList.remove('is-left');
+          dpad.style.left = `${nextLeft}px`;
+          dpad.style.top = `${nextTop}px`;
+          dpad.style.right = 'auto';
+          dpad.style.bottom = 'auto';
+          if (ev.cancelable) ev.preventDefault();
+        };
+
+        const onPointerUp = () => {
+          if (!dragging) return;
+          dragging = false;
+          dpad.classList.remove('is-dragging');
+          const leftPx = parseFloat(dpad.style.left);
+          const topPx = parseFloat(dpad.style.top);
+          if (Number.isFinite(leftPx) && Number.isFinite(topPx)) {
+            try {
+              localStorage.setItem('trendrunner_dpad_pos', JSON.stringify({ left: leftPx, top: topPx }));
+            } catch (_) {}
+          }
+        };
+
+        dpadGrip.addEventListener('mousedown', onPointerDown);
+        window.addEventListener('mousemove', onPointerMove);
+        window.addEventListener('mouseup', onPointerUp);
+        dpadGrip.addEventListener('touchstart', onPointerDown, { passive: false });
+        window.addEventListener('touchmove', onPointerMove, { passive: false });
+        window.addEventListener('touchend', onPointerUp);
+      }
+    }
+
     // Inline Futures Sizing controls
     const capIn = document.getElementById('rbFuturesCap');
     const riskIn = document.getElementById('rbFuturesRisk');
@@ -1486,10 +1582,14 @@ const RangeEmaUI = {
           <span class="lg rb-lg-desk" style="border-left:3px solid #22c55e; color:#94a3b8; padding-left:4px;">Prev Fib Box</span>
           <span id="rbCandleInfo" style="margin-left:auto; font-weight:600; font-size:11.5px; color:#cbd5e1;"></span>
         </div>
-        <p class="rb-zoom-hint">Floating 4-way D-Pad (▲▼◀▶ + − ↺) for instant pan/zoom · Mouse wheel &amp; touch pinch supported</p>
+        <p class="rb-zoom-hint">Floating 4-way D-Pad (▲▼◀▶ + − ↺ · drag ⠿ or click ⇄ to move) · Mouse wheel &amp; touch pinch supported</p>
         <div class="rb-chart-box">
           <canvas id="redBarChart" aria-label="Red Bar chart"></canvas>
-          <div class="rb-floating-dpad" id="rbFloatingDpad" aria-label="Chart mobile navigation">
+          <div class="rb-floating-dpad${localStorage.getItem('trendrunner_dpad_side') !== 'right' ? ' is-left' : ''}" id="rbFloatingDpad" aria-label="Chart navigation">
+            <div class="rb-dpad-grip" id="rbDpadGrip" title="Drag to move D-Pad anywhere on chart · Double-click or tap ⇄ to snap Left/Right">
+              <span class="rb-dpad-dots">⠿</span>
+              <button type="button" class="rb-dpad-dock-btn" id="rbDpadDockToggle" title="Move D-Pad Left / Right">⇄</button>
+            </div>
             <div class="rb-dpad-row">
               <button type="button" class="rb-dpad-btn rb-dpad-zoom" id="rbFloatZoomIn" title="Zoom in (+)">+</button>
               <button type="button" class="rb-dpad-btn rb-dpad-up" id="rbFloatPanUp" title="Pan price up (▲)">▲</button>
@@ -3454,6 +3554,14 @@ const RangeEmaUI = {
     ))
       .filter((v) => v != null && Number.isFinite(Number(v)))
       .map(Number);
+    // Include nearby prior Fib boxes (within ~4% of current price) so hovering above/below
+    // reveals multi-day Fib magnets even on 5m / 15m charts where X-axis only spans 1–2 days.
+    const nearPriorPrices = priorCandidates
+      .filter((c) => priceNow > 0 && (
+        Math.abs(c.high - priceNow) / priceNow <= 0.04
+        || Math.abs(c.low - priceNow) / priceNow <= 0.04
+      ))
+      .flatMap((c) => [c.high, c.low]);
     const nearLevels = [
       o.currentBand?.high, o.currentBand?.low,
       o.invalidation, o.bookZone,
@@ -3462,6 +3570,7 @@ const RangeEmaUI = {
       o.refs?.asiaHigh, o.refs?.asiaLow,
       o.refs?.londonHigh, o.refs?.londonLow,
       ...(priorFibInfo ? [priorFibInfo.high, priorFibInfo.low] : []),
+      ...nearPriorPrices,
       ...bandPrices,
     ].filter((v) => v != null && Number.isFinite(Number(v))).map(Number);
     const yHi = Math.max(barHi, ...nearLevels);
@@ -3802,8 +3911,20 @@ const RangeEmaUI = {
           let hoverFibStr = null;
 
           if (yScale && area && evY != null && evX != null && evX >= area.left - 12 && evX <= area.right + 12) {
-            // Check all prior Fib candidates (or active prior Fib)
-            const candidates = this._chart?.$rbPriorCandidates || (priorFibInfo ? [priorFibInfo] : []);
+            // Check all prior Fib candidates (ordered nearest to cursor Y first so overlapping Fibs can both be hovered)
+            const rawCandidates = this._chart?.$rbPriorCandidates || (priorFibInfo ? [priorFibInfo] : []);
+            const candidates = [...rawCandidates].sort((a, b) => {
+              const ayHi = yScale.getPixelForValue(a.high);
+              const ayLo = yScale.getPixelForValue(a.low);
+              const ayMid = a.mid != null ? yScale.getPixelForValue(a.mid) : (ayHi + ayLo) / 2;
+              const byHi = yScale.getPixelForValue(b.high);
+              const byLo = yScale.getPixelForValue(b.low);
+              const byMid = b.mid != null ? yScale.getPixelForValue(b.mid) : (byHi + byLo) / 2;
+              const aDist = Math.min(Math.abs(evY - ayHi), Math.abs(evY - ayMid), Math.abs(evY - ayLo));
+              const bDist = Math.min(Math.abs(evY - byHi), Math.abs(evY - byMid), Math.abs(evY - byLo));
+              if (Math.abs(aDist - bDist) > 1.5) return aDist - bDist;
+              return (b.recencyIndex ?? 0) - (a.recencyIndex ?? 0);
+            });
             for (const cand of candidates) {
               const yHi = yScale.getPixelForValue(cand.high);
               const yLo = yScale.getPixelForValue(cand.low);

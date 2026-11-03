@@ -43,7 +43,7 @@
   <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.4/dist/chart.umd.min.js" defer></script>
   <script src="https://cdn.jsdelivr.net/npm/hammerjs@2.0.8/hammer.min.js" defer></script>
   <script src="https://cdn.jsdelivr.net/npm/chartjs-plugin-zoom@2.2.0/dist/chartjs-plugin-zoom.min.js" defer></script>
-  <link rel="stylesheet" href="styles.css?v=7.27" />
+  <link rel="stylesheet" href="styles.css?v=7.28" />
   <!-- Critical boot overlay (prevents sidebar flash before styles.css applies) -->
   <style>
     html, body { margin: 0; background: #080a14; }
@@ -86,7 +86,7 @@
     if ('serviceWorker' in navigator) {
       window.addEventListener('load', () => {
         const hadController = Boolean(navigator.serviceWorker.controller);
-        navigator.serviceWorker.register('./service-worker.js?v=7.45', { updateViaCache: 'none' })
+        navigator.serviceWorker.register('./service-worker.js?v=7.46', { updateViaCache: 'none' })
           .then(reg => {
             reg.update().catch(() => {});
             navigator.serviceWorker.addEventListener('controllerchange', () => {
@@ -358,7 +358,7 @@
             <div class="edu-header"><span>🕯️</span><h3>2. The 1H First Red Pivot (Trade 1 &amp; Trade 2)</h3></div>
             <p>On the 1H chart, mark the <strong>first closed 1H red candle</strong> of the IST day — HIGH/LOW (liquidity) + median + Fib 44/50/56. Desk ladder is <strong>H1 &rarr; M5</strong>:</p>
             <ul>
-              <li><strong>Trade 1 (Departure — Sagar DNA):</strong> Price leaves the 1H first-red H/L with a fresh 5m/15m close-through.</li>
+              <li><strong>Trade 1 (Departure — Dr. Dev Red Bar DNA):</strong> Price leaves the 1H first-red H/L with a fresh 5m/15m close-through.</li>
               <li><strong>Trade 2 (Revisit):</strong> Sweep of 1H high or low liquidity, then a <strong>5m close back through</strong> that level (median confluence).</li>
               <li><strong>ENTER:</strong> Trade 1 / Trade 2 / session sweep (5m swing SL) <strong>or</strong> Dr. Dev POB SHORT (SL@POB 0.56).</li>
             </ul>
@@ -636,11 +636,11 @@
   <script src="js/config.js?v=7.23" defer></script>
   <script src="js/api.js?v=6.99" defer></script>
   <script src="js/indicators.js?v=6.60" defer></script>
-  <script src="js/redbar_trend.js?v=2.09" defer></script>
-  <script src="js/fib_magnet.js?v=1.06" defer></script>
+  <script src="js/redbar_trend.js?v=2.10" defer></script>
+  <script src="js/fib_magnet.js?v=1.07" defer></script>
   <script src="js/range_ema_engine.js?v=1.2" defer></script>
   <script src="js/desk_alerts.js?v=1.11" defer></script>
-  <script src="js/range_ema_ui.js?v=2.25" defer></script>
+  <script src="js/range_ema_ui.js?v=2.26" defer></script>
   <script src="js/signals.js?v=6.70" defer></script>
   <script src="js/charts.js?v=6.60" defer></script>
   
@@ -846,7 +846,7 @@
         
         <div style="display:grid; grid-template-columns:1fr 1fr; gap:16px; margin-bottom:16px;">
           <div style="background:rgba(255,255,255,0.03); border:1px solid rgba(255,255,255,0.07); border-radius:8px; padding:12px;">
-            <h3 style="font-size:13px; font-weight:700; color:#38bdf8; margin:0 0 6px;">🎯 Trade 1: Departure (Sagar DNA)</h3>
+            <h3 style="font-size:13px; font-weight:700; color:#38bdf8; margin:0 0 6px;">🎯 Trade 1: Departure (Dr. Dev Red Bar DNA)</h3>
             <p style="margin:0; font-size:12px; color:#94a3b8;">Price leaves the 1H First Red H/L on a fresh close-through. ENTER with 5m swing SL · 50% @ 1:1 &rarr; BE &rarr; runner. This is <strong>not</strong> the same as Dr. Dev’s POB reject.</p>
           </div>
           <div style="background:rgba(255,255,255,0.03); border:1px solid rgba(255,255,255,0.07); border-radius:8px; padding:12px;">
