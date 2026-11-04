@@ -2293,7 +2293,9 @@ const RedBarTrend = {
    * - Below baseline: NEGATIVE TERRITORY -> Puts only, Calls forbidden.
    */
   computeEquinoxMacro(price, instId = 'NIFTY') {
-    const baseline = Number(process.env.NIFTY_EQUINOX_LEVEL) || 22860;
+    const baseline = (typeof process !== 'undefined' && process?.env?.NIFTY_EQUINOX_LEVEL)
+      ? Number(process.env.NIFTY_EQUINOX_LEVEL)
+      : 22860;
     const isPositive = price >= baseline;
     const territory = isPositive ? 'positive' : 'negative';
     const allowedSide = isPositive ? 'CALLS_ONLY' : 'PUTS_ONLY';
