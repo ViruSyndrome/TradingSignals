@@ -711,10 +711,10 @@ Entry <b>${pxPrefix}${fmt(readout.price)}</b> · Stop <b>${pxPrefix}${fmt(readou
   // Do NOT clear RB keys when leaving ENTER — that re-armed spam on flicker.
 }
 
-/** DNA / researched setups eligible for auto (Binance + Dhan). Trade 3 = setup3_rubber_band. */
+/** DNA / researched setups eligible for auto (Binance + Dhan). Trade 3 = setup3_rubber_band. Sagar 12:45 = afternoon_1245_reversal / afternoon_1245_breakout. */
 function _autoSetupAllowed(setupKind) {
   const raw = envTrim('REDBAR_AUTO_SETUPS')
-    || 'trade1_departure,trade2_confirmed,session_sweep,pob_reject,setup3_rubber_band';
+    || 'trade1_departure,trade2_confirmed,session_sweep,pob_reject,setup3_rubber_band,afternoon_1245_reversal,afternoon_1245_breakout';
   const allow = raw.split(',').map((s) => s.trim()).filter(Boolean);
   return allow.includes(String(setupKind || ''));
 }
@@ -815,6 +815,17 @@ async function _maybeAutoDhanNifty({ inst, side, readout, alertKey, dayKey, setu
   if (mins >= 15 * 60 + 5) {
     console.log('[RedBarBot] NIFTY: past 15:05 IST — no new Dhan entries');
     return;
+  }
+  // Dr. Dev Equinox Macro Rule check for Dhan NIFTY:
+  if (readout?.equinox?.territory) {
+    if (readout.equinox.territory === 'positive' && side === 'SHORT') {
+      console.log(`[RedBarBot] NIFTY: Positive Equinox Territory forbids Put trades — skip Dhan entry for ${alertKey}`);
+      return;
+    }
+    if (readout.equinox.territory === 'negative' && side === 'LONG') {
+      console.log(`[RedBarBot] NIFTY: Negative Equinox Territory forbids Call trades — skip Dhan entry for ${alertKey}`);
+      return;
+    }
   }
   if (lastAlerted[`DHAN_TRADE_${inst.id}_DETAIL`] === alertKey) {
     console.log(`[RedBarBot] ${inst.id}: Dhan already opened for ${alertKey}`);

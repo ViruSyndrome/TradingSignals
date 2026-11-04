@@ -857,16 +857,22 @@ const RangeEmaUI = {
       ? ` ⚠️ Stop is a ${stopTag} (not a tight local swing — watch size).`
       : '';
 
-    // 1. ENTER: Trade 1 / Trade 2 / Session Sweep / Dr. Dev session POB SHORT
+    // 1. ENTER: Trade 1 / Trade 2 / Session Sweep / Dr. Dev session POB SHORT / Sagar 12:45 Afternoon
     if (isActionable) {
       const isPob = o.setupKind === 'pob_reject';
+      const is1245Rev = o.setupKind === 'afternoon_1245_reversal';
+      const is1245Break = o.setupKind === 'afternoon_1245_breakout';
       const setupLabel = o.setupKind === 'session_sweep'
         ? `Red Bar · Session Sweep · Futures ${biasDir}`
         : o.setupKind === 'trade2_confirmed'
           ? `Red Bar · Trade 2 · Futures ${biasDir} (H1 sweep → M5 close-through)`
           : isPob
             ? `Dr. Dev POB · Futures SHORT (session 5m X → 44–56 reject)`
-            : `Red Bar · Trade 1 · Futures ${biasDir} (Left 1H Red)`;
+            : is1245Rev
+              ? `Sagar 12:45 Afternoon · Reversal ${biasDir} (London Sweep Trap)`
+              : is1245Break
+                ? `Sagar 12:45 Afternoon · Breakout ${biasDir} (Morning H/L Expansion)`
+                : `Red Bar · Trade 1 · Futures ${biasDir} (Left 1H Red)`;
       const t2Note = o.setupKind === 'trade2_confirmed'
         ? (biasDir === 'SHORT' ? ' (1H high swept → 5m closed below high & median — sells only)' : ' (1H low swept → 5m closed above low & median — buys only)')
         : '';
@@ -924,7 +930,11 @@ const RangeEmaUI = {
         : null;
       const watchTitle = o.setupKind === 'pob_reject_watch'
         ? `Dr. Dev POB Watch · ${pr?.label || 'Asia/London/NY or NSE: retest 44–56 → SHORT reject'}`
-        : o.setupKind === 'setup3_rubber_band'
+        : o.setupKind === 'lunch_decay'
+          ? `Lunch Decay Zone (11:30–12:30 IST) · Avoid entries · Wait 12:45 London Open`
+          : o.setupKind === 'afternoon_1245_watch'
+            ? `12:45 Afternoon Watch · London 30m Candle Marked · Awaiting Breakout / Reversal`
+            : o.setupKind === 'setup3_rubber_band'
           ? `Setup 3 Watch · Barricade broken (${biasDir}) · overlay only — not ENTER`
           : o.setupKind === 'setup3_primed'
             ? `Setup 3 Watch · Rubber Band Primed (${s3?.detachedCount || 4} bars detached) · Barricade ${this._fmt(s3?.barricade)}`
@@ -1605,6 +1615,21 @@ const RangeEmaUI = {
               </span>
             `}
             ${r.sessionTell ? `<span style="font-weight:600; color:${r.sessionTell.type === 'bullish' ? '#4ade80' : r.sessionTell.type === 'bearish' ? '#f87171' : '#7dd3fc'}; font-size:11px; background:rgba(255,255,255,0.05); padding:2px 8px; border-radius:4px;">${r.sessionTell.badge}</span>` : ''}
+            ${o.equinox ? `
+              <span class="rb-prime-pill" style="background:${o.equinox.territory === 'positive' ? 'rgba(34,197,94,0.15)' : 'rgba(239,68,68,0.15)'}; border-color:${o.equinox.territory === 'positive' ? '#22c55e' : '#ef4444'}; color:${o.equinox.territory === 'positive' ? '#4ade80' : '#f87171'};" title="Dr. Dev Equinox Baseline: ${o.equinox.baseline} · ${o.equinox.territory === 'positive' ? 'Positive Territory: Calls only, Puts forbidden' : 'Negative Territory: Puts only, Calls forbidden'}">
+                🌐 <strong>Equinox:</strong> ${o.equinox.territory.toUpperCase()} (${o.equinox.allowedSide.replace('_', ' ')})
+              </span>
+            ` : ''}
+            ${o.afternoon1245?.morning?.locked ? `
+              <span class="rb-prime-pill" style="background:rgba(245,158,11,0.15); border-color:#f59e0b; color:#fbbf24;" title="Morning Range (09:15–12:30 IST): Low ${this._fmt(o.afternoon1245.morning.morningLow)} · Mid ${this._fmt(o.afternoon1245.morning.morningMid)} · High ${this._fmt(o.afternoon1245.morning.morningHigh)}">
+                🌅 <strong>Morning Range:</strong> ${this._fmt(o.afternoon1245.morning.morningLow)} – ${this._fmt(o.afternoon1245.morning.morningHigh)}
+              </span>
+            ` : ''}
+            ${o.squeeze5m?.isSqueezing ? `
+              <span class="rb-prime-pill alert" title="5m Squeeze Compression: Range ${this._fmt(o.squeeze5m.squeezeLow)}–${this._fmt(o.squeeze5m.squeezeHigh)} · Target: ${this._fmt(o.squeeze5m.projectedTargetUp)} / ${this._fmt(o.squeeze5m.projectedTargetDown)}">
+                ⚡ <strong>5m Squeeze:</strong> ${this._fmt(o.squeeze5m.squeezeLow)}–${this._fmt(o.squeeze5m.squeezeHigh)}
+              </span>
+            ` : ''}
           </div>
         </div>
 
@@ -1691,20 +1716,24 @@ const RangeEmaUI = {
     const watchDetail = escTxt(a.subtitle || o.actionReason || '');
     const isSetup3Watch = o.setupKind === 'setup3_primed' || o.setupKind === 'setup3_rubber_band';
     const isPobWatch = o.setupKind === 'pob_reject_watch';
+    const is1245Watch = o.setupKind === 'afternoon_1245_watch' || o.setupKind === 'lunch_decay';
+    const is1245Enter = (o.setupKind === 'afternoon_1245_reversal' || o.setupKind === 'afternoon_1245_breakout') && showEnter;
     const isPobEnter = o.setupKind === 'pob_reject' && showEnter;
     const statusBanner = a.isFibMagnet
       ? `<div class="rb-signal-banner wait" style="background:rgba(56,189,248,0.10); border:1px solid rgba(56,189,248,0.35); color:#7dd3fc;">🧲 CONTEXT RADAR · Equilibrium pull towards Mark Fib @ ${this._fmt(a.tp1)} (Context tell only — wait for Red Bar DNA / POB to ENTER)</div>`
       : (showEnter
-        ? `<div class="rb-signal-banner enter">${isPobEnter ? '⚖️ POB ENTER' : 'LIVE ENTER'} · ${a.side} — fresh window (~${freshMins}m). Levels ${useSnap ? 'frozen at first alert' : 'live'}.</div>`
+        ? `<div class="rb-signal-banner enter">${is1245Enter ? '🕒 12:45 AFTERNOON ENTER' : isPobEnter ? '⚖️ POB ENTER' : 'LIVE ENTER'} · ${a.side} — fresh window (~${freshMins}m). Levels ${useSnap ? 'frozen at first alert' : 'live'}.</div>`
         : (isEnter || reasonStale || snapStale)
           ? `<div class="rb-signal-banner watch">STALE — ENTER already fired; do <em>not</em> chase. ${escTxt(o.actionReason) || 'Wait for the next Trade 1 / 2 / sweep / POB.'}</div>`
         : a.side === 'WATCH'
           ? `<div class="rb-signal-banner watch">${
               isPobWatch
                 ? `⚖️ ${watchHeadline || 'Dr. Dev POB — awaiting retest / reject'}`
-                : isSetup3Watch
-                  ? `🧲 ${watchHeadline || 'Setup 3 Watch — rubber band overlay (not ENTER)'}`
-                  : `👀 ${watchHeadline || `WATCHING — Bias ${trendWord}; waiting for confirmed trigger`}`
+                : is1245Watch
+                  ? `🕒 ${watchHeadline || '12:45 Afternoon Engine — watching London Open'}`
+                  : isSetup3Watch
+                    ? `🧲 ${watchHeadline || 'Setup 3 Watch — rubber band overlay (not ENTER)'}`
+                    : `👀 ${watchHeadline || `WATCHING — Bias ${trendWord}; waiting for confirmed trigger`}`
             }${watchDetail ? `<div style="margin-top:4px;font-size:11.5px;font-weight:500;opacity:0.92;">${watchDetail}</div>` : ''}</div>`
           : `<div class="rb-signal-banner wait">⏳ WAITING (Market in Equilibrium) — No active entry setup. Stay in cash.</div>`);
 
@@ -1830,6 +1859,35 @@ const RangeEmaUI = {
           <div class="rb-step-body">
             <div class="rb-step-name">4. DNA Gate</div>
             <div class="rb-step-val">Overlay only · not ENTER</div>
+          </div>
+        </div>
+      ` : (is1245Watch || o.setupKind === 'afternoon_1245_reversal' || o.setupKind === 'afternoon_1245_breakout') ? `
+        <div class="rb-step done">
+          <div class="rb-step-icon">🌅</div>
+          <div class="rb-step-body">
+            <div class="rb-step-name">1. Morning Range (09:15–12:30)</div>
+            <div class="rb-step-val">${this._fmt(o.afternoon1245?.morning?.morningLow)} – ${this._fmt(o.afternoon1245?.morning?.morningHigh)}</div>
+          </div>
+        </div>
+        <div class="rb-step ${o.afternoon1245?.bar1245 ? 'done' : 'active'}">
+          <div class="rb-step-icon">🕒</div>
+          <div class="rb-step-body">
+            <div class="rb-step-name">2. 12:45 London Candle</div>
+            <div class="rb-step-val">${o.afternoon1245?.bar1245 ? `${o.afternoon1245.bar1245.color.toUpperCase()} (${this._fmt(o.afternoon1245.bar1245.low)}–${this._fmt(o.afternoon1245.bar1245.high)})` : 'Awaiting 12:45 IST'}</div>
+          </div>
+        </div>
+        <div class="rb-step ${showEnter ? 'done' : 'active'}">
+          <div class="rb-step-icon">⚡</div>
+          <div class="rb-step-body">
+            <div class="rb-step-name">3. Reversal / Breakout</div>
+            <div class="rb-step-val">${showEnter ? o.setupKind.replace('afternoon_1245_', '').toUpperCase() : 'Watching 5m confirmation'}</div>
+          </div>
+        </div>
+        <div class="rb-step ${showEnter ? 'active' : 'pending'}">
+          <div class="rb-step-icon">🎯</div>
+          <div class="rb-step-body">
+            <div class="rb-step-name">4. London Momentum</div>
+            <div class="rb-step-val">Target 1:3+ R:R (cutoff 15:05)</div>
           </div>
         </div>
       ` : `
