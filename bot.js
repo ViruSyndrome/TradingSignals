@@ -1176,15 +1176,40 @@ async function pollManagedFuturesStops() {
         continue;
       }
       if (t.beMoved) {
-        // Active runner trailing: lock in profit as price advances
+        // Active runner trailing behind 5m swing structure
         try {
           const markPrice = await fut.getMarkPrice(t.symbol);
           const isLong = String(t.side).toUpperCase() === 'LONG';
           const curStop = Number(t.currentStopPrice || t.bePrice || t.entry);
+
+          // Fetch recent 5m completed bars to find the real 5m swing low / high
+          const raw5m = await _deskBars({ id: 'BTC', symbol: t.symbol, feed: 'binanceFutures' }, '5m', 15).catch(() => null);
+          const bars5m = Array.isArray(raw5m) ? raw5m : [];
+
+          let trailCandidate = null;
+          if (bars5m.length >= 3) {
+            // Take the last 2 completed 5m candles (excluding forming bar [-1])
+            const completed = bars5m.slice(-3, -1);
+            if (isLong) {
+              const swingLow5m = Math.min(...completed.map((b) => Number(b.l != null ? b.l : b[3])));
+              // Place stop just below the 5m swing low (buffer: $15)
+              trailCandidate = swingLow5m - 15;
+            } else {
+              const swingHigh5m = Math.max(...completed.map((b) => Number(b.h != null ? b.h : b[2])));
+              // Place stop just above the 5m swing high (buffer: $15)
+              trailCandidate = swingHigh5m + 15;
+            }
+          }
+
+          // Fallback to percentage trail if 5m bars fetch was delayed
+          if (!trailCandidate || !Number.isFinite(trailCandidate)) {
+            const fallbackDist = Math.max(120, markPrice * 0.0035);
+            trailCandidate = isLong ? (markPrice - fallbackDist) : (markPrice + fallbackDist);
+          }
+
           if (isLong && markPrice > t.entry) {
-            const trailDist = Math.max(120, markPrice * 0.0035);
-            const trailCandidate = markPrice - trailDist;
-            if (trailCandidate > curStop + 40 && trailCandidate > t.entry) {
+            // Only advance if higher than current stop by at least $25 and strictly above entry
+            if (trailCandidate > curStop + 25 && trailCandidate > t.entry) {
               const moved = await fut.moveStopToBreakeven({
                 symbol: t.symbol,
                 side: t.side,
@@ -1197,15 +1222,14 @@ async function pollManagedFuturesStops() {
               t.stopOrderId = moved.stopOrder?.algoId || moved.stopOrder?.orderId || t.stopOrderId;
               t.stopAlgoId = t.stopOrderId;
               const lockedUsd = ((moved.bePrice - t.entry) * amt).toFixed(2);
-              console.log(`[RedBarBot] ${t.symbol} LONG runner SL trailed up to ${moved.bePrice} (Locked in +$${lockedUsd} profit!)`);
+              console.log(`[RedBarBot] ${t.symbol} LONG runner SL trailed behind 5m swing low to ${moved.bePrice} (Locked in +${lockedUsd} profit!)`);
               if (bot && chatId) {
-                await bot.sendMessage(chatId, `🛡️ ${t.symbol} LONG runner SL trailed to $${moved.bePrice} (Locked in +$${lockedUsd} profit!)`, { disable_web_page_preview: true }).catch(() => {});
+                await bot.sendMessage(chatId, `🛡️ ${t.symbol} LONG runner SL trailed behind 5m swing low to ${moved.bePrice} (Locked in +${lockedUsd} profit!)`, { disable_web_page_preview: true }).catch(() => {});
               }
             }
           } else if (!isLong && markPrice < t.entry) {
-            const trailDist = Math.max(120, markPrice * 0.0035);
-            const trailCandidate = markPrice + trailDist;
-            if (trailCandidate < curStop - 40 && trailCandidate < t.entry) {
+            // Only advance down if lower than current stop by at least $25 and strictly below entry
+            if (trailCandidate < curStop - 25 && trailCandidate < t.entry) {
               const moved = await fut.moveStopToBreakeven({
                 symbol: t.symbol,
                 side: t.side,
@@ -1218,14 +1242,14 @@ async function pollManagedFuturesStops() {
               t.stopOrderId = moved.stopOrder?.algoId || moved.stopOrder?.orderId || t.stopOrderId;
               t.stopAlgoId = t.stopOrderId;
               const lockedUsd = ((t.entry - moved.bePrice) * amt).toFixed(2);
-              console.log(`[RedBarBot] ${t.symbol} SHORT runner SL trailed down to ${moved.bePrice} (Locked in +$${lockedUsd} profit!)`);
+              console.log(`[RedBarBot] ${t.symbol} SHORT runner SL trailed behind 5m swing high to ${moved.bePrice} (Locked in +${lockedUsd} profit!)`);
               if (bot && chatId) {
-                await bot.sendMessage(chatId, `🛡️ ${t.symbol} SHORT runner SL trailed to $${moved.bePrice} (Locked in +$${lockedUsd} profit!)`, { disable_web_page_preview: true }).catch(() => {});
+                await bot.sendMessage(chatId, `🛡️ ${t.symbol} SHORT runner SL trailed behind 5m swing high to ${moved.bePrice} (Locked in +${lockedUsd} profit!)`, { disable_web_page_preview: true }).catch(() => {});
               }
             }
           }
         } catch (e) {
-          console.warn(`[RedBarBot] ${t.symbol} runner trail error:`, e.message);
+          console.warn(`[RedBarBot] ${t.symbol} 5m swing trail error:`, e.message);
         }
         keep.push(t);
         continue;
