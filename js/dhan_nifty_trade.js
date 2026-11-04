@@ -90,7 +90,8 @@ function createDhanNiftyTrade(opts = {}) {
     if (!node2) throw new Error(`No chain node for strike ${best}`);
     const leg = side === 'LONG' ? node2.ce : node2.pe;
     if (!leg?.security_id) throw new Error(`No ${side === 'LONG' ? 'CE' : 'PE'} at strike ${best}`);
-    const ltp = Number(leg.last_price) || Number(leg.top_ask_price) || 0;
+    const ltp = Number(leg.last_price) || Number(leg.top_ask_price) || Number(leg.top_bid_price) || 0;
+    const ask = Number(leg.top_ask_price) || ltp;
     const delta = Math.abs(Number(leg.greeks?.delta) || deltaGuess);
     return {
       expiry,
@@ -99,6 +100,7 @@ function createDhanNiftyTrade(opts = {}) {
       optSide: side === 'LONG' ? 'CE' : 'PE',
       securityId: String(leg.security_id),
       ltp,
+      ask,
       delta,
       symbolHint: `NIFTY ${best} ${side === 'LONG' ? 'CE' : 'PE'} ${expiry}`,
     };
@@ -106,6 +108,8 @@ function createDhanNiftyTrade(opts = {}) {
 
   /**
    * Map index risk/target → option premium SL/TP using delta (or env override pts).
+   * Levels are always relative to the Super Order entry `price` (LIMIT), so Dhan's
+   * rule targetPrice > price > stopLossPrice holds for BUY options.
    */
   function mapPremiumLevels({ entryPremium, indexEntry, indexStop, indexTp1, delta }) {
     const d = Math.max(0.25, Math.min(0.9, Number(delta) || deltaGuess));
@@ -116,14 +120,20 @@ function createDhanNiftyTrade(opts = {}) {
     const slPts = fixedSl > 0 ? fixedSl : Math.max(8, Math.round(indexRisk * d));
     const tpPts = fixedTp > 0 ? fixedTp : Math.max(12, Math.round(indexReward * d));
     const ep = Number(entryPremium);
-    const stopLossPrice = Math.max(0.05, +(ep - slPts).toFixed(2));
-    const targetPrice = +(ep + tpPts).toFixed(2);
-    return { stopLossPrice, targetPrice, slPts, tpPts, delta: d };
+    // Round to 0.05 (F&O premium tick) and enforce BUY Super Order inequalities.
+    const tick = (n) => Math.round(Number(n) / 0.05) * 0.05;
+    const price = +tick(ep).toFixed(2);
+    let stopLossPrice = +tick(Math.max(0.05, price - slPts)).toFixed(2);
+    let targetPrice = +tick(price + tpPts).toFixed(2);
+    if (!(targetPrice > price)) targetPrice = +tick(price + Math.max(tpPts, 5)).toFixed(2);
+    if (!(stopLossPrice < price)) stopLossPrice = +tick(Math.max(0.05, price - Math.max(slPts, 5))).toFixed(2);
+    return { entryPrice: price, stopLossPrice, targetPrice, slPts, tpPts, delta: d };
   }
 
   /**
-   * Place Super Order: BUY option MARKET (price 0) + SL + TP.
-   * trailingJump in pts (0 = no trail until we BE-modify).
+   * Place Super Order: BUY option LIMIT at live premium + SL + TP.
+   * MARKET + price:0 breaks Dhan validation ("Profit Price should be greater than Order price")
+   * because the OMS rewrites entry via MPP and TP no longer sits above the effective order price.
    */
   async function openOptionSuperTrade({
     side, // index bias LONG|SHORT → CE|PE
@@ -133,8 +143,9 @@ function createDhanNiftyTrade(opts = {}) {
     correlationId,
   }) {
     const contract = await pickOptionContract({ side, spot: indexEntry });
-    const premium = contract.ltp;
-    if (!(premium > 0)) throw new Error(`No LTP for ${contract.symbolHint}`);
+    // Prefer ask for BUY so LIMIT is marketable; fall back to LTP.
+    const premium = Number(contract.ask) > 0 ? Number(contract.ask) : Number(contract.ltp);
+    if (!(premium > 0)) throw new Error(`No LTP/ask for ${contract.symbolHint}`);
     const levels = mapPremiumLevels({
       entryPremium: premium,
       indexEntry,
@@ -149,25 +160,79 @@ function createDhanNiftyTrade(opts = {}) {
       transactionType: 'BUY',
       exchangeSegment: OPT_SEG,
       productType,
-      orderType: 'MARKET',
+      orderType: 'LIMIT',
       securityId: contract.securityId,
       quantity: qty,
-      price: 0,
+      price: levels.entryPrice,
       targetPrice: levels.targetPrice,
       stopLossPrice: levels.stopLossPrice,
       trailingJump: trail,
     };
 
+    if (!(body.targetPrice > body.price && body.stopLossPrice < body.price)) {
+      throw new Error(
+        `Invalid Super Order levels TP ${body.targetPrice} / px ${body.price} / SL ${body.stopLossPrice}`
+      );
+    }
+
+    // BUY premium ≈ price * qty; reject early if wallet can't cover (Dhan RMS adds buffer).
+    const notional = levels.entryPrice * qty;
+    const bufferPct = Math.max(1.05, envNum('DHAN_FUND_BUFFER', 1.15));
+    const need = Math.ceil(notional * bufferPct);
+    try {
+      const funds = await dhan.getFundLimits();
+      const avail = Number(funds?.availabelBalance ?? funds?.availableBalance ?? funds?.withdrawableBalance ?? 0);
+      if (avail > 0 && avail < need) {
+        throw new Error(
+          `Insufficient funds: need ~Rs ${need} for ${qty}×${levels.entryPrice} (have Rs ${avail.toFixed(0)}). Add ~Rs ${(need - avail).toFixed(0)} or lower DHAN_NIFTY_LOTS.`
+        );
+      }
+    } catch (e) {
+      if (/Insufficient funds/i.test(String(e.message))) throw e;
+      // fund-limit read failed — still attempt place; status poll below catches RMS reject
+      console.warn('[DhanNifty] fund check skipped:', e.message);
+    }
+
     const placed = await dhan.placeSuperOrder(body);
+    const orderId = placed?.orderId || null;
+
+    // placeSuperOrder often ACKs PENDING then RMS rejects — poll before claiming success.
+    let orderStatus = placed?.orderStatus || null;
+    let omsError = '';
+    if (orderId) {
+      for (let i = 0; i < 4; i++) {
+        await new Promise((r) => setTimeout(r, 400 + i * 200));
+        try {
+          const list = await dhan.getSuperOrders();
+          const rows = Array.isArray(list) ? list : (list?.data || []);
+          const row = rows.find((o) => String(o.orderId) === String(orderId));
+          if (row) {
+            orderStatus = row.orderStatus || orderStatus;
+            omsError = row.omsErrorDescription || omsError;
+            if (/REJECTED|CANCELLED|TRADED|CLOSED/i.test(String(orderStatus))) break;
+          }
+        } catch {
+          break;
+        }
+      }
+    }
+
+    const rejected = /REJECTED/i.test(String(orderStatus || ''));
+    if (rejected) {
+      throw new Error(omsError || `Super Order ${orderId} REJECTED`);
+    }
+
     return {
-      ok: Boolean(placed?.orderId),
-      orderId: placed?.orderId || null,
-      orderStatus: placed?.orderStatus || null,
-      contract,
+      ok: Boolean(orderId) && !rejected,
+      orderId,
+      orderStatus,
+      omsError: omsError || null,
+      contract: { ...contract, ltp: levels.entryPrice },
       levels,
       qty,
       lots,
       request: body,
+      notional,
     };
   }
 

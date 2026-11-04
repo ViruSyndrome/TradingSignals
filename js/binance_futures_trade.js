@@ -284,14 +284,14 @@ function createBinanceFuturesTrade(opts = {}) {
   } = {}) {
     const sym = String(symbol || '').toUpperCase();
     const tradeSide = String(side || '').toUpperCase();
-    const entry = Number(entryPrice);
-    if (!sym || !(entry > 0)) throw new Error('symbol and entryPrice required');
+    const targetPx = (stopPrice != null && Number(stopPrice) > 0) ? Number(stopPrice) : Number(entryPrice);
+    if (!sym || !(targetPx > 0)) throw new Error('symbol and stopPrice/entryPrice required');
     if (tradeSide !== 'LONG' && tradeSide !== 'SHORT') throw new Error('side must be LONG or SHORT');
 
     await _syncTime();
     const filters = await getExchangeFilters(sym);
     const closeSide = tradeSide === 'LONG' ? 'SELL' : 'BUY';
-    const bePx = roundPrice(entry, filters.tickSize);
+    const bePx = roundPrice(targetPx, filters.tickSize);
 
     const algoId = stopAlgoId || stopOrderId;
     if (algoId) {

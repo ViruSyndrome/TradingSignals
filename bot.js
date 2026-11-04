@@ -599,6 +599,26 @@ async function _scanOneRedBarInstrument(inst, rbCfg) {
   const actionable = Array.isArray(RedBarTrend.ACTIONABLE_SETUPS)
     && RedBarTrend.ACTIONABLE_SETUPS.includes(setupKind);
   if (actionState === 'enter' && actionable && (side === 'LONG' || side === 'SHORT')) {
+    // Trend alignment filter: prevent counter-trend entries against stacked EMAs
+    if (Array.isArray(barsWork) && barsWork.length >= 35) {
+      const calcEma = (arr, p) => {
+        const k = 2 / (p + 1);
+        let val = arr[0];
+        for (let j = 1; j < arr.length; j++) val = arr[j] * k + val * (1 - k);
+        return val;
+      };
+      const closes = barsWork.map((b) => b.c);
+      const ema10 = calcEma(closes, 10);
+      const ema30 = calcEma(closes, 30);
+      if (side === 'SHORT' && ema10 > ema30) {
+        console.log(`[RedBarBot] ${inst.id}: Counter-trend SHORT blocked — EMA 10 (${ema10.toFixed(1)}) > EMA 30 (${ema30.toFixed(1)}) (Bullish momentum in play)`);
+        return;
+      }
+      if (side === 'LONG' && ema10 < ema30) {
+        console.log(`[RedBarBot] ${inst.id}: Counter-trend LONG blocked — EMA 10 (${ema10.toFixed(1)}) < EMA 30 (${ema30.toFixed(1)}) (Bearish momentum in play)`);
+        return;
+      }
+    }
     if (!_redBarBotInstrumentAllowed(inst)) {
       console.log(`[RedBarBot] ${inst.id}: ENTER ignored on worker (REDBAR_BOT_INSTRUMENTS) — desk can still show it`);
       return;
@@ -871,14 +891,18 @@ async function _maybeAutoDhanNifty({ inst, side, readout, alertKey, dayKey, setu
     }
 
     const summary = result.ok
-      ? `✅ Dhan AUTO ${side} ${result.contract.symbolHint}\nQty ${result.qty} · prem≈${result.contract.ltp} · SL ${result.levels.stopLossPrice} · TP ${result.levels.targetPrice}\nSuperOrder ${result.orderId} · (${setupKind})`
-      : `⚠️ Dhan AUTO failed / no orderId · ${JSON.stringify(result.orderStatus || result)}`;
+      ? `✅ Dhan AUTO ${side} ${result.contract.symbolHint}\nQty ${result.qty} · prem≈${result.contract.ltp} · SL ${result.levels.stopLossPrice} · TP ${result.levels.targetPrice}\nSuperOrder ${result.orderId} · status ${result.orderStatus || 'PENDING'} · (${setupKind})`
+      : `⚠️ Dhan AUTO failed / no fill · status=${result.orderStatus || 'n/a'} ${result.omsError || JSON.stringify(result).slice(0, 180)}`;
     console.log('[RedBarBot]', summary.replace(/\n/g, ' | '));
     if (bot && chatId) {
       await bot.sendMessage(chatId, summary, { disable_web_page_preview: true }).catch(() => {});
     }
   } catch (e) {
     console.error('[RedBarBot] DHAN_AUTO failed:', e.message);
+    // Don't spam the same ENTER every 30s — cooldown even on failure.
+    lastAlerted[`DHAN_TRADE_${inst.id}_LAST_TS`] = Date.now();
+    lastAlerted[`DHAN_TRADE_${inst.id}_LAST_ERR`] = String(e.message || e).slice(0, 180);
+    saveAlertState(lastAlerted);
     if (bot && chatId) {
       await bot.sendMessage(chatId, `❌ Dhan AUTO failed NIFTY ${side}: ${e.message}`, {
         disable_web_page_preview: true,
@@ -1152,6 +1176,57 @@ async function pollManagedFuturesStops() {
         continue;
       }
       if (t.beMoved) {
+        // Active runner trailing: lock in profit as price advances
+        try {
+          const markPrice = await fut.getMarkPrice(t.symbol);
+          const isLong = String(t.side).toUpperCase() === 'LONG';
+          const curStop = Number(t.currentStopPrice || t.bePrice || t.entry);
+          if (isLong && markPrice > t.entry) {
+            const trailDist = Math.max(120, markPrice * 0.0035);
+            const trailCandidate = markPrice - trailDist;
+            if (trailCandidate > curStop + 40 && trailCandidate > t.entry) {
+              const moved = await fut.moveStopToBreakeven({
+                symbol: t.symbol,
+                side: t.side,
+                stopPrice: trailCandidate,
+                stopOrderId: t.stopOrderId,
+                stopAlgoId: t.stopAlgoId || t.stopOrderId,
+                quantity: amt,
+              });
+              t.currentStopPrice = moved.bePrice;
+              t.stopOrderId = moved.stopOrder?.algoId || moved.stopOrder?.orderId || t.stopOrderId;
+              t.stopAlgoId = t.stopOrderId;
+              const lockedUsd = ((moved.bePrice - t.entry) * amt).toFixed(2);
+              console.log(`[RedBarBot] ${t.symbol} LONG runner SL trailed up to ${moved.bePrice} (Locked in +$${lockedUsd} profit!)`);
+              if (bot && chatId) {
+                await bot.sendMessage(chatId, `🛡️ ${t.symbol} LONG runner SL trailed to $${moved.bePrice} (Locked in +$${lockedUsd} profit!)`, { disable_web_page_preview: true }).catch(() => {});
+              }
+            }
+          } else if (!isLong && markPrice < t.entry) {
+            const trailDist = Math.max(120, markPrice * 0.0035);
+            const trailCandidate = markPrice + trailDist;
+            if (trailCandidate < curStop - 40 && trailCandidate < t.entry) {
+              const moved = await fut.moveStopToBreakeven({
+                symbol: t.symbol,
+                side: t.side,
+                stopPrice: trailCandidate,
+                stopOrderId: t.stopOrderId,
+                stopAlgoId: t.stopAlgoId || t.stopOrderId,
+                quantity: amt,
+              });
+              t.currentStopPrice = moved.bePrice;
+              t.stopOrderId = moved.stopOrder?.algoId || moved.stopOrder?.orderId || t.stopOrderId;
+              t.stopAlgoId = t.stopOrderId;
+              const lockedUsd = ((t.entry - moved.bePrice) * amt).toFixed(2);
+              console.log(`[RedBarBot] ${t.symbol} SHORT runner SL trailed down to ${moved.bePrice} (Locked in +$${lockedUsd} profit!)`);
+              if (bot && chatId) {
+                await bot.sendMessage(chatId, `🛡️ ${t.symbol} SHORT runner SL trailed to $${moved.bePrice} (Locked in +$${lockedUsd} profit!)`, { disable_web_page_preview: true }).catch(() => {});
+              }
+            }
+          }
+        } catch (e) {
+          console.warn(`[RedBarBot] ${t.symbol} runner trail error:`, e.message);
+        }
         keep.push(t);
         continue;
       }
