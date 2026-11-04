@@ -3477,23 +3477,6 @@ const RedBarTrend = {
     asOfTs, instrumentId, season, setupTriggerTs, entryPrice, stopPrice, livePrice,
     revisitRead, tpHint, equinox = null,
   }) {
-    // Dr. Dev Equinox Macro Rule:
-    // Positive territory: Calls only, Puts forbidden.
-    // Negative territory: Puts only, Calls forbidden.
-    if (equinox && equinox.territory && String(instrumentId || '').toUpperCase() === 'NIFTY') {
-      if (equinox.territory === 'positive' && trend === 'bearish') {
-        return {
-          state: 'watch',
-          reason: `Blocked by Macro Equinox Rule: NIFTY is in Positive Territory (above Equinox Baseline ${equinox.baseline}). Puts are strictly forbidden — trade Calls only on dips/breakouts.`,
-        };
-      }
-      if (equinox.territory === 'negative' && trend === 'bullish') {
-        return {
-          state: 'watch',
-          reason: `Blocked by Macro Equinox Rule: NIFTY is in Negative Territory (below Equinox Baseline ${equinox.baseline}). Calls are strictly forbidden — trade Puts only.`,
-        };
-      }
-    }
     if (trend !== 'bullish' && trend !== 'bearish') {
       return { state: 'wait', reason: 'No directional setup.' };
     }

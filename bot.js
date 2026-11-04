@@ -525,7 +525,7 @@ async function _deskBars(inst, interval, limit) {
 async function _scanOneRedBarInstrument(inst, rbCfg) {
   const workTf = rbCfg.workingTf || '15m';
   const need5m = workTf !== '5m';
-  const firstRedTf = inst.firstRedTf !== undefined ? inst.firstRedTf : (inst.id === 'NIFTY' ? '15m' : (inst.id === 'BTC' ? null : '1h'));
+  const firstRedTf = inst.firstRedTf !== undefined ? inst.firstRedTf : (inst.id === 'NIFTY' ? '5m' : (inst.id === 'BTC' ? null : '1h'));
   const firstRedBarMs = firstRedTf === '30m' ? 30 * 60000
     : firstRedTf === '15m' ? 15 * 60000
       : firstRedTf === '5m' ? 5 * 60000
@@ -815,17 +815,6 @@ async function _maybeAutoDhanNifty({ inst, side, readout, alertKey, dayKey, setu
   if (mins >= 15 * 60 + 5) {
     console.log('[RedBarBot] NIFTY: past 15:05 IST — no new Dhan entries');
     return;
-  }
-  // Dr. Dev Equinox Macro Rule check for Dhan NIFTY:
-  if (readout?.equinox?.territory) {
-    if (readout.equinox.territory === 'positive' && side === 'SHORT') {
-      console.log(`[RedBarBot] NIFTY: Positive Equinox Territory forbids Put trades — skip Dhan entry for ${alertKey}`);
-      return;
-    }
-    if (readout.equinox.territory === 'negative' && side === 'LONG') {
-      console.log(`[RedBarBot] NIFTY: Negative Equinox Territory forbids Call trades — skip Dhan entry for ${alertKey}`);
-      return;
-    }
   }
   if (lastAlerted[`DHAN_TRADE_${inst.id}_DETAIL`] === alertKey) {
     console.log(`[RedBarBot] ${inst.id}: Dhan already opened for ${alertKey}`);

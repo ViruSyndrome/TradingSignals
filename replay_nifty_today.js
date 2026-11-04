@@ -29,8 +29,11 @@ const ist = (t) => new Date(t + 5.5 * 3600e3).toISOString().slice(11, 16);
     if (wi.length < 40) continue;
     const s15 = f15.filter((b) => b.t + 15 * 60000 <= asOf);
     const s5 = f5.slice(0, i + 1);
-    const fr = RedBarTrend.firstRedBarOfSession(s15, day, { ...rb, ...inst, asOfTs: asOf, barMs: 15 * 60000 });
-    const r = RedBarTrend.readAt(wi, wi.length - 1, { ...rb, ...inst, asOfTs: asOf, firstRed1h: fr, bars1h: s15, bars5m: s5 });
+    const frTf = inst.firstRedTf || '5m';
+    const frBars = frTf === '5m' ? s5 : s15;
+    const frMs = frTf === '5m' ? 5 * 60000 : 15 * 60000;
+    const fr = RedBarTrend.firstRedBarOfSession(frBars, day, { ...rb, ...inst, asOfTs: asOf, barMs: frMs });
+    const r = RedBarTrend.readAt(wi, wi.length - 1, { ...rb, ...inst, asOfTs: asOf, firstRed1h: fr, bars1h: frBars, bars5m: s5 });
     if (!r) continue;
     if (process.env.DETAIL) {
       const h = ist(t);
