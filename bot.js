@@ -940,6 +940,15 @@ async function pollManagedDhanStops() {
   for (const t of rows) {
     try {
       if (mins >= flatMins) {
+        // If already flat or closed at TP, skip sending redundant exit order
+        const hasOpen = await trader.hasOpenNiftyOptionPosition().catch(() => true);
+        if (!hasOpen) {
+          console.log(`[RedBarBot] Dhan position already flat for ${t.symbolHint || t.orderId} — marking closed`);
+          t.status = 'closed';
+          t.closedAt = Date.now();
+          next.push(t);
+          continue;
+        }
         console.log(`[RedBarBot] Dhan flat@15:10 — closing ${t.symbolHint || t.orderId}`);
         await trader.flattenTrade({
           orderId: t.orderId,
