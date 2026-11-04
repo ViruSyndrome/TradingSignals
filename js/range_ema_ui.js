@@ -3608,18 +3608,19 @@ const RangeEmaUI = {
     const todayMid = todayBand ? Number(todayBand.f50 ?? todayBand.mid ?? ((todayHi != null && todayLo != null) ? (todayHi + todayLo) / 2 : null)) : null;
 
     const dPrice = inst.priceDecimals ?? 2;
+    const curSign = (inst.currency === 'INR' || String(inst.id || '').toUpperCase() === 'NIFTY' || String(inst.id || '').toUpperCase() === 'NG') ? '₹' : '$';
     const getFibSummaryHtml = (pinnedOrHovered) => {
       const pf = pinnedOrHovered;
       if (pf) {
         const dayStr = pf.dayLabel ? ` (${pf.dayLabel})` : '';
-        return ` · <span style="color:#64748b;">Prev Fib${dayStr}:</span> <span style="color:#4ade80;">H $${Number(pf.high).toFixed(dPrice)}</span> <span style="color:#38bdf8;">Mid $${Number(pf.mid).toFixed(dPrice)}</span> <span style="color:#f87171;">L $${Number(pf.low).toFixed(dPrice)}</span>`;
+        return ` · <span style="color:#64748b;">Prev Fib${dayStr}:</span> <span style="color:#4ade80;">H ${curSign}${Number(pf.high).toFixed(dPrice)}</span> <span style="color:#38bdf8;">Mid ${curSign}${Number(pf.mid).toFixed(dPrice)}</span> <span style="color:#f87171;">L ${curSign}${Number(pf.low).toFixed(dPrice)}</span>`;
       }
       if (todayBand && todayHi != null && todayLo != null) {
         const pLo = todayBand.f44 != null ? Number(todayBand.f44).toFixed(dPrice) : null;
         const pHi = todayBand.f56 != null ? Number(todayBand.f56).toFixed(dPrice) : null;
-        const pobStr = (pLo && pHi) ? ` <span style="color:#a78bfa;" title="Point of Balance 44–56%">POB $${pLo}–$${pHi}</span>` : '';
-        const midStr = todayMid != null ? ` <span style="color:#38bdf8;">Mid $${Number(todayMid).toFixed(dPrice)}</span>` : '';
-        return ` · <span style="color:#64748b;">Today's Fib:</span> <span style="color:#4ade80;">H $${Number(todayHi).toFixed(dPrice)}</span>${pobStr}${midStr} <span style="color:#f87171;">L $${Number(todayLo).toFixed(dPrice)}</span>`;
+        const pobStr = (pLo && pHi) ? ` <span style="color:#a78bfa;" title="Point of Balance 44–56%">POB ${curSign}${pLo}–${curSign}${pHi}</span>` : '';
+        const midStr = todayMid != null ? ` <span style="color:#38bdf8;">Mid ${curSign}${Number(todayMid).toFixed(dPrice)}</span>` : '';
+        return ` · <span style="color:#64748b;">Today's Fib:</span> <span style="color:#4ade80;">H ${curSign}${Number(todayHi).toFixed(dPrice)}</span>${pobStr}${midStr} <span style="color:#f87171;">L ${curSign}${Number(todayLo).toFixed(dPrice)}</span>`;
       }
       return '';
     };
@@ -4209,15 +4210,15 @@ const RangeEmaUI = {
                 if (dHi <= minLineDist) {
                   matchedLevel = 'high';
                   const diffPct = ((cand.high - priceNow) / priceNow * 100);
-                  hoverFibStr = `<strong style="color:#4ade80;background:rgba(34,197,94,0.18);padding:1px 6px;border-radius:4px;">🎯 Hovering Prev Fib${dayStr} High: $${Number(cand.high).toFixed(d)} (${diffPct >= 0 ? '+' : ''}${diffPct.toFixed(2)}%)</strong>`;
+                  hoverFibStr = `<strong style="color:#4ade80;background:rgba(34,197,94,0.18);padding:1px 6px;border-radius:4px;">🎯 Hovering Prev Fib${dayStr} High: ${curSign}${Number(cand.high).toFixed(d)} (${diffPct >= 0 ? '+' : ''}${diffPct.toFixed(2)}%)</strong>`;
                 } else if (dMid <= minLineDist) {
                   matchedLevel = 'mid';
                   const diffPct = ((cand.mid - priceNow) / priceNow * 100);
-                  hoverFibStr = `<strong style="color:#38bdf8;background:rgba(56,189,248,0.18);padding:1px 6px;border-radius:4px;">🎯 Hovering Prev Fib${dayStr} Median: $${Number(cand.mid).toFixed(d)} (${diffPct >= 0 ? '+' : ''}${diffPct.toFixed(2)}%)</strong>`;
+                  hoverFibStr = `<strong style="color:#38bdf8;background:rgba(56,189,248,0.18);padding:1px 6px;border-radius:4px;">🎯 Hovering Prev Fib${dayStr} Median: ${curSign}${Number(cand.mid).toFixed(d)} (${diffPct >= 0 ? '+' : ''}${diffPct.toFixed(2)}%)</strong>`;
                 } else {
                   matchedLevel = 'low';
                   const diffPct = ((cand.low - priceNow) / priceNow * 100);
-                  hoverFibStr = `<strong style="color:#f87171;background:rgba(239,68,68,0.18);padding:1px 6px;border-radius:4px;">🎯 Hovering Prev Fib${dayStr} Low: $${Number(cand.low).toFixed(d)} (${diffPct >= 0 ? '+' : ''}${diffPct.toFixed(2)}%)</strong>`;
+                  hoverFibStr = `<strong style="color:#f87171;background:rgba(239,68,68,0.18);padding:1px 6px;border-radius:4px;">🎯 Hovering Prev Fib${dayStr} Low: ${curSign}${Number(cand.low).toFixed(d)} (${diffPct >= 0 ? '+' : ''}${diffPct.toFixed(2)}%)</strong>`;
                 }
                 break;
               }
@@ -4232,19 +4233,19 @@ const RangeEmaUI = {
               const tLo = todayBand.f0 ?? todayBand.low;
               if (tHi != null && Math.abs(evY - yScale.getPixelForValue(tHi)) <= 12) {
                 const diffPct = ((tHi - priceNow) / priceNow * 100);
-                hoverFibStr = `<strong style="color:#4ade80;background:rgba(34,197,94,0.18);padding:1px 6px;border-radius:4px;">🎯 Today's Fib High (1.0): $${Number(tHi).toFixed(d)} (${diffPct >= 0 ? '+' : ''}${diffPct.toFixed(2)}%)</strong>`;
+                hoverFibStr = `<strong style="color:#4ade80;background:rgba(34,197,94,0.18);padding:1px 6px;border-radius:4px;">🎯 Today's Fib High (1.0): ${curSign}${Number(tHi).toFixed(d)} (${diffPct >= 0 ? '+' : ''}${diffPct.toFixed(2)}%)</strong>`;
               } else if (t56 != null && Math.abs(evY - yScale.getPixelForValue(t56)) <= 12) {
                 const diffPct = ((t56 - priceNow) / priceNow * 100);
-                hoverFibStr = `<strong style="color:#a78bfa;background:rgba(167,139,250,0.18);padding:1px 6px;border-radius:4px;">🎯 Today's POB 0.56: $${Number(t56).toFixed(d)} (${diffPct >= 0 ? '+' : ''}${diffPct.toFixed(2)}%)</strong>`;
+                hoverFibStr = `<strong style="color:#a78bfa;background:rgba(167,139,250,0.18);padding:1px 6px;border-radius:4px;">🎯 Today's POB 0.56: ${curSign}${Number(t56).toFixed(d)} (${diffPct >= 0 ? '+' : ''}${diffPct.toFixed(2)}%)</strong>`;
               } else if (tMid != null && Math.abs(evY - yScale.getPixelForValue(tMid)) <= 12) {
                 const diffPct = ((tMid - priceNow) / priceNow * 100);
-                hoverFibStr = `<strong style="color:#38bdf8;background:rgba(56,189,248,0.18);padding:1px 6px;border-radius:4px;">🎯 Today's Fib Median (0.50): $${Number(tMid).toFixed(d)} (${diffPct >= 0 ? '+' : ''}${diffPct.toFixed(2)}%)</strong>`;
+                hoverFibStr = `<strong style="color:#38bdf8;background:rgba(56,189,248,0.18);padding:1px 6px;border-radius:4px;">🎯 Today's Fib Median (0.50): ${curSign}${Number(tMid).toFixed(d)} (${diffPct >= 0 ? '+' : ''}${diffPct.toFixed(2)}%)</strong>`;
               } else if (t44 != null && Math.abs(evY - yScale.getPixelForValue(t44)) <= 12) {
                 const diffPct = ((t44 - priceNow) / priceNow * 100);
-                hoverFibStr = `<strong style="color:#a78bfa;background:rgba(167,139,250,0.18);padding:1px 6px;border-radius:4px;">🎯 Today's POB 0.44: $${Number(t44).toFixed(d)} (${diffPct >= 0 ? '+' : ''}${diffPct.toFixed(2)}%)</strong>`;
+                hoverFibStr = `<strong style="color:#a78bfa;background:rgba(167,139,250,0.18);padding:1px 6px;border-radius:4px;">🎯 Today's POB 0.44: ${curSign}${Number(t44).toFixed(d)} (${diffPct >= 0 ? '+' : ''}${diffPct.toFixed(2)}%)</strong>`;
               } else if (tLo != null && Math.abs(evY - yScale.getPixelForValue(tLo)) <= 12) {
                 const diffPct = ((tLo - priceNow) / priceNow * 100);
-                hoverFibStr = `<strong style="color:#f87171;background:rgba(239,68,68,0.18);padding:1px 6px;border-radius:4px;">🎯 Today's Fib Low (0.0): $${Number(tLo).toFixed(d)} (${diffPct >= 0 ? '+' : ''}${diffPct.toFixed(2)}%)</strong>`;
+                hoverFibStr = `<strong style="color:#f87171;background:rgba(239,68,68,0.18);padding:1px 6px;border-radius:4px;">🎯 Today's Fib Low (0.0): ${curSign}${Number(tLo).toFixed(d)} (${diffPct >= 0 ? '+' : ''}${diffPct.toFixed(2)}%)</strong>`;
               }
             }
           }
@@ -4380,7 +4381,7 @@ const RangeEmaUI = {
           }
 
           if (matchedHoriz) {
-            elInfo.innerHTML = `<strong style="color:${matchedHoriz.color};background:${matchedHoriz.bg};padding:1px 6px;border-radius:4px;">${matchedHoriz.title}: $${Number(matchedHoriz.value).toFixed(d)} (${matchedHoriz.diffStr})</strong> <span style="color:#94a3b8;font-size:11px;">— ${matchedHoriz.role}</span>`;
+            elInfo.innerHTML = `<strong style="color:${matchedHoriz.color};background:${matchedHoriz.bg};padding:1px 6px;border-radius:4px;">${matchedHoriz.title}: ${curSign}${Number(matchedHoriz.value).toFixed(d)} (${matchedHoriz.diffStr})</strong> <span style="color:#94a3b8;font-size:11px;">— ${matchedHoriz.role}</span>`;
             return;
           }
 
@@ -4418,7 +4419,7 @@ const RangeEmaUI = {
               const sign = chg >= 0 ? '+' : '';
               const col = chg >= 0 ? '#4ade80' : '#f87171';
               const t = times[idx] ? new Date(times[idx]).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', hour12: false }) : '';
-              elInfo.innerHTML = `<span style="color:#94a3b8;">${t}</span> <strong style="color:${col};">$${Number(b.c).toFixed(d)} (${arrow} ${sign}${chg.toFixed(2)}%)</strong> <span style="color:#64748b;">H: $${Number(b.h).toFixed(d)} · L: $${Number(b.l).toFixed(d)}</span>${pfSummary}`;
+              elInfo.innerHTML = `<span style="color:#94a3b8;">${t}</span> <strong style="color:${col};">${curSign}${Number(b.c).toFixed(d)} (${arrow} ${sign}${chg.toFixed(2)}%)</strong> <span style="color:#64748b;">H: ${curSign}${Number(b.h).toFixed(d)} · L: ${curSign}${Number(b.l).toFixed(d)}</span>${pfSummary}`;
               return;
             }
           }
@@ -4428,7 +4429,7 @@ const RangeEmaUI = {
             const arrow = chg >= 0 ? '▲' : '▼';
             const sign = chg >= 0 ? '+' : '';
             const col = chg >= 0 ? '#4ade80' : '#f87171';
-            elInfo.innerHTML = `<span style="color:#94a3b8;">Live:</span> <strong style="color:${col};">$${Number(last.c).toFixed(d)} (${arrow} ${sign}${chg.toFixed(2)}%)</strong> <span style="color:#64748b;">H: $${Number(last.h).toFixed(d)} · L: $${Number(last.l).toFixed(d)}</span>${pfSummary}`;
+            elInfo.innerHTML = `<span style="color:#94a3b8;">Live:</span> <strong style="color:${col};">${curSign}${Number(last.c).toFixed(d)} (${arrow} ${sign}${chg.toFixed(2)}%)</strong> <span style="color:#64748b;">H: ${curSign}${Number(last.h).toFixed(d)} · L: ${curSign}${Number(last.l).toFixed(d)}</span>${pfSummary}`;
           }
         },
         layout: {
@@ -4473,10 +4474,10 @@ const RangeEmaUI = {
                 const sign = changePct >= 0 ? '+' : '';
                 const arrow = changePct >= 0 ? '▲' : '▼';
                 return [
-                  `💵 Price: $${Number(b.c).toLocaleString(undefined, { minimumFractionDigits: d, maximumFractionDigits: d })} (${arrow} ${sign}${changePct.toFixed(2)}%)`,
-                  `📈 High:   $${Number(b.h).toLocaleString(undefined, { minimumFractionDigits: d, maximumFractionDigits: d })}`,
-                  `📉 Low:    $${Number(b.l).toLocaleString(undefined, { minimumFractionDigits: d, maximumFractionDigits: d })}`,
-                  `🚪 Open:   $${Number(b.o).toLocaleString(undefined, { minimumFractionDigits: d, maximumFractionDigits: d })}`,
+                  `💵 Price: ${curSign}${Number(b.c).toLocaleString(undefined, { minimumFractionDigits: d, maximumFractionDigits: d })} (${arrow} ${sign}${changePct.toFixed(2)}%)`,
+                  `📈 High:   ${curSign}${Number(b.h).toLocaleString(undefined, { minimumFractionDigits: d, maximumFractionDigits: d })}`,
+                  `📉 Low:    ${curSign}${Number(b.l).toLocaleString(undefined, { minimumFractionDigits: d, maximumFractionDigits: d })}`,
+                  `🚪 Open:   ${curSign}${Number(b.o).toLocaleString(undefined, { minimumFractionDigits: d, maximumFractionDigits: d })}`,
                 ];
               },
             },
@@ -4626,7 +4627,7 @@ const RangeEmaUI = {
       const col = chg >= 0 ? '#4ade80' : '#f87171';
       const activePf = this._chart?.$rbPinnedPriorFib || this._chart?.$rbHoveredPriorFib;
       const pfSummary = getFibSummaryHtml(activePf);
-      elInitInfo.innerHTML = `<span style="color:#94a3b8;">Live:</span> <strong style="color:${col};">$${Number(last.c).toFixed(d)} (${arrow} ${sign}${chg.toFixed(2)}%)</strong> <span style="color:#64748b;">H: $${Number(last.h).toFixed(d)} · L: $${Number(last.l).toFixed(d)}</span>${pfSummary}`;
+      elInitInfo.innerHTML = `<span style="color:#94a3b8;">Live:</span> <strong style="color:${col};">${curSign}${Number(last.c).toFixed(d)} (${arrow} ${sign}${chg.toFixed(2)}%)</strong> <span style="color:#64748b;">H: ${curSign}${Number(last.h).toFixed(d)} · L: ${curSign}${Number(last.l).toFixed(d)}</span>${pfSummary}`;
     }
 
     // Smoothly clear hovered prior Fib lines when mouse leaves the canvas (unless pinned)
@@ -4651,7 +4652,7 @@ const RangeEmaUI = {
           const sign = chg >= 0 ? '+' : '';
           const col = chg >= 0 ? '#4ade80' : '#f87171';
           const pfSummary = getFibSummaryHtml(this._chart?.$rbPinnedPriorFib);
-          elInitInfo.innerHTML = `<span style="color:#94a3b8;">Live:</span> <strong style="color:${col};">$${Number(last.c).toFixed(d)} (${arrow} ${sign}${chg.toFixed(2)}%)</strong> <span style="color:#64748b;">H: $${Number(last.h).toFixed(d)} · L: $${Number(last.l).toFixed(d)}</span>${pfSummary}`;
+          elInitInfo.innerHTML = `<span style="color:#94a3b8;">Live:</span> <strong style="color:${col};">${curSign}${Number(last.c).toFixed(d)} (${arrow} ${sign}${chg.toFixed(2)}%)</strong> <span style="color:#64748b;">H: ${curSign}${Number(last.h).toFixed(d)} · L: ${curSign}${Number(last.l).toFixed(d)}</span>${pfSummary}`;
         }
       }
     };

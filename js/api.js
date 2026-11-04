@@ -598,11 +598,19 @@ const API = {
     try {
       botBase = (typeof localStorage !== 'undefined' && localStorage.getItem('trade_bot_url')) || '';
     } catch (_) {}
-    if (!botBase && typeof CONFIG !== 'undefined') {
-      botBase = CONFIG.market?.proxyBaseUrl || CONFIG.trade?.botBaseUrl || CONFIG.alerts?.botBaseUrl || '';
+    const cfgBot = (typeof CONFIG !== 'undefined')
+      ? (CONFIG.market?.proxyBaseUrl || CONFIG.trade?.botBaseUrl || CONFIG.alerts?.botBaseUrl || '')
+      : '';
+    if (cfgBot && (!botBase || (botBase.includes('trycloudflare.com') && cfgBot.includes('trycloudflare.com') && botBase !== cfgBot))) {
+      botBase = cfgBot;
+      try {
+        if (typeof localStorage !== 'undefined') localStorage.setItem('trade_bot_url', cfgBot);
+      } catch (_) {}
+    } else if (!botBase) {
+      botBase = cfgBot;
     }
     botBase = String(botBase || '').replace(/\/$/, '');
-    if (!botBase) throw new Error('Set Oracle Bot URL in Settings for Dhan Nifty feed');
+    if (!botBase) throw new Error('Set Oracle Bot URL in Settings for Dhan Nifty/MCX feed');
     const qs = new URLSearchParams({
       securityId: String(sid),
       exchangeSegment: instrument?.dhanExchangeSegment || 'IDX_I',
@@ -635,7 +643,15 @@ const API = {
       feed = 'binanceFutures';
     }
     if (feed === 'dhan') {
-      return this.getDhanOHLC(instrument, interval, limitOverride);
+      try {
+        return await this.getDhanOHLC(instrument, interval, limitOverride);
+      } catch (e) {
+        if (instrument.fallbackFeed === 'yahoo' && instrument.fallbackSymbol) {
+          console.warn(`[API] Dhan ${id || sym} failed (${e.message}) — falling back to Yahoo ${instrument.fallbackSymbol}`);
+          return this.getYahooOHLC(instrument.fallbackSymbol, interval, limitOverride);
+        }
+        throw e;
+      }
     }
     if (feed === 'yahoo') {
       return this.getYahooOHLC(sym, interval, limitOverride);

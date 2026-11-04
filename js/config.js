@@ -126,6 +126,10 @@ const CONFIG = {
         id: 'NIFTY',
         label: 'NIFTY',
         symbol: '^NSEI',
+        currency: 'INR',
+        dhanSecurityId: '13',
+        dhanExchangeSegment: 'IDX_I',
+        dhanInstrument: 'INDEX',
         feed: 'yahoo',
         dayMode: 'ist',
         // Cash close window 15:15–15:45 IST (15:30 close + 15:45 bar)
@@ -176,11 +180,17 @@ const CONFIG = {
       },
       {
         // Natural Gas — Sagar: evening close Fib 23:00–23:30 IST; first red on 30m (same as Crude).
-        // MCX ~09:00–23:30/23:55 IST. Chart: Yahoo NG=F until Dhan MCX wire-up.
+        // MCX ~09:00–23:30/23:55 IST. Live feed: Dhan MCX FUTCOM (574319), fallback: Yahoo NG=F.
         id: 'NG',
         label: 'NG',
-        symbol: 'NG=F',
-        feed: 'yahoo',
+        symbol: 'NATURALGAS NOV FUT',
+        currency: 'INR',
+        dhanSecurityId: '574319',
+        dhanExchangeSegment: 'MCX_COMM',
+        dhanInstrument: 'FUTCOM',
+        feed: 'dhan',
+        fallbackFeed: 'yahoo',
+        fallbackSymbol: 'NG=F',
         dayMode: 'ist',
         bandStyle: 'sessionFib',
         firstRedTf: '30m',
@@ -191,10 +201,10 @@ const CONFIG = {
         },
         markLabel: '23:00–23:30 IST (MCX close)',
         fibLevels: [0, 0.44, 0.5, 0.56, 1],
-        priceDecimals: 3,
+        priceDecimals: 1,
         timeframes: ['5m', '15m', '30m', '1h'],
         ohlcLimit: { '5m': 360, '15m': 500, '30m': 500, '1h': 400 },
-        tradeHint: 'Dhan / MCX NATURALGAS · Fib 23:00–23:30 IST close · first red 30m · chart Yahoo NG=F',
+        tradeHint: 'Dhan MCX · NATURALGAS NOV FUT (574319) · Fib 23:00–23:30 IST close · first red 30m',
         showSessionMarkers: true,
         sessions: [
           { id: 'mcx_day', label: 'MCX day', timeZone: 'Asia/Kolkata', open: [9, 0], close: [17, 0], color: '#818cf8' },
@@ -238,13 +248,13 @@ const CONFIG = {
   // ─── Alerts relay (desk → Render → Telegram). Same host as trade bot. ──────
   alerts: {
     // Oracle bot (Cloudflare tunnel). Update if cloudflared quick-tunnel URL rotates.
-    botBaseUrl: 'https://precision-helmet-belfast-republic.trycloudflare.com',
+    botBaseUrl: 'https://real-follows-wav-seal.trycloudflare.com',
   },
 
   // ─── Owner click-to-trade (Oracle bot; keys never in browser) ──────────────
   trade: {
     // Public bot URL (no trailing slash). Also used for Telegram ENTER relay.
-    botBaseUrl: 'https://precision-helmet-belfast-republic.trycloudflare.com',
+    botBaseUrl: 'https://real-follows-wav-seal.trycloudflare.com',
     defaultQuoteUsdt: 50,
   },
 
