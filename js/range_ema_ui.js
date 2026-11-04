@@ -4464,7 +4464,10 @@ const RangeEmaUI = {
                 const d = new Date(times[i]);
                 const timeStr = d.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', hour12: false });
                 const dateStr = d.toLocaleDateString([], { month: 'short', day: 'numeric' });
-                return `📅 ${dateStr} · ${timeStr} IST`;
+                const tzAbbr = (typeof Intl !== 'undefined' && Intl.DateTimeFormat)
+                  ? (new Intl.DateTimeFormat([], { timeZoneName: 'short' }).formatToParts(d).find((p) => p.type === 'timeZoneName')?.value || '')
+                  : '';
+                return `📅 ${dateStr} · ${timeStr}${tzAbbr ? ` ${tzAbbr}` : ''}`;
               },
               label(ctx) {
                 const b = bars[ctx.dataIndex];

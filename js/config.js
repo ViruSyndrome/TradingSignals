@@ -102,20 +102,21 @@ const CONFIG = {
         symbol: 'BTCUSDT',
         // Must match the bot (USD-M). Spot OHLC drifts and paints wrong mark Fibs.
         feed: 'binanceFutures',
-        dayMode: 'ist',
-        // 1H 02:30–03:30 IST candle — highest point of wick (Fib 1) to lowest point of wick (Fib 0)
+        dayMode: 'ny',
+        // 1H 16:00–17:00 NY candle (US Cash Close & CME Settle) — highest point of wick (Fib 1) to lowest point of wick (Fib 0)
+        // Automatically maps to 02:30–03:30 IST in Winter (EST) and 01:30–02:30 IST in Summer (EDT)
         bandStyle: 'sessionFib',
         markWindow: {
-          timeZone: 'Asia/Kolkata',
-          startHour: 2, startMinute: 30,
-          endHour: 3, endMinute: 30,
+          timeZone: 'America/New_York',
+          startHour: 16, startMinute: 0,
+          endHour: 17, endMinute: 0,
         },
-        markLabel: '02:30–03:30 IST',
+        markLabel: '16:00–17:00 ET (US Close / CME Settle)',
         fibLevels: [0, 0.44, 0.5, 0.56, 1],
         priceDecimals: 2,
-        tradeHint: 'Binance USDⓈ-M · BTCUSDT · Fib 02:30–03:30 IST (1H wick H/L)',
+        tradeHint: 'Binance USDⓈ-M · BTCUSDT · Fib US Close (16:00–17:00 ET / 02:30–03:30 IST)',
         showSessionMarkers: true,
-        firstRedTf: null, // BTC uses only the single 02:30–03:30 mark window at start of day
+        firstRedTf: null, // BTC uses only the single mark window at start of day
         sessions: [
           { id: 'asia', label: 'Asia', timeZone: 'Asia/Tokyo', open: [9, 0], close: [15, 0], color: '#818cf8' },
           { id: 'london', label: 'London', timeZone: 'Europe/London', open: [8, 0], close: [16, 30], color: '#f472b6' },
@@ -158,19 +159,19 @@ const CONFIG = {
         symbol: 'XAUUSDT',
         fallbackSymbol: 'PAXGUSDT',
         feed: 'binanceFutures',
-        dayMode: 'ist',
+        dayMode: 'ny',
         bandStyle: 'sessionFib',
         // Sagar: gold/silver/copper first-red on 30m (not 1H)
         firstRedTf: '30m',
         markWindow: {
-          timeZone: 'Asia/Kolkata',
-          startHour: 1, startMinute: 30,
-          endHour: 2, endMinute: 30,
+          timeZone: 'America/New_York',
+          startHour: 16, startMinute: 0,
+          endHour: 17, endMinute: 0,
         },
-        markLabel: '01:30–02:30 IST',
+        markLabel: '16:00–17:00 ET (COMEX Settle)',
         fibLevels: [0, 0.44, 0.5, 0.56, 1],
         priceDecimals: 2,
-        tradeHint: 'Binance Futures · XAUUSDT · Fib 01:30–02:30 IST · first red 30m',
+        tradeHint: 'Binance Futures · XAUUSDT · Fib COMEX Settle (16:00–17:00 ET) · first red 30m',
         showSessionMarkers: true,
         sessions: [
           { id: 'asia', label: 'Asia', timeZone: 'Asia/Tokyo', open: [9, 0], close: [15, 0], color: '#818cf8' },

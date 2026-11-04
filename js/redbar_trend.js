@@ -670,7 +670,7 @@ const RedBarTrend = {
     // Anchor today's 1H first-red only after that early mark window completes (endHour <= 6).
     const window = this.getMarkWindow(cfg);
     const instId = String(cfg.id || cfg.instrumentId || '').toUpperCase();
-    const isEarlyMark = !!(window && this.isSessionFib(cfg) && Number(window.endHour) <= 6);
+    const isEarlyMark = !!(window && this.isSessionFib(cfg) && (Number(window.endHour) <= 6 || window.timeZone === 'America/New_York'));
     const markEndTs = isEarlyMark
       ? this.zonedClockToUtc(asOfDay, window.timeZone || 'Asia/Kolkata', window.endHour, window.endMinute)
       : (instId === 'NG'
@@ -2990,7 +2990,7 @@ const RedBarTrend = {
     }
 
     const markWin = this.getMarkWindow(c);
-    const isEarlyMarkAsset = !!(markWin && this.isSessionFib(c) && Number(markWin.endHour) <= 6);
+    const isEarlyMarkAsset = !!(markWin && this.isSessionFib(c) && (Number(markWin.endHour) <= 6 || markWin.timeZone === 'America/New_York'));
     const cb = bands.find((b) => b.day === asOfDay) || null;
     const firstRed1h = c.firstRed1h || (isEarlyMarkAsset && cb ? {
       high: cb.high,
