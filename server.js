@@ -239,6 +239,11 @@ app.post('/api/alerts/redbar', async (req, res) => {
     return res.status(400).json({ ok: false, error: 'setupKind not Red Bar actionable' });
   }
 
+  const allowed = (process.env.REDBAR_BOT_INSTRUMENTS || 'BTC,NIFTY').split(',').map((s) => s.trim().toUpperCase());
+  if (!allowed.includes(String(instrumentId).toUpperCase())) {
+    return res.json({ ok: true, ignored: true, reason: `${instrumentId} not in REDBAR_BOT_INSTRUMENTS` });
+  }
+
   // One relay per fresh 20m trigger × side × setup (multiple quality ENTERs/day OK).
   const trig = Number(body.triggerTs) || Date.now();
   const bucket = Math.floor(trig / (20 * 60 * 1000));

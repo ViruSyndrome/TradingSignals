@@ -1781,6 +1781,11 @@ if (!process.env.BOT_WORKER_ONLY) {
     const trigBucket = Math.floor(triggerTs / (20 * 60 * 1000));
     const scannerKey = `${side}|${setupKind}|${dayKey}|${trigBucket}`;
     const alertKey = `RB_${instrumentId}|${scannerKey}`;
+
+    const allowed = (envTrim('REDBAR_BOT_INSTRUMENTS') || 'BTC,NIFTY').split(',').map((s) => s.trim().toUpperCase());
+    if (!allowed.includes(String(instrumentId).toUpperCase())) {
+      return res.json({ ok: true, ignored: true });
+    }
     const now = Date.now();
     for (const [k, t] of relaySeen) {
       if (now - t > RELAY_TTL_MS) relaySeen.delete(k);
