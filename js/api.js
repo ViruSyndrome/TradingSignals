@@ -648,7 +648,22 @@ const API = {
       } catch (e) {
         if (instrument.fallbackFeed === 'yahoo' && instrument.fallbackSymbol) {
           console.warn(`[API] Dhan ${id || sym} failed (${e.message}) — falling back to Yahoo ${instrument.fallbackSymbol}`);
-          return this.getYahooOHLC(instrument.fallbackSymbol, interval, limitOverride);
+          const bars = await this.getYahooOHLC(instrument.fallbackSymbol, interval, limitOverride);
+          // Yahoo NG=F is USD Henry Hub — never paint as MCX ₹. Stamp meta for the desk.
+          if (Array.isArray(bars)) {
+            const wantInr = String(instrument.currency || '').toUpperCase() === 'INR';
+            bars.__deskMeta = {
+              feedSource: 'yahoo',
+              fallbackFrom: 'dhan',
+              fallbackSymbol: instrument.fallbackSymbol,
+              currency: wantInr ? 'USD' : (instrument.currency || 'USD'),
+              priceDecimals: wantInr ? 2 : (instrument.priceDecimals ?? 2),
+              warning: wantInr
+                ? `Dhan MCX offline — Yahoo ${instrument.fallbackSymbol} in USD (not MCX ₹). Fibs/levels are US contract scale.`
+                : `Dhan offline — Yahoo ${instrument.fallbackSymbol} fallback.`,
+            };
+          }
+          return bars;
         }
         throw e;
       }

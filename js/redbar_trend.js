@@ -1,23 +1,17 @@
 'use strict';
 
 /**
- * redbar_trend.js — Red Bar / session-mark TREND indicator (course-style, no paid tool)
+ * redbar_trend.js — Red Bar / session-mark TREND engine
  *
- * Sagar desk playbook (what we predict from):
- *  1. Magnets / targets = Fib 0/0.44/0.5/0.56/1 on each mark window
- *     (BTC 02:30–03:30, XAU 01:30–02:30, Nifty 15:15–15:45 IST) — targets only.
- *  2. Timeframe ladder: D→H4→H1→M15→M5→M1. Desk pair = H1 direction/structure → M5 entry.
- *  3. Pivot = first 1H red: mark HIGH/LOW (liquidity) + median + Fib 44/50/56 on that 1H bar.
- *     Trade 1 = leave the bar. Trade 2 = HTF level → LTF entry:
- *       - Sweep 1H high (liquidity) → 5m close back BELOW high → SHORT (sells only)
- *       - Sweep 1H low → 5m close back ABOVE low → LONG (buys only)
- *       - Median confluence on that 5m close (above/below).
- *     ENTER only when SL locks to a 5m swing; 50% @ 1:1 → BE → trail 1:2 → TP 1:3.
- *     Telegram fires on that ENTER (desk relay + worker scan) so you need not stare.
- *  4. Clock: pre-London continuation → London hunts Asia H/L → US hunts London
- *     (and Asia if untouched).
+ * Mechanics authored / mentored by Dr. Devendra Pratap Singh (desk adaptation):
+ *  1. Dr. Dev Red Bar DNA — first-red / mark-window box; Trade 1 departure + Trade 2 revisit.
+ *  2. Dr. Dev 5m X-Candle POB (Point of Balance 44–56%) — session open X → retest → SHORT reject.
+ *  3. Dr. Dev Setup 3 — 30m 5 EMA Rubber Band mean reversion (overlay / WATCH).
+ *  4. Dr. Dev Trikal Session Anchor — 12:45 IST London Open 30m box (trap auction / breakout).
+ *  5. Magnets / targets = Fib 0/0.44/0.5/0.56/1 on each mark window (targets only).
+ *  6. Ladder H1→M5: ENTER with 5m swing SL · 50% @ 1:1 → BE → trail → TP.
  *
- * EMA is NOT part of this indicator. Overlay it separately if you want.
+ * EMA is NOT part of this indicator's DNA. Overlay / bot-gate separately if desired.
  *
  * Browser: RedBarTrend | Node: module.exports
  */
@@ -2067,8 +2061,9 @@ const RedBarTrend = {
    *     magnet ≥ 1.5R (or a 1.8R expansion target).
    */
   /**
-   * Sagar's 12:45 Strategy: Morning Session Range (09:15 - 12:30 IST)
-   * Defines Asian session boundary: Morning High, Morning Low, and 50% Mid.
+   * Dr. Devendra Pratap Singh — morning session range (09:15–12:30 IST)
+   * for the Trikal 12:45 London Open afternoon engine.
+   * Morning High / Low / 50% Mid lock after 12:30.
    */
   computeMorningRange(bars5m, evalTs, tz = 'Asia/Kolkata') {
     if (!Array.isArray(bars5m) || !bars5m.length) return null;
@@ -2110,12 +2105,13 @@ const RedBarTrend = {
   },
 
   /**
-   * Sagar's 12:45 Afternoon Engine for NIFTY / Indian Indices:
-   * - Phase 1: 09:15 - 12:30 Morning Asian Phase (Morning Range)
-   * - Chop: 11:30 - 12:30 Lunch decay zone (avoid new entries)
-   * - Phase 2: 12:45 London Open 30m Candle Anchor
-   *   Reversal: 12:45 candle swept morning H/L, and 5m closes back across 12:45 High/Low
-   *   Breakout: 5m expansion beyond morning range with London volume
+   * Dr. Devendra Pratap Singh — Trikal 12:45 Afternoon Engine (NIFTY / Indian Indices):
+   * - Phase 1: 09:15–12:30 Morning range (H/L/Mid)
+   * - Chop: 11:30–12:30 Lunch decay — no fresh entries
+   * - Phase 2: 12:45 London Open 30m Trikal Anchor
+   *   Reversal: trap the 12:45 auction itself (red → reclaim high / green → reclaim low)
+   *            — NOT a required sweep of morning H/L
+   *   Breakout: clean expansion beyond morning High / Low after the London box
    */
   detect1245AfternoonSetup(bars5m, evalTs, tz = 'Asia/Kolkata') {
     if (!Array.isArray(bars5m) || !bars5m.length) return null;
@@ -2200,7 +2196,7 @@ const RedBarTrend = {
         tp2: currentPrice + risk * 2,
         tp3: currentPrice + risk * 3,
         rr: 3,
-        label: '12:45 Afternoon Bullish Breakout · Clean Expansion Above Morning High',
+        label: '12:45 London Open Breakout · Dr. Dev Trikal Anchor · Expansion Above Morning High',
       };
     }
 
@@ -2221,11 +2217,11 @@ const RedBarTrend = {
         tp2: currentPrice - risk * 2,
         tp3: currentPrice - risk * 3,
         rr: 3,
-        label: '12:45 Afternoon Bearish Breakout · Clean Expansion Below Morning Low',
+        label: '12:45 London Open Breakout · Dr. Dev Trikal Anchor · Expansion Below Morning Low',
       };
     }
 
-    // Bullish Reversal: Sellers trapped in red 12:45 candle
+    // Bullish Reversal: Sellers trapped in red 12:45 candle (auction trap — not morning-low sweep)
     if (bar1245Color === 'red' && currentPrice > bar1245High) {
       const recentLows = afternoonBars.slice(-6).map((b) => b.l);
       const stopLoss = Math.min(bar1245Low, ...recentLows);
@@ -2246,11 +2242,11 @@ const RedBarTrend = {
         tp2,
         tp3,
         rr: risk > 0 ? (tp3 - currentPrice) / risk : 2,
-        label: '12:45 Afternoon Bullish Reversal · London Sweep of Morning Low · Sellers Trapped',
+        label: '12:45 London Open Reversal · Dr. Dev Trikal Anchor · Sellers Trapped in 12:45 Red Candle',
       };
     }
 
-    // Bearish Reversal: Buyers trapped in green 12:45 candle
+    // Bearish Reversal: Buyers trapped in green 12:45 candle (auction trap — not morning-high sweep)
     if (bar1245Color === 'green' && currentPrice < bar1245Low) {
       const recentHighs = afternoonBars.slice(-6).map((b) => b.h);
       const stopLoss = Math.max(bar1245High, ...recentHighs);
@@ -2271,7 +2267,7 @@ const RedBarTrend = {
         tp2,
         tp3,
         rr: risk > 0 ? (currentPrice - tp3) / risk : 2,
-        label: '12:45 Afternoon Bearish Reversal · London Sweep of Morning High · Buyers Trapped',
+        label: '12:45 London Open Reversal · Dr. Dev Trikal Anchor · Buyers Trapped in 12:45 Green Candle',
       };
     }
 
@@ -2282,7 +2278,7 @@ const RedBarTrend = {
       triggered: false,
       bar1245: { high: bar1245High, low: bar1245Low, color: bar1245Color, mid: bar1245Mid },
       morning,
-      label: `12:45 London Candle Marked (${bar1245Color.toUpperCase()}) · Awaiting Reversal or Breakout`,
+      label: `Dr. Dev Trikal 12:45 Anchor Marked (${bar1245Color.toUpperCase()}) · Awaiting Reversal or Breakout`,
     };
   },
 
@@ -2435,7 +2431,7 @@ const RedBarTrend = {
       };
     }
 
-    // Sagar's 12:45 Afternoon Engine (Reversal & Breakout)
+    // Dr. Dev Trikal 12:45 Afternoon Engine (Reversal & Breakout)
     if (setupKind === 'afternoon_1245_reversal' || setupKind === 'afternoon_1245_breakout') {
       const isReversal = setupKind === 'afternoon_1245_reversal';
       const stopPad = price * 0.0004;
@@ -3068,7 +3064,7 @@ const RedBarTrend = {
     // Dr. Dev Equinox Macro Territory
     const equinox = this.computeEquinoxMacro(price, instId);
 
-    // Sagar 12:45 Afternoon Engine & Dr. Dev 5m Squeeze
+    // Dr. Dev Trikal 12:45 Afternoon Engine & Dr. Dev 5m Squeeze
     const afternoon1245 = (bars5m && instId === 'NIFTY')
       ? this.detect1245AfternoonSetup(bars5m, evalTs)
       : null;

@@ -278,12 +278,14 @@ function createBinanceFuturesTrade(opts = {}) {
     symbol,
     side,
     entryPrice,
+    stopPrice,
     stopOrderId,
     stopAlgoId,
     quantity,
   } = {}) {
     const sym = String(symbol || '').toUpperCase();
     const tradeSide = String(side || '').toUpperCase();
+    // Trail callers pass stopPrice; BE callers pass entryPrice only.
     const targetPx = (stopPrice != null && Number(stopPrice) > 0) ? Number(stopPrice) : Number(entryPrice);
     if (!sym || !(targetPx > 0)) throw new Error('symbol and stopPrice/entryPrice required');
     if (tradeSide !== 'LONG' && tradeSide !== 'SHORT') throw new Error('side must be LONG or SHORT');

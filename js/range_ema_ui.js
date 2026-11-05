@@ -2,6 +2,7 @@
 
 /**
  * Red Bar Desk — visual trader sheet.
+ * Engine mechanics: Dr. Devendra Pratap Singh (Red Bar DNA, POB 44–56, Setup 3 Rubber Band, Trikal 12:45).
  * Chart + LONG / SHORT / WAIT action strip + levels.
  * EMA is overlay only.
  */
@@ -571,6 +572,7 @@ const RangeEmaUI = {
     let raw5m = null;
     let rawFib30m = null;
     let raw1m = null;
+    let deskMeta = null;
     try {
       const get = (iv, n) => (typeof API.getDeskOHLC === 'function'
         ? API.getDeskOHLC(instrument, iv, n)
@@ -596,6 +598,7 @@ const RangeEmaUI = {
       ]);
       if (pair[0].status !== 'fulfilled') throw pair[0].reason;
       raw = pair[0].value;
+      deskMeta = (raw && raw.__deskMeta) || null;
       if (needPivotFetch) {
         if (pair[1].status === 'fulfilled') rawPivot = pair[1].value;
         else console.warn(`[RangeEmaUI] ${firstRedLabel} first-red fetch failed:`, pair[1].reason?.message || pair[1].reason);
@@ -758,6 +761,13 @@ const RangeEmaUI = {
     }
 
     const action = this._actionPlan(readout, emaAgree, instrument, fibMagnet);
+    // Yahoo fallback for MCX INR (e.g. NG) must not keep ₹ / MCX scale labeling.
+    const feedCurrency = deskMeta?.currency || instrument.currency || null;
+    const feedWarning = deskMeta?.warning || null;
+    const feedSource = deskMeta?.feedSource || instrument.feed || null;
+    const feedPriceDecimals = deskMeta?.priceDecimals != null
+      ? deskMeta.priceDecimals
+      : instrument.priceDecimals;
 
     return {
       symbol: instrument.symbol,
@@ -771,6 +781,10 @@ const RangeEmaUI = {
       ema,
       emaAgree,
       action,
+      feedCurrency,
+      feedWarning,
+      feedSource,
+      feedPriceDecimals,
     };
   },
 
@@ -857,7 +871,7 @@ const RangeEmaUI = {
       ? ` ⚠️ Stop is a ${stopTag} (not a tight local swing — watch size).`
       : '';
 
-    // 1. ENTER: Trade 1 / Trade 2 / Session Sweep / Dr. Dev session POB SHORT / Sagar 12:45 Afternoon
+    // 1. ENTER: Trade 1 / Trade 2 / Sweep / Dr. Dev POB SHORT / Dr. Dev Trikal 12:45
     if (isActionable) {
       const isPob = o.setupKind === 'pob_reject';
       const is1245Rev = o.setupKind === 'afternoon_1245_reversal';
@@ -869,10 +883,10 @@ const RangeEmaUI = {
           : isPob
             ? `Dr. Dev POB · Futures SHORT (session 5m X → 44–56 reject)`
             : is1245Rev
-              ? `Sagar 12:45 Afternoon · Reversal ${biasDir} (London Sweep Trap)`
+              ? `Dr. Dev Trikal 12:45 · Reversal ${biasDir} (12:45 auction trap)`
               : is1245Break
-                ? `Sagar 12:45 Afternoon · Breakout ${biasDir} (Morning H/L Expansion)`
-                : `Red Bar · Trade 1 · Futures ${biasDir} (Left 1H Red)`;
+                ? `Dr. Dev Trikal 12:45 · Breakout ${biasDir} (Morning H/L Expansion)`
+                : `Dr. Dev Red Bar · Trade 1 · Futures ${biasDir} (Left First Red)`;
       const t2Note = o.setupKind === 'trade2_confirmed'
         ? (biasDir === 'SHORT' ? ' (1H high swept → 5m closed below high & median — sells only)' : ' (1H low swept → 5m closed above low & median — buys only)')
         : '';
@@ -923,7 +937,7 @@ const RangeEmaUI = {
       const s3 = o.playbook?.setup3 || o.setup3;
       const pr = o.playbook?.pobReject || o.pobReject;
       const s3Step = (o.setupKind === 'setup3_primed' || o.setupKind === 'setup3_rubber_band') && s3
-        ? `Setup 3 overlay: ${s3.detachedCount || '≥4'}× 30m bars detached from 5 EMA · Barricade ${this._fmt(s3.barricade)} · Magnet TP ${this._fmt(s3.targetPrice || s3.ema5)} · SL wick ${this._fmt(s3.stopLoss)} — chart guide only (not Telegram ENTER).`
+        ? `Dr. Dev Setup 3 overlay: ${s3.detachedCount || '≥4'}× 30m bars detached from 5 EMA · Barricade ${this._fmt(s3.barricade)} · Magnet TP ${this._fmt(s3.targetPrice || s3.ema5)} · SL wick ${this._fmt(s3.stopLoss)} — chart guide only (not Telegram ENTER).`
         : null;
       const pobStep = o.setupKind === 'pob_reject_watch' && pr
         ? `Dr. Dev POB watch: ${pr.label || 'session 5m X → retest 44–56 → SHORT reject'} · POB ${this._fmt(pr.pobLo)}–${this._fmt(pr.pobHi)} · fill@0.44 · SL@0.56 · TP1 Anchor.`
@@ -931,20 +945,20 @@ const RangeEmaUI = {
       const watchTitle = o.setupKind === 'pob_reject_watch'
         ? `Dr. Dev POB Watch · ${pr?.label || 'Asia/London/NY or NSE: retest 44–56 → SHORT reject'}`
         : o.setupKind === 'lunch_decay'
-          ? `Lunch Decay Zone (11:30–12:30 IST) · Avoid entries · Wait 12:45 London Open`
+          ? `Lunch Decay Zone (11:30–12:30 IST) · Avoid entries · Wait Dr. Dev Trikal 12:45`
           : o.setupKind === 'afternoon_1245_watch'
-            ? `12:45 Afternoon Watch · London 30m Candle Marked · Awaiting Breakout / Reversal`
+            ? `Dr. Dev Trikal 12:45 Watch · London 30m Anchor Marked · Awaiting Breakout / Reversal`
             : o.setupKind === 'setup3_rubber_band'
-          ? `Setup 3 Watch · Barricade broken (${biasDir}) · overlay only — not ENTER`
+          ? `Dr. Dev Setup 3 Watch · Barricade broken (${biasDir}) · overlay only — not ENTER`
           : o.setupKind === 'setup3_primed'
-            ? `Setup 3 Watch · Rubber Band Primed (${s3?.detachedCount || 4} bars detached) · Barricade ${this._fmt(s3?.barricade)}`
+            ? `Dr. Dev Setup 3 Watch · Rubber Band Primed (${s3?.detachedCount || 4} bars detached) · Barricade ${this._fmt(s3?.barricade)}`
             : o.setupKind === 'trade2_watch'
-              ? `Red Bar Watch · Trade 2 H1→M5 — need sweep of 1H H/L then 5m close-through (${biasDir})`
+              ? `Dr. Dev Red Bar Watch · Trade 2 H1→M5 — need sweep of 1H H/L then 5m close-through (${biasDir})`
               : o.setupKind === 'fib_pullback'
-                ? `Red Bar Bias: ${biasDir} · Near mark-window Fibs / POB (targets) — not ENTER`
+                ? `Dr. Dev Red Bar Bias: ${biasDir} · Near mark-window Fibs / POB (targets) — not ENTER`
                 : o.setupKind === 'pivot_reversal'
                   ? `Bias Conflict · Crossed 1H Red vs Fibs (Stay Flat)`
-                  : `Red Bar Bias: ${biasDir} · Waiting Trade 1 / Trade 2 / Sweep / POB`;
+                  : `Dr. Dev Red Bar Bias: ${biasDir} · Waiting Trade 1 / Trade 2 / Sweep / POB`;
       const watchExit = useLadder
         ? `If Trade 2 prints — 1️⃣ Stop (${stopTag}): ${this._fmt(o.invalidation)}${stopPctStr} · 2️⃣ 50% @ 1:1 ${tp1Str} → SL→BE · 3️⃣ Trail 1:2 ${tp2Str} · 4️⃣ TP 1:3 ${tp3Str}.${stopWarn}`
         : `If ENTER prints — Trade 1 / Trade 2 / sweep / POB reject · 1️⃣ Stop (${stopTag}): ${this._fmt(o.invalidation)}${stopPctStr} · 2️⃣ book plan.${stopWarn}`;
@@ -1135,7 +1149,7 @@ const RangeEmaUI = {
       <div class="section-heading">
         <h1>🟥 Red Bar Desk</h1>
         <p class="section-sub">
-          ${inst.label} on <strong>${tf}</strong>: Red Bar DNA · Trade 1 / Trade 2 / sweep · Dr. Dev <strong>POB ENTER</strong> (Asia/London/NY or NSE · fill@0.44 · SL@0.56) · Setup 3 overlay · Renko · leverage 5–10×.
+          ${inst.label} on <strong>${tf}</strong>: <strong>Dr. Devendra Pratap Singh</strong> Red Bar DNA · Trade 1 / Trade 2 / sweep · <strong>POB ENTER</strong> (44–56) · Trikal 12:45 · Setup 3 Rubber Band overlay · Renko · leverage 5–10×.
           <span class="range-desk-meta">${inst.tradeHint || ''} · Updated ${when}${this.state.loading ? ' · refreshing…' : ''}</span>
         </p>
       </div>
@@ -1427,6 +1441,9 @@ const RangeEmaUI = {
     }
     const o = r.readout;
     const a = r.action || this._actionPlan(o, r.emaAgree, r.instrument);
+    const feedWarnHtml = r.feedWarning
+      ? `<div class="range-desk-error" style="margin-bottom:10px;background:rgba(245,158,11,0.12);border:1px solid rgba(245,158,11,0.4);color:#fbbf24;">${r.feedWarning}</div>`
+      : '';
     const trendCls =
       o.trend === 'bullish' ? 'pos' : o.trend === 'bearish' ? 'neg' : '';
     const trendWord = o.trend === 'bullish' ? 'BULLISH' : o.trend === 'bearish' ? 'BEARISH' : 'NEUTRAL';
@@ -1730,9 +1747,9 @@ const RangeEmaUI = {
               isPobWatch
                 ? `⚖️ ${watchHeadline || 'Dr. Dev POB — awaiting retest / reject'}`
                 : is1245Watch
-                  ? `🕒 ${watchHeadline || '12:45 Afternoon Engine — watching London Open'}`
+                  ? `🕒 ${watchHeadline || 'Dr. Dev Trikal 12:45 — watching London Open anchor'}`
                   : isSetup3Watch
-                    ? `🧲 ${watchHeadline || 'Setup 3 Watch — rubber band overlay (not ENTER)'}`
+                    ? `🧲 ${watchHeadline || 'Dr. Dev Setup 3 Watch — rubber band overlay (not ENTER)'}`
                     : `👀 ${watchHeadline || `WATCHING — Bias ${trendWord}; waiting for confirmed trigger`}`
             }${watchDetail ? `<div style="margin-top:4px;font-size:11.5px;font-weight:500;opacity:0.92;">${watchDetail}</div>` : ''}</div>`
           : `<div class="rb-signal-banner wait">⏳ WAITING (Market in Equilibrium) — No active entry setup. Stay in cash.</div>`);
@@ -2087,6 +2104,7 @@ const RangeEmaUI = {
     `;
 
     return `
+      ${feedWarnHtml}
       ${chartHtml}
       <div class="rb-action ${a.cls}" style="margin: 8px 0;">
         ${actionContentHtml}
@@ -3607,8 +3625,11 @@ const RangeEmaUI = {
     const todayLo = todayBand ? Number(todayBand.f0 ?? todayBand.low) : null;
     const todayMid = todayBand ? Number(todayBand.f50 ?? todayBand.mid ?? ((todayHi != null && todayLo != null) ? (todayHi + todayLo) / 2 : null)) : null;
 
-    const dPrice = inst.priceDecimals ?? 2;
-    const curSign = (inst.currency === 'INR' || String(inst.id || '').toUpperCase() === 'NIFTY' || String(inst.id || '').toUpperCase() === 'NG') ? '₹' : '$';
+    const dPrice = row.feedPriceDecimals != null ? row.feedPriceDecimals : (inst.priceDecimals ?? 2);
+    const feedCur = String(row.feedCurrency || inst.currency || '').toUpperCase();
+    const curSign = (feedCur === 'INR' || (feedCur !== 'USD' && (String(inst.id || '').toUpperCase() === 'NIFTY' || String(inst.id || '').toUpperCase() === 'NG')))
+      ? '₹'
+      : '$';
     const getFibSummaryHtml = (pinnedOrHovered) => {
       const pf = pinnedOrHovered;
       if (pf) {

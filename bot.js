@@ -711,7 +711,7 @@ Entry <b>${pxPrefix}${fmt(readout.price)}</b> · Stop <b>${pxPrefix}${fmt(readou
   // Do NOT clear RB keys when leaving ENTER — that re-armed spam on flicker.
 }
 
-/** DNA / researched setups eligible for auto (Binance + Dhan). Trade 3 = setup3_rubber_band. Sagar 12:45 = afternoon_1245_reversal / afternoon_1245_breakout. */
+/** DNA / researched setups eligible for auto (Binance + Dhan). Trade 3 = setup3_rubber_band. Dr. Dev Trikal 12:45 = afternoon_1245_reversal / afternoon_1245_breakout. */
 function _autoSetupAllowed(setupKind) {
   const raw = envTrim('REDBAR_AUTO_SETUPS')
     || 'trade1_departure,trade2_confirmed,session_sweep,pob_reject,setup3_rubber_band,afternoon_1245_reversal,afternoon_1245_breakout';
@@ -940,20 +940,25 @@ async function pollManagedDhanStops() {
   for (const t of rows) {
     try {
       if (mins >= flatMins) {
-        // If already flat or closed at TP, skip sending redundant exit order
-        const hasOpen = await trader.hasOpenNiftyOptionPosition().catch(() => true);
-        if (!hasOpen) {
-          console.log(`[RedBarBot] Dhan position already flat for ${t.symbolHint || t.orderId} — marking closed`);
+        // Only check THIS managed contract — another manual NIFTY option must not force a flatten.
+        const openQty = t.securityId
+          ? await trader.getOpenQtyForSecurity(t.securityId).catch(() => null)
+          : null;
+        if (openQty != null && Math.abs(openQty) === 0) {
+          console.log(`[RedBarBot] Dhan position already flat for ${t.symbolHint || t.orderId} (security ${t.securityId}) — marking closed`);
           t.status = 'closed';
           t.closedAt = Date.now();
           next.push(t);
           continue;
         }
-        console.log(`[RedBarBot] Dhan flat@15:10 — closing ${t.symbolHint || t.orderId}`);
+        const flatQty = openQty != null && Math.abs(openQty) > 0
+          ? Math.abs(openQty)
+          : t.qty;
+        console.log(`[RedBarBot] Dhan flat@15:10 — closing ${t.symbolHint || t.orderId} qty=${flatQty}`);
         await trader.flattenTrade({
           orderId: t.orderId,
           securityId: t.securityId,
-          quantity: t.qty,
+          quantity: flatQty,
         });
         t.status = 'flattened_eod';
         t.closedAt = Date.now();

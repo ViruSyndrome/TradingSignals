@@ -292,6 +292,7 @@ function createDhanNiftyTrade(opts = {}) {
     return out;
   }
 
+  /** True if any NIFTY / F&O option is open (entry gate — one auto position at a time). */
   async function hasOpenNiftyOptionPosition() {
     const pos = await dhan.getPositions();
     const rows = Array.isArray(pos) ? pos : (pos?.data || []);
@@ -301,6 +302,24 @@ function createDhanNiftyTrade(opts = {}) {
       const sym = String(p.tradingSymbol || p.symbol || '');
       return net !== 0 && (/FNO|OPT/i.test(seg) || /NIFTY/i.test(sym));
     });
+  }
+
+  /** Net qty for one securityId (EOD / managed-trade checks — not “any F&O”). */
+  async function getOpenQtyForSecurity(securityId) {
+    const want = String(securityId || '');
+    if (!want) return 0;
+    const pos = await dhan.getPositions();
+    const rows = Array.isArray(pos) ? pos : (pos?.data || []);
+    let net = 0;
+    for (const p of rows) {
+      if (String(p.securityId || p.security_id || '') !== want) continue;
+      net += Number(p.netQty ?? p.quantity ?? p.netQuantity ?? 0);
+    }
+    return net;
+  }
+
+  async function hasOpenPositionForSecurity(securityId) {
+    return Math.abs(await getOpenQtyForSecurity(securityId)) > 0;
   }
 
   return {
@@ -317,6 +336,8 @@ function createDhanNiftyTrade(opts = {}) {
     modifyTarget,
     flattenTrade,
     hasOpenNiftyOptionPosition,
+    getOpenQtyForSecurity,
+    hasOpenPositionForSecurity,
   };
 }
 
