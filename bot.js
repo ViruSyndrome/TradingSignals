@@ -1009,9 +1009,32 @@ async function pollManagedDhanStops() {
         const supers = await trader.dhan.getSuperOrders();
         const book = Array.isArray(supers) ? supers : [];
         const row = book.find((o) => String(o.orderId) === String(t.orderId));
-        if (row && ['CLOSED', 'CANCELLED', 'REJECTED', 'TRADED'].includes(String(row.orderStatus))
-          && String(row.orderStatus) !== 'TRADED') {
-          // CLOSED / CANCELLED → done; TRADED on entry alone still has legs
+        if (row && Array.isArray(row.legDetails)) {
+          const targetLeg = row.legDetails.find((l) => l.legName === 'TARGET_LEG');
+          const slLeg = row.legDetails.find((l) => l.legName === 'STOP_LOSS_LEG');
+          if (targetLeg && String(targetLeg.orderStatus) === 'TRADED') {
+            t.status = 'closed_target';
+            t.closedAt = Date.now();
+            console.log(`[RedBarBot] ✅ Dhan Target hit · ${t.symbolHint}`);
+            if (bot && chatId) {
+              await bot.sendMessage(
+                chatId,
+                `🎯 <b>Dhan Target Hit · ${t.symbolHint}</b>\nEntry: ${t.entryPremium} · Target: ${t.targetPrice} · Status: Profit Booked!`,
+                { parse_mode: 'HTML', disable_web_page_preview: true },
+              ).catch(() => {});
+            }
+          } else if (slLeg && String(slLeg.orderStatus) === 'TRADED') {
+            t.status = 'closed_sl';
+            t.closedAt = Date.now();
+            console.log(`[RedBarBot] 🛑 Dhan SL hit · ${t.symbolHint}`);
+            if (bot && chatId) {
+              await bot.sendMessage(
+                chatId,
+                `🛑 <b>Dhan SL Hit · ${t.symbolHint}</b>\nEntry: ${t.entryPremium} · SL: ${t.stopLossPrice}`,
+                { parse_mode: 'HTML', disable_web_page_preview: true },
+              ).catch(() => {});
+            }
+          }
         }
         if (row && String(row.orderStatus) === 'CLOSED') {
           t.status = 'closed';
