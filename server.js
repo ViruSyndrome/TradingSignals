@@ -203,6 +203,7 @@ const ACTIONABLE = new Set([
   'setup3_rubber_band',
   'afternoon_1245_reversal',
   'afternoon_1245_breakout',
+  'afternoon_1245_retest',
 ]);
 const recentRelay = new Map(); // alertKey -> ts
 const RELAY_TTL_MS = 4 * 60 * 60 * 1000;
