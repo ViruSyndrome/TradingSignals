@@ -696,24 +696,28 @@ Entry <b>${pxPrefix}${fmt(readout.price)}</b> · Stop <b>${pxPrefix}${fmt(readou
       console.log(`[RedBarBot] ${inst.id}: already alerted for ${alertKey} — skip`);
     }
 
-    if (alertOk && _autoSetupAllowed(setupKind)) {
-      await _maybeAutoFuturesTwoLeg({
-        inst,
-        side,
-        readout,
-        alertKey,
-        dayKey,
-      });
-      await _maybeAutoDhanNifty({
-        inst,
-        side,
-        readout,
-        alertKey,
-        dayKey,
-        setupKind,
-        bars5m,
-        barsWork,
-      });
+    if (alertOk) {
+      if (!_autoSetupAllowed(setupKind)) {
+        console.log(`[RedBarBot] ${inst.id}: ENTER alerted but AUTO skipped — setup ${setupKind} not in REDBAR_AUTO_SETUPS`);
+      } else {
+        await _maybeAutoFuturesTwoLeg({
+          inst,
+          side,
+          readout,
+          alertKey,
+          dayKey,
+        });
+        await _maybeAutoDhanNifty({
+          inst,
+          side,
+          readout,
+          alertKey,
+          dayKey,
+          setupKind,
+          bars5m,
+          barsWork,
+        });
+      }
     }
   }
   // Do NOT clear RB keys when leaving ENTER — that re-armed spam on flicker.
