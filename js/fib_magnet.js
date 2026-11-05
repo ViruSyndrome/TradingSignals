@@ -580,27 +580,29 @@ const FibMagnet = {
       if (distBelowPct >= 0.50) {
         return {
           id: 'fib_magnet_long',
-          badge: '🧲 FIB MAGNET PULL',
+          badge: `🧲 FIB MAGNET ($${f0.toFixed(0)})`,
           session: 'Daily Equilibrium Anchor',
           predictedDir: 'EQUILIBRIUM DESTINATION',
           confidence: '69.2% Equilibrium Revisit Rate',
-          headline: `🧲 Fib Magnet Pull (-${distBelowPct.toFixed(2)}% Stretched Below Fib)`,
+          headline: `🧲 Fib Magnet Pull (-${distBelowPct.toFixed(2)}% below $${f0.toFixed(1)} Anchor Low)`,
           detail: `Price is stretched ${distBelowPct.toFixed(2)}% below the daily mark window ($${f0.toFixed(1)}). In 729 days of BTC data, 69.2% of sessions revisit the Fib box after a >= 0.5% stretch. Destination magnet only — not an entry signal.`,
           candleTime: lastBar.t,
           type: 'bullish',
+          targetPrice: f0,
         };
       }
       if (distAbovePct >= 0.50) {
         return {
           id: 'fib_magnet_short',
-          badge: '🧲 FIB MAGNET PULL',
+          badge: `🧲 FIB MAGNET ($${f1.toFixed(0)})`,
           session: 'Daily Equilibrium Anchor',
           predictedDir: 'EQUILIBRIUM DESTINATION',
           confidence: '69.2% Equilibrium Revisit Rate',
-          headline: `🧲 Fib Magnet Pull (+${distAbovePct.toFixed(2)}% Stretched Above Fib)`,
+          headline: `🧲 Fib Magnet Pull (+${distAbovePct.toFixed(2)}% above $${f1.toFixed(1)} Anchor High)`,
           detail: `Price is stretched ${distAbovePct.toFixed(2)}% above the daily mark window ($${f1.toFixed(1)}). In 729 days of BTC data, 69.2% of sessions revisit the Fib box after a >= 0.5% stretch. Destination magnet only — not an entry signal.`,
           candleTime: lastBar.t,
           type: 'bearish',
+          targetPrice: f1,
         };
       }
     }

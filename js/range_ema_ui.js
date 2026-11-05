@@ -3968,6 +3968,9 @@ const RangeEmaUI = {
       if (action.tp1 != null) {
         pushTag('🧲 FIB TARGET', action.tp1, '#38bdf8', 'rgba(8, 47, 73, 0.94)', { priority: true });
       }
+    } else if (r.sessionTell?.targetPrice != null && Number.isFinite(r.sessionTell.targetPrice)) {
+      const tagLabel = r.sessionTell.type === 'bullish' ? '🧲 FIB 0.0' : '🧲 FIB 1.0';
+      pushTag(tagLabel, r.sessionTell.targetPrice, '#38bdf8', 'rgba(8, 47, 73, 0.94)', { rank: 2 });
     } else if (trading) {
       pushTag('STOP', stopPx, COL.stop, 'rgba(60, 10, 10, 0.94)', { priority: true });
       const tp1Px = action.tp1 ?? o.tp1;
@@ -4337,6 +4340,41 @@ const RangeEmaUI = {
                   color: '#38bdf8',
                   bg: 'rgba(56, 189, 248, 0.18)',
                   role: 'Mean-reversion magnet after 4+ detached 30m candles',
+                });
+              }
+            }
+            if (todayBand) {
+              const tb0 = todayBand.f0 ?? todayBand.low;
+              const tb1 = todayBand.f1 ?? todayBand.high;
+              const tbMid = todayBand.f50 ?? todayBand.mid;
+              if (tb0 != null && Number.isFinite(tb0)) {
+                horizLines.push({
+                  id: 'today_fib_0',
+                  title: '🧲 Today Fib 0.0 (Anchor Low)',
+                  value: Number(tb0),
+                  color: '#38bdf8',
+                  bg: 'rgba(56, 189, 248, 0.18)',
+                  role: 'Equilibrium Magnet Pull Target & Support Boundary',
+                });
+              }
+              if (tbMid != null && Number.isFinite(tbMid)) {
+                horizLines.push({
+                  id: 'today_fib_mid',
+                  title: '🎯 Today Fib 0.50 (Median)',
+                  value: Number(tbMid),
+                  color: '#38bdf8',
+                  bg: 'rgba(56, 189, 248, 0.18)',
+                  role: 'Equilibrium Median Line',
+                });
+              }
+              if (tb1 != null && Number.isFinite(tb1)) {
+                horizLines.push({
+                  id: 'today_fib_1',
+                  title: '🧲 Today Fib 1.0 (Anchor High)',
+                  value: Number(tb1),
+                  color: '#f43f5e',
+                  bg: 'rgba(244, 63, 94, 0.18)',
+                  role: 'Equilibrium Magnet Pull Target & Resistance Boundary',
                 });
               }
             }
