@@ -580,7 +580,7 @@ const FibMagnet = {
       if (distBelowPct >= 0.50) {
         return {
           id: 'fib_magnet_long',
-          badge: `🧲 FIB MAGNET ($${f0.toFixed(0)})`,
+          badge: `🧲 PULL UP ↑ TARGET $${f0.toFixed(0)}`,
           session: 'Daily Equilibrium Anchor',
           predictedDir: 'EQUILIBRIUM DESTINATION',
           confidence: '69.2% Equilibrium Revisit Rate',
@@ -594,7 +594,7 @@ const FibMagnet = {
       if (distAbovePct >= 0.50) {
         return {
           id: 'fib_magnet_short',
-          badge: `🧲 FIB MAGNET ($${f1.toFixed(0)})`,
+          badge: `🧲 PULL DOWN ↓ TARGET $${f1.toFixed(0)}`,
           session: 'Daily Equilibrium Anchor',
           predictedDir: 'EQUILIBRIUM DESTINATION',
           confidence: '69.2% Equilibrium Revisit Rate',
