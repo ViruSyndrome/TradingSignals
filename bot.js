@@ -828,11 +828,13 @@ async function _maybeAutoDhanNifty({ inst, side, readout, alertKey, dayKey, setu
     console.log(`[RedBarBot] ${inst.id}: Dhan already opened for ${alertKey}`);
     return;
   }
-  const maxPerDay = Math.max(1, Math.min(8, Number(process.env.DHAN_AUTO_MAX_PER_DAY) || Number(process.env.REDBAR_AUTO_MAX_PER_DAY) || 3));
+  const rawDhanCap = process.env.DHAN_AUTO_MAX_PER_DAY;
+  const dhanCapDisabled = rawDhanCap === '0' || rawDhanCap === 'none' || rawDhanCap === 'unlimited' || rawDhanCap === 'false';
+  const maxPerDay = dhanCapDisabled ? 0 : (Number(rawDhanCap) || Number(process.env.REDBAR_AUTO_MAX_PER_DAY) || 0);
   const cooldownMs = Math.max(15 * 60 * 1000, Number(process.env.DHAN_AUTO_COOLDOWN_MS) || Number(process.env.REDBAR_AUTO_COOLDOWN_MS) || 75 * 60 * 1000);
   const countKey = `DHAN_TRADE_COUNT_${inst.id}_${dayKey || 'noday'}`;
   const dayCount = Number(lastAlerted[countKey]) || 0;
-  if (dayCount >= maxPerDay) {
+  if (!dhanCapDisabled && maxPerDay > 0 && dayCount >= maxPerDay) {
     console.log(`[RedBarBot] ${inst.id}: Dhan day cap ${dayCount}/${maxPerDay} — skip ${alertKey}`);
     return;
   }
@@ -1117,11 +1119,13 @@ async function _maybeAutoFuturesTwoLeg({ inst, side, readout, alertKey, dayKey }
     return;
   }
   // Multiple quality autos/day OK — cap + cooldown so we don't flip-chop the wallet.
-  const maxPerDay = Math.max(1, Math.min(8, Number(process.env.REDBAR_AUTO_MAX_PER_DAY) || 3));
+  const rawFuturesCap = process.env.REDBAR_AUTO_MAX_PER_DAY;
+  const futuresCapDisabled = rawFuturesCap === '0' || rawFuturesCap === 'none' || rawFuturesCap === 'unlimited' || rawFuturesCap === 'false';
+  const maxPerDay = futuresCapDisabled ? 0 : (Number(rawFuturesCap) || 0);
   const cooldownMs = Math.max(15 * 60 * 1000, Number(process.env.REDBAR_AUTO_COOLDOWN_MS) || 75 * 60 * 1000);
   const countKey = `TRADE_COUNT_${inst.id}_${dayKey || 'noday'}`;
   const dayCount = Number(lastAlerted[countKey]) || 0;
-  if (dayCount >= maxPerDay) {
+  if (!futuresCapDisabled && maxPerDay > 0 && dayCount >= maxPerDay) {
     console.log(`[RedBarBot] ${inst.id}: auto day cap ${dayCount}/${maxPerDay} — skip ${alertKey}`);
     return;
   }
