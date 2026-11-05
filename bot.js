@@ -1153,7 +1153,9 @@ async function _maybeAutoFuturesTwoLeg({ inst, side, readout, alertKey, dayKey }
   const rawFuturesCap = process.env.REDBAR_AUTO_MAX_PER_DAY;
   const futuresCapDisabled = rawFuturesCap === '0' || rawFuturesCap === 'none' || rawFuturesCap === 'unlimited' || rawFuturesCap === 'false';
   const maxPerDay = futuresCapDisabled ? 0 : (Number(rawFuturesCap) || 0);
-  const cooldownMs = Math.max(15 * 60 * 1000, Number(process.env.REDBAR_AUTO_COOLDOWN_MS) || 75 * 60 * 1000);
+  const rawCooldown = process.env.REDBAR_AUTO_COOLDOWN_MS;
+  const cooldownDisabled = rawCooldown === '0' || rawCooldown === 'none' || rawCooldown === 'false';
+  const cooldownMs = cooldownDisabled ? 0 : Math.max(15 * 60 * 1000, Number(rawCooldown) || 75 * 60 * 1000);
   const countKey = `TRADE_COUNT_${inst.id}_${dayKey || 'noday'}`;
   const dayCount = Number(lastAlerted[countKey]) || 0;
   if (!futuresCapDisabled && maxPerDay > 0 && dayCount >= maxPerDay) {
@@ -1161,7 +1163,7 @@ async function _maybeAutoFuturesTwoLeg({ inst, side, readout, alertKey, dayKey }
     return;
   }
   const lastTs = Number(lastAlerted[`TRADE_${inst.id}_LAST_TS`]) || 0;
-  if (lastTs && Date.now() - lastTs < cooldownMs) {
+  if (!cooldownDisabled && lastTs && Date.now() - lastTs < cooldownMs) {
     const mins = Math.ceil((cooldownMs - (Date.now() - lastTs)) / 60000);
     console.log(`[RedBarBot] ${inst.id}: auto cooldown ${mins}m left — skip ${alertKey}`);
     return;
