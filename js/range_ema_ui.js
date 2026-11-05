@@ -3968,9 +3968,9 @@ const RangeEmaUI = {
       if (action.tp1 != null) {
         pushTag('🧲 FIB TARGET', action.tp1, '#38bdf8', 'rgba(8, 47, 73, 0.94)', { priority: true });
       }
-    } else if (r.sessionTell?.targetPrice != null && Number.isFinite(r.sessionTell.targetPrice)) {
-      const tagLabel = r.sessionTell.type === 'bullish' ? '🧲 FIB 0.0' : '🧲 FIB 1.0';
-      pushTag(tagLabel, r.sessionTell.targetPrice, '#38bdf8', 'rgba(8, 47, 73, 0.94)', { rank: 2 });
+    } else if (row.sessionTell?.targetPrice != null && Number.isFinite(row.sessionTell.targetPrice)) {
+      const tagLabel = row.sessionTell.type === 'bullish' ? '🧲 FIB 0.0' : '🧲 FIB 1.0';
+      pushTag(tagLabel, row.sessionTell.targetPrice, '#38bdf8', 'rgba(8, 47, 73, 0.94)', { rank: 2 });
     } else if (trading) {
       pushTag('STOP', stopPx, COL.stop, 'rgba(60, 10, 10, 0.94)', { priority: true });
       const tp1Px = action.tp1 ?? o.tp1;
