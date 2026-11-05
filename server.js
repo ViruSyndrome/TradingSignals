@@ -244,6 +244,20 @@ app.post('/api/alerts/redbar', async (req, res) => {
     return res.json({ ok: true, ignored: true, reason: `${instrumentId} not in REDBAR_BOT_INSTRUMENTS` });
   }
 
+  // Trend alignment guard: prevent counter-trend Telegram alerts against stacked EMAs
+  if (body.emaFast != null && body.emaSlow != null) {
+    const fastEma = Number(body.emaFast);
+    const slowEma = Number(body.emaSlow);
+    if (side === 'SHORT' && fastEma > slowEma) {
+      console.log(`[AlertRelay] Blocked counter-trend SHORT relay for ${instrumentId}: EMA fast (${fastEma.toFixed(1)}) > slow (${slowEma.toFixed(1)})`);
+      return res.json({ ok: true, ignored: true, reason: 'counter_trend_blocked' });
+    }
+    if (side === 'LONG' && fastEma < slowEma) {
+      console.log(`[AlertRelay] Blocked counter-trend LONG relay for ${instrumentId}: EMA fast (${fastEma.toFixed(1)}) < slow (${slowEma.toFixed(1)})`);
+      return res.json({ ok: true, ignored: true, reason: 'counter_trend_blocked' });
+    }
+  }
+
   // One relay per fresh 20m trigger × side × setup (multiple quality ENTERs/day OK).
   const trig = Number(body.triggerTs) || Date.now();
   const bucket = Math.floor(trig / (20 * 60 * 1000));

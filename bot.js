@@ -175,6 +175,7 @@ function saveAlertState(state) {
   fs.writeFileSync(ALERT_STATE_FILE, JSON.stringify(state, null, 2));
 }
 const lastAlerted = loadAlertState();
+const _instTrendState = new Map();
 
 // Persist Twitter deduplication and rate limits
 const TWITTER_STATE_FILE = 'twitterState.json';
@@ -553,6 +554,19 @@ async function _scanOneRedBarInstrument(inst, rbCfg) {
     console.warn(`[RedBarBot] ${inst.id}: not enough bars (${barsWork?.length || 0})`);
     return;
   }
+  // Compute and cache trend alignment EMAs for this instrument
+  if (Array.isArray(barsWork) && barsWork.length >= 35) {
+    const calcEma = (arr, p) => {
+      const k = 2 / (p + 1);
+      let val = arr[0];
+      for (let j = 1; j < arr.length; j++) val = arr[j] * k + val * (1 - k);
+      return val;
+    };
+    const closes = barsWork.map((b) => b.c);
+    const ema10 = calcEma(closes, 10);
+    const ema30 = calcEma(closes, 30);
+    _instTrendState.set(String(inst.id).toUpperCase(), { ema10, ema30, updatedAt: Date.now() });
+  }
   const lastT = barsWork[barsWork.length - 1].t;
   const nowTs = Date.now();
   const calDay = RedBarTrend.dayKey(lastT, inst.dayMode || rbCfg.dayMode || 'ist');
@@ -600,22 +614,14 @@ async function _scanOneRedBarInstrument(inst, rbCfg) {
     && RedBarTrend.ACTIONABLE_SETUPS.includes(setupKind);
   if (actionState === 'enter' && actionable && (side === 'LONG' || side === 'SHORT')) {
     // Trend alignment filter: prevent counter-trend entries against stacked EMAs
-    if (Array.isArray(barsWork) && barsWork.length >= 35) {
-      const calcEma = (arr, p) => {
-        const k = 2 / (p + 1);
-        let val = arr[0];
-        for (let j = 1; j < arr.length; j++) val = arr[j] * k + val * (1 - k);
-        return val;
-      };
-      const closes = barsWork.map((b) => b.c);
-      const ema10 = calcEma(closes, 10);
-      const ema30 = calcEma(closes, 30);
-      if (side === 'SHORT' && ema10 > ema30) {
-        console.log(`[RedBarBot] ${inst.id}: Counter-trend SHORT blocked — EMA 10 (${ema10.toFixed(1)}) > EMA 30 (${ema30.toFixed(1)}) (Bullish momentum in play)`);
+    const trendInfo = _instTrendState.get(String(inst.id).toUpperCase());
+    if (trendInfo) {
+      if (side === 'SHORT' && trendInfo.ema10 > trendInfo.ema30) {
+        console.log(`[RedBarBot] ${inst.id}: Counter-trend SHORT blocked — EMA 10 (${trendInfo.ema10.toFixed(1)}) > EMA 30 (${trendInfo.ema30.toFixed(1)}) (Bullish momentum in play)`);
         return;
       }
-      if (side === 'LONG' && ema10 < ema30) {
-        console.log(`[RedBarBot] ${inst.id}: Counter-trend LONG blocked — EMA 10 (${ema10.toFixed(1)}) < EMA 30 (${ema30.toFixed(1)}) (Bearish momentum in play)`);
+      if (side === 'LONG' && trendInfo.ema10 < trendInfo.ema30) {
+        console.log(`[RedBarBot] ${inst.id}: Counter-trend LONG blocked — EMA 10 (${trendInfo.ema10.toFixed(1)}) < EMA 30 (${trendInfo.ema30.toFixed(1)}) (Bearish momentum in play)`);
         return;
       }
     }
@@ -1799,6 +1805,21 @@ if (!process.env.BOT_WORKER_ONLY) {
     const allowed = (envTrim('REDBAR_BOT_INSTRUMENTS') || 'BTC,NIFTY').split(',').map((s) => s.trim().toUpperCase());
     if (!allowed.includes(String(instrumentId).toUpperCase())) {
       return res.json({ ok: true, ignored: true });
+    }
+
+    // Trend alignment guard: prevent counter-trend Telegram alerts against stacked EMAs
+    const cachedTrend = _instTrendState.get(String(instrumentId).toUpperCase());
+    const fastEma = body.emaFast != null ? Number(body.emaFast) : cachedTrend?.ema10;
+    const slowEma = body.emaSlow != null ? Number(body.emaSlow) : cachedTrend?.ema30;
+    if (fastEma != null && slowEma != null) {
+      if (side === 'SHORT' && fastEma > slowEma) {
+        console.log(`[AlertRelay] Counter-trend SHORT blocked for ${instrumentId}: EMA 10 (${fastEma.toFixed(1)}) > EMA 30 (${slowEma.toFixed(1)}) (Bullish momentum in play)`);
+        return res.json({ ok: true, ignored: true, reason: 'counter_trend_blocked' });
+      }
+      if (side === 'LONG' && fastEma < slowEma) {
+        console.log(`[AlertRelay] Counter-trend LONG blocked for ${instrumentId}: EMA 10 (${fastEma.toFixed(1)}) < EMA 30 (${slowEma.toFixed(1)}) (Bearish momentum in play)`);
+        return res.json({ ok: true, ignored: true, reason: 'counter_trend_blocked' });
+      }
     }
     const now = Date.now();
     for (const [k, t] of relaySeen) {

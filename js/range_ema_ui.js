@@ -255,6 +255,19 @@ const RangeEmaUI = {
     const isEnter = a?.side === 'LONG' || a?.side === 'SHORT';
     const actionable = o?.actionState === 'enter' && !a?.isFibMagnet && isEnter;
 
+    // Trend alignment guard: do not alert counter-trend entries against stacked EMAs
+    // (matches bot.js execution filter so UI and Telegram alerts stay in 100% sync)
+    const emaFast = row.ema?.emaFast;
+    const emaSlow = row.ema?.emaSlow;
+    const isCounterTrend = (a?.side === 'SHORT' && emaFast != null && emaSlow != null && emaFast > emaSlow)
+      || (a?.side === 'LONG' && emaFast != null && emaSlow != null && emaFast < emaSlow)
+      || row.emaAgree === 'disagrees';
+    if (isCounterTrend) {
+      this._pendingEnterAlert = null;
+      console.log(`[DeskAlerts] Blocked counter-trend ${a?.side} alert for ${inst.id || inst.symbol} (EMA disagrees)`);
+      return;
+    }
+
     // WATCH / bias is NOT an ENTER — do not Telegram.
     // But keep retrying the last real ENTER for a few minutes (brief Trade 2
     // windows + Render cold start used to miss Telegram after flip back to WATCH).
@@ -285,6 +298,8 @@ const RangeEmaUI = {
       dayKey: o?.asOfDay || '',
       triggerTs: o?.triggerTs || o?.playbook?.redSetup?.triggerTs || o?.t || Date.now(),
       queuedAt: Date.now(),
+      emaFast,
+      emaSlow,
     };
     this._pendingEnterAlert = payload;
     // Freeze levels for place/bot — live refresh was changing Entry/SL/TP mid-signal
@@ -873,6 +888,30 @@ const RangeEmaUI = {
 
     // 1. ENTER: Trade 1 / Trade 2 / Sweep / Dr. Dev POB SHORT / Dr. Dev Trikal 12:45
     if (isActionable) {
+      if (emaAgree === 'disagrees') {
+        const setupName = o.setupKind === 'trade1_departure' ? 'Trade 1 Departure'
+          : o.setupKind === 'trade2_confirmed' ? 'Trade 2 Retest'
+          : o.setupKind || 'Setup';
+        return {
+          side: 'WAIT',
+          cls: 'wait',
+          title: `⚠️ Counter-Trend ${biasDir} Filtered (${setupName})`,
+          subtitle: `Dr. Dev Macro Trend Filter: EMAs disagree with this ${biasDir}. Bot skips setup to avoid fakeout wicks.`,
+          steps: [
+            `Trend Alignment Guard: 15m EMAs are stacked against ${biasDir}. Fighting momentum leads to whipsaws.`,
+            `Wait for EMAs to align with the move or for a valid departure in the true trend direction.`,
+            pivotStep,
+            ...(liqStep ? [liqStep] : clockStep ? [clockStep] : []),
+          ],
+          entry: null,
+          stop: o.invalidation,
+          tp1: o.tp1,
+          tp2: o.tp2,
+          tp3: o.tp3,
+          exit: o.bookZone,
+          rr: o.rr,
+        };
+      }
       const isPob = o.setupKind === 'pob_reject';
       const is1245Rev = o.setupKind === 'afternoon_1245_reversal';
       const is1245Break = o.setupKind === 'afternoon_1245_breakout';
