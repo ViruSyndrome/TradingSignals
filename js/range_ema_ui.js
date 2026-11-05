@@ -2502,7 +2502,7 @@ const RangeEmaUI = {
         // Session Tell Badge (Liquidity Sweeps & Session Tells)
         if (chart.$rbSessionTell && chart.$rbSessionTell.badge && chart.$rbTimes && chart.$rbTimes.length) {
           const st = chart.$rbSessionTell;
-          if (st.id && (st.id.includes('sweep') || st.id.includes('magnet') || st.id.includes('pump') || st.id.includes('dump'))) {
+          if (st.id && !st.id.includes('magnet') && (st.id.includes('sweep') || st.id.includes('pump') || st.id.includes('dump'))) {
             let matchIdx = -1;
             if (st.candleTime) {
               matchIdx = chart.$rbTimes.findIndex((t) => Math.abs(t - st.candleTime) < 30000);
@@ -3969,8 +3969,7 @@ const RangeEmaUI = {
         pushTag('🧲 FIB TARGET', action.tp1, '#38bdf8', 'rgba(8, 47, 73, 0.94)', { priority: true });
       }
     } else if (row.sessionTell?.targetPrice != null && Number.isFinite(row.sessionTell.targetPrice)) {
-      const tagLabel = row.sessionTell.type === 'bullish' ? '🧲 FIB 0.0' : '🧲 FIB 1.0';
-      pushTag(tagLabel, row.sessionTell.targetPrice, '#38bdf8', 'rgba(8, 47, 73, 0.94)', { rank: 2 });
+      pushTag('🧲 TARGET', row.sessionTell.targetPrice, '#38bdf8', 'rgba(8, 47, 73, 0.94)', { rank: 2 });
     } else if (trading) {
       pushTag('STOP', stopPx, COL.stop, 'rgba(60, 10, 10, 0.94)', { priority: true });
       const tp1Px = action.tp1 ?? o.tp1;

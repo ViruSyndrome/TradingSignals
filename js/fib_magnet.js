@@ -580,12 +580,12 @@ const FibMagnet = {
       if (distBelowPct >= 0.50) {
         return {
           id: 'fib_magnet_long',
-          badge: `🧲 PULL UP ↑ TARGET $${f0.toFixed(0)}`,
+          badge: `🧲 TARGET $${f0.toFixed(0)}`,
           session: 'Daily Equilibrium Anchor',
           predictedDir: 'EQUILIBRIUM DESTINATION',
           confidence: '69.2% Equilibrium Revisit Rate',
-          headline: `🧲 Fib Magnet Pull (-${distBelowPct.toFixed(2)}% below $${f0.toFixed(1)} Anchor Low)`,
-          detail: `Price is stretched ${distBelowPct.toFixed(2)}% below the daily mark window ($${f0.toFixed(1)}). In 729 days of BTC data, 69.2% of sessions revisit the Fib box after a >= 0.5% stretch. Destination magnet only — not an entry signal.`,
+          headline: `Stretched -${distBelowPct.toFixed(2)}% below $${f0.toFixed(1)} Anchor Low`,
+          detail: `Price is stretched ${distBelowPct.toFixed(2)}% below the daily mark window ($${f0.toFixed(1)}). In 729 days of BTC data, 69.2% of sessions revisit the box after a >= 0.5% stretch. Destination magnet only — stop loss belongs below the lowest structural wick.`,
           candleTime: lastBar.t,
           type: 'bullish',
           targetPrice: f0,
@@ -594,12 +594,12 @@ const FibMagnet = {
       if (distAbovePct >= 0.50) {
         return {
           id: 'fib_magnet_short',
-          badge: `🧲 PULL DOWN ↓ TARGET $${f1.toFixed(0)}`,
+          badge: `🧲 TARGET $${f1.toFixed(0)}`,
           session: 'Daily Equilibrium Anchor',
           predictedDir: 'EQUILIBRIUM DESTINATION',
           confidence: '69.2% Equilibrium Revisit Rate',
-          headline: `🧲 Fib Magnet Pull (+${distAbovePct.toFixed(2)}% above $${f1.toFixed(1)} Anchor High)`,
-          detail: `Price is stretched ${distAbovePct.toFixed(2)}% above the daily mark window ($${f1.toFixed(1)}). In 729 days of BTC data, 69.2% of sessions revisit the Fib box after a >= 0.5% stretch. Destination magnet only — not an entry signal.`,
+          headline: `Stretched +${distAbovePct.toFixed(2)}% above $${f1.toFixed(1)} Anchor High`,
+          detail: `Price is stretched ${distAbovePct.toFixed(2)}% above the daily mark window ($${f1.toFixed(1)}). In 729 days of BTC data, 69.2% of sessions revisit the box after a >= 0.5% stretch. Destination magnet only — stop loss belongs above the highest structural wick.`,
           candleTime: lastBar.t,
           type: 'bearish',
           targetPrice: f1,
