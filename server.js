@@ -194,7 +194,16 @@ app.post('/api/trade/futures/protect', async (req, res) => {
   }
 });
 
-const ACTIONABLE = new Set(['trade1_departure', 'trade2_confirmed', 'session_sweep']);
+// Keep in sync with RedBarTrend.ACTIONABLE_SETUPS (+ setup3 for NIFTY overlay).
+const ACTIONABLE = new Set([
+  'trade1_departure',
+  'trade2_confirmed',
+  'session_sweep',
+  'pob_reject',
+  'setup3_rubber_band',
+  'afternoon_1245_reversal',
+  'afternoon_1245_breakout',
+]);
 const recentRelay = new Map(); // alertKey -> ts
 const RELAY_TTL_MS = 4 * 60 * 60 * 1000;
 

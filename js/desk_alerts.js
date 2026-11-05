@@ -120,8 +120,10 @@ const DeskAlerts = {
       const data = await res.json().catch(() => ({}));
       if (!res.ok) {
         console.warn('[DeskAlerts] Telegram relay failed:', res.status, data.error || '');
-        this._toast(`Telegram failed (${res.status})`, 'warning');
-        return false;
+        // Permanent client/validation errors — do not toast on every tab switch / refresh.
+        const permanent = res.status === 400 || res.status === 401 || res.status === 404;
+        if (!permanent) this._toast(`Telegram failed (${res.status})`, 'warning');
+        return permanent ? 'permanent_fail' : false;
       }
       if (data.deduped) {
         console.info('[DeskAlerts] Telegram already delivered for this setup');
@@ -209,7 +211,8 @@ const DeskAlerts = {
         map[tgKey] = Date.now();
         this._saveSent(map);
       }
-      // If send failed (cold start), leave tgKey unset so next refresh retries
+      // Transient fails (cold start / 5xx): leave tgKey unset so next refresh retries.
+      // Permanent 400/401: mark done so tab switches stop spamming "Telegram failed".
     }
     return true;
   },
