@@ -822,10 +822,17 @@ async function _maybeAutoDhanNifty({ inst, side, readout, alertKey, dayKey, setu
     console.warn('[RedBarBot] DHAN_AUTO_TRADE on but DHAN_CLIENT_ID / DHAN_ACCESS_TOKEN missing');
     return;
   }
-  // Hard flat window — no new entries after 15:05 IST
+  // Dr. Dev Intraday Timing Cutoffs:
+  // - General NIFTY Option Buying Cutoff: 14:15 IST (no late-day theta trap / unwinds)
+  // - 12:45 Trikal Window Cutoff: 13:45 IST (London Open initial expansion window only)
   const mins = _istMinsNow();
-  if (mins >= 15 * 60 + 5) {
-    console.log('[RedBarBot] NIFTY: past 15:05 IST — no new Dhan entries');
+  const entryCutoff = Number(process.env.DHAN_ENTRY_CUTOFF_MINS) || (14 * 60 + 15);
+  if (mins >= entryCutoff) {
+    console.log(`[RedBarBot] NIFTY: past ${Math.floor(entryCutoff / 60)}:${String(entryCutoff % 60).padStart(2, '0')} IST — no new option buys (late-day theta decay / unwind guard)`);
+    return;
+  }
+  if ((setupKind === 'afternoon_1245_breakout' || setupKind === 'afternoon_1245_reversal') && mins >= (13 * 60 + 45)) {
+    console.log('[RedBarBot] NIFTY: past 13:45 IST — Dr. Dev 12:45 Trikal expansion window closed. No chasing late moves.');
     return;
   }
   if (lastAlerted[`DHAN_TRADE_${inst.id}_DETAIL`] === alertKey) {
@@ -854,6 +861,14 @@ async function _maybeAutoDhanNifty({ inst, side, readout, alertKey, dayKey, setu
   const indexTp1 = Number(readout.tp1);
   if (!(indexEntry > 0 && indexStop > 0 && indexTp1 > 0)) {
     console.warn('[RedBarBot] Dhan AUTO skip — incomplete index levels');
+    return;
+  }
+
+  // Dr. Dev Absolute Risk Cap: Never risk > 25 index points (~12-14 option points) on NIFTY option buys
+  const riskPts = Math.abs(indexEntry - indexStop);
+  const maxRiskPts = Number(process.env.DHAN_MAX_RISK_PTS) || 25;
+  if (riskPts > maxRiskPts) {
+    console.log(`[RedBarBot] NIFTY: entry risk (${riskPts.toFixed(1)} index pts) exceeds Dr. Dev max risk cap (${maxRiskPts} pts). Aborting entry to protect capital.`);
     return;
   }
 
@@ -1012,11 +1027,23 @@ async function pollManagedDhanStops() {
           ? Math.abs(openQty)
           : t.qty;
         console.log(`[RedBarBot] Dhan flat@15:10 — closing ${t.symbolHint || t.orderId} qty=${flatQty}`);
-        await trader.flattenTrade({
+        const flatRes = await trader.flattenTrade({
           orderId: t.orderId,
           securityId: t.securityId,
           quantity: flatQty,
         });
+        if (flatRes && flatRes.exitError) {
+          console.error(`[RedBarBot] 🚨 Dhan flat@15:10 FAILED: ${flatRes.exitError}`);
+          if (bot && chatId) {
+            await bot.sendMessage(
+              chatId,
+              `🚨 <b>CRITICAL: Dhan EOD Flatten FAILED!</b>\n${flatRes.exitError}\nContract: ${t.symbolHint || t.orderId}\n👉 <b>MANUALLY EXIT ON DHAN BEFORE 15:20 RMS!</b>`,
+              { parse_mode: 'HTML', disable_web_page_preview: true },
+            ).catch(() => {});
+          }
+          next.push(t);
+          continue;
+        }
         t.status = 'flattened_eod';
         t.closedAt = Date.now();
         if (bot && chatId) {

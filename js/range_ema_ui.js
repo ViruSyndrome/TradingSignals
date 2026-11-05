@@ -1671,7 +1671,7 @@ const RangeEmaUI = {
               </span>
             `}
             ${r.sessionTell ? `<span style="font-weight:600; color:${r.sessionTell.type === 'bullish' ? '#4ade80' : r.sessionTell.type === 'bearish' ? '#f87171' : '#7dd3fc'}; font-size:11px; background:rgba(255,255,255,0.05); padding:2px 8px; border-radius:4px;">${r.sessionTell.badge}</span>` : ''}
-            ${o.equinox ? `
+            ${o.equinox && inst.id === 'NIFTY' ? `
               <span class="rb-prime-pill" style="background:${o.equinox.territory === 'positive' ? 'rgba(34,197,94,0.15)' : 'rgba(239,68,68,0.15)'}; border-color:${o.equinox.territory === 'positive' ? '#22c55e' : '#ef4444'}; color:${o.equinox.territory === 'positive' ? '#4ade80' : '#f87171'};" title="Dr. Dev Equinox Baseline: ${o.equinox.baseline} · ${o.equinox.territory === 'positive' ? 'Positive Territory: Calls only, Puts forbidden' : 'Negative Territory: Puts only, Calls forbidden'}">
                 🌐 <strong>Equinox:</strong> ${o.equinox.territory.toUpperCase()} (${o.equinox.allowedSide.replace('_', ' ')})
               </span>

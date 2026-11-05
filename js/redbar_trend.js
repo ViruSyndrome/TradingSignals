@@ -2184,16 +2184,28 @@ const RedBarTrend = {
     const lastBar = afternoonBars[afternoonBars.length - 1];
     const currentPrice = lastBar.c;
 
-    // Bullish Breakout
+    // Bullish Breakout: Crossover above morning high
     if (currentPrice > morning.morningHigh) {
-      const stopLoss = Math.max(bar1245Low, morning.morningMid);
-      const risk = Math.abs(currentPrice - stopLoss);
+      let crossBar = null;
+      for (let i = 0; i < afternoonBars.length; i++) {
+        const b = afternoonBars[i];
+        const prev = i > 0 ? afternoonBars[i - 1] : null;
+        if (b.c > morning.morningHigh && (!prev || prev.c <= morning.morningHigh)) {
+          crossBar = b;
+        }
+      }
+      const triggerBar = crossBar || afternoonBars[0] || lastBar;
+      const triggerPrice = triggerBar.c;
+      const triggerTs = triggerBar.t;
+      const rawStop = Math.max(bar1245Low, morning.morningMid, triggerBar.l);
+      const stopLoss = (triggerPrice - rawStop > 24) ? (triggerPrice - 24) : rawStop;
+      const risk = Math.max(10, Math.abs(currentPrice - stopLoss));
       return {
         setupKind: 'afternoon_1245_breakout',
         side: 'bullish',
         triggered: true,
-        triggerPrice: currentPrice,
-        triggerTs: lastBar.t,
+        triggerPrice,
+        triggerTs,
         bar1245: { high: bar1245High, low: bar1245Low, color: bar1245Color, mid: bar1245Mid },
         morning,
         stopLoss,
@@ -2205,16 +2217,28 @@ const RedBarTrend = {
       };
     }
 
-    // Bearish Breakout
+    // Bearish Breakout: Crossover below morning low
     if (currentPrice < morning.morningLow) {
-      const stopLoss = Math.min(bar1245High, morning.morningMid);
-      const risk = Math.abs(stopLoss - currentPrice);
+      let crossBar = null;
+      for (let i = 0; i < afternoonBars.length; i++) {
+        const b = afternoonBars[i];
+        const prev = i > 0 ? afternoonBars[i - 1] : null;
+        if (b.c < morning.morningLow && (!prev || prev.c >= morning.morningLow)) {
+          crossBar = b;
+        }
+      }
+      const triggerBar = crossBar || afternoonBars[0] || lastBar;
+      const triggerPrice = triggerBar.c;
+      const triggerTs = triggerBar.t;
+      const rawStop = Math.min(bar1245High, morning.morningMid, triggerBar.h);
+      const stopLoss = (rawStop - triggerPrice > 24) ? (triggerPrice + 24) : rawStop;
+      const risk = Math.max(10, Math.abs(stopLoss - currentPrice));
       return {
         setupKind: 'afternoon_1245_breakout',
         side: 'bearish',
         triggered: true,
-        triggerPrice: currentPrice,
-        triggerTs: lastBar.t,
+        triggerPrice,
+        triggerTs,
         bar1245: { high: bar1245High, low: bar1245Low, color: bar1245Color, mid: bar1245Mid },
         morning,
         stopLoss,
@@ -2228,9 +2252,21 @@ const RedBarTrend = {
 
     // Bullish Reversal: Sellers trapped in red 12:45 candle (auction trap — not morning-low sweep)
     if (bar1245Color === 'red' && currentPrice > bar1245High) {
+      let crossBar = null;
+      for (let i = 0; i < afternoonBars.length; i++) {
+        const b = afternoonBars[i];
+        const prev = i > 0 ? afternoonBars[i - 1] : null;
+        if (b.c > bar1245High && (!prev || prev.c <= bar1245High)) {
+          crossBar = b;
+        }
+      }
+      const triggerBar = crossBar || afternoonBars[0] || lastBar;
+      const triggerPrice = triggerBar.c;
+      const triggerTs = triggerBar.t;
       const recentLows = afternoonBars.slice(-6).map((b) => b.l);
-      const stopLoss = Math.min(bar1245Low, ...recentLows);
-      const risk = Math.abs(currentPrice - stopLoss);
+      const rawStop = Math.min(bar1245Low, ...recentLows);
+      const stopLoss = (triggerPrice - rawStop > 24) ? (triggerPrice - 24) : rawStop;
+      const risk = Math.max(10, Math.abs(currentPrice - stopLoss));
       const tp1 = currentPrice + risk;
       const tp2 = currentPrice + risk * 2;
       const tp3 = Math.max(morning.morningMid, currentPrice + risk * 3);
@@ -2238,8 +2274,8 @@ const RedBarTrend = {
         setupKind: 'afternoon_1245_reversal',
         side: 'bullish',
         triggered: true,
-        triggerPrice: currentPrice,
-        triggerTs: lastBar.t,
+        triggerPrice,
+        triggerTs,
         bar1245: { high: bar1245High, low: bar1245Low, color: bar1245Color, mid: bar1245Mid },
         morning,
         stopLoss,
@@ -2253,9 +2289,21 @@ const RedBarTrend = {
 
     // Bearish Reversal: Buyers trapped in green 12:45 candle (auction trap — not morning-high sweep)
     if (bar1245Color === 'green' && currentPrice < bar1245Low) {
+      let crossBar = null;
+      for (let i = 0; i < afternoonBars.length; i++) {
+        const b = afternoonBars[i];
+        const prev = i > 0 ? afternoonBars[i - 1] : null;
+        if (b.c < bar1245Low && (!prev || prev.c >= bar1245Low)) {
+          crossBar = b;
+        }
+      }
+      const triggerBar = crossBar || afternoonBars[0] || lastBar;
+      const triggerPrice = triggerBar.c;
+      const triggerTs = triggerBar.t;
       const recentHighs = afternoonBars.slice(-6).map((b) => b.h);
-      const stopLoss = Math.max(bar1245High, ...recentHighs);
-      const risk = Math.abs(stopLoss - currentPrice);
+      const rawStop = Math.max(bar1245High, ...recentHighs);
+      const stopLoss = (rawStop - triggerPrice > 24) ? (triggerPrice + 24) : rawStop;
+      const risk = Math.max(10, Math.abs(stopLoss - currentPrice));
       const tp1 = currentPrice - risk;
       const tp2 = currentPrice - risk * 2;
       const tp3 = Math.min(morning.morningMid, currentPrice - risk * 3);
@@ -2263,8 +2311,8 @@ const RedBarTrend = {
         setupKind: 'afternoon_1245_reversal',
         side: 'bearish',
         triggered: true,
-        triggerPrice: currentPrice,
-        triggerTs: lastBar.t,
+        triggerPrice,
+        triggerTs,
         bar1245: { high: bar1245High, low: bar1245Low, color: bar1245Color, mid: bar1245Mid },
         morning,
         stopLoss,
@@ -2294,6 +2342,7 @@ const RedBarTrend = {
    * - Below baseline: NEGATIVE TERRITORY -> Puts only, Calls forbidden.
    */
   computeEquinoxMacro(price, instId = 'NIFTY') {
+    if (instId !== 'NIFTY') return null;
     const baseline = (typeof process !== 'undefined' && process?.env?.NIFTY_EQUINOX_LEVEL)
       ? Number(process.env.NIFTY_EQUINOX_LEVEL)
       : 22860;
@@ -3482,6 +3531,19 @@ const RedBarTrend = {
   }) {
     if (trend !== 'bullish' && trend !== 'bearish') {
       return { state: 'wait', reason: 'No directional setup.' };
+    }
+    // Dr. Dev Equinox Macro Gate: strictly forbid counter-territory trades
+    if (equinox && equinox.territory === 'positive' && trend === 'bearish') {
+      return {
+        state: 'watch',
+        reason: `Blocked by Macro Equinox Rule: In Positive Territory (Above ${equinox.baseline}) — Calls only, Puts/Bearish forbidden.`,
+      };
+    }
+    if (equinox && equinox.territory === 'negative' && trend === 'bullish') {
+      return {
+        state: 'watch',
+        reason: `Blocked by Macro Equinox Rule: In Negative Territory (Below ${equinox.baseline}) — Puts only, Calls/Bullish forbidden.`,
+      };
     }
     const isPob = setupKind === 'pob_reject';
     const instEarly = String(instrumentId || '').toUpperCase();
