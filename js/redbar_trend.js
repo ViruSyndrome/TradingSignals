@@ -1470,13 +1470,18 @@ const RedBarTrend = {
     }
 
     const lastBar = closed[closed.length - 1];
+    const prevBar = closed.length >= 2 ? closed[closed.length - 2] : null;
     const freshLimitMs = 20 * 60 * 1000;
+    // Retest bounce confirmation: latest bar must not be actively drifting against the trade
+    const lastBarIsBullish = lastBar && (lastBar.c >= lastBar.o || (prevBar && lastBar.c > prevBar.h));
+    const lastBarIsBearish = lastBar && (lastBar.c <= lastBar.o || (prevBar && lastBar.c < prevBar.l));
+
     const shortValid = lastShortConfirm
       && (asOfTs == null || (asOfTs - lastShortConfirm.bar.t) <= freshLimitMs)
-      && (lastShortConfirm.read === 'pullback_reject_low' ? lastBar.c < lo : lastBar.c < hi);
+      && (lastShortConfirm.read === 'pullback_reject_low' ? (lastBar.c < lo && lastBarIsBearish) : lastBar.c < hi);
     const longValid = lastLongConfirm
       && (asOfTs == null || (asOfTs - lastLongConfirm.bar.t) <= freshLimitMs)
-      && (lastLongConfirm.read === 'pullback_reclaim_high' ? lastBar.c > hi : lastBar.c > lo);
+      && (lastLongConfirm.read === 'pullback_reclaim_high' ? (lastBar.c > hi && lastBarIsBullish) : lastBar.c > lo);
 
     if (shortValid && !longValid) return lastShortConfirm;
     if (longValid && !shortValid) return lastLongConfirm;

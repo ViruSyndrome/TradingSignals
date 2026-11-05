@@ -711,6 +711,8 @@ Entry <b>${pxPrefix}${fmt(readout.price)}</b> · Stop <b>${pxPrefix}${fmt(readou
         alertKey,
         dayKey,
         setupKind,
+        bars5m,
+        barsWork,
       });
     }
   }
@@ -808,7 +810,7 @@ function _istMinsNow() {
   return z.getHours() * 60 + z.getMinutes();
 }
 
-async function _maybeAutoDhanNifty({ inst, side, readout, alertKey, dayKey, setupKind }) {
+async function _maybeAutoDhanNifty({ inst, side, readout, alertKey, dayKey, setupKind, bars5m, barsWork }) {
   if (String(process.env.DHAN_AUTO_TRADE || '').toLowerCase() !== 'true') return;
   if (String(process.env.TRADE_ENABLED || '').toLowerCase() !== 'true') return;
   if (!_canAutoTradeDhanNifty(inst)) return;
@@ -847,6 +849,49 @@ async function _maybeAutoDhanNifty({ inst, side, readout, alertKey, dayKey, setu
   if (!(indexEntry > 0 && indexStop > 0 && indexTp1 > 0)) {
     console.warn('[RedBarBot] Dhan AUTO skip — incomplete index levels');
     return;
+  }
+
+  // Guard 1: Pullback Bounce Confirmation for Trade 2 (No Falling Knives into Support)
+  if (setupKind === 'trade2_confirmed') {
+    const barsCheck = Array.isArray(bars5m) && bars5m.length ? bars5m : (Array.isArray(barsWork) ? barsWork : []);
+    if (barsCheck.length >= 2) {
+      const lastB = barsCheck[barsCheck.length - 1];
+      const prevB = barsCheck[barsCheck.length - 2];
+      if (side === 'LONG' && !(lastB.c >= lastB.o || lastB.c > prevB.h)) {
+        console.log(`[RedBarBot] NIFTY: Trade 2 LONG paused — latest 5m bar is RED (C ${lastB.c} < O ${lastB.o}). Awaiting green bounce confirmation.`);
+        return;
+      }
+      if (side === 'SHORT' && !(lastB.c <= lastB.o || lastB.c < prevB.l)) {
+        console.log(`[RedBarBot] NIFTY: Trade 2 SHORT paused — latest 5m bar is GREEN (C ${lastB.c} > O ${lastB.o}). Awaiting red drop confirmation.`);
+        return;
+      }
+    }
+  }
+
+  // Guard 2: Mid-Air Proximity Guard for Trade 2 (Do not enter >24 pts away from support shelf)
+  if (setupKind === 'trade2_confirmed') {
+    const riskPts = Math.abs(indexEntry - indexStop);
+    if (riskPts > 24) {
+      console.log(`[RedBarBot] NIFTY: Trade 2 entry risk (${riskPts.toFixed(1)} pts) too wide / mid-air from support shelf (max 24 pts). Waiting for closer test.`);
+      return;
+    }
+  }
+
+  // Guard 3: 10:00 to 10:30 IST Mid-Morning Volatility Flush Guard (Opening IV deflation window)
+  if (mins >= 600 && mins < 630 && setupKind === 'trade2_confirmed') {
+    const barsCheck = Array.isArray(bars5m) && bars5m.length ? bars5m : (Array.isArray(barsWork) ? barsWork : []);
+    if (barsCheck.length >= 2) {
+      const lastB = barsCheck[barsCheck.length - 1];
+      const prevB = barsCheck[barsCheck.length - 2];
+      if (side === 'LONG' && !(lastB.c > lastB.o && lastB.c > prevB.h)) {
+        console.log(`[RedBarBot] NIFTY: 10:00–10:30 IST mid-morning lull — awaiting strong 5m bounce candle above prior high (${prevB.h})`);
+        return;
+      }
+      if (side === 'SHORT' && !(lastB.c < lastB.o && lastB.c < prevB.l)) {
+        console.log(`[RedBarBot] NIFTY: 10:00–10:30 IST mid-morning lull — awaiting strong 5m drop candle below prior low (${prevB.l})`);
+        return;
+      }
+    }
   }
 
   try {
