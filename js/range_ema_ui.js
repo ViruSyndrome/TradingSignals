@@ -915,6 +915,7 @@ const RangeEmaUI = {
       const isPob = o.setupKind === 'pob_reject';
       const is1245Rev = o.setupKind === 'afternoon_1245_reversal';
       const is1245Break = o.setupKind === 'afternoon_1245_breakout';
+      const is1245Retest = o.setupKind === 'afternoon_1245_retest';
       const setupLabel = o.setupKind === 'session_sweep'
         ? `Red Bar · Session Sweep · Futures ${biasDir}`
         : o.setupKind === 'trade2_confirmed'
@@ -923,9 +924,11 @@ const RangeEmaUI = {
             ? `Dr. Dev POB · Futures SHORT (session 5m X → 44–56 reject)`
             : is1245Rev
               ? `Dr. Dev Trikal 12:45 · Reversal ${biasDir} (12:45 auction trap)`
-              : is1245Break
-                ? `Dr. Dev Trikal 12:45 · Breakout ${biasDir} (Morning H/L Expansion)`
-                : `Dr. Dev Red Bar · Trade 1 · Futures ${biasDir} (Left First Red)`;
+              : is1245Retest
+                ? `Dr. Dev Trikal 12:45 · Retest & Bounce ${biasDir} (Morning Shelf Confirmed)`
+                : is1245Break
+                  ? `Dr. Dev Trikal 12:45 · Breakout ${biasDir} (Morning H/L Expansion)`
+                  : `Dr. Dev Red Bar · Trade 1 · Futures ${biasDir} (Left First Red)`;
       const t2Note = o.setupKind === 'trade2_confirmed'
         ? (biasDir === 'SHORT' ? ' (1H high swept → 5m closed below high & median — sells only)' : ' (1H low swept → 5m closed above low & median — buys only)')
         : '';
@@ -1671,7 +1674,7 @@ const RangeEmaUI = {
               </span>
             `}
             ${r.sessionTell ? `<span style="font-weight:600; color:${r.sessionTell.type === 'bullish' ? '#4ade80' : r.sessionTell.type === 'bearish' ? '#f87171' : '#7dd3fc'}; font-size:11px; background:rgba(255,255,255,0.05); padding:2px 8px; border-radius:4px;">${r.sessionTell.badge}</span>` : ''}
-            ${o.equinox && inst.id === 'NIFTY' ? `
+            ${o.equinox && o.equinox.seasonActive && inst.id === 'NIFTY' ? `
               <span class="rb-prime-pill" style="background:${o.equinox.territory === 'positive' ? 'rgba(34,197,94,0.15)' : 'rgba(239,68,68,0.15)'}; border-color:${o.equinox.territory === 'positive' ? '#22c55e' : '#ef4444'}; color:${o.equinox.territory === 'positive' ? '#4ade80' : '#f87171'};" title="Dr. Dev Equinox Baseline: ${o.equinox.baseline} · ${o.equinox.territory === 'positive' ? 'Positive Territory: Calls only, Puts forbidden' : 'Negative Territory: Puts only, Calls forbidden'}">
                 🌐 <strong>Equinox:</strong> ${o.equinox.territory.toUpperCase()} (${o.equinox.allowedSide.replace('_', ' ')})
               </span>
@@ -1773,7 +1776,7 @@ const RangeEmaUI = {
     const isSetup3Watch = o.setupKind === 'setup3_primed' || o.setupKind === 'setup3_rubber_band';
     const isPobWatch = o.setupKind === 'pob_reject_watch';
     const is1245Watch = o.setupKind === 'afternoon_1245_watch' || o.setupKind === 'lunch_decay';
-    const is1245Enter = (o.setupKind === 'afternoon_1245_reversal' || o.setupKind === 'afternoon_1245_breakout') && showEnter;
+    const is1245Enter = (o.setupKind === 'afternoon_1245_reversal' || o.setupKind === 'afternoon_1245_breakout' || o.setupKind === 'afternoon_1245_retest') && showEnter;
     const isPobEnter = o.setupKind === 'pob_reject' && showEnter;
     const statusBanner = a.isFibMagnet
       ? `<div class="rb-signal-banner wait" style="background:rgba(56,189,248,0.10); border:1px solid rgba(56,189,248,0.35); color:#7dd3fc;">🧲 CONTEXT RADAR · Equilibrium pull towards Mark Fib @ ${this._fmt(a.tp1)} (Context tell only — wait for Red Bar DNA / POB to ENTER)</div>`
@@ -1917,7 +1920,7 @@ const RangeEmaUI = {
             <div class="rb-step-val">Overlay only · not ENTER</div>
           </div>
         </div>
-      ` : (is1245Watch || o.setupKind === 'afternoon_1245_reversal' || o.setupKind === 'afternoon_1245_breakout') ? `
+      ` : (is1245Watch || o.setupKind === 'afternoon_1245_reversal' || o.setupKind === 'afternoon_1245_breakout' || o.setupKind === 'afternoon_1245_retest') ? `
         <div class="rb-step done">
           <div class="rb-step-icon">🌅</div>
           <div class="rb-step-body">

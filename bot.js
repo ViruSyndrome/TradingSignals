@@ -726,7 +726,7 @@ Entry <b>${pxPrefix}${fmt(readout.price)}</b> · Stop <b>${pxPrefix}${fmt(readou
 /** DNA / researched setups eligible for auto (Binance + Dhan). Trade 3 = setup3_rubber_band. Dr. Dev Trikal 12:45 = afternoon_1245_reversal / afternoon_1245_breakout. */
 function _autoSetupAllowed(setupKind) {
   const raw = envTrim('REDBAR_AUTO_SETUPS')
-    || 'trade1_departure,trade2_confirmed,session_sweep,pob_reject,setup3_rubber_band,afternoon_1245_reversal,afternoon_1245_breakout';
+    || 'trade1_departure,trade2_confirmed,session_sweep,pob_reject,setup3_rubber_band,afternoon_1245_reversal,afternoon_1245_breakout,afternoon_1245_retest';
   const allow = raw.split(',').map((s) => s.trim()).filter(Boolean);
   return allow.includes(String(setupKind || ''));
 }

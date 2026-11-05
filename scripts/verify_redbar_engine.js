@@ -19,7 +19,7 @@ for (let i = 42; i < 48; i++) {
   bars5m.push({ t: baseTs + i * 5 * 60000, o: px + 2, h: 24155, l: 24120, c: px });
 }
 // 13:20 (5m break above 12:45 High 24155 -> Bullish Reversal)
-bars5m.push({ t: baseTs + 48 * 5 * 60000, o: 24150, h: 24180, l: 24145, c: 24175 });
+bars5m.push({ t: baseTs + 48 * 5 * 60000, o: 24150, h: 24180, l: 24155, c: 24175 });
 
 // 15m aggregated bars for working timeframe
 const bars15m = [];
@@ -77,11 +77,11 @@ const gateRes = redbar.entryGate({
   season: 'SEP–DEC',
   setupTriggerTs: baseTs + 48 * 5 * 60000,
   entryPrice: 24175,
-  stopPrice: 24225,
+  stopPrice: 24190,
   livePrice: 24175,
   revisitRead: null,
   tpHint: null,
-  equinox: { baseline: 22860, territory: 'positive' },
+  equinox: { baseline: 22860, territory: 'positive', seasonActive: true },
 });
 
 console.log('Equinox Block Result:', gateRes);

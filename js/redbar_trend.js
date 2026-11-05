@@ -2184,69 +2184,167 @@ const RedBarTrend = {
     const lastBar = afternoonBars[afternoonBars.length - 1];
     const currentPrice = lastBar.c;
 
-    // Bullish Breakout: Crossover above morning high
+    // Bullish Breakout & Retest: Price above morning high
     if (currentPrice > morning.morningHigh) {
-      let crossBar = null;
+      let crossIdx = -1;
       for (let i = 0; i < afternoonBars.length; i++) {
         const b = afternoonBars[i];
         const prev = i > 0 ? afternoonBars[i - 1] : null;
         if (b.c > morning.morningHigh && (!prev || prev.c <= morning.morningHigh)) {
-          crossBar = b;
+          crossIdx = i;
         }
       }
-      const triggerBar = crossBar || afternoonBars[0] || lastBar;
+      const crossBar = crossIdx >= 0 ? afternoonBars[crossIdx] : afternoonBars[0] || lastBar;
+
+      // Check for Shelf Retest / Pullback (Dr. Dev Trade 2 mechanics in afternoon)
+      let retestBar = null;
+      if (crossIdx >= 0 && crossIdx < afternoonBars.length - 1) {
+        let testedShelf = false;
+        for (let i = crossIdx + 1; i < afternoonBars.length; i++) {
+          const b = afternoonBars[i];
+          const prev = afternoonBars[i - 1];
+          if (b.l <= morning.morningHigh + 10 && b.l >= morning.morningHigh - 15) {
+            testedShelf = true;
+          }
+          if (testedShelf && b.c > b.o && b.c > prev.h) {
+            retestBar = b;
+          }
+        }
+      }
+
+      if (retestBar) {
+        const triggerBar = retestBar;
+        const triggerPrice = triggerBar.c;
+        const triggerTs = triggerBar.t;
+        const stopLoss = triggerBar.l; // Structural swing low of the bounce candle
+        const risk = triggerPrice - stopLoss;
+        const isRiskOk = risk > 0 && risk <= 25;
+        return {
+          setupKind: 'afternoon_1245_retest',
+          side: 'bullish',
+          triggered: isRiskOk,
+          stopStructural: isRiskOk,
+          triggerPrice,
+          triggerTs,
+          bar1245: { high: bar1245High, low: bar1245Low, color: bar1245Color, mid: bar1245Mid },
+          morning,
+          stopLoss,
+          tp1: triggerPrice + risk,
+          tp2: triggerPrice + risk * 2,
+          tp3: triggerPrice + risk * 3,
+          rr: 3,
+          label: isRiskOk
+            ? '12:45 Trikal Retest · Morning High Shelf Bounce Confirmed · Dr. Dev Trade 2'
+            : `12:45 Retest risk (${risk.toFixed(1)} pts) exceeds Dr. Dev 25 pt limit — Waiting for tighter base`,
+        };
+      }
+
+      // Initial Breakout
+      const triggerBar = crossBar;
       const triggerPrice = triggerBar.c;
       const triggerTs = triggerBar.t;
-      const rawStop = Math.max(bar1245Low, morning.morningMid, triggerBar.l);
-      const stopLoss = (triggerPrice - rawStop > 24) ? (triggerPrice - 24) : rawStop;
-      const risk = Math.max(10, Math.abs(currentPrice - stopLoss));
+      const stopLoss = Math.max(bar1245Low, triggerBar.l);
+      const risk = triggerPrice - stopLoss;
+      const isRiskOk = risk > 0 && risk <= 25;
       return {
         setupKind: 'afternoon_1245_breakout',
         side: 'bullish',
-        triggered: true,
+        triggered: isRiskOk,
+        stopStructural: isRiskOk,
         triggerPrice,
         triggerTs,
         bar1245: { high: bar1245High, low: bar1245Low, color: bar1245Color, mid: bar1245Mid },
         morning,
         stopLoss,
-        tp1: currentPrice + risk,
-        tp2: currentPrice + risk * 2,
-        tp3: currentPrice + risk * 3,
+        tp1: triggerPrice + risk,
+        tp2: triggerPrice + risk * 2,
+        tp3: triggerPrice + risk * 3,
         rr: 3,
-        label: '12:45 London Open Breakout · Dr. Dev Trikal Anchor · Expansion Above Morning High',
+        label: isRiskOk
+          ? '12:45 London Open Breakout · Dr. Dev Trikal Anchor · Expansion Above Morning High'
+          : `12:45 Breakout risk (${risk.toFixed(1)} pts) exceeds Dr. Dev 25 pt limit — Awaiting Pullback Retest`,
       };
     }
 
-    // Bearish Breakout: Crossover below morning low
+    // Bearish Breakout & Retest: Price below morning low
     if (currentPrice < morning.morningLow) {
-      let crossBar = null;
+      let crossIdx = -1;
       for (let i = 0; i < afternoonBars.length; i++) {
         const b = afternoonBars[i];
         const prev = i > 0 ? afternoonBars[i - 1] : null;
         if (b.c < morning.morningLow && (!prev || prev.c >= morning.morningLow)) {
-          crossBar = b;
+          crossIdx = i;
         }
       }
-      const triggerBar = crossBar || afternoonBars[0] || lastBar;
+      const crossBar = crossIdx >= 0 ? afternoonBars[crossIdx] : afternoonBars[0] || lastBar;
+
+      // Check for Shelf Retest / Pullback (Dr. Dev Trade 2 mechanics in afternoon)
+      let retestBar = null;
+      if (crossIdx >= 0 && crossIdx < afternoonBars.length - 1) {
+        let testedShelf = false;
+        for (let i = crossIdx + 1; i < afternoonBars.length; i++) {
+          const b = afternoonBars[i];
+          const prev = afternoonBars[i - 1];
+          if (b.h >= morning.morningLow - 10 && b.h <= morning.morningLow + 15) {
+            testedShelf = true;
+          }
+          if (testedShelf && b.c < b.o && b.c < prev.l) {
+            retestBar = b;
+          }
+        }
+      }
+
+      if (retestBar) {
+        const triggerBar = retestBar;
+        const triggerPrice = triggerBar.c;
+        const triggerTs = triggerBar.t;
+        const stopLoss = triggerBar.h; // Structural swing high of the rejection candle
+        const risk = stopLoss - triggerPrice;
+        const isRiskOk = risk > 0 && risk <= 25;
+        return {
+          setupKind: 'afternoon_1245_retest',
+          side: 'bearish',
+          triggered: isRiskOk,
+          stopStructural: isRiskOk,
+          triggerPrice,
+          triggerTs,
+          bar1245: { high: bar1245High, low: bar1245Low, color: bar1245Color, mid: bar1245Mid },
+          morning,
+          stopLoss,
+          tp1: triggerPrice - risk,
+          tp2: triggerPrice - risk * 2,
+          tp3: triggerPrice - risk * 3,
+          rr: 3,
+          label: isRiskOk
+            ? '12:45 Trikal Retest · Morning Low Shelf Rejection Confirmed · Dr. Dev Trade 2'
+            : `12:45 Retest risk (${risk.toFixed(1)} pts) exceeds Dr. Dev 25 pt limit — Waiting for tighter base`,
+        };
+      }
+
+      // Initial Bearish Breakout
+      const triggerBar = crossBar;
       const triggerPrice = triggerBar.c;
       const triggerTs = triggerBar.t;
-      const rawStop = Math.min(bar1245High, morning.morningMid, triggerBar.h);
-      const stopLoss = (rawStop - triggerPrice > 24) ? (triggerPrice + 24) : rawStop;
-      const risk = Math.max(10, Math.abs(stopLoss - currentPrice));
+      const stopLoss = Math.min(bar1245High, triggerBar.h);
+      const risk = stopLoss - triggerPrice;
+      const isRiskOk = risk > 0 && risk <= 25;
       return {
         setupKind: 'afternoon_1245_breakout',
         side: 'bearish',
-        triggered: true,
+        triggered: isRiskOk,
+        stopStructural: isRiskOk,
         triggerPrice,
         triggerTs,
         bar1245: { high: bar1245High, low: bar1245Low, color: bar1245Color, mid: bar1245Mid },
         morning,
         stopLoss,
-        tp1: currentPrice - risk,
-        tp2: currentPrice - risk * 2,
-        tp3: currentPrice - risk * 3,
+        tp1: triggerPrice - risk,
+        tp2: triggerPrice - risk * 2,
+        tp3: triggerPrice - risk * 3,
         rr: 3,
-        label: '12:45 London Open Breakout · Dr. Dev Trikal Anchor · Expansion Below Morning Low',
+        label: isRiskOk
+          ? '12:45 London Open Breakout · Dr. Dev Trikal Anchor · Expansion Below Morning Low'
+          : `12:45 Breakout risk (${risk.toFixed(1)} pts) exceeds Dr. Dev 25 pt limit — Awaiting Pullback Retest`,
       };
     }
 
@@ -2263,27 +2361,27 @@ const RedBarTrend = {
       const triggerBar = crossBar || afternoonBars[0] || lastBar;
       const triggerPrice = triggerBar.c;
       const triggerTs = triggerBar.t;
-      const recentLows = afternoonBars.slice(-6).map((b) => b.l);
-      const rawStop = Math.min(bar1245Low, ...recentLows);
-      const stopLoss = (triggerPrice - rawStop > 24) ? (triggerPrice - 24) : rawStop;
-      const risk = Math.max(10, Math.abs(currentPrice - stopLoss));
-      const tp1 = currentPrice + risk;
-      const tp2 = currentPrice + risk * 2;
-      const tp3 = Math.max(morning.morningMid, currentPrice + risk * 3);
+      // Dr. Dev Reversal Stop: Low of the reversal bounce candle or 12:45 median
+      const stopLoss = Math.max(bar1245Mid, triggerBar.l);
+      const risk = triggerPrice - stopLoss;
+      const isRiskOk = risk > 0 && risk <= 25;
       return {
         setupKind: 'afternoon_1245_reversal',
         side: 'bullish',
-        triggered: true,
+        triggered: isRiskOk,
+        stopStructural: isRiskOk,
         triggerPrice,
         triggerTs,
         bar1245: { high: bar1245High, low: bar1245Low, color: bar1245Color, mid: bar1245Mid },
         morning,
         stopLoss,
-        tp1,
-        tp2,
-        tp3,
-        rr: risk > 0 ? (tp3 - currentPrice) / risk : 2,
-        label: '12:45 London Open Reversal · Dr. Dev Trikal Anchor · Sellers Trapped in 12:45 Red Candle',
+        tp1: triggerPrice + risk,
+        tp2: triggerPrice + risk * 2,
+        tp3: Math.max(morning.morningMid, triggerPrice + risk * 3),
+        rr: risk > 0 ? ((triggerPrice + risk * 3) - triggerPrice) / risk : 3,
+        label: isRiskOk
+          ? '12:45 London Open Reversal · Dr. Dev Trikal Anchor · Sellers Trapped in 12:45 Red Candle'
+          : `12:45 Reversal risk (${risk.toFixed(1)} pts) exceeds Dr. Dev 25 pt limit — Awaiting Pullback`,
       };
     }
 
@@ -2300,27 +2398,27 @@ const RedBarTrend = {
       const triggerBar = crossBar || afternoonBars[0] || lastBar;
       const triggerPrice = triggerBar.c;
       const triggerTs = triggerBar.t;
-      const recentHighs = afternoonBars.slice(-6).map((b) => b.h);
-      const rawStop = Math.max(bar1245High, ...recentHighs);
-      const stopLoss = (rawStop - triggerPrice > 24) ? (triggerPrice + 24) : rawStop;
-      const risk = Math.max(10, Math.abs(stopLoss - currentPrice));
-      const tp1 = currentPrice - risk;
-      const tp2 = currentPrice - risk * 2;
-      const tp3 = Math.min(morning.morningMid, currentPrice - risk * 3);
+      // Dr. Dev Reversal Stop: High of the reversal drop candle or 12:45 median
+      const stopLoss = Math.min(bar1245Mid, triggerBar.h);
+      const risk = stopLoss - triggerPrice;
+      const isRiskOk = risk > 0 && risk <= 25;
       return {
         setupKind: 'afternoon_1245_reversal',
         side: 'bearish',
-        triggered: true,
+        triggered: isRiskOk,
+        stopStructural: isRiskOk,
         triggerPrice,
         triggerTs,
         bar1245: { high: bar1245High, low: bar1245Low, color: bar1245Color, mid: bar1245Mid },
         morning,
         stopLoss,
-        tp1,
-        tp2,
-        tp3,
-        rr: risk > 0 ? (currentPrice - tp3) / risk : 2,
-        label: '12:45 London Open Reversal · Dr. Dev Trikal Anchor · Buyers Trapped in 12:45 Green Candle',
+        tp1: triggerPrice - risk,
+        tp2: triggerPrice - risk * 2,
+        tp3: Math.min(morning.morningMid, triggerPrice - risk * 3),
+        rr: risk > 0 ? (triggerPrice - (triggerPrice - risk * 3)) / risk : 3,
+        label: isRiskOk
+          ? '12:45 London Open Reversal · Dr. Dev Trikal Anchor · Buyers Trapped in 12:45 Green Candle'
+          : `12:45 Reversal risk (${risk.toFixed(1)} pts) exceeds Dr. Dev 25 pt limit — Awaiting Pullback`,
       };
     }
 
@@ -2341,8 +2439,13 @@ const RedBarTrend = {
    * - Above baseline: POSITIVE TERRITORY -> Calls only, Puts forbidden.
    * - Below baseline: NEGATIVE TERRITORY -> Puts only, Calls forbidden.
    */
-  computeEquinoxMacro(price, instId = 'NIFTY') {
+  computeEquinoxMacro(price, instId = 'NIFTY', evalTs = null) {
     if (instId !== 'NIFTY') return null;
+    const asOf = evalTs != null ? Number(evalTs) : Date.now();
+    const z = this.zonedHms(asOf, 'Asia/Kolkata');
+    const month = parseInt(String(z.day).slice(5, 7), 10);
+    // Dr. Dev Equinox seasonal cycles: Vernal (March/April) and Autumnal (September/October)
+    const seasonActive = month === 3 || month === 4 || month === 9 || month === 10;
     const baseline = (typeof process !== 'undefined' && process?.env?.NIFTY_EQUINOX_LEVEL)
       ? Number(process.env.NIFTY_EQUINOX_LEVEL)
       : 22860;
@@ -2356,11 +2459,12 @@ const RedBarTrend = {
       baseline,
       territory,
       allowedSide,
+      seasonActive,
       distancePts: diff,
       distancePct: diffPct,
-      label: `Equinox Baseline: ${baseline} · Territory: ${territory.toUpperCase()} (${allowedSide.replace('_', ' ')}) · ${diff >= 0 ? '+' : ''}${diff.toFixed(0)} pts (${diffPct >= 0 ? '+' : ''}${diffPct.toFixed(1)}%)`,
-      allowsBullish: isPositive,
-      allowsBearish: !isPositive,
+      label: `Equinox Baseline: ${baseline} · Territory: ${territory.toUpperCase()} (${allowedSide.replace('_', ' ')}) · ${diff >= 0 ? '+' : ''}${diff.toFixed(0)} pts (${diffPct >= 0 ? '+' : ''}${diffPct.toFixed(1)}%)${!seasonActive ? ' [Off-Season]' : ''}`,
+      allowsBullish: !seasonActive || isPositive,
+      allowsBearish: !seasonActive || !isPositive,
     };
   },
 
@@ -2485,29 +2589,34 @@ const RedBarTrend = {
       };
     }
 
-    // Dr. Dev Trikal 12:45 Afternoon Engine (Reversal & Breakout)
-    if (setupKind === 'afternoon_1245_reversal' || setupKind === 'afternoon_1245_breakout') {
+    // Dr. Dev Trikal 12:45 Afternoon Engine (Reversal, Breakout & Retest)
+    if (setupKind === 'afternoon_1245_reversal' || setupKind === 'afternoon_1245_breakout' || setupKind === 'afternoon_1245_retest') {
+      const isRetest = setupKind === 'afternoon_1245_retest';
       const isReversal = setupKind === 'afternoon_1245_reversal';
-      const stopPad = price * 0.0004;
-      let sp = trend === 'bullish'
-        ? (afternoon1245?.stopLoss ?? (price - price * 0.004)) - stopPad
-        : (afternoon1245?.stopLoss ?? (price + price * 0.004)) + stopPad;
-      const riskDist = Math.abs(price - sp);
-      const tp1 = trend === 'bullish' ? price + riskDist : price - riskDist;
-      const tp2 = trend === 'bullish' ? price + riskDist * 2 : price - riskDist * 2;
-      const tp3 = trend === 'bullish' ? price + riskDist * 3 : price - riskDist * 3;
-      const stopPct = (riskDist / price) * 100;
-      const targetPct = (Math.abs(tp3 - price) / price) * 100;
+      const triggerP = afternoon1245?.triggerPrice ?? price;
+      const sp = afternoon1245?.stopLoss ?? (trend === 'bullish' ? triggerP - 20 : triggerP + 20);
+      const riskDist = Math.abs(triggerP - sp);
+      const tp1 = trend === 'bullish' ? triggerP + riskDist : triggerP - riskDist;
+      const tp2 = trend === 'bullish' ? triggerP + riskDist * 2 : triggerP - riskDist * 2;
+      const tp3 = isReversal && afternoon1245?.morning?.morningMid
+        ? (trend === 'bullish' ? Math.max(afternoon1245.morning.morningMid, triggerP + riskDist * 3) : Math.min(afternoon1245.morning.morningMid, triggerP - riskDist * 3))
+        : (trend === 'bullish' ? triggerP + riskDist * 3 : triggerP - riskDist * 3);
+      const stopPct = (riskDist / triggerP) * 100;
+      const targetPct = (Math.abs(tp3 - triggerP) / triggerP) * 100;
       return {
         invalidation: sp,
-        invalidationReason: isReversal ? '12:45 reversal 5m swing stop' : '12:45 breakout 5m candle stop',
-        stopStructural: true,
+        invalidationReason: isRetest
+          ? '12:45 retest 5m bounce shelf stop'
+          : (isReversal ? '12:45 reversal 5m swing stop' : '12:45 breakout 5m candle stop'),
+        stopStructural: afternoon1245?.stopStructural ?? true,
         tp1,
         tp2,
         tp3,
         bookZone: tp3,
         firstMagnet: { price: tp2, label: '1:2R Partial' },
-        bookReason: isReversal ? '12:45 Afternoon London Sweep Reversal' : '12:45 Afternoon London Breakout',
+        bookReason: isRetest
+          ? '12:45 Retest Morning High Shelf Bounce'
+          : (isReversal ? '12:45 Afternoon London Sweep Reversal' : '12:45 Afternoon London Breakout'),
         bookIsMagnet: true,
         stopPct,
         targetPct,
@@ -3116,7 +3225,7 @@ const RedBarTrend = {
       : null;
 
     // Dr. Dev Equinox Macro Territory
-    const equinox = this.computeEquinoxMacro(price, instId);
+    const equinox = this.computeEquinoxMacro(price, instId, evalTs);
 
     // Dr. Dev Trikal 12:45 Afternoon Engine & Dr. Dev 5m Squeeze
     const afternoon1245 = (bars5m && instId === 'NIFTY')
@@ -3486,7 +3595,7 @@ const RedBarTrend = {
    * Setup 3 rubber band stays WATCH/overlay until its own walk-forward PASS.
    * Continuation / magnet / Renko are chart context only.
    */
-  ACTIONABLE_SETUPS: ['trade1_departure', 'trade2_confirmed', 'session_sweep', 'pob_reject', 'afternoon_1245_reversal', 'afternoon_1245_breakout'],
+  ACTIONABLE_SETUPS: ['trade1_departure', 'trade2_confirmed', 'session_sweep', 'pob_reject', 'afternoon_1245_reversal', 'afternoon_1245_breakout', 'afternoon_1245_retest'],
 
   /** True in the first `quietMins` of London (12:30 IST) or US (16:30 IST). */
   _inSessionQuietWindow(asOfTs, quietMins = 45) {
@@ -3532,21 +3641,48 @@ const RedBarTrend = {
     if (trend !== 'bullish' && trend !== 'bearish') {
       return { state: 'wait', reason: 'No directional setup.' };
     }
-    // Dr. Dev Equinox Macro Gate: strictly forbid counter-territory trades
-    if (equinox && equinox.territory === 'positive' && trend === 'bearish') {
+    // Dr. Dev Equinox Macro Gate: strictly forbid counter-territory trades during active Equinox seasons (March/April & Sept/Oct)
+    if (equinox && equinox.seasonActive && equinox.territory === 'positive' && trend === 'bearish') {
       return {
         state: 'watch',
-        reason: `Blocked by Macro Equinox Rule: In Positive Territory (Above ${equinox.baseline}) — Calls only, Puts/Bearish forbidden.`,
+        reason: `Blocked by Macro Equinox Rule: In Positive Territory (Above ${equinox.baseline}) during Equinox season — Calls only, Puts/Bearish forbidden.`,
       };
     }
-    if (equinox && equinox.territory === 'negative' && trend === 'bullish') {
+    if (equinox && equinox.seasonActive && equinox.territory === 'negative' && trend === 'bullish') {
       return {
         state: 'watch',
-        reason: `Blocked by Macro Equinox Rule: In Negative Territory (Below ${equinox.baseline}) — Puts only, Calls/Bullish forbidden.`,
+        reason: `Blocked by Macro Equinox Rule: In Negative Territory (Below ${equinox.baseline}) during Equinox season — Puts only, Calls/Bullish forbidden.`,
       };
+    }
+
+    const instEarly = String(instrumentId || '').toUpperCase();
+
+    // Dr. Dev NIFTY Session Cutoffs & Max Risk Cap (Desk + Bot Unified)
+    if (instEarly === 'NIFTY') {
+      const z = this.zonedHms(asOfTs != null ? Number(asOfTs) : Date.now(), 'Asia/Kolkata');
+      const mins = z.hour * 60 + z.minute;
+      if (mins >= 14 * 60 + 15) {
+        return {
+          state: 'watch',
+          reason: 'Past 14:15 IST — Intraday option buying session closed (Dr. Dev late-day decay & unwind guard). Stay in cash.',
+        };
+      }
+      if ((setupKind === 'afternoon_1245_breakout' || setupKind === 'afternoon_1245_retest' || setupKind === 'afternoon_1245_reversal') && mins >= 13 * 60 + 45) {
+        return {
+          state: 'watch',
+          reason: 'Past 13:45 IST — Dr. Dev 12:45 Trikal expansion window closed. No late chasing.',
+        };
+      }
+      const ep = Number(entryPrice);
+      const sp = Number(stopPrice);
+      if (ep > 0 && sp > 0 && Math.abs(ep - sp) > 25) {
+        return {
+          state: 'watch',
+          reason: `Structural risk (${Math.abs(ep - sp).toFixed(1)} pts) exceeds Dr. Dev max 25 pt risk cap. Wait for tighter pullback.`,
+        };
+      }
     }
     const isPob = setupKind === 'pob_reject';
-    const instEarly = String(instrumentId || '').toUpperCase();
     // NIFTY Trade 3 (Setup 3 rubber band) may ENTER when enabled — BTC keeps it overlay-only
     const niftySetup3 = instEarly === 'NIFTY' && setupKind === 'setup3_rubber_band';
     if (!this.ACTIONABLE_SETUPS.includes(setupKind) && !niftySetup3) {
