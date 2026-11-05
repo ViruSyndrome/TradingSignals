@@ -1036,14 +1036,17 @@ async function pollManagedDhanStops() {
             }
           }
         }
-        if (row && String(row.orderStatus) === 'CLOSED') {
-          t.status = 'closed';
+        // Parent terminal states — REJECTED/CANCELLED must clear managed "open" (not only CLOSED).
+        // Do not overwrite a more specific closed_target / closed_sl from the legs above.
+        const parentStatus = row ? String(row.orderStatus || '').toUpperCase() : '';
+        if (t.status === 'open' && ['CLOSED', 'CANCELLED', 'REJECTED'].includes(parentStatus)) {
+          t.status = parentStatus === 'REJECTED' ? 'rejected' : parentStatus === 'CANCELLED' ? 'cancelled' : 'closed';
           t.closedAt = Date.now();
+          console.log(`[RedBarBot] Dhan SuperOrder ${parentStatus} · ${t.symbolHint || t.orderId} — marking ${t.status}`);
         }
       } catch (_) { /* keep managing */ }
 
-      if (t.status === 'open') next.push(t);
-      else next.push(t);
+      next.push(t);
     } catch (e) {
       console.warn('[RedBarBot] Dhan manage row failed:', e.message);
       next.push(t);
