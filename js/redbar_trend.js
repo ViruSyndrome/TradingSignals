@@ -3868,21 +3868,8 @@ const RedBarTrend = {
 
     const instEarly = String(instrumentId || '').toUpperCase();
 
-    // Dr. Dev NIFTY Session Cutoffs & Max Risk Cap (Desk + Bot Unified)
-    if (instEarly === 'NIFTY') {
-      const z = this.zonedHms(asOfTs != null ? Number(asOfTs) : Date.now(), 'Asia/Kolkata');
-      const mins = z.hour * 60 + z.minute;
-      // Desk preference (not a Dr Dev hard clock): avoid brand-new option buys into late theta/unwind.
-      if (mins >= 14 * 60 + 15) {
-        return {
-          state: 'watch',
-          reason: 'Past 14:15 IST — desk preference: no new option buys into late theta/unwind. Stay in cash.',
-        };
-      }
-      // Removed hard 13:45 afternoon kill — that was our post-loss desk rule, not Dr Dev.
-      // Trikal teaches the 12:45 auction + breakout/retest; retests can print after 13:15.
-      // No hard index-pt abort. SL/TP stay candle/structure-based.
-    }
+    // NIFTY: no clock-based ENTER kills (14:15 / 13:45 / pt caps were desk inventions).
+    // Setup quality decides. EOD flatten (~15:10) is ops-only in the bot.
     const isPob = setupKind === 'pob_reject';
     // NIFTY Trade 3 (Setup 3 rubber band) may ENTER when enabled — BTC keeps it overlay-only
     const niftySetup3 = instEarly === 'NIFTY' && setupKind === 'setup3_rubber_band';

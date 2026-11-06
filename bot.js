@@ -833,13 +833,14 @@ async function _maybeAutoDhanNifty({ inst, side, readout, alertKey, dayKey, setu
     console.warn('[RedBarBot] DHAN_AUTO_TRADE on but DHAN_CLIENT_ID / DHAN_ACCESS_TOKEN missing');
     return;
   }
-  // Desk timing (not Dr Dev hard clocks):
-  // - Optional late cutoff for NEW option buys (default 14:15) — theta/unwind preference.
-  // - Removed hard 13:45 afternoon kill (that was our post-loss rule; Trikal retests can print later).
+  // No clock-based entry kills (14:15 / 13:45 were desk inventions). Setup quality decides.
+  // Operational only: EOD flatten ~15:10 still closes open option risk before cash market.
+  // Optional override: DHAN_ENTRY_CUTOFF_MINS (IST mins) if you ever want a hard cutoff again.
   const mins = _istMinsNow();
-  const entryCutoff = Number(process.env.DHAN_ENTRY_CUTOFF_MINS) || (14 * 60 + 15);
-  if (mins >= entryCutoff) {
-    console.log(`[RedBarBot] NIFTY: past ${Math.floor(entryCutoff / 60)}:${String(entryCutoff % 60).padStart(2, '0')} IST — desk preference: no new option buys (late theta/unwind)`);
+  const entryCutoffRaw = process.env.DHAN_ENTRY_CUTOFF_MINS;
+  const entryCutoff = entryCutoffRaw === '' || entryCutoffRaw == null ? 0 : Number(entryCutoffRaw);
+  if (entryCutoff > 0 && mins >= entryCutoff) {
+    console.log(`[RedBarBot] NIFTY: past ${Math.floor(entryCutoff / 60)}:${String(entryCutoff % 60).padStart(2, '0')} IST — DHAN_ENTRY_CUTOFF_MINS hard stop`);
     return;
   }
   if (lastAlerted[`DHAN_TRADE_${inst.id}_DETAIL`] === alertKey) {
