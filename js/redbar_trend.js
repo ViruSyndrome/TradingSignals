@@ -2219,7 +2219,7 @@ const RedBarTrend = {
         const triggerTs = triggerBar.t;
         const stopLoss = triggerBar.l; // Structural swing low of the bounce candle
         const risk = triggerPrice - stopLoss;
-        const isRiskOk = risk > 0 && risk <= 25;
+        const isRiskOk = risk > 0; // afternoon: structural stop OK; no Renko-style 25pt mix-in
         return {
           setupKind: 'afternoon_1245_retest',
           side: 'bullish',
@@ -2236,7 +2236,7 @@ const RedBarTrend = {
           rr: 3,
           label: isRiskOk
             ? 'Afternoon retest · Morning High Shelf Bounce Confirmed · shelf retest'
-            : `12:45 Retest risk (${risk.toFixed(1)} pts) exceeds 25 pt risk limit — Waiting for tighter base`,
+            : `12:45 Retest risk (${risk.toFixed(1)} pts) is wide — structural stop kept; size options carefully`,
         };
       }
 
@@ -2246,7 +2246,7 @@ const RedBarTrend = {
       const triggerTs = triggerBar.t;
       const stopLoss = Math.max(bar1245Low, triggerBar.l);
       const risk = triggerPrice - stopLoss;
-      const isRiskOk = risk > 0 && risk <= 25;
+      const isRiskOk = risk > 0; // afternoon: structural stop OK; no Renko-style 25pt mix-in
       return {
         setupKind: 'afternoon_1245_breakout',
         side: 'bullish',
@@ -2263,7 +2263,7 @@ const RedBarTrend = {
         rr: 3,
         label: isRiskOk
           ? 'Afternoon breakout · Afternoon window · Expansion Above Morning High'
-          : `12:45 Breakout risk (${risk.toFixed(1)} pts) exceeds 25 pt risk limit — Awaiting Pullback Retest`,
+          : `12:45 Breakout risk (${risk.toFixed(1)} pts) is wide — structural stop kept; size options carefully`,
       };
     }
 
@@ -2301,7 +2301,7 @@ const RedBarTrend = {
         const triggerTs = triggerBar.t;
         const stopLoss = triggerBar.h; // Structural swing high of the rejection candle
         const risk = stopLoss - triggerPrice;
-        const isRiskOk = risk > 0 && risk <= 25;
+        const isRiskOk = risk > 0; // afternoon: structural stop OK; no Renko-style 25pt mix-in
         return {
           setupKind: 'afternoon_1245_retest',
           side: 'bearish',
@@ -2318,7 +2318,7 @@ const RedBarTrend = {
           rr: 3,
           label: isRiskOk
             ? 'Afternoon retest · Morning Low Shelf Rejection Confirmed · shelf retest'
-            : `12:45 Retest risk (${risk.toFixed(1)} pts) exceeds 25 pt risk limit — Waiting for tighter base`,
+            : `12:45 Retest risk (${risk.toFixed(1)} pts) is wide — structural stop kept; size options carefully`,
         };
       }
 
@@ -2328,7 +2328,7 @@ const RedBarTrend = {
       const triggerTs = triggerBar.t;
       const stopLoss = Math.min(bar1245High, triggerBar.h);
       const risk = stopLoss - triggerPrice;
-      const isRiskOk = risk > 0 && risk <= 25;
+      const isRiskOk = risk > 0; // afternoon: structural stop OK; no Renko-style 25pt mix-in
       return {
         setupKind: 'afternoon_1245_breakout',
         side: 'bearish',
@@ -2345,7 +2345,7 @@ const RedBarTrend = {
         rr: 3,
         label: isRiskOk
           ? 'Afternoon breakout · Afternoon window · Expansion Below Morning Low'
-          : `12:45 Breakout risk (${risk.toFixed(1)} pts) exceeds 25 pt risk limit — Awaiting Pullback Retest`,
+          : `12:45 Breakout risk (${risk.toFixed(1)} pts) is wide — structural stop kept; size options carefully`,
       };
     }
 
@@ -2365,7 +2365,7 @@ const RedBarTrend = {
       // Dr. Dev Reversal Stop: Low of the reversal bounce candle or 12:45 median
       const stopLoss = Math.max(bar1245Mid, triggerBar.l);
       const risk = triggerPrice - stopLoss;
-      const isRiskOk = risk > 0 && risk <= 25;
+      const isRiskOk = risk > 0; // afternoon: structural stop OK; no Renko-style 25pt mix-in
       return {
         setupKind: 'afternoon_1245_reversal',
         side: 'bullish',
@@ -2382,7 +2382,7 @@ const RedBarTrend = {
         rr: risk > 0 ? ((triggerPrice + risk * 3) - triggerPrice) / risk : 3,
         label: isRiskOk
           ? 'Afternoon reversal · Afternoon window · Sellers Trapped in 12:45 Red Candle'
-          : `12:45 Reversal risk (${risk.toFixed(1)} pts) exceeds 25 pt risk limit — Awaiting Pullback`,
+          : `12:45 Reversal risk (${risk.toFixed(1)} pts) is wide — structural stop kept; size options carefully`,
       };
     }
 
@@ -2402,7 +2402,7 @@ const RedBarTrend = {
       // Dr. Dev Reversal Stop: High of the reversal drop candle or 12:45 median
       const stopLoss = Math.min(bar1245Mid, triggerBar.h);
       const risk = stopLoss - triggerPrice;
-      const isRiskOk = risk > 0 && risk <= 25;
+      const isRiskOk = risk > 0; // afternoon: structural stop OK; no Renko-style 25pt mix-in
       return {
         setupKind: 'afternoon_1245_reversal',
         side: 'bearish',
@@ -2419,7 +2419,7 @@ const RedBarTrend = {
         rr: risk > 0 ? (triggerPrice - (triggerPrice - risk * 3)) / risk : 3,
         label: isRiskOk
           ? 'Afternoon reversal · Afternoon window · Buyers Trapped in 12:45 Green Candle'
-          : `12:45 Reversal risk (${risk.toFixed(1)} pts) exceeds 25 pt risk limit — Awaiting Pullback`,
+          : `12:45 Reversal risk (${risk.toFixed(1)} pts) is wide — structural stop kept; size options carefully`,
       };
     }
 
@@ -3892,12 +3892,16 @@ const RedBarTrend = {
           reason: 'Past 13:45 IST — Afternoon expansion window closed. No late chasing.',
         };
       }
+      // Leave/retest/mid-zone: teaching band ~20–38. Afternoon uses event-candle structure (can be wider).
+      const isAfternoon = String(setupKind || '').startsWith('afternoon_1245_');
       const ep = Number(entryPrice);
       const sp = Number(stopPrice);
-      if (ep > 0 && sp > 0 && Math.abs(ep - sp) > 25) {
+      const riskPts = (ep > 0 && sp > 0) ? Math.abs(ep - sp) : 0;
+      const maxDnaRisk = 38;
+      if (!isAfternoon && riskPts > maxDnaRisk) {
         return {
           state: 'watch',
-          reason: `Structural risk (${Math.abs(ep - sp).toFixed(1)} pts) exceeds 25 pt risk cap. Wait for tighter pullback.`,
+          reason: `Structural risk (${riskPts.toFixed(1)} pts) exceeds ${maxDnaRisk} pt leave/retest band. Wait for tighter pullback.`,
         };
       }
     }

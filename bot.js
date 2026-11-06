@@ -903,12 +903,16 @@ async function _maybeAutoDhanNifty({ inst, side, readout, alertKey, dayKey, setu
     return;
   }
 
-  // Dr. Dev Absolute Risk Cap: Never risk > 25 index points (~12-14 option points) on NIFTY option buys
+  // Leave/retest/mid-zone: teaching band ~38 index pts. Afternoon breakouts exempt (event-candle structure can be wider).
   const riskPts = Math.abs(indexEntry - indexStop);
-  const maxRiskPts = Number(process.env.DHAN_MAX_RISK_PTS) || 25;
-  if (riskPts > maxRiskPts) {
-    console.log(`[RedBarBot] NIFTY: entry risk (${riskPts.toFixed(1)} index pts) exceeds Dr. Dev max risk cap (${maxRiskPts} pts). Aborting entry to protect capital.`);
+  const isAfternoon = String(setupKind || '').startsWith('afternoon_1245_');
+  const maxRiskPts = Number(process.env.DHAN_MAX_RISK_PTS) || 38;
+  if (!isAfternoon && riskPts > maxRiskPts) {
+    console.log(`[RedBarBot] NIFTY: entry risk (${riskPts.toFixed(1)} index pts) exceeds leave/retest band (${maxRiskPts} pts). Aborting — wait tighter base.`);
     return;
+  }
+  if (isAfternoon && riskPts > maxRiskPts) {
+    console.log(`[RedBarBot] NIFTY: afternoon structural risk ${riskPts.toFixed(1)} pts (>${maxRiskPts}) — allowing; size option premium carefully.`);
   }
 
   // Guard 1: Pullback Bounce Confirmation for Trade 2 (No Falling Knives into Support)
@@ -928,11 +932,12 @@ async function _maybeAutoDhanNifty({ inst, side, readout, alertKey, dayKey, setu
     }
   }
 
-  // Guard 2: Mid-Air Proximity Guard for Trade 2 (Do not enter >24 pts away from support shelf)
+  // Guard 2: Trade 2 mid-air — same leave/retest band (38). Afternoon not covered here.
   if (setupKind === 'trade2_confirmed') {
-    const riskPts = Math.abs(indexEntry - indexStop);
-    if (riskPts > 24) {
-      console.log(`[RedBarBot] NIFTY: Trade 2 entry risk (${riskPts.toFixed(1)} pts) too wide / mid-air from support shelf (max 24 pts). Waiting for closer test.`);
+    const t2Risk = Math.abs(indexEntry - indexStop);
+    const t2Max = Number(process.env.DHAN_MAX_RISK_PTS) || 38;
+    if (t2Risk > t2Max) {
+      console.log(`[RedBarBot] NIFTY: Trade 2 entry risk (${t2Risk.toFixed(1)} pts) too wide / mid-air from shelf (max ${t2Max} pts). Waiting for closer test.`);
       return;
     }
   }
