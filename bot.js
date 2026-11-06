@@ -1098,17 +1098,10 @@ async function pollManagedDhanStops() {
         const oneR = Number(t.oneRPts) > 0
           ? Number(t.oneRPts)
           : (t.entryPremium - t.stopLossPrice);
+        // Prefer live option-chain LTP — SuperOrder.ltp often sticks at entry fill and never sees 1R.
         let ltp = null;
         try {
-          if (t.orderId && !t.legABooked) {
-            const supers = await trader.dhan.getSuperOrders();
-            const book = Array.isArray(supers) ? supers : [];
-            const row = book.find((o) => String(o.orderId) === String(t.orderId));
-            ltp = row?.ltp != null ? Number(row.ltp) : null;
-          }
-        } catch (_) { /* ignore */ }
-        if (ltp == null) {
-          try {
+          if (t.expiry && t.strike != null) {
             const chain = await trader.dhan.getOptionChain({
               underlyingScrip: 13,
               underlyingSeg: 'IDX_I',
@@ -1118,6 +1111,16 @@ async function pollManagedDhanStops() {
             const node = oc[String(t.strike)] || oc[`${Number(t.strike).toFixed(6)}`];
             const leg = t.optSide === 'PE' ? node?.pe : node?.ce;
             ltp = Number(leg?.last_price) || Number(leg?.top_bid_price) || null;
+          }
+        } catch (_) { /* ignore */ }
+        if (ltp == null && t.orderId && !t.legABooked) {
+          try {
+            const supers = await trader.dhan.getSuperOrders();
+            const book = Array.isArray(supers) ? supers : [];
+            const row = book.find((o) => String(o.orderId) === String(t.orderId));
+            const superLtp = row?.ltp != null ? Number(row.ltp) : null;
+            // Ignore stale fill echo (equal to entry)
+            if (superLtp != null && Math.abs(superLtp - Number(t.entryPremium)) > 0.5) ltp = superLtp;
           } catch (_) { /* ignore */ }
         }
 

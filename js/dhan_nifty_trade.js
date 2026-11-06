@@ -245,6 +245,8 @@ function createDhanNiftyTrade(opts = {}) {
     const runnerQty = out.bankError ? quantity : split.runnerQty;
     out.runnerQty = runnerQty;
     try {
+      // Dhan SELL STOP_LOSS requires triggerPrice > price (limit).
+      const slLimit = tickPrem(Math.max(0.05, be - 0.5));
       const slOrd = await dhan.placeOrder({
         correlationId: `runsl-${Date.now()}`.slice(0, 30),
         transactionType: 'SELL',
@@ -254,7 +256,7 @@ function createDhanNiftyTrade(opts = {}) {
         validity: 'DAY',
         securityId: String(securityId),
         quantity: Number(runnerQty),
-        price: be,
+        price: slLimit,
         triggerPrice: be,
       });
       out.runnerSlOrderId = slOrd?.orderId || slOrd?.data?.orderId || null;
