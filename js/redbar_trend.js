@@ -3431,9 +3431,6 @@ const RedBarTrend = {
     // 4. Setup 3 rubber band overlay -> Trade 2 revisit watch
     // 5. Inside Fib box -> WAIT
     // 6. Fib break bias / pullback
-    const isBtcWatchOnlyT2 = (!instId || instId === 'BTC')
-      && redSetup.revisitSide === 'bullish'
-      && redSetup.revisitRead === 'liq_sweep_low';
     let trend = 'neutral';
     let setupKind = 'wait';
     if (phase === 'first_candle') {
@@ -3456,7 +3453,7 @@ const RedBarTrend = {
     } else if (pobReject && pobReject.triggered && pobReject.side) {
       trend = pobReject.side;
       setupKind = 'pob_reject';
-    } else if (redSetup.revisitSide && redSetup.revisitStrong && !isBtcWatchOnlyT2) {
+    } else if (redSetup.revisitSide && redSetup.revisitStrong) {
       trend = redSetup.revisitSide;
       setupKind = 'trade2_confirmed';
     } else if (sweep) {
@@ -3890,12 +3887,8 @@ const RedBarTrend = {
       return { state: 'watch', reason: why };
     }
 
-    if (renko && renko.overextendedBar && setupKind !== 'session_sweep' && !isPob && !niftySetup3) {
-      return {
-        state: 'watch',
-        reason: `Candle spiked >1.6× brick ruler ($${renko.brickSize.toFixed(0)}) in one bar — wait for pullback instead of chasing.`,
-      };
-    }
+    // Renko brick ruler = chart noise context only (not Red Bar DNA). Do not block ENTER on it.
+    // (Was a desk mash-in; Dev Red Bar uses structure stops, not Renko overextension gates.)
     if (!(rr >= 1.0)) {
       return { state: 'watch', reason: `Setup present but R:R ${rr != null ? rr.toFixed(2) : '—'} < 1.0.` };
     }
@@ -3938,48 +3931,18 @@ const RedBarTrend = {
         };
       }
     }
-    // Best clock PASS: skip late only (+23%). POB is already prime-session gated.
-    if (!isPob && clock && clock.id === 'late') {
-      return {
-        state: 'watch',
-        reason: 'IST late session — stand aside (DNA loser cluster n=141, sum≈−8%). Wait for Pre-London / London / US Open.',
-      };
-    }
-    // BTC: Pre-Asia (00:00–05:30 IST) is dead hours for new expansion DNA.
-    // Keeps Trade 1/2/sweep from firing like the 04:20 dead-hour short; POB already prime-gated.
-    // Asia 05:30 breakout only arms after 06:00 (detector), so it never ENTER here.
-    {
-      const instBtc = String(instrumentId || '').toUpperCase();
-      const preAsiaDna = setupKind === 'trade1_departure'
-        || setupKind === 'trade2_confirmed'
-        || setupKind === 'session_sweep';
-      if ((!instBtc || instBtc === 'BTC') && !isPob && clock && clock.id === 'pre_asia' && preAsiaDna) {
-        return {
-          state: 'watch',
-          reason: 'BTC Pre-Asia dead hours — no Trade 1/2/sweep ENTER until Asia 05:30. Wait open X / prime POB.',
-        };
-      }
-    }
+    // Clocks: POB is already prime-session gated (Asia 05:30 / London / NY).
+    // Do NOT hard-kill Red Bar T1/T2 in pre_asia or late — those were desk adaptations.
+    // Dev: 02:30–03:30 IST = CME/US-close Fib context (mark window); Red Bar can leave after it locks.
+    // Dev tip "pre-Asia dead" / "after NY" is mainly no new POB X — not a ban on first-red leave/retest.
     if (stopPct != null && Number.isFinite(stopPct) && stopPct > 1.0) {
       return {
         state: 'watch',
         reason: `Setup present but stop is ${stopPct.toFixed(2)}% (>1%) — stand aside until a tighter structure fits.`,
       };
     }
-    // BTC: skip T2 LONG sweep_low (PASS +18.9% vs keeping them).
+    // Removed desk-only filter that blocked BTC Trade 2 LONG after 1H low sweep (research PASS, not Dev rule).
     const inst = String(instrumentId || '').toUpperCase();
-    if (
-      (!inst || inst === 'BTC')
-      && setupKind === 'trade2_confirmed'
-      && trend === 'bullish'
-      && String(revisitRead || '') === 'liq_sweep_low'
-    ) {
-      return {
-        state: 'watch',
-        reason: 'BTC DNA: Trade 2 LONG after 1H low sweep is WATCH only (filter PASS +18.9%). Prefer T1 / T2 SHORT / sweep / POB.',
-      };
-    }
-
     const isNifty = inst === 'NIFTY';
     // POB is a quick session scalp — 20m fresh window on all assets
     const freshMins = isPob ? 20 : (isNifty ? 20 : 90);
