@@ -1014,8 +1014,9 @@ async function _maybeAutoDhanNifty({ inst, side, readout, alertKey, dayKey, setu
 
 /**
  * Manage open Dhan Super Orders:
- *  - When option LTP ≥ entry + 1R (to target distance), move SL → BE
- *  - Hard flat at 15:10 IST
+ *  - When option LTP ≥ ~1R toward TP, lock SL above entry (not scratch BE)
+ *  - Ratchet SL higher if price keeps running
+ *  - Hard flat at 15:10 IST (ops — still closes anything left before RMS)
  */
 async function pollManagedDhanStops() {
   if (String(process.env.DHAN_AUTO_TRADE || '').toLowerCase() !== 'true') return;
@@ -1084,10 +1085,12 @@ async function pollManagedDhanStops() {
         continue;
       }
 
-      // BE trail: option moved ≥ halfway to TP (≈1R on mapped premium)
-      if (!t.beMoved && t.entryPremium > 0 && t.targetPrice > t.entryPremium) {
+      // Profit lock (not scratch BE): once price pays ~1R, SL sits above entry so open green is partly banked.
+      // Env: DHAN_LOCK1_R (default 0.40 of 1R), DHAN_LOCK2_R (default 0.75) after ~1.5R run.
+      if (t.entryPremium > 0 && t.targetPrice > t.entryPremium) {
         const oneR = t.targetPrice - t.entryPremium;
-        // Re-fetch chain LTP for this strike is heavy; use super-order list LTP if present
+        const lock1R = Math.min(0.9, Math.max(0.15, Number(process.env.DHAN_LOCK1_R) || 0.4));
+        const lock2R = Math.min(0.95, Math.max(lock1R, Number(process.env.DHAN_LOCK2_R) || 0.75));
         let ltp = null;
         try {
           const supers = await trader.dhan.getSuperOrders();
@@ -1096,17 +1099,49 @@ async function pollManagedDhanStops() {
           ltp = row?.ltp != null ? Number(row.ltp) : null;
         } catch (_) { /* ignore */ }
 
-        if (ltp != null && ltp >= t.entryPremium + oneR * 0.95) {
-          await trader.moveStopToBreakeven(t.orderId, t.entryPremium, 0.5);
-          t.beMoved = true;
-          t.beMovedAt = Date.now();
-          console.log(`[RedBarBot] Dhan BE stop moved · ${t.symbolHint} @ ${t.entryPremium}`);
-          if (bot && chatId) {
-            await bot.sendMessage(
-              chatId,
-              `🛡️ Dhan SL → BE · ${t.symbolHint}\nEntry ${t.entryPremium} · LTP ${ltp}`,
-              { disable_web_page_preview: true },
-            ).catch(() => {});
+        if (ltp != null && oneR > 0) {
+          const openR = (ltp - t.entryPremium) / oneR;
+          const curLock = Number(t.lockedSl) || 0;
+          let wantSl = null;
+          let stage = null;
+          if (openR >= 1.5 && !t.lock2Moved) {
+            wantSl = +(t.entryPremium + oneR * lock2R).toFixed(2);
+            stage = 'lock2';
+          } else if (openR >= 0.95 && !t.beMoved && !t.lock1Moved) {
+            wantSl = +(t.entryPremium + Math.max(1, oneR * lock1R)).toFixed(2);
+            stage = 'lock1';
+          }
+          // Late session: if still green and SL is below ~half of open PnL, tighten once (never loosen).
+          if (!wantSl && mins >= (14 * 60 + 45) && ltp > t.entryPremium + 1) {
+            const lateSl = +(t.entryPremium + Math.max(1, (ltp - t.entryPremium) * 0.5)).toFixed(2);
+            if (lateSl > curLock + 0.4) {
+              wantSl = lateSl;
+              stage = 'late';
+            }
+          }
+          if (wantSl != null && wantSl > curLock + 0.2 && wantSl < ltp - 0.5) {
+            await trader.modifyStop(t.orderId, wantSl, 0);
+            t.lockedSl = wantSl;
+            if (stage === 'lock1') {
+              t.lock1Moved = true;
+              t.beMoved = true; // legacy managed-trade flag
+              t.beMovedAt = Date.now();
+            } else if (stage === 'lock2') {
+              t.lock2Moved = true;
+              t.lock1Moved = true;
+              t.beMoved = true;
+              t.lock2MovedAt = Date.now();
+            } else if (stage === 'late') {
+              t.lateLockAt = Date.now();
+            }
+            console.log(`[RedBarBot] Dhan SL → +profit ${stage} · ${t.symbolHint} @ ${wantSl} (entry ${t.entryPremium}, LTP ${ltp})`);
+            if (bot && chatId) {
+              await bot.sendMessage(
+                chatId,
+                `🛡️ Dhan SL → lock ${wantSl} · ${t.symbolHint}\nEntry ${t.entryPremium} · LTP ${ltp} · ${stage}`,
+                { disable_web_page_preview: true },
+              ).catch(() => {});
+            }
           }
         }
       }
