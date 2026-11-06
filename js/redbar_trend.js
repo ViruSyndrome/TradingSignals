@@ -3005,17 +3005,15 @@ const RedBarTrend = {
       }
     }
 
-    // NIFTY (Dr. Devendra & Sagar 09:45 / Red Bar rules):
-    // Stop sits at the trigger/prev 5m candle low/high, pullback wick, box 50% midpoint, or session box edge
-    // ("Mujhe bada SL nahi chahiye" — keep NIFTY option SL tight: ~20 to 38 index pts, never 80–300 pts).
+    // NIFTY morning leave/retest: stop = real 5m structure (prev candle / pullback / box mid / box edge).
+    // Prefer a tighter structural candidate when several exist. Never invent a fake "comfort" stop closer than structure.
     if (
       String(instId).toUpperCase() === 'NIFTY'
       && firstRed1h && Number.isFinite(firstRed1h.low) && Number.isFinite(firstRed1h.high)
       && (setupKind === 'trade1_departure' || setupKind === 'trade2_confirmed')
     ) {
       const boxPad = price * 0.00015; // ~3.5 pts on NIFTY
-      const minNiftyStop = price * 0.0008; // ~19 pts minimum
-      const maxNiftyStop = price * 0.0016; // ~38 pts maximum
+      const preferMax = price * 0.0016; // ~38 pts — preference window only, not a skip rule
       const boxMid = (firstRed1h.high + firstRed1h.low) / 2;
       const last2 = Array.isArray(bars5m) && bars5m.length >= 2 ? bars5m.slice(-2) : [];
       const prev5Lo = last2.length ? Math.min(...last2.map((b) => b.l)) : null;
@@ -3027,18 +3025,15 @@ const RedBarTrend = {
           boxMid < price ? { v: boxMid - boxPad, tag: '5m swing (box 50% mid)' } : null,
           firstRed1h.low < price ? { v: firstRed1h.low - boxPad, tag: '5m swing (session box low)' } : null,
         ].filter((x) => x && Number.isFinite(x.v) && x.v < price);
-        const inWin = cands
-          .filter((x) => (price - x.v) >= minNiftyStop && (price - x.v) <= maxNiftyStop)
+        const preferred = cands
+          .filter((x) => (price - x.v) <= preferMax)
           .sort((a, b) => b.v - a.v);
-        if (inWin[0]) {
-          invalidation = inWin[0].v;
-          invalidationReason = inWin[0].tag;
-        } else if (cands[0]) {
-          const d = Math.min(maxNiftyStop, Math.max(minNiftyStop, price - cands[0].v));
-          invalidation = price - d;
-          invalidationReason = cands[0].tag;
+        const pick = preferred[0] || cands.sort((a, b) => b.v - a.v)[0];
+        if (pick) {
+          invalidation = pick.v;
+          invalidationReason = pick.tag;
+          stopStructural = true;
         }
-        stopStructural = true;
       } else if (trend === 'bearish') {
         const cands = [
           sweepExtreme != null && sweepExtreme > price ? { v: sweepExtreme + boxPad, tag: '5m swing (pullback high)' } : null,
@@ -3046,18 +3041,15 @@ const RedBarTrend = {
           boxMid > price ? { v: boxMid + boxPad, tag: '5m swing (box 50% mid)' } : null,
           firstRed1h.high > price ? { v: firstRed1h.high + boxPad, tag: '5m swing (session box high)' } : null,
         ].filter((x) => x && Number.isFinite(x.v) && x.v > price);
-        const inWin = cands
-          .filter((x) => (x.v - price) >= minNiftyStop && (x.v - price) <= maxNiftyStop)
+        const preferred = cands
+          .filter((x) => (x.v - price) <= preferMax)
           .sort((a, b) => a.v - b.v);
-        if (inWin[0]) {
-          invalidation = inWin[0].v;
-          invalidationReason = inWin[0].tag;
-        } else if (cands[0]) {
-          const d = Math.min(maxNiftyStop, Math.max(minNiftyStop, cands[0].v - price));
-          invalidation = price + d;
-          invalidationReason = cands[0].tag;
+        const pick = preferred[0] || cands.sort((a, b) => a.v - b.v)[0];
+        if (pick) {
+          invalidation = pick.v;
+          invalidationReason = pick.tag;
+          stopStructural = true;
         }
-        stopStructural = true;
       }
     }
 
@@ -3880,30 +3872,16 @@ const RedBarTrend = {
     if (instEarly === 'NIFTY') {
       const z = this.zonedHms(asOfTs != null ? Number(asOfTs) : Date.now(), 'Asia/Kolkata');
       const mins = z.hour * 60 + z.minute;
+      // Desk preference (not a Dr Dev hard clock): avoid brand-new option buys into late theta/unwind.
       if (mins >= 14 * 60 + 15) {
         return {
           state: 'watch',
-          reason: 'Past 14:15 IST — Intraday option buying session closed (late-day decay / unwind guard). Stay in cash.',
+          reason: 'Past 14:15 IST — desk preference: no new option buys into late theta/unwind. Stay in cash.',
         };
       }
-      if ((setupKind === 'afternoon_1245_breakout' || setupKind === 'afternoon_1245_retest' || setupKind === 'afternoon_1245_reversal') && mins >= 13 * 60 + 45) {
-        return {
-          state: 'watch',
-          reason: 'Past 13:45 IST — Afternoon expansion window closed. No late chasing.',
-        };
-      }
-      // Leave/retest/mid-zone: teaching band ~20–38. Afternoon uses event-candle structure (can be wider).
-      const isAfternoon = String(setupKind || '').startsWith('afternoon_1245_');
-      const ep = Number(entryPrice);
-      const sp = Number(stopPrice);
-      const riskPts = (ep > 0 && sp > 0) ? Math.abs(ep - sp) : 0;
-      const maxDnaRisk = 38;
-      if (!isAfternoon && riskPts > maxDnaRisk) {
-        return {
-          state: 'watch',
-          reason: `Structural risk (${riskPts.toFixed(1)} pts) exceeds ${maxDnaRisk} pt leave/retest band. Wait for tighter pullback.`,
-        };
-      }
+      // Removed hard 13:45 afternoon kill — that was our post-loss desk rule, not Dr Dev.
+      // Trikal teaches the 12:45 auction + breakout/retest; retests can print after 13:15.
+      // No hard index-pt abort. SL/TP stay candle/structure-based.
     }
     const isPob = setupKind === 'pob_reject';
     // NIFTY Trade 3 (Setup 3 rubber band) may ENTER when enabled — BTC keeps it overlay-only

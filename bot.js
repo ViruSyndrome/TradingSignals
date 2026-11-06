@@ -833,23 +833,13 @@ async function _maybeAutoDhanNifty({ inst, side, readout, alertKey, dayKey, setu
     console.warn('[RedBarBot] DHAN_AUTO_TRADE on but DHAN_CLIENT_ID / DHAN_ACCESS_TOKEN missing');
     return;
   }
-  // Dr. Dev Intraday Timing Cutoffs:
-  // - General NIFTY Option Buying Cutoff: 14:15 IST (no late-day theta trap / unwinds)
-  // - 12:45 Trikal Window Cutoff: 13:45 IST (London Open initial expansion window only)
+  // Desk timing (not Dr Dev hard clocks):
+  // - Optional late cutoff for NEW option buys (default 14:15) — theta/unwind preference.
+  // - Removed hard 13:45 afternoon kill (that was our post-loss rule; Trikal retests can print later).
   const mins = _istMinsNow();
   const entryCutoff = Number(process.env.DHAN_ENTRY_CUTOFF_MINS) || (14 * 60 + 15);
   if (mins >= entryCutoff) {
-    console.log(`[RedBarBot] NIFTY: past ${Math.floor(entryCutoff / 60)}:${String(entryCutoff % 60).padStart(2, '0')} IST — no new option buys (late-day theta decay / unwind guard)`);
-    return;
-  }
-  // Match entryGate: breakout + reversal + retest all close after 13:45
-  if (
-    (setupKind === 'afternoon_1245_breakout'
-      || setupKind === 'afternoon_1245_reversal'
-      || setupKind === 'afternoon_1245_retest')
-    && mins >= (13 * 60 + 45)
-  ) {
-    console.log('[RedBarBot] NIFTY: past 13:45 IST — Dr. Dev 12:45 Trikal expansion window closed. No chasing late moves.');
+    console.log(`[RedBarBot] NIFTY: past ${Math.floor(entryCutoff / 60)}:${String(entryCutoff % 60).padStart(2, '0')} IST — desk preference: no new option buys (late theta/unwind)`);
     return;
   }
   if (lastAlerted[`DHAN_TRADE_${inst.id}_DETAIL`] === alertKey) {
@@ -903,16 +893,10 @@ async function _maybeAutoDhanNifty({ inst, side, readout, alertKey, dayKey, setu
     return;
   }
 
-  // Leave/retest/mid-zone: teaching band ~38 index pts. Afternoon breakouts exempt (event-candle structure can be wider).
+  // Desk note only — not a Dr Dev hard rule. SL stays structural; we do not abort on index-pt width.
   const riskPts = Math.abs(indexEntry - indexStop);
-  const isAfternoon = String(setupKind || '').startsWith('afternoon_1245_');
-  const maxRiskPts = Number(process.env.DHAN_MAX_RISK_PTS) || 38;
-  if (!isAfternoon && riskPts > maxRiskPts) {
-    console.log(`[RedBarBot] NIFTY: entry risk (${riskPts.toFixed(1)} index pts) exceeds leave/retest band (${maxRiskPts} pts). Aborting — wait tighter base.`);
-    return;
-  }
-  if (isAfternoon && riskPts > maxRiskPts) {
-    console.log(`[RedBarBot] NIFTY: afternoon structural risk ${riskPts.toFixed(1)} pts (>${maxRiskPts}) — allowing; size option premium carefully.`);
+  if (riskPts > 38) {
+    console.log(`[RedBarBot] NIFTY: structural risk ${riskPts.toFixed(1)} index pts (wide) — taking trade; size option premium carefully.`);
   }
 
   // Guard 1: Pullback Bounce Confirmation for Trade 2 (No Falling Knives into Support)
@@ -929,16 +913,6 @@ async function _maybeAutoDhanNifty({ inst, side, readout, alertKey, dayKey, setu
         console.log(`[RedBarBot] NIFTY: Trade 2 SHORT paused — latest 5m bar is GREEN (C ${lastB.c} > O ${lastB.o}). Awaiting red drop confirmation.`);
         return;
       }
-    }
-  }
-
-  // Guard 2: Trade 2 mid-air — same leave/retest band (38). Afternoon not covered here.
-  if (setupKind === 'trade2_confirmed') {
-    const t2Risk = Math.abs(indexEntry - indexStop);
-    const t2Max = Number(process.env.DHAN_MAX_RISK_PTS) || 38;
-    if (t2Risk > t2Max) {
-      console.log(`[RedBarBot] NIFTY: Trade 2 entry risk (${t2Risk.toFixed(1)} pts) too wide / mid-air from shelf (max ${t2Max} pts). Waiting for closer test.`);
-      return;
     }
   }
 
