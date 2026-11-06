@@ -4,25 +4,25 @@
   <meta charset="UTF-8" />
     <meta name="google-site-verification" content="0EE4LD8CMDBYJ02h7i7oQvgXkUZbCPcrDGMSJZFux9s" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
-  <title>TrendRunner — BTC Red Bar Desk</title>
+  <title>TrendRunner Desk — Session structure for BTC, NIFTY &amp; more</title>
     <!-- Supabase -->
     <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2" defer></script>
-  <meta name="description" content="TrendRunner Red Bar Desk: BTC 30m chart with prior-day range bands, opening-range bias, LONG/SHORT/WAIT levels. Educational research — you place trades yourself." />
+  <meta name="description" content="TrendRunner Desk maps session structure: leave, retest, sweep, and clear stop / 1:1 bank levels. Educational research — you place trades yourself." />
   <meta name="msvalidate.01" content="FA7405A0B7623E8A404F74AE4952777C" />
-  <meta name="keywords" content="bitcoin red bar, BTC opening range, crypto futures bias, prior day range, trendrunner" />
+  <meta name="keywords" content="trendrunner, trading desk, session structure, BTC futures, NIFTY, opening range" />
 
   <!-- Open Graph / Facebook -->
   <meta property="og:type" content="website">
   <meta property="og:url" content="https://trendrunner.app/">
-  <meta property="og:title" content="TrendRunner | BTC Red Bar Desk">
-  <meta property="og:description" content="Visual BTC map: prior-day bands, opening range, red-bar exits, LONG/SHORT/WAIT. Educational — not auto-trading.">
+  <meta property="og:title" content="TrendRunner Desk">
+  <meta property="og:description" content="Clear session maps: leave, retest, sweep. Structural stops and 1:1 bank plans. Educational — not auto-trading.">
   <meta property="og:image" content="https://trendrunner.app/og-preview.png?v=20260912">
 
   <!-- Twitter -->
   <meta name="twitter:card" content="summary_large_image">
   <meta name="twitter:url" content="https://trendrunner.app/">
-  <meta name="twitter:title" content="TrendRunner | BTC Red Bar Desk">
-  <meta name="twitter:description" content="Visual BTC map: prior-day bands, opening range, red-bar exits, LONG/SHORT/WAIT. Educational — not auto-trading.">
+  <meta name="twitter:title" content="TrendRunner Desk">
+  <meta name="twitter:description" content="Clear session maps: leave, retest, sweep. Structural stops and 1:1 bank plans. Educational — not auto-trading.">
   <meta name="twitter:image" content="https://trendrunner.app/og-preview.png?v=20260912">
   <meta name="twitter:site" content="@TrendRunnerApp">
   
@@ -114,7 +114,7 @@
     <img src="icon-transparent.png" alt="Logo" class="loader-climbing-logo">
   </div>
   <h2 class="trendrunner-loader-title">TrendRunner</h2>
-  <p class="trendrunner-loader-text">Loading BTC Red Bar Desk…</p>
+  <p class="trendrunner-loader-text">Loading TrendRunner Desk…</p>
 </div>
 
   <!-- iOS PWA Install Banner (only shows on Safari iOS, once per device) -->
@@ -145,15 +145,15 @@
         <img src="icon-transparent.png" alt="Logo" class="sidebar-brand-icon">
         <div class="sidebar-brand-copy">
           <div class="sidebar-brand-name">trendrunner<span>.app</span></div>
-          <div class="sidebar-brand-subtitle">Red Bar Desk</div>
+          <div class="sidebar-brand-subtitle">Desk</div>
         </div>
       </a>
       <button class="mobile-close-btn" id="mobileCloseBtn" aria-label="Close sidebar">&times;</button>
     </div>
 
     <nav class="sidebar-nav">
-      <a href="#" class="nav-link active" data-section="dashboardSection" title="BTC Red Bar trend desk">
-        <span class="nav-icon">🟥</span> <span class="nav-text">Red Bar</span>
+      <a href="#" class="nav-link active" data-section="dashboardSection" title="TrendRunner Desk">
+        <span class="nav-icon">📊</span> <span class="nav-text">Desk</span>
       </a>
       <a href="#" class="nav-link legacy-nav" data-section="moonshotsSection" title="Legacy" hidden>
         <span class="nav-icon">🚀</span> <span class="nav-text">Moonshots</span>
@@ -183,7 +183,7 @@
 
     <div class="sidebar-footer">
       <div class="sidebar-disclaimer">
-        ⚠️ Red Bar Desk is educational research only. Not financial advice. You place your own trades.
+        ⚠️ TrendRunner Desk is educational research only. Not financial advice. You place your own trades.
       </div>
       <div class="sidebar-affiliate">
         <a href="https://www.binance.com/register?ref=TRENDRUNNER" target="_blank" rel="noopener noreferrer" title="Binance signup (optional referral)">Binance · fund wallet / futures</a>
@@ -205,7 +205,7 @@
           <datalist id="coinSuggestions"></datalist>
         </div>
         <span id="moonshotScanStatus" class="last-updated moonshot-scan-status legacy-ui" title="Status of the background Moonshot scanner" hidden>🚀 Auto-Scan: Idle</span>
-        <span class="topbar-focus-label">BTC · 30m Red Bar</span>
+        <span class="topbar-focus-label">BTC · Desk</span>
       </div>
       <div class="topbar-right">
         <span id="liveStatus" class="live-status" title="Live status reflects the last successful market-data refresh."><span class="live-dot" id="liveDot"></span><span id="liveStatusText">Connecting</span></span>
@@ -233,10 +233,10 @@
         <div class="live-tape-window"><div id="newsTapeTrack" class="live-tape-track"></div></div>
       </div>
 
-      <!-- Primary: Red Bar Desk (BTC) -->
+      <!-- Primary: TrendRunner Desk -->
       <div class="section-block" id="rangeEmaDeskBlock">
         <div id="rangeEmaDesk">
-          <div class="range-desk-error">Loading Red Bar Desk…</div>
+          <div class="range-desk-error">Loading TrendRunner Desk…</div>
         </div>
       </div>
 
@@ -336,89 +336,86 @@
     <section class="main-section" id="educationSection">
       <div class="section-block">
         <div class="section-heading">
-          <h2>📚 Learn — Red Bar Futures Desk</h2>
-          <p class="section-sub">Mechanics by <strong>Dr. Devendra Pratap Singh</strong> · ENTER: Trade 1 / Trade 2 / sweep / POB SHORT / Trikal 12:45 · Setup 3 overlay · Telegram on ENTER</p>
+          <h2>📚 Learn — TrendRunner Desk</h2>
+          <p class="section-sub">Plain-English guide to session structure: leave, retest, sweep, mid-zone reject, afternoon window. Telegram alerts when ENTER is ready.</p>
         </div>
 
         <div class="edu-full-grid">
 
           <div class="edu-full-card highlight-card edu-card-accent">
-            <div class="edu-header"><span>⚖️</span><h3>1. Dr. Dev POB (44–56) &amp; Mark-Window Fibs</h3></div>
-            <p>Taught by <strong>Dr. Devendra Pratap Singh</strong>. Each session starts with an institutional mark window and Fibs <code>0, 0.44, 0.5, 0.56, 1</code>:</p>
+            <div class="edu-header"><span>⚖️</span><h3>1. Mid-zone &amp; mark-window levels</h3></div>
+            <p>Each session can mark an open candle and draw levels <code>0, 0.44, 0.5, 0.56, 1</code> on that structure:</p>
             <ul>
-              <li><strong>Point of Balance (POB):</strong> The <code>0.44–0.56</code> corridor is <code>0.50</code> fair value &plusmn;6% — institutional battlefield on the 5m X-Candle.</li>
-              <li><strong>Dr. Dev POB entry:</strong> Session 5m X-Candle (BTC: Asia 05:30 / London 13:00–13:30 / NY 19:00–20:00 · NIFTY: 09:15). Retest 44–56 → <strong>SHORT</strong> reject below 0.44 (fill@0.44 · SL@0.56 · TP1 Anchor). Blow through 0.56 = invalid — no long.</li>
-              <li><strong>Desk status:</strong> POB SHORT is a live <strong>ENTER</strong> (Telegram) alongside Trade 1 / Trade 2 / sweep / Trikal 12:45. Setup 3 rubber band stays overlay.</li>
-              <li><strong>BTC Mark Window:</strong> <code>16:00–17:00 ET</code> (maps to IST via DST) · <strong>XAU:</strong> same ET close window · <strong>NIFTY:</strong> <code>15:15–15:45 IST</code>.</li>
-              <li><strong>Inside [0, 1]:</strong> Sideways accumulation zone &rarr; <strong>WAIT</strong> (Fibs / POB are context &amp; targets only).</li>
+              <li><strong>Mid-zone (44–56%):</strong> The middle band of the open mark candle — where price often retests after the first leave.</li>
+              <li><strong>Mid-zone reject (ENTER):</strong> After the open candle is marked (e.g. NIFTY ~09:15, BTC Asia / London / NY opens), wait for leave → retest of mid-zone → <strong>SHORT</strong> only if a 5m candle rejects back below mid. Close through the top of mid-zone = idea invalid.</li>
+              <li><strong>Also ENTER paths:</strong> breakout leave, shelf retest, liquidity sweep, afternoon window. Stretch snapback stays a chart guide only.</li>
+              <li><strong>Mark windows:</strong> BTC ~US cash close · NIFTY late-session window · used as <strong>targets / context</strong>, not automatic entries.</li>
+              <li><strong>Inside the full [0, 1] box:</strong> often chop → <strong>WAIT</strong>.</li>
             </ul>
           </div>
 
           <div class="edu-full-card highlight-card">
-            <div class="edu-header"><span>🕯️</span><h3>2. Dr. Dev Red Bar DNA (Trade 1 &amp; Trade 2)</h3></div>
-            <p>Mark the <strong>first closed red</strong> of the session box — HIGH/LOW (liquidity) + median + Fib 44/50/56. Desk ladder is <strong>H1 &rarr; M5</strong>:</p>
+            <div class="edu-header"><span>🕯️</span><h3>2. Session box — leave &amp; retest</h3></div>
+            <p>Mark the session’s <strong>first opposing (red) candle</strong> as a box: high, low, and middle. Then drop to 5 minutes:</p>
             <ul>
-              <li><strong>Trade 1 (Departure — Dr. Dev Red Bar DNA):</strong> Price leaves the first-red H/L with a fresh 5m/15m close-through.</li>
-              <li><strong>Trade 2 (Revisit):</strong> Sweep of box high or low liquidity, then a <strong>5m close back through</strong> that level (median confluence).</li>
-              <li><strong>ENTER:</strong> Trade 1 / Trade 2 / session sweep (5m swing SL) <strong>or</strong> Dr. Dev POB SHORT (SL@POB 0.56) <strong>or</strong> Trikal 12:45.</li>
+              <li><strong>Breakout leave (ENTER):</strong> Price closes clearly outside the box — first expansion.</li>
+              <li><strong>Shelf retest (ENTER):</strong> After a leave, price returns to the box edge; a <strong>5m candle must close</strong> back through that edge in trend direction. A wick alone is not enough.</li>
+              <li><strong>Liquidity sweep (ENTER):</strong> Highs/lows get hunted, then price closes back through — follow the confirmed direction.</li>
             </ul>
-            <div class="edu-tip">💡 Keep <strong>Alerts ON</strong> — you should not stare at the desk. Worker + open-tab relay push Telegram on ENTER (~1–2&times;/day on average).</div>
+            <div class="edu-tip">💡 Keep <strong>Alerts ON</strong> — you should not stare at the desk. Telegram fires when ENTER is ready.</div>
           </div>
 
           <div class="edu-full-card highlight-card" style="border-left: 3px solid #a78bfa;">
-            <div class="edu-header"><span>🧲</span><h3>3. Dr. Dev Setup 3: 30m 5 EMA Rubber Band</h3></div>
-            <p>Intraday mean-reversion setup taught by <strong>Dr. Devendra Pratap Singh</strong>:</p>
+            <div class="edu-header"><span>🧲</span><h3>3. Stretch snapback (chart guide)</h3></div>
+            <p>When price runs far from a short average on the 30-minute chart for several bars, it often snaps back:</p>
             <ul>
-              <li><strong>The Magnet Rule:</strong> When candles detach completely from the 30m 5 EMA for <strong>&ge;4 consecutive candles</strong>, tension stretches like a rubber band toward the 5 EMA.</li>
-              <li><strong>The "Barricade":</strong> Desk draws the LTF swing high (dump) or swing low (rally). A close through it marks the snapback.</li>
-              <li><strong>On TrendRunner:</strong> Barricade + 30m 5 EMA target are drawn as an <strong>overlay / WATCH guide</strong>. Not a DNA Telegram ENTER until a walk-forward PASS — use it to avoid chasing dumps and to eye the mean-reversion magnet.</li>
-              <li><strong>If you discretionary-trade it:</strong> Target = 30m 5 EMA only · SL = extreme wick (single destination, not the 1:1 / 1:3 DNA ladder).</li>
+              <li>Desk may draw a “barricade” and a mean target as a <strong>WATCH / overlay</strong>.</li>
+              <li>This is <strong>not</strong> a default Telegram ENTER — use it to avoid chasing extremes.</li>
             </ul>
           </div>
 
           <div class="edu-full-card highlight-card edu-card-warning">
-            <div class="edu-header"><span>🕒</span><h3>4. Dr. Dev Trikal 12:45 London Open Anchor</h3></div>
-            <p>Afternoon engine from <strong>Dr. Devendra Pratap Singh</strong> (Trikal session anchor):</p>
+            <div class="edu-header"><span>🕒</span><h3>4. Afternoon window (NIFTY ~12:45 IST)</h3></div>
+            <p>After the morning range and lunch quiet zone:</p>
             <ul>
-              <li><strong>Morning range (09:15–12:30 IST):</strong> Lock High / Mid / Low — context for afternoon expansion.</li>
-              <li><strong>Lunch decay (11:30–12:45 IST):</strong> Stand down — no fresh entries until the London open box.</li>
-              <li><strong>12:45 Trikal Anchor (12:45–13:15 IST 30m):</strong> Trap the <em>12:45 auction itself</em> (red candle → reclaim high traps sellers; green → reclaim low traps buyers). This is <strong>not</strong> a required sweep of morning H/L.</li>
-              <li><strong>Breakout:</strong> Clean expansion beyond morning High / Low after the London box is marked.</li>
+              <li><strong>Morning range:</strong> Lock high / mid / low for context.</li>
+              <li><strong>Lunch quiet:</strong> Prefer no new entries until the afternoon window.</li>
+              <li><strong>Afternoon reversal:</strong> Trap buyers/sellers inside the early-afternoon candle, then reclaim.</li>
+              <li><strong>Afternoon breakout:</strong> Clean expansion beyond morning high or low — or a shelf retest if you missed the first print.</li>
             </ul>
           </div>
 
           <div class="edu-full-card highlight-card edu-card-warning">
-            <div class="edu-header"><span>🎯</span><h3>5. 5m Swing Stop · 1:1 &rarr; BE &rarr; 1:2 &rarr; 1:3</h3></div>
+            <div class="edu-header"><span>🎯</span><h3>5. Risk ladder — stop, bank, trail</h3></div>
             <ul>
-              <li><strong>1️⃣ Stop = 5m swing:</strong> Beginner SL sits beyond the recent <strong>5m swing low</strong> (LONG) or <strong>5m swing high</strong> (SHORT). That distance is <code>1R</code>. No ENTER (and no Telegram) until this stop is locked.</li>
-              <li><strong>2️⃣ 50% at 1:1 → BE:</strong> Bank half at <code>+1R</code>, move stop to breakeven on the runner.</li>
-              <li><strong>3️⃣ Trail to 1:2, target 1:3:</strong> After 1:2, trail; book remaining into <code>1:3</code> or marked liquidity (Asia / London / NY / prior day H/L). Mark-window Fibs are <strong>targets only</strong>.</li>
+              <li><strong>1️⃣ Stop = structure:</strong> Beyond a recent 5m swing (or mid-zone edge). That distance is <code>1R</code>. No ENTER until the stop is real.</li>
+              <li><strong>2️⃣ Bank ~50% at 1:1 → move stop to cost</strong> on the runner.</li>
+              <li><strong>3️⃣ Trail toward 1:2 / 1:3</strong> or marked session highs/lows. Fib lines on the desk are mostly <strong>targets</strong>.</li>
             </ul>
           </div>
 
           <div class="edu-full-card">
-            <div class="edu-header"><span>⚡</span><h3>6. Futures-Only Execution &amp; Safe Leverage</h3></div>
-            <p>The Red Bar Desk is built for <strong>USDⓈ-M Perpetual Futures</strong> (both <strong>LONG</strong> and <strong>SHORT</strong>):</p>
+            <div class="edu-header"><span>⚡</span><h3>6. Futures sizing &amp; safe leverage</h3></div>
+            <p>Crypto desk paths are built for <strong>perpetual futures</strong> (LONG and SHORT). NIFTY alerts can map to options on your broker:</p>
             <ul>
-              <li>Always use <strong>Isolated Margin</strong> so a black-swan wick cannot drain your entire wallet.</li>
-              <li>Let your <strong>stop distance</strong> dictate your leverage: if your stop is 1.0% away and you risk 1% of capital, your position notional equals 1× your wallet (use <strong>2×–5× isolated leverage</strong> so liquidation stays far beyond your stop).</li>
-              <li>Use the inline <strong>Futures Sizing bar</strong> on the desk or the <strong>Risk</strong> calculator tab before placing any order.</li>
+              <li>Prefer <strong>isolated margin</strong> so one wick cannot wipe the whole wallet.</li>
+              <li>Let <strong>stop distance</strong> set size — risk a small % of capital, keep leverage modest.</li>
+              <li>Use the desk sizing bar or the <strong>Risk</strong> tab before placing an order.</li>
             </ul>
           </div>
 
           <div class="edu-full-card">
-            <div class="edu-header"><span>📈</span><h3>7. EMA 10 / 30 Runner Trail &amp; Marked Session Levels</h3></div>
-            <p>EMA 10 / 30 serves both as directional alignment at entry and as the <strong>exit trigger for your 50% runner</strong> after <code>1:1</code> hits:</p>
+            <div class="edu-header"><span>📈</span><h3>7. Moving averages &amp; session levels</h3></div>
             <ul>
-              <li><strong>Runner Exit:</strong> After banking 50% at <code>1:1</code>, hold the remaining 50% as long as EMA 10 stays stacked with your trade; close when <strong>EMA 10 crosses EMA 30</strong>.</li>
-              <li><strong>Always Mark Key Liquidity:</strong> The desk marks <strong>Asia, London &amp; New York Session H/L</strong>, <strong>Previous Day H/L</strong>, and the <strong>5m swing</strong> used for the stop.</li>
-              <li><strong>EMA is overlay only</strong> on this desk — not the Red Bar ENTER trigger.</li>
+              <li>After banking at 1:1, many traders trail the runner with a short / medium average cross.</li>
+              <li>Desk marks Asia / London / New York (or NSE) highs &amp; lows plus prior-day levels.</li>
+              <li><strong>Averages are helpers</strong> — they are not the ENTER trigger by themselves.</li>
             </ul>
           </div>
 
           <div class="edu-full-card">
-            <div class="edu-header"><span>💱</span><h3>8. Funding the Futures Wallet (INR ↔ USDT)</h3></div>
-            <p>Need to move INR ↔ USDT before funding your futures margin wallet? Use our step-by-step guides:</p>
+            <div class="edu-header"><span>💱</span><h3>8. Funding the futures wallet (INR ↔ USDT)</h3></div>
+            <p>Need to move INR ↔ USDT before funding margin? Step-by-step guides:</p>
             <ul>
               <li><a href="guides/binance-p2p.html">Binance P2P funding</a></li>
               <li><a href="guides/avoid-convert.html">Avoid Convert fees</a></li>
@@ -428,11 +425,11 @@
           </div>
 
           <div class="edu-full-card">
-            <div class="edu-header"><span>🧪</span><h3>9. Walk-Forward Red Bar Backtester</h3></div>
-            <p>Score the live desk rules on public Binance USD-M BTCUSDT (5m entries, 5m-swing ENTER gate, fees):</p>
+            <div class="edu-header"><span>🧪</span><h3>9. Desk backtester</h3></div>
+            <p>Score the live rules on public Binance BTCUSDT data:</p>
             <p><code>node redbar_public_outcomes.js BTCUSDT 2024-10 2026-09</code></p>
-            <p>Or the walk-forward desk sim: <code>node redbar_desk_backtest.js --live</code></p>
-            <div class="edu-tip">💡 On ~2y public perpetual data, the 5m-swing ENTER book ran ~<strong>62% WR</strong> and stayed green train + out-of-sample — vs the unfiltered book which did not.</div>
+            <p>Or: <code>node redbar_desk_backtest.js --live</code></p>
+            <div class="edu-tip">💡 Structural-stop ENTER books historically held up better than unfiltered entries on the public sample we track.</div>
           </div>
 
         </div>
@@ -482,7 +479,7 @@
           <div class="risk-results glass" id="riskResults">
             <h3>📊 Futures Sizing &amp; Liquidation Readout</h3>
             <div class="risk-result-grid" id="riskResultGrid">
-              <p class="risk-placeholder">Enter your LONG or SHORT levels and click Calculate (or click <strong>Risk Calc ↗</strong> directly on the Red Bar Desk).</p>
+              <p class="risk-placeholder">Enter your LONG or SHORT levels and click Calculate (or click <strong>Risk Calc ↗</strong> directly on TrendRunner Desk).</p>
             </div>
           </div>
         </div>
@@ -494,7 +491,7 @@
       <div class="section-block">
         <div class="section-heading">
           <h2>🧪 Strategy Backtester</h2>
-          <p class="section-sub">Red Bar desk: <code>node redbar_desk_backtest.js --live</code> · public outcomes: <code>node redbar_public_outcomes.js</code>. Panel below is the legacy multi-TF simulator.</p>
+          <p class="section-sub">Desk CLI: <code>node redbar_desk_backtest.js --live</code> · public outcomes: <code>node redbar_public_outcomes.js</code>. Panel below is the legacy multi-TF simulator.</p>
         </div>
 
         <div class="backtest-workspace">
@@ -522,7 +519,7 @@
             <button id="runBacktestBtn" class="backtest-run-btn">Run Analysis</button>
           </div>
           <div class="backtest-context">
-            <span>Red Bar CLI: 56.9% WR (n=58, 30m+1H)</span><span>0.08% Futures Round-Trip Fees</span><span>+0.8R → Breakeven · ≥1.5R Liquidity Target</span>
+            <span>Desk CLI: 56.9% WR (n=58, 30m+1H)</span><span>0.08% Futures Round-Trip Fees</span><span>+0.8R → Breakeven · ≥1.5R Liquidity Target</span>
           </div>
         </div>
 
@@ -600,8 +597,8 @@
   <div class="loading-overlay hidden" id="loadingOverlay">
     <div class="loader-content">
       <div class="loader-spinner"></div>
-      <div class="loader-text">Loading Red Bar Desk…</div>
-      <div class="loader-sub">BTC 02:30–03:30 IST 1H Fibs &amp; Red Bar map</div>
+      <div class="loader-text">Loading TrendRunner Desk…</div>
+      <div class="loader-sub">Session structure · leave / retest / sweep maps</div>
     </div>
   </div>
 
@@ -640,7 +637,8 @@
   <script src="js/fib_magnet.js?v=1.10" defer></script>
   <script src="js/range_ema_engine.js?v=1.2" defer></script>
   <script src="js/desk_alerts.js?v=1.13" defer></script>
-  <script src="js/range_ema_ui.js?v=2.42" defer></script>
+  <script src="js/public_copy.js?v=1.0" defer></script>
+  <script src="js/range_ema_ui.js?v=2.50" defer></script>
   <script src="js/signals.js?v=6.70" defer></script>
   <script src="js/charts.js?v=6.60" defer></script>
   
@@ -739,9 +737,9 @@
           <strong>${!stopSafeFromLiq
             ? '❌ Unsafe Leverage (Liquidation before Stop)'
             : +rrr >= 1.5
-              ? '✅ Meets Red Bar Futures Standard (≥1.5R & Safe Stop)'
+              ? '✅ Meets Desk Futures Standard (≥1.5R & Safe Stop)'
               : +rrr >= 1.0
-                ? '⚠️ Sub-1.5R Target — wait for pullback or wider magnet'
+                ? '⚠️ Sub-1.5R Target — wait for pullback or wider target'
                 : '❌ Poor R:R — Skip trade'}</strong>
         </div>
       `;
@@ -791,7 +789,7 @@
           <input type="number" id="tradeQuoteUsdt" class="auth-input" min="5" step="1" value="50">
         </div>
         
-        <p class="trade-confirm-note">Red Bar Desk setups are traded on Futures with structural stops and liquidity targets. Legacy bot endpoint caps are enforced on the server.</p>
+        <p class="trade-confirm-note">TrendRunner Desk setups use structural stops and clear bank targets. Legacy bot endpoint caps are enforced on the server.</p>
         <p id="tradeConfirmError" class="auth-error"></p>
         <button type="button" id="tradeConfirmSubmit" class="btn btn-primary auth-submit-btn">Confirm order via Bot</button>
       </div>
@@ -835,7 +833,7 @@
     </div>
   </div>
 
-  <!-- Red Bar Desk Guide & FAQ Modal -->
+  <!-- TrendRunner Desk Guide & FAQ Modal -->
   <div class="modal-overlay" id="rbGuideModal">
     <div class="modal-box" style="max-width: 760px; max-height: 88vh;">
       <div class="modal-header">
@@ -846,24 +844,24 @@
         
         <div style="display:grid; grid-template-columns:1fr 1fr; gap:16px; margin-bottom:16px;">
           <div style="background:rgba(255,255,255,0.03); border:1px solid rgba(255,255,255,0.07); border-radius:8px; padding:12px;">
-            <h3 style="font-size:13px; font-weight:700; color:#38bdf8; margin:0 0 6px;">🎯 Trade 1: Departure (Dr. Dev Red Bar DNA)</h3>
-            <p style="margin:0; font-size:12px; color:#94a3b8;">Price leaves the 1H First Red H/L on a fresh close-through. ENTER with 5m swing SL · 50% @ 1:1 &rarr; BE &rarr; runner. This is <strong>not</strong> the same as Dr. Dev’s POB reject.</p>
+            <h3 style="font-size:13px; font-weight:700; color:#38bdf8; margin:0 0 6px;">🎯 Breakout leave</h3>
+            <p style="margin:0; font-size:12px; color:#94a3b8;">Price leaves the session box (first opposing candle high/low) with a clear close-through. ENTER with a 5m structural stop · bank ~50% at 1:1 &rarr; move stop to cost &rarr; trail the runner.</p>
           </div>
           <div style="background:rgba(255,255,255,0.03); border:1px solid rgba(255,255,255,0.07); border-radius:8px; padding:12px;">
-            <h3 style="font-size:13px; font-weight:700; color:#4ade80; margin:0 0 6px;">⚡ Trade 2: H1→M5 Revisit &amp; Sweep</h3>
-            <p style="margin:0; font-size:12px; color:#94a3b8;">Price sweeps the 1H First Red high or low (liquidity grab), then prints a 5m close back through with median confluence. Stop loss locked to the 5m swing wick · 1:1 &rarr; 1:2 &rarr; 1:3 ladder.</p>
+            <h3 style="font-size:13px; font-weight:700; color:#4ade80; margin:0 0 6px;">⚡ Shelf retest</h3>
+            <p style="margin:0; font-size:12px; color:#94a3b8;">After a leave, price returns to the box edge. A <strong>5m candle must close</strong> back through that edge — a wick alone is not enough. Stop on the 5m swing · 1:1 &rarr; 1:2 &rarr; 1:3 ladder.</p>
           </div>
           <div style="background:rgba(255,255,255,0.03); border:1px solid rgba(255,255,255,0.07); border-radius:8px; padding:12px;">
-            <h3 style="font-size:13px; font-weight:700; color:#fbbf24; margin:0 0 6px;">⚖️ Dr. Dev POB Reject (own setup)</h3>
-            <p style="margin:0; font-size:12px; color:#94a3b8;"><strong>Session 5m X → retest 44–56 → SHORT reject.</strong> Fill@0.44 · SL@0.56 · TP1 Anchor low · TP2 2R. Live ENTER on BTC (Asia/London/NY) and NIFTY (09:15) — not bolted onto Trade 1 leave.</p>
+            <h3 style="font-size:13px; font-weight:700; color:#fbbf24; margin:0 0 6px;">⚖️ Mid-zone reject</h3>
+            <p style="margin:0; font-size:12px; color:#94a3b8;"><strong>Open candle marked → leave → retest mid-zone (44–56%) → SHORT reject.</strong> Fill near mid · stop beyond top of mid-zone · bank at session anchor / 2R. Live on BTC sessions and NIFTY open.</p>
           </div>
           <div style="background:rgba(255,255,255,0.03); border:1px solid rgba(255,255,255,0.07); border-radius:8px; padding:12px;">
-            <h3 style="font-size:13px; font-weight:700; color:#a78bfa; margin:0 0 6px;">🧲 Dr. Dev Setup 3: 30m 5 EMA Rubber Band</h3>
-            <p style="margin:0; font-size:12px; color:#94a3b8;"><strong>Dr. Devendra Pratap Singh:</strong> &ge;4× 30m candles detached from 5 EMA &rarr; rubber-band tension. Desk draws Barricade + 30m 5 EMA target. <strong>WATCH / chart guide only</strong> — not Telegram DNA ENTER until walk-forward PASS. Discretionary: single TP at 5 EMA, SL at extreme wick.</p>
+            <h3 style="font-size:13px; font-weight:700; color:#a78bfa; margin:0 0 6px;">🧲 Stretch snapback (guide)</h3>
+            <p style="margin:0; font-size:12px; color:#94a3b8;">When price stretches far from a short 30m average for several bars, it often snaps back. Desk may draw a barricade + mean target. <strong>Chart guide only</strong> — not a default Telegram ENTER.</p>
           </div>
           <div style="background:rgba(255,255,255,0.03); border:1px solid rgba(255,255,255,0.07); border-radius:8px; padding:12px; grid-column: 1 / -1;">
-            <h3 style="font-size:13px; font-weight:700; color:#f472b6; margin:0 0 6px;">🕒 Dr. Dev Trikal 12:45 London Open Anchor</h3>
-            <p style="margin:0; font-size:12px; color:#94a3b8;"><strong>Dr. Devendra Pratap Singh:</strong> After lunch decay, mark the 12:45–13:15 IST 30m candle. <strong>Reversal</strong> = trap that auction (red → reclaim high / green → reclaim low) — not a mandatory morning H/L sweep. <strong>Breakout</strong> = expansion beyond morning High/Low. Live ENTER when triggered.</p>
+            <h3 style="font-size:13px; font-weight:700; color:#f472b6; margin:0 0 6px;">🕒 Afternoon window (~12:45 IST)</h3>
+            <p style="margin:0; font-size:12px; color:#94a3b8;">After lunch quiet, mark the early-afternoon candle. <strong>Reversal</strong> = trap that auction then reclaim. <strong>Breakout</strong> = expansion beyond morning high/low. Live ENTER when triggered.</p>
           </div>
         </div>
 
@@ -880,7 +878,7 @@
             <tr style="border-bottom:1px solid rgba(255,255,255,0.05);">
               <td style="padding:6px 8px; font-weight:600; color:#f8fafc;">Daily Mark Window</td>
               <td style="padding:6px 8px;">02:30–03:30</td>
-              <td style="padding:6px 8px; color:#94a3b8;">Locks daily Fib box (0·44·50·56·1). Acts as magnet fair value (69.2% return rate).</td>
+              <td style="padding:6px 8px; color:#94a3b8;">Locks daily Fib box (0·44·50·56·1). Acts as fair-value magnet (69.2% return rate).</td>
             </tr>
             <tr style="border-bottom:1px solid rgba(255,255,255,0.05);">
               <td style="padding:6px 8px; font-weight:600; color:#f8fafc;">Asia Open (UTC 00:00)</td>
@@ -888,14 +886,14 @@
               <td style="padding:6px 8px; color:#94a3b8;">71.7% of days print Asia High or Low in first 90m. Sweeping Mark Window sets daily wick.</td>
             </tr>
             <tr style="border-bottom:1px solid rgba(255,255,255,0.05);">
-              <td style="padding:6px 8px; font-weight:600; color:#f8fafc;">Dr. Dev Trikal 12:45 London Open</td>
+              <td style="padding:6px 8px; font-weight:600; color:#f8fafc;">Afternoon window</td>
               <td style="padding:6px 8px;">12:45–13:15</td>
-              <td style="padding:6px 8px; color:#94a3b8;">Dr. Devendra Pratap Singh: Mark the 12:45 30m auction box. Trap sellers/buyers inside that candle (reclaim high/low), or break morning H/L for expansion — not a mandatory morning sweep.</td>
+              <td style="padding:6px 8px; color:#94a3b8;">Mark the early-afternoon auction. Trap one side then reclaim, or expand beyond morning high/low.</td>
             </tr>
             <tr style="border-bottom:1px solid rgba(255,255,255,0.05);">
-              <td style="padding:6px 8px; font-weight:600; color:#f8fafc;">London Open (Judas)</td>
+              <td style="padding:6px 8px; font-weight:600; color:#f8fafc;">London Open</td>
               <td style="padding:6px 8px;">12:30 (BST) / 13:30 (GMT)</td>
-              <td style="padding:6px 8px; color:#94a3b8;">62.7% print London extreme in opening 45m. Sweeping Asia High/Low produces fakeout reversal.</td>
+              <td style="padding:6px 8px; color:#94a3b8;">62.7% print London extreme in opening 45m. Sweeping Asia High/Low often produces a fakeout reversal.</td>
             </tr>
             <tr style="border-bottom:1px solid rgba(255,255,255,0.05);">
               <td style="padding:6px 8px; font-weight:600; color:#f8fafc;">New York Open</td>
@@ -919,13 +917,13 @@
         <div style="font-size:12px; line-height:1.6; color:#94a3b8;">
           <p><strong>What is the difference between WAIT and WATCH?</strong><br>
           • <em>WAIT</em> = Market is in equilibrium or consolidation between boundaries. No directional bias or trade setup is present. Stay in cash.<br>
-          • <em>WATCH</em> = Directional bias or structure is identified (e.g. Red Bar forming, EMA directional alignment, or liquidity sweep underway), but the exact entry trigger has NOT fired yet. Prepare your order, but DO NOT enter prematurely.</p>
+          • <em>WATCH</em> = Directional bias or structure is identified (session box forming, average alignment, or liquidity sweep underway), but the exact entry trigger has NOT fired yet. Prepare your order, but DO NOT enter prematurely.</p>
           
           <p><strong>How do Futures Fees affect small vs large sizes?</strong><br>
           Binance USD-M Futures fee is 0.04% per side (0.08% round-trip). Because fee is a fixed percentage, trading a $3,000 position for a small move makes 3× more net dollars than a $1,000 position for the same price movement. On losing trades, the fee remains 0.08% of notional.</p>
 
           <p><strong>Set-and-Forget Two-Leg Execution:</strong><br>
-          Every ENTER signal provides identical Entry and Stop Loss. Leg A books 50% profit at 1:1 risk-to-reward and immediately moves Stop Loss to Breakeven. Leg B is a risk-free runner targeting 1:3 or EMA rollover.</p>
+          Every ENTER signal provides identical Entry and Stop Loss. Leg A books 50% profit at 1:1 risk-to-reward and immediately moves Stop Loss to Breakeven. Leg B is a risk-free runner targeting 1:3 or average rollover.</p>
         </div>
 
       </div>

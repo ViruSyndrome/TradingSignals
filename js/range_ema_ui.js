@@ -230,7 +230,7 @@ const RangeEmaUI = {
       }
       DeskAlerts.setEnabled(true);
       this.state.alertsOn = true;
-      this._showDeskToast('Red Bar ENTER alerts on — Trade 1 / Trade 2 / sweep only');
+      this._showDeskToast('ENTER alerts on — leave / retest / sweep / mid-zone / afternoon');
     } else {
       DeskAlerts.setEnabled(false);
       this.state.alertsOn = false;
@@ -451,7 +451,7 @@ const RangeEmaUI = {
     const c = this.cfg();
     if (!c.enabled) return;
     if (typeof API === 'undefined' || typeof RedBarTrend === 'undefined') {
-      this.state.error = 'Red Bar engine not loaded';
+      this.state.error = 'Desk engine not loaded';
       this.state.loading = false;
       this.render();
       return;
@@ -824,15 +824,15 @@ const RangeEmaUI = {
     const frFib = o.firstRedFibs || red.fibs || null;
     const pivL = o.firstRedLabel || (this.activeInstrument()?.firstRedTf === '30m' ? '30M' : '1H');
     const pobInfo = frFib?.pob || null;
-    const pobStr = pobInfo
-      ? `POB (Point of Balance 44–56: ${this._fmt(pobInfo.low)}–${this._fmt(pobInfo.high)}, Fair Value ${this._fmt(pobInfo.mid)})`
-      : (frFib ? `POB 44–56 (${this._fmt(frFib.f44)}–${this._fmt(frFib.f56)})` : '');
-    const xTrapStr = o.isXCandleTrap ? ' ⚠️ Candle 1 is the "X Candle" (retail trap) — wait for POB retest or 1H sweep.' : '';
+    const midStr = pobInfo
+      ? `Mid-zone 44–56: ${this._fmt(pobInfo.low)}–${this._fmt(pobInfo.high)} (mid ${this._fmt(pobInfo.mid)})`
+      : (frFib ? `Mid-zone 44–56 (${this._fmt(frFib.f44)}–${this._fmt(frFib.f56)})` : '');
+    const xTrapStr = o.isXCandleTrap ? ' ⚠️ First open candle can trap — wait for mid-zone retest or a higher-TF sweep.' : '';
     const pivotStep = o.firstRed1h
       ? (frFib
-        ? `${pivL}→M5 ladder: mark ${pivL} first-red HIGH/LOW (liquidity) ${this._fmt(o.firstRed1h.high)} / ${this._fmt(o.firstRed1h.low)} + ${pobStr}.${xTrapStr} Trade 2: sweep H/L → 5m close back through (+ median).`
-        : `${pivL}→M5: mark ${pivL} first-red H/L ${this._fmt(o.firstRed1h.high)} / ${this._fmt(o.firstRed1h.low)} as liquidity, then enter on 5m close-through.`)
-      : `Waiting for the first ${pivL} red — mark that bar’s HIGH/LOW (liquidity) + POB (44–56), then drop to 5m.`;
+        ? `${pivL}→M5: mark ${pivL} first opposing HIGH/LOW ${this._fmt(o.firstRed1h.high)} / ${this._fmt(o.firstRed1h.low)} + ${midStr}.${xTrapStr} Shelf retest: sweep H/L → 5m close back through.`
+        : `${pivL}→M5: mark ${pivL} first opposing H/L ${this._fmt(o.firstRed1h.high)} / ${this._fmt(o.firstRed1h.low)}, then enter on 5m close-through.`)
+      : `Waiting for the first ${pivL} opposing candle — mark HIGH/LOW + mid-zone (44–56), then drop to 5m.`;
     const pdh = o.refs?.priorDayHigh;
     const pdl = o.refs?.priorDayLow;
     const rrStr = o.rr != null ? `1:${o.rr.toFixed(2)}` : '—';
@@ -862,10 +862,10 @@ const RangeEmaUI = {
       return {
         side: 'WAIT',
         cls: 'wait',
-        title: o.phase === 'first_candle' ? 'Do not trade yet (Mark window forming)' : 'Inside mark-window Fibs (targets only)',
-        subtitle: 'Mark-window Fibs = targets. Trade 2 = H1→M5: sweep 1H first-red H/L liquidity, then 5m close back through (+ median).',
+        title: o.phase === 'first_candle' ? 'Do not trade yet (Mark window forming)' : 'Inside mark-window levels (targets only)',
+        subtitle: 'Mark-window levels = targets. Shelf retest = sweep the box edge, then wait for a 5m close back through.',
         steps: [
-          `Fib High (1) / Fib Low (0): ${this._fmt(fibHi)} / ${this._fmt(fibLo)} — context / targets only.`,
+          `Box High / Low: ${this._fmt(fibHi)} / ${this._fmt(fibLo)} — context / targets only.`,
           pivotStep,
           ...(clockStep ? [clockStep] : []),
         ],
@@ -886,20 +886,19 @@ const RangeEmaUI = {
       ? ` ⚠️ Stop is a ${stopTag} (not a tight local swing — watch size).`
       : '';
 
-    // 1. ENTER: Trade 1 / Trade 2 / Sweep / Dr. Dev POB SHORT / Dr. Dev Trikal 12:45
+    // 1. ENTER: leave / retest / sweep / mid-zone / afternoon
     if (isActionable) {
+      const TC = (typeof window !== 'undefined' && window.TrendRunnerCopy) || null;
       if (emaAgree === 'disagrees') {
-        const setupName = o.setupKind === 'trade1_departure' ? 'Trade 1 Departure'
-          : o.setupKind === 'trade2_confirmed' ? 'Trade 2 Retest'
-          : o.setupKind || 'Setup';
+        const setupName = (TC && TC.setupName(o.setupKind)) || o.setupKind || 'Setup';
         return {
           side: 'WAIT',
           cls: 'wait',
-          title: `⚠️ Counter-Trend ${biasDir} Filtered (${setupName})`,
-          subtitle: `Dr. Dev Macro Trend Filter: EMAs disagree with this ${biasDir}. Bot skips setup to avoid fakeout wicks.`,
+          title: `⚠️ Counter-trend ${biasDir} filtered (${setupName})`,
+          subtitle: `Averages disagree with this ${biasDir}. Desk skips to avoid fakeout wicks.`,
           steps: [
-            `Trend Alignment Guard: 15m EMAs are stacked against ${biasDir}. Fighting momentum leads to whipsaws.`,
-            `Wait for EMAs to align with the move or for a valid departure in the true trend direction.`,
+            `Trend alignment: shorter averages are stacked against ${biasDir}. Fighting momentum leads to whipsaws.`,
+            `Wait for averages to align with the move or for a valid leave in the true trend direction.`,
             pivotStep,
             ...(liqStep ? [liqStep] : clockStep ? [clockStep] : []),
           ],
@@ -913,44 +912,27 @@ const RangeEmaUI = {
         };
       }
       const isPob = o.setupKind === 'pob_reject';
-      const is1245Rev = o.setupKind === 'afternoon_1245_reversal';
-      const is1245Break = o.setupKind === 'afternoon_1245_breakout';
-      const is1245Retest = o.setupKind === 'afternoon_1245_retest';
-      const setupLabel = o.setupKind === 'session_sweep'
-        ? `Red Bar · Session Sweep · Futures ${biasDir}`
-        : o.setupKind === 'trade2_confirmed'
-          ? `Red Bar · Trade 2 · Futures ${biasDir} (H1 sweep → M5 close-through)`
-          : isPob
-            ? `Dr. Dev POB · Futures SHORT (session 5m X → 44–56 reject)`
-            : is1245Rev
-              ? `Dr. Dev Trikal 12:45 · Reversal ${biasDir} (12:45 auction trap)`
-              : is1245Retest
-                ? `Dr. Dev Trikal 12:45 · Retest & Bounce ${biasDir} (Morning Shelf Confirmed)`
-                : is1245Break
-                  ? `Dr. Dev Trikal 12:45 · Breakout ${biasDir} (Morning H/L Expansion)`
-                  : `Dr. Dev Red Bar · Trade 1 · Futures ${biasDir} (Left First Red)`;
+      const publicName = (TC && TC.setupName(o.setupKind)) || o.setupKind || 'Setup';
+      const setupLabel = `${publicName} · ${biasDir}`;
       const t2Note = o.setupKind === 'trade2_confirmed'
-        ? (biasDir === 'SHORT' ? ' (1H high swept → 5m closed below high & median — sells only)' : ' (1H low swept → 5m closed above low & median — buys only)')
+        ? (biasDir === 'SHORT' ? ' (box high swept → 5m closed below — sells only)' : ' (box low swept → 5m closed above — buys only)')
         : '';
       const pob = o.playbook?.pobReject || o.pobReject;
       const entryPx = isPob && pob?.triggerPrice != null ? pob.triggerPrice : o.price;
-      const pobNote = isPob
-        ? ` Fill@POB 0.44 (${this._fmt(entryPx)}) · SL@0.56 · TP1 Anchor ${(pob?.xCandle?.sessionLabel || '')} low · TP2 2R.`
-        : '';
       return {
         side: biasDir,
         cls: biasDir === 'LONG' ? 'long' : 'short',
         title: setupLabel,
         subtitle: isPob
-          ? `POB ENTER · ${o.actionReason || 'fill@0.44 · SL@0.56 · TP1 Anchor · TP2 2R'}${emaNote}.`
-          : `Red Bar ENTER · ${o.actionReason || (useLadder ? 'H1→M5 · SL 5m swing · 50% @ 1:1 → BE → 1:2 → 1:3' : 'SL 5m swing · 50% @ 1:1 + runner')}${emaNote}.`,
+          ? `ENTER · ${o.actionReason || 'fill near mid-zone · stop beyond mid top · bank at anchor / 2R'}${emaNote}.`
+          : `ENTER · ${o.actionReason || (useLadder ? 'structural stop · 50% @ 1:1 → cost · then 1:2 / 1:3' : 'structural stop · 50% @ 1:1 + runner')}${emaNote}.`,
         steps: [
           isPob
-            ? `${hint}: SHORT at POB 0.44 ${this._fmt(entryPx)} after session X-Candle reject${pob?.xCandle?.sessionLabel ? ` (${pob.xCandle.sessionLabel})` : ''}.`
-            : `${hint}: Enter Futures ${biasDir} near ${this._fmt(o.price)}${t2Note}.`,
-          `1️⃣ Stop-Loss First (${isPob ? 'POB 0.56 / reject wick' : stopTag}): ${this._fmt(o.invalidation)}${stopPctStr}.${stopWarn}`,
+            ? `${hint}: SHORT near mid-zone ${this._fmt(entryPx)} after open-candle reject${pob?.xCandle?.sessionLabel ? ` (${pob.xCandle.sessionLabel})` : ''}.`
+            : `${hint}: Enter ${biasDir} near ${this._fmt(o.price)}${t2Note}.`,
+          `1️⃣ Stop first (${isPob ? 'mid-zone top / reject wick' : stopTag}): ${this._fmt(o.invalidation)}${stopPctStr}.${stopWarn}`,
           isPob
-            ? `2️⃣ TP1 Anchor low ${this._fmt(o.tp1)} → BE · 3️⃣ TP2 / 2R ${this._fmt(o.tp2)} — no overnight hold.`
+            ? `2️⃣ Bank at anchor ${this._fmt(o.tp1)} → move stop to cost · 3️⃣ 2R ${this._fmt(o.tp2)} — no overnight hold.`
             : sagarExitStep,
           pivotStep,
           ...(liqStep ? [liqStep] : clockStep ? [clockStep] : []),
@@ -970,47 +952,38 @@ const RangeEmaUI = {
     if (biasDir) {
       const magDown = o.playbook?.magnetBelow;
       const magUp = o.playbook?.magnetAbove;
+      const TC = (typeof window !== 'undefined' && window.TrendRunnerCopy) || null;
       const magStep = (magDown || magUp)
-        ? `Mark-window Fibs (targets only): ${magDown ? `↓ ${magDown.label} ${this._fmt(magDown.price)}` : ''}${magDown && magUp ? ' · ' : ''}${magUp ? `↑ ${magUp.label} ${this._fmt(magUp.price)}` : ''} — not an ENTER.`
+        ? `Mark-window levels (targets only): ${magDown ? `↓ ${magDown.label} ${this._fmt(magDown.price)}` : ''}${magDown && magUp ? ' · ' : ''}${magUp ? `↑ ${magUp.label} ${this._fmt(magUp.price)}` : ''} — not an ENTER.`
         : null;
       const fmStep = (fibMagnet && (fibMagnet.state === 'PULL_ACTIVE' || fibMagnet.state === 'PULL_WATCH' || fibMagnet.state === 'ENTER'))
-        ? `🧲 Equilibrium Magnet: Price stretched ${fibMagnet.distPct.toFixed(2)}% · Equilibrium pull destination @ ${this._fmt(fibMagnet.tp)} (Target only — wait for DNA trigger).`
+        ? `🧲 Fair-value pull: stretched ${fibMagnet.distPct.toFixed(2)}% · destination @ ${this._fmt(fibMagnet.tp)} (target only — wait for a real ENTER).`
         : null;
       const s3 = o.playbook?.setup3 || o.setup3;
       const pr = o.playbook?.pobReject || o.pobReject;
       const s3Step = (o.setupKind === 'setup3_primed' || o.setupKind === 'setup3_rubber_band') && s3
-        ? `Dr. Dev Setup 3 overlay: ${s3.detachedCount || '≥4'}× 30m bars detached from 5 EMA · Barricade ${this._fmt(s3.barricade)} · Magnet TP ${this._fmt(s3.targetPrice || s3.ema5)} · SL wick ${this._fmt(s3.stopLoss)} — chart guide only (not Telegram ENTER).`
+        ? `Stretch snapback guide: ${s3.detachedCount || '≥4'}× 30m bars off the short average · barricade ${this._fmt(s3.barricade)} · mean target ${this._fmt(s3.targetPrice || s3.ema5)} · SL wick ${this._fmt(s3.stopLoss)} — chart only (not Telegram ENTER).`
         : null;
       const pobStep = o.setupKind === 'pob_reject_watch' && pr
-        ? `Dr. Dev POB watch: ${pr.label || 'session 5m X → retest 44–56 → SHORT reject'} · POB ${this._fmt(pr.pobLo)}–${this._fmt(pr.pobHi)} · fill@0.44 · SL@0.56 · TP1 Anchor.`
+        ? `Watching mid-zone: ${pr.label || 'open candle → retest 44–56 → SHORT reject'} · zone ${this._fmt(pr.pobLo)}–${this._fmt(pr.pobHi)} · fill near mid · stop beyond mid top.`
         : null;
-      const watchTitle = o.setupKind === 'pob_reject_watch'
-        ? `Dr. Dev POB Watch · ${pr?.label || 'Asia/London/NY or NSE: retest 44–56 → SHORT reject'}`
-        : o.setupKind === 'lunch_decay'
-          ? `Lunch Decay Zone (11:30–12:30 IST) · Avoid entries · Wait Dr. Dev Trikal 12:45`
-          : o.setupKind === 'afternoon_1245_watch'
-            ? `Dr. Dev Trikal 12:45 Watch · London 30m Anchor Marked · Awaiting Breakout / Reversal`
-            : o.setupKind === 'setup3_rubber_band'
-          ? `Dr. Dev Setup 3 Watch · Barricade broken (${biasDir}) · overlay only — not ENTER`
-          : o.setupKind === 'setup3_primed'
-            ? `Dr. Dev Setup 3 Watch · Rubber Band Primed (${s3?.detachedCount || 4} bars detached) · Barricade ${this._fmt(s3?.barricade)}`
-            : o.setupKind === 'trade2_watch'
-              ? `Dr. Dev Red Bar Watch · Trade 2 H1→M5 — need sweep of 1H H/L then 5m close-through (${biasDir})`
-              : o.setupKind === 'fib_pullback'
-                ? `Dr. Dev Red Bar Bias: ${biasDir} · Near mark-window Fibs / POB (targets) — not ENTER`
-                : o.setupKind === 'pivot_reversal'
-                  ? `Bias Conflict · Crossed 1H Red vs Fibs (Stay Flat)`
-                  : `Dr. Dev Red Bar Bias: ${biasDir} · Waiting Trade 1 / Trade 2 / Sweep / POB`;
+      const watchTitle = (TC && TC.setupName(o.setupKind) && o.setupKind && o.setupKind !== 'trend_bias' && o.setupKind !== 'wait' && o.setupKind !== 'fib_pullback' && o.setupKind !== 'pivot_reversal')
+        ? `${TC.setupName(o.setupKind)}${biasDir ? ` · ${biasDir}` : ''}`
+        : o.setupKind === 'fib_pullback'
+          ? `Bias: ${biasDir} · Near mark-window levels (targets) — not ENTER`
+          : o.setupKind === 'pivot_reversal'
+            ? `Bias conflict · crossed box vs Fibs (stay flat)`
+            : `Bias: ${biasDir} · Waiting leave / retest / sweep / mid-zone`;
       const watchExit = useLadder
-        ? `If Trade 2 prints — 1️⃣ Stop (${stopTag}): ${this._fmt(o.invalidation)}${stopPctStr} · 2️⃣ 50% @ 1:1 ${tp1Str} → SL→BE · 3️⃣ Trail 1:2 ${tp2Str} · 4️⃣ TP 1:3 ${tp3Str}.${stopWarn}`
-        : `If ENTER prints — Trade 1 / Trade 2 / sweep / POB reject · 1️⃣ Stop (${stopTag}): ${this._fmt(o.invalidation)}${stopPctStr} · 2️⃣ book plan.${stopWarn}`;
+        ? `If shelf retest prints — 1️⃣ Stop (${stopTag}): ${this._fmt(o.invalidation)}${stopPctStr} · 2️⃣ 50% @ 1:1 ${tp1Str} → stop to cost · 3️⃣ Trail 1:2 ${tp2Str} · 4️⃣ TP 1:3 ${tp3Str}.${stopWarn}`
+        : `If ENTER prints — leave / retest / sweep / mid-zone · 1️⃣ Stop (${stopTag}): ${this._fmt(o.invalidation)}${stopPctStr} · 2️⃣ book plan.${stopWarn}`;
       return {
         side: 'WATCH',
         cls: 'wait',
         title: watchTitle,
-        subtitle: `${o.actionReason || 'Bias only — Telegram on Trade 1 / Trade 2 / sweep / POB ENTER'}${emaNote}.`,
+        subtitle: `${o.actionReason || 'Bias only — Telegram when ENTER is ready'}${emaNote}.`,
         steps: [
-          `WATCH ≠ signal. Bias is ${biasDir}. ENTER needs Trade 1, Trade 2, session sweep, or Dr. Dev POB reject.`,
+          `WATCH ≠ signal. Bias is ${biasDir}. ENTER needs leave, shelf retest, sweep, or mid-zone reject.`,
           ...(pobStep ? [pobStep] : []),
           ...(magStep ? [magStep] : []),
           ...(fmStep ? [fmStep] : []),
@@ -1030,7 +1003,7 @@ const RangeEmaUI = {
       };
     }
 
-    // 3. Fib Magnet Equilibrium Context (Radar / Destination Tell ONLY — Not an ENTER trigger)
+    // 3. Fair-value pull context (destination tell ONLY — not an ENTER)
     if (fibMagnet && (fibMagnet.state === 'PULL_ACTIVE' || fibMagnet.state === 'PULL_WATCH' || fibMagnet.state === 'ENTER')) {
       const isPullActive = fibMagnet.state === 'PULL_ACTIVE' || fibMagnet.state === 'ENTER';
       return {
@@ -1038,12 +1011,12 @@ const RangeEmaUI = {
         isFibMagnet: true,
         magnetState: fibMagnet.state,
         cls: 'wait',
-        title: `Context Radar · Equilibrium Magnet Destination (${fibMagnet.side})`,
-        subtitle: `Price is stretched ${fibMagnet.distPct.toFixed(2)}% outside Mark Box · Destination Target: ${this._fmt(fibMagnet.tp)} · ${isPullActive ? '1m rebound observed' : 'Awaiting lower-timeframe stabilization'}`,
+        title: `Context · Fair-value pull (${fibMagnet.side})`,
+        subtitle: `Price is stretched ${fibMagnet.distPct.toFixed(2)}% outside mark box · Destination: ${this._fmt(fibMagnet.tp)} · ${isPullActive ? '1m rebound observed' : 'Awaiting lower-timeframe stabilization'}`,
         steps: [
-          `🧲 Equilibrium Magnet: In 729 days of BTC data, 69.2% of sessions revisit the 02:30 IST Mark Box after a ≥0.5% stretch.`,
-          `🎯 Destination Target: Single target to box edge @ ${this._fmt(fibMagnet.tp)} (optional f50 median @ ${this._fmt(fibMagnet.tpAlt || fibMagnet.tp)}). Single destination target only.`,
-          `⚠️ Red Bar DNA Rule: Equilibrium magnet is a destination tell, NOT a validated entry signal. Telegram alerts and Binance execution are gated strictly to validated Trade 1 / Trade 2 Red Bar DNA.`,
+          `🧲 Fair-value pull: In long BTC samples, most sessions revisit the mark box after a ≥0.5% stretch.`,
+          `🎯 Destination: box edge @ ${this._fmt(fibMagnet.tp)} (optional mid @ ${this._fmt(fibMagnet.tpAlt || fibMagnet.tp)}). Context only.`,
+          `⚠️ Not an ENTER. Telegram and execution wait for leave / retest / sweep / mid-zone reject.`,
           pivotStep,
         ].filter(Boolean),
         entry: null,
@@ -1053,19 +1026,19 @@ const RangeEmaUI = {
         tp3: null,
         exit: fibMagnet.tp,
         rr: null,
-        actionReason: 'Equilibrium Magnet Destination (Context tell only — wait for Red Bar DNA to enter)',
+        actionReason: 'Fair-value destination (context only — wait for a real ENTER)',
       };
     }
 
     return {
       side: 'WAIT',
       cls: 'wait',
-      title: 'No clear bias · Stay Flat',
-      subtitle: 'Waiting for Trade 1 leave, Trade 2 (5m vs median), or session sweep.',
+      title: 'No clear bias · Stay flat',
+      subtitle: 'Waiting for leave, shelf retest, sweep, or mid-zone reject.',
       steps: [
-        'ENTER: Trade 1 / Trade 2 / session sweep / Dr. Dev POB SHORT (Asia 05:30 · London 13:00–13:30 · NY 19:00–20:00 · NIFTY 09:15) · fill@0.44 · SL@0.56 · TP1 Anchor · TP2 2R. Setup 3 = overlay. Renko filters wick noise. Leverage 5–10×.',
+        'ENTER paths: breakout leave · shelf retest · liquidity sweep · mid-zone reject · afternoon window. Stretch snapback = chart guide. Size from the stop.',
         pivotStep,
-        `Prior-day H/L magnets: ${this._fmt(pdh)} / ${this._fmt(pdl)}.`,
+        `Prior-day H/L: ${this._fmt(pdh)} / ${this._fmt(pdl)}.`,
         ...(clockStep ? [clockStep] : []),
       ],
       entry: null,
@@ -1115,7 +1088,7 @@ const RangeEmaUI = {
       return `<button type="button" class="${cls}" data-rb-inst="${x.id}"${loading && active ? ' aria-busy="true"' : ''}>${x.label}${active && loading ? ' …' : ''}</button>`;
     }).join('');
     const alertsOn = this.state.alertsOn !== false;
-    const alertBtn = `<button type="button" class="rb-inst-btn rb-alert-btn${alertsOn ? ' active' : ''}" id="rbAlertsToggle" title="Telegram + banner on Red Bar ENTER. Worker keeps scanning when this tab is closed." aria-pressed="${alertsOn ? 'true' : 'false'}">${alertsOn ? 'Alerts ON' : 'Alerts OFF'}</button>`;
+    const alertBtn = `<button type="button" class="rb-inst-btn rb-alert-btn${alertsOn ? ' active' : ''}" id="rbAlertsToggle" title="Telegram + banner when desk ENTER is ready. Worker keeps scanning when this tab is closed." aria-pressed="${alertsOn ? 'true' : 'false'}">${alertsOn ? 'Alerts ON' : 'Alerts OFF'}</button>`;
     return instBtns + alertBtn;
   },
 
@@ -1145,14 +1118,14 @@ const RangeEmaUI = {
     if (focus) {
       focus.textContent = this.state.loading
         ? `Loading ${inst.label}…`
-        : `${inst.label} · ${tf} Red Bar`;
+        : `${inst.label} · Desk · ${tf}`;
     }
 
     // Hard error with nothing to show
     if (this.state.error && !rowMatches && !this.state.loading) {
       host.innerHTML = `
         <div class="section-heading">
-          <h1>🟥 Red Bar Desk</h1>
+          <h1>TrendRunner Desk</h1>
         </div>
         <div class="rb-inst-tabs" role="tablist" aria-label="Instrument">${tabs}</div>
         <div class="range-desk-error">${this.state.error}</div>
@@ -1165,7 +1138,7 @@ const RangeEmaUI = {
     if (this.state.loading && !rowMatches) {
       host.innerHTML = `
         <div class="section-heading">
-          <h1>🟥 Red Bar Desk</h1>
+          <h1>TrendRunner Desk</h1>
           <p class="section-sub">Loading <strong>${inst.label}</strong> on ${tf}…</p>
         </div>
         <div class="rb-inst-tabs" role="tablist" aria-label="Instrument">${tabs}</div>
@@ -1189,9 +1162,9 @@ const RangeEmaUI = {
 
     host.innerHTML = `
       <div class="section-heading">
-        <h1>🟥 Red Bar Desk</h1>
+        <h1>TrendRunner Desk</h1>
         <p class="section-sub">
-          ${inst.label} on <strong>${tf}</strong>: <strong>Dr. Devendra Pratap Singh</strong> Red Bar DNA · Trade 1 / Trade 2 / sweep · <strong>POB ENTER</strong> (44–56) · Trikal 12:45 · Setup 3 Rubber Band overlay · Renko · leverage 5–10×.
+          ${inst.label} on <strong>${tf}</strong>: session leave · shelf retest · liquidity sweep · mid-zone reject · afternoon window. Stretch snapback = chart guide. Size from the stop.
           <span class="range-desk-meta">${inst.tradeHint || ''} · Updated ${when}${this.state.loading ? ' · refreshing…' : ''}</span>
         </p>
       </div>
@@ -1593,44 +1566,44 @@ const RangeEmaUI = {
     const isNgMark = isNgInst && curMins >= 1380 && curMins <= 1410; // 23:00–23:30 IST
 
     const activeSessionName = isNiftyInst
-      ? (isNsePrime ? 'NSE Prime POB & Trade 1 (09:15–12:15 IST)'
-        : isNseHunt ? '12:45 PM Liquidity Hunt (12:15–13:15 IST)'
-        : isNseAfternoon ? 'NSE Afternoon Session (13:15–15:15 IST)'
-        : isNseMark ? 'NSE Close Mark Window (15:15–15:45 IST)'
-        : 'NSE Closed (Opens 09:15 IST)')
+      ? (isNsePrime ? 'NSE prime · mid-zone & leave (09:15–12:15 IST)'
+        : isNseHunt ? 'Afternoon window (12:15–13:15 IST)'
+        : isNseAfternoon ? 'NSE afternoon session (13:15–15:15 IST)'
+        : isNseMark ? 'NSE close mark window (15:15–15:45 IST)'
+        : 'NSE closed (opens 09:15 IST)')
       : isNgInst
-        ? (isMcxDay ? 'MCX Morning Session · POB & 30m Trade 1 (09:00–17:00 IST)'
-          : isMcxEve ? `MCX Evening Open · Trikal POB (17:00–${nymexOpenStr} IST)`
-          : isNymex ? `US NYMEX Open · Prime Energy Session (${nymexOpenStr}–23:00 IST)`
-          : isNgMark ? 'MCX Close Mark Window (23:00–23:30 IST)'
-          : 'MCX Closed · Globex Overnight (MCX Opens 09:00 IST)')
+        ? (isMcxDay ? 'MCX morning · mid-zone & leave (09:00–17:00 IST)'
+          : isMcxEve ? `MCX evening open · mid-zone (17:00–${nymexOpenStr} IST)`
+          : isNymex ? `US NYMEX open · energy session (${nymexOpenStr}–23:00 IST)`
+          : isNgMark ? 'MCX close mark window (23:00–23:30 IST)'
+          : 'MCX closed · Globex overnight (MCX opens 09:00 IST)')
       : isXauInst
-        ? (isXauMark ? 'Gold Daily Mark Window (01:30–02:30 IST)'
-          : isComexOpen ? `COMEX / US Bullion Open (${comexOpenStr}–${nyEndStr} IST)`
-          : isAsia ? `Asia Bullion Session (05:30–${lonOpenStr} IST)`
-          : isLon ? `London Bullion / LBMA (${lonOpenStr}–${comexOpenStr} IST)`
-          : isLonClose ? `London Close / LBMA Fix (${fmtHm(lonCloseStart)}–${fmtHm(lonCloseEnd)} IST)`
-          : 'Off-prime Bullion Hours')
-      : isMark ? 'Daily Mark Window (02:30–03:30 IST)'
-      : isNy ? `New York Open (${nyOpenStr}–${nyEndStr} IST)`
-      : isAsia ? `Asia Session (05:30–${lonOpenStr} IST)`
-      : isLon ? `London Session (${lonOpenStr}–${nyOpenStr} IST)`
-      : isLonClose ? `London Close / 4 PM Fix (${fmtHm(lonCloseStart)}–${fmtHm(lonCloseEnd)} IST)`
-      : isUsClose ? 'US Cash Close & CME Settle (01:15–02:30 IST)'
-      : 'Off-prime / dead hours';
+        ? (isXauMark ? 'Gold daily mark window (01:30–02:30 IST)'
+          : isComexOpen ? `COMEX / US bullion open (${comexOpenStr}–${nyEndStr} IST)`
+          : isAsia ? `Asia bullion session (05:30–${lonOpenStr} IST)`
+          : isLon ? `London bullion / LBMA (${lonOpenStr}–${comexOpenStr} IST)`
+          : isLonClose ? `London close / LBMA fix (${fmtHm(lonCloseStart)}–${fmtHm(lonCloseEnd)} IST)`
+          : 'Off-prime bullion hours')
+      : isMark ? 'Daily mark window (02:30–03:30 IST)'
+      : isNy ? `New York open (${nyOpenStr}–${nyEndStr} IST)`
+      : isAsia ? `Asia session (05:30–${lonOpenStr} IST)`
+      : isLon ? `London session (${lonOpenStr}–${nyOpenStr} IST)`
+      : isLonClose ? `London close / 4 PM fix (${fmtHm(lonCloseStart)}–${fmtHm(lonCloseEnd)} IST)`
+      : isUsClose ? 'US cash close & CME settle (01:15–02:30 IST)'
+      : 'Off-prime / quiet hours';
 
     // Trigger level text for Stepper
     const firstRedTag = o.firstRedLabel || (r.instrument?.firstRedTf === '30m' ? '30m' : '1H');
     const activePob = o.pobReject || o.playbook?.pobReject;
     const trigLevelStr = (activePob?.pobLo != null && (o.setupKind === 'pob_reject' || o.setupKind === 'pob_reject_watch'))
-      ? `POB 44–56: ${this._fmt(activePob.pobLo)}–${this._fmt(activePob.pobHi)}`
+      ? `Mid-zone 44–56: ${this._fmt(activePob.pobLo)}–${this._fmt(activePob.pobHi)}`
       : o.firstRed1h
-        ? `${firstRedTag} Red ${this._fmt(o.firstRed1h.low)}–${this._fmt(o.firstRed1h.high)}`
+        ? `${firstRedTag} box ${this._fmt(o.firstRed1h.low)}–${this._fmt(o.firstRed1h.high)}`
         : o.playbook?.magnetBelow
-          ? `Fib ↓ ${this._fmt(o.playbook.magnetBelow.price)}`
+          ? `Level ↓ ${this._fmt(o.playbook.magnetBelow.price)}`
           : o.playbook?.magnetAbove
-            ? `Fib ↑ ${this._fmt(o.playbook.magnetAbove.price)}`
-            : 'Testing Equilibrium';
+            ? `Level ↑ ${this._fmt(o.playbook.magnetAbove.price)}`
+            : 'Testing equilibrium';
 
     const prime = this._getPrimeWindowStatus(nowMs, r.instrument?.id);
 
@@ -1640,7 +1613,7 @@ const RangeEmaUI = {
         <div class="rb-chart-toolbar">
           <div class="rb-chart-mode-group" role="group" aria-label="Chart style" style="display:flex;gap:4px;margin-right:8px;">
             <button type="button" class="rb-tf-btn${this.state.chartMode !== 'renko' ? ' active' : ''}" data-rb-chart-mode="candles" title="Standard Candlesticks">🕯️ Candles</button>
-            <button type="button" class="rb-tf-btn${this.state.chartMode === 'renko' ? ' active' : ''}" data-rb-chart-mode="renko" title="Optional chart view only — not a Red Bar signal">🧱 Renko View</button>
+            <button type="button" class="rb-tf-btn${this.state.chartMode === 'renko' ? ' active' : ''}" data-rb-chart-mode="renko" title="Optional chart view only — not an ENTER signal">🧱 Renko View</button>
           </div>
           <div class="rb-tf-group" role="group" aria-label="Chart timeframe">
             ${(c.timeframes || ['5m', '15m', '30m', '1h']).map((t) =>
@@ -1675,8 +1648,8 @@ const RangeEmaUI = {
             `}
             ${r.sessionTell ? `<span style="font-weight:600; color:${r.sessionTell.type === 'bullish' ? '#4ade80' : r.sessionTell.type === 'bearish' ? '#f87171' : '#7dd3fc'}; font-size:11px; background:rgba(255,255,255,0.05); padding:2px 8px; border-radius:4px;">${r.sessionTell.badge}</span>` : ''}
             ${o.equinox && o.equinox.seasonActive && inst.id === 'NIFTY' ? `
-              <span class="rb-prime-pill" style="background:${o.equinox.territory === 'positive' ? 'rgba(34,197,94,0.15)' : 'rgba(239,68,68,0.15)'}; border-color:${o.equinox.territory === 'positive' ? '#22c55e' : '#ef4444'}; color:${o.equinox.territory === 'positive' ? '#4ade80' : '#f87171'};" title="Dr. Dev Equinox Baseline: ${o.equinox.baseline} · ${o.equinox.territory === 'positive' ? 'Positive Territory: Calls only, Puts forbidden' : 'Negative Territory: Puts only, Calls forbidden'}">
-                🌐 <strong>Equinox:</strong> ${o.equinox.territory.toUpperCase()} (${o.equinox.allowedSide.replace('_', ' ')})
+              <span class="rb-prime-pill" style="background:${o.equinox.territory === 'positive' ? 'rgba(34,197,94,0.15)' : 'rgba(239,68,68,0.15)'}; border-color:${o.equinox.territory === 'positive' ? '#22c55e' : '#ef4444'}; color:${o.equinox.territory === 'positive' ? '#4ade80' : '#f87171'};" title="Seasonal baseline ${o.equinox.baseline} · ${o.equinox.territory === 'positive' ? 'Positive: prefer calls' : 'Negative: prefer puts'}">
+                🌐 <strong>Season bias:</strong> ${o.equinox.territory.toUpperCase()} (${o.equinox.allowedSide.replace('_', ' ')})
               </span>
             ` : ''}
             ${o.afternoon1245?.morning?.locked ? `
@@ -1694,18 +1667,18 @@ const RangeEmaUI = {
 
         <div class="rb-chart-legend">
           <span class="lg price">Candles (${this.activeTf()})</span>
-          ${this.activeTf() === '30m' ? '<span class="lg ema5" style="color:#c084fc;"><i style="display:inline-block;width:10px;height:2px;background:#c084fc;vertical-align:middle;margin-right:4px;"></i>EMA 5 (Rubber Band)</span>' : ''}
+          ${this.activeTf() === '30m' ? '<span class="lg ema5" style="color:#c084fc;"><i style="display:inline-block;width:10px;height:2px;background:#c084fc;vertical-align:middle;margin-right:4px;"></i>EMA 5 (stretch guide)</span>' : ''}
           <span class="lg ema10">EMA ${c.emaFast || 10}</span>
           <span class="lg ema30">EMA ${c.emaSlow || 30}</span>
-          <span class="lg band">${this._isFibStyle(r) ? `POB 44–56 (Point of Balance) · Fib 0/1${r.instrument?.markLabel ? ` · ${r.instrument.markLabel}` : ''}` : 'Day ranges'}</span>
-          <span class="lg stop">${o.firstRedLabel || '1H'} first red H/L</span>
+          <span class="lg band">${this._isFibStyle(r) ? `Mid-zone 44–56 · Fib 0/1${r.instrument?.markLabel ? ` · ${r.instrument.markLabel}` : ''}` : 'Day ranges'}</span>
+          <span class="lg stop">${o.firstRedLabel || '1H'} session box H/L</span>
           <span class="lg sess-london rb-lg-desk">Session opens</span>
           <span class="lg rb-lg-desk" style="border-left:3px solid #22c55e; color:#94a3b8; padding-left:4px;">Prev Fib Box</span>
           <span id="rbCandleInfo" style="margin-left:auto; font-weight:600; font-size:11.5px; color:#cbd5e1;"></span>
         </div>
         <p class="rb-zoom-hint">Floating 4-way D-Pad (▲▼◀▶ + − ↺ · drag ⠿ or click ⇄ to move) · Mouse wheel &amp; touch pinch supported</p>
         <div class="rb-chart-box">
-          <canvas id="redBarChart" aria-label="Red Bar chart"></canvas>
+          <canvas id="redBarChart" aria-label="TrendRunner Desk chart"></canvas>
           <div class="rb-floating-dpad${localStorage.getItem('trendrunner_dpad_side') !== 'right' ? ' is-left' : ''}" id="rbFloatingDpad" aria-label="Chart navigation">
             <div class="rb-dpad-grip" id="rbDpadGrip" title="Drag to move D-Pad anywhere on chart · Double-click or tap ⇄ to snap Left/Right">
               <span class="rb-dpad-dots">⠿</span>
@@ -1779,22 +1752,22 @@ const RangeEmaUI = {
     const is1245Enter = (o.setupKind === 'afternoon_1245_reversal' || o.setupKind === 'afternoon_1245_breakout' || o.setupKind === 'afternoon_1245_retest') && showEnter;
     const isPobEnter = o.setupKind === 'pob_reject' && showEnter;
     const statusBanner = a.isFibMagnet
-      ? `<div class="rb-signal-banner wait" style="background:rgba(56,189,248,0.10); border:1px solid rgba(56,189,248,0.35); color:#7dd3fc;">🧲 CONTEXT RADAR · Equilibrium pull towards Mark Fib @ ${this._fmt(a.tp1)} (Context tell only — wait for Red Bar DNA / POB to ENTER)</div>`
+      ? `<div class="rb-signal-banner wait" style="background:rgba(56,189,248,0.10); border:1px solid rgba(56,189,248,0.35); color:#7dd3fc;">🧲 CONTEXT · Fair-value pull toward mark level @ ${this._fmt(a.tp1)} (not an ENTER — wait for leave / retest / sweep / mid-zone)</div>`
       : (showEnter
-        ? `<div class="rb-signal-banner enter">${is1245Enter ? '🕒 12:45 AFTERNOON ENTER' : isPobEnter ? '⚖️ POB ENTER' : 'LIVE ENTER'} · ${a.side} — fresh window (~${freshMins}m). Levels ${useSnap ? 'frozen at first alert' : 'live'}.</div>`
+        ? `<div class="rb-signal-banner enter">${is1245Enter ? '🕒 AFTERNOON ENTER' : isPobEnter ? '⚖️ MID-ZONE ENTER' : 'LIVE ENTER'} · ${a.side} — fresh window (~${freshMins}m). Levels ${useSnap ? 'frozen at first alert' : 'live'}.</div>`
         : (isEnter || reasonStale || snapStale)
-          ? `<div class="rb-signal-banner watch">STALE — ENTER already fired; do <em>not</em> chase. ${escTxt(o.actionReason) || 'Wait for the next Trade 1 / 2 / sweep / POB.'}</div>`
+          ? `<div class="rb-signal-banner watch">STALE — setup seen but too late to ENTER; do <em>not</em> chase. ${escTxt(o.actionReason) || 'Wait for the next leave / retest / sweep / mid-zone.'}</div>`
         : a.side === 'WATCH'
           ? `<div class="rb-signal-banner watch">${
               isPobWatch
-                ? `⚖️ ${watchHeadline || 'Dr. Dev POB — awaiting retest / reject'}`
+                ? `⚖️ ${watchHeadline || 'Watching mid-zone — awaiting retest / reject'}`
                 : is1245Watch
-                  ? `🕒 ${watchHeadline || 'Dr. Dev Trikal 12:45 — watching London Open anchor'}`
+                  ? `🕒 ${watchHeadline || 'Afternoon window — watching for breakout / reversal'}`
                   : isSetup3Watch
-                    ? `🧲 ${watchHeadline || 'Dr. Dev Setup 3 Watch — rubber band overlay (not ENTER)'}`
+                    ? `🧲 ${watchHeadline || 'Stretch snapback guide — not ENTER'}`
                     : `👀 ${watchHeadline || `WATCHING — Bias ${trendWord}; waiting for confirmed trigger`}`
             }${watchDetail ? `<div style="margin-top:4px;font-size:11.5px;font-weight:500;opacity:0.92;">${watchDetail}</div>` : ''}</div>`
-          : `<div class="rb-signal-banner wait">⏳ WAITING (Market in Equilibrium) — No active entry setup. Stay in cash.</div>`);
+          : `<div class="rb-signal-banner wait">⏳ WAITING — No active entry setup. Stay in cash.</div>`);
 
     const pos = this.state.futuresStatus;
     const posAmt = pos?.positions?.[0] ? Math.abs(parseFloat(pos.positions[0].positionAmt) || 0) : 0;
@@ -1851,44 +1824,44 @@ const RangeEmaUI = {
         <div class="rb-step active">
           <div class="rb-step-icon">⏳</div>
           <div class="rb-step-body">
-            <div class="rb-step-name">3. DNA Trigger</div>
-            <div class="rb-step-val">Awaiting Trade 1 / 2</div>
+            <div class="rb-step-name">3. Wait for ENTER</div>
+            <div class="rb-step-val">Awaiting leave / retest</div>
           </div>
         </div>
         <div class="rb-step pending">
           <div class="rb-step-icon">🔒</div>
           <div class="rb-step-body">
-            <div class="rb-step-name">4. Execution Gated</div>
-            <div class="rb-step-val">DNA Required to Enter</div>
+            <div class="rb-step-name">4. Execution gated</div>
+            <div class="rb-step-val">Need confirmed setup</div>
           </div>
         </div>
       ` : isPobWatch ? `
         <div class="rb-step done">
           <div class="rb-step-icon">🕯️</div>
           <div class="rb-step-body">
-            <div class="rb-step-name">1. X-Candle</div>
-            <div class="rb-step-val">${(o.playbook?.pobReject || o.pobReject)?.xCandle?.sessionLabel || '5m first red @ session open'}</div>
+            <div class="rb-step-name">1. Open candle</div>
+            <div class="rb-step-val">${(o.playbook?.pobReject || o.pobReject)?.xCandle?.sessionLabel || '5m first opposing @ session open'}</div>
           </div>
         </div>
         <div class="rb-step ${['await_retest', 'watching'].includes((o.playbook?.pobReject || o.pobReject)?.status) ? 'active' : 'done'}">
           <div class="rb-step-icon">⚖️</div>
           <div class="rb-step-body">
-            <div class="rb-step-name">2. POB Retest (44–56)</div>
+            <div class="rb-step-name">2. Mid-zone retest (44–56)</div>
             <div class="rb-step-val">${this._fmt((o.playbook?.pobReject || o.pobReject)?.pobLo)}–${this._fmt((o.playbook?.pobReject || o.pobReject)?.pobHi)}</div>
           </div>
         </div>
         <div class="rb-step active">
           <div class="rb-step-icon">⏳</div>
           <div class="rb-step-body">
-            <div class="rb-step-name">3. SHORT Reject</div>
-            <div class="rb-step-val">Wait close &lt; 0.44 · stand down if &gt; 0.56</div>
+            <div class="rb-step-name">3. SHORT reject</div>
+            <div class="rb-step-val">Wait close below mid · stand down if above mid top</div>
           </div>
         </div>
         <div class="rb-step pending">
           <div class="rb-step-icon">🎯</div>
           <div class="rb-step-body">
             <div class="rb-step-name">4. ENTER</div>
-            <div class="rb-step-val">fill@0.44 · SL@0.56 · TP1 Anchor</div>
+            <div class="rb-step-val">fill near mid · stop mid top · bank at anchor</div>
           </div>
         </div>
       ` : isSetup3Watch ? `
@@ -2006,28 +1979,28 @@ const RangeEmaUI = {
         </div>
         <div class="rb-timeline-track">
           ${isNiftyInst ? `
-          <div class="rb-session-seg ${isNsePrime ? 'active' : ''} is-prime" title="09:15 IST 5m X-Candle POB &amp; 1H Trade 1 Window">
+          <div class="rb-session-seg ${isNsePrime ? 'active' : ''} is-prime" title="09:15 IST open · mid-zone &amp; leave window">
             <span class="seg-time">09:15</span>
-            <span class="seg-name">NSE POB</span>
+            <span class="seg-name">NSE Open</span>
           </div>
-          <div class="rb-session-seg ${isNseHunt ? 'active' : ''} is-prime" title="Dr. Dev 12:45 PM Institutional Liquidity Hunt (12:15–13:15 IST)">
+          <div class="rb-session-seg ${isNseHunt ? 'active' : ''} is-prime" title="Afternoon liquidity window (12:15–13:15 IST)">
             <span class="seg-time">12:45</span>
-            <span class="seg-name">Liq Hunt</span>
-          </div>
-          <div class="rb-session-seg ${isNseAfternoon ? 'active' : ''}" title="NSE Afternoon Trend &amp; Setup 3 Window (13:15–15:15 IST)">
-            <span class="seg-time">13:15</span>
             <span class="seg-name">Afternoon</span>
           </div>
-          <div class="rb-session-seg ${isNseMark ? 'active' : ''}" title="NSE Closing Range Mark Window (15:15–15:45 IST)">
+          <div class="rb-session-seg ${isNseAfternoon ? 'active' : ''}" title="NSE afternoon trend window (13:15–15:15 IST)">
+            <span class="seg-time">13:15</span>
+            <span class="seg-name">Trend</span>
+          </div>
+          <div class="rb-session-seg ${isNseMark ? 'active' : ''}" title="NSE closing range mark window (15:15–15:45 IST)">
             <span class="seg-time">15:15</span>
             <span class="seg-name">Close Fib</span>
           </div>
           ` : isNgInst ? `
-          <div class="rb-session-seg ${isMcxDay ? 'active' : ''} is-prime" title="MCX Morning Open · 09:00 IST 5m X-Candle POB &amp; 30m First Red">
+          <div class="rb-session-seg ${isMcxDay ? 'active' : ''} is-prime" title="MCX morning open · mid-zone &amp; 30m leave">
             <span class="seg-time">09:00</span>
             <span class="seg-name">MCX Day</span>
           </div>
-          <div class="rb-session-seg ${isMcxEve ? 'active' : ''} is-prime" title="Dr. Dev 17:00 IST MCX Evening / European Energy Open POB">
+          <div class="rb-session-seg ${isMcxEve ? 'active' : ''} is-prime" title="17:00 IST MCX evening / European energy open">
             <span class="seg-time">17:00</span>
             <span class="seg-name">MCX Eve</span>
           </div>
@@ -2131,15 +2104,15 @@ const RangeEmaUI = {
         <div class="rb-levels-col">
           <div class="col-title">🧲 Equilibrium Anchors</div>
           <div class="level-row"><span>${markTag}:</span> <strong>${this._fmt(o.currentBand?.high)} / ${this._fmt(o.currentBand?.low)}</strong></div>
-          <div class="level-row"><span>Mark POB (44–56%):</span> <strong>${o.currentBand?.pob ? `${this._fmt(o.currentBand.pob.low)} – ${this._fmt(o.currentBand.pob.high)}` : (o.currentBand?.f44 != null ? `${this._fmt(Math.min(o.currentBand.f44, o.currentBand.f56))} – ${this._fmt(Math.max(o.currentBand.f44, o.currentBand.f56))}` : '—')}</strong></div>
-          <div class="level-row"><span>Mark Median (50%):</span> <strong>${this._fmt(o.currentBand?.f50 ?? o.currentBand?.mid)}</strong></div>
-          <div class="level-row"><span>${firstRedTag} First Red:</span> <strong>${this._fmt(o.firstRed1h?.high)} / ${this._fmt(o.firstRed1h?.low)}</strong></div>
+          <div class="level-row"><span>Mark mid-zone (44–56%):</span> <strong>${o.currentBand?.pob ? `${this._fmt(o.currentBand.pob.low)} – ${this._fmt(o.currentBand.pob.high)}` : (o.currentBand?.f44 != null ? `${this._fmt(Math.min(o.currentBand.f44, o.currentBand.f56))} – ${this._fmt(Math.max(o.currentBand.f44, o.currentBand.f56))}` : '—')}</strong></div>
+          <div class="level-row"><span>Mark median (50%):</span> <strong>${this._fmt(o.currentBand?.f50 ?? o.currentBand?.mid)}</strong></div>
+          <div class="level-row"><span>${firstRedTag} session box:</span> <strong>${this._fmt(o.firstRed1h?.high)} / ${this._fmt(o.firstRed1h?.low)}</strong></div>
         </div>
         <div class="rb-levels-col">
           <div class="col-title">🎯 Macro Targets &amp; Swings</div>
           <div class="level-row"><span>Prior Day (PDH/PDL):</span> <strong>${this._fmt(o.refs?.priorDayHigh)} / ${this._fmt(o.refs?.priorDayLow)}</strong></div>
           <div class="level-row"><span>5m Swing H/L:</span> <strong>${this._fmt(o.refs?.prevSwingHigh)} / ${this._fmt(o.refs?.prevSwingLow)}</strong></div>
-          ${activePob?.pobLo != null ? `<div class="level-row"><span>5m Scalp POB (${activePob.xCandle?.sessionLabel || '5m'}):</span> <strong>${this._fmt(activePob.pobLo)} – ${this._fmt(activePob.pobHi)}</strong></div>` : `<div class="level-row"><span>Dr. Dev CPR:</span> <strong>${this._fmt((o.cpr || o.playbook?.cpr)?.pivot)}</strong></div>`}
+          ${activePob?.pobLo != null ? `<div class="level-row"><span>5m mid-zone (${activePob.xCandle?.sessionLabel || '5m'}):</span> <strong>${this._fmt(activePob.pobLo)} – ${this._fmt(activePob.pobHi)}</strong></div>` : `<div class="level-row"><span>Pivot (CPR):</span> <strong>${this._fmt((o.cpr || o.playbook?.cpr)?.pivot)}</strong></div>`}
           <div class="level-row"><span>EMA 10 / 30:</span> <strong>${r.emaAgree || 'Agree'}</strong></div>
         </div>
       </div>
@@ -2967,10 +2940,10 @@ const RangeEmaUI = {
         ctx.fillStyle = pob.triggered ? 'rgba(244, 63, 94, 0.14)' : 'rgba(168, 85, 247, 0.12)';
         ctx.fillRect(x0, top, area.right - x0, h);
 
-        // POB 0.56 (SL ceiling) & POB 0.44 (entry edge)
+        // Mid-zone top (SL) & mid-zone edge (entry)
         const lines = [
-          { y: yHi, col: 'rgba(244, 63, 94, 0.85)', dash: [4, 3], txt: `POB 0.56 (SL) ${Number(pob.pobHi).toFixed(0)}` },
-          { y: yLo, col: 'rgba(192, 132, 252, 0.90)', dash: [5, 3], txt: `POB 0.44 (Entry) ${Number(pob.pobLo).toFixed(0)}` },
+          { y: yHi, col: 'rgba(244, 63, 94, 0.85)', dash: [4, 3], txt: `Mid top (SL) ${Number(pob.pobHi).toFixed(0)}` },
+          { y: yLo, col: 'rgba(192, 132, 252, 0.90)', dash: [5, 3], txt: `Mid edge (Entry) ${Number(pob.pobLo).toFixed(0)}` },
         ];
         const anchorLow = pob.xCandle?.low ?? pob.xCandle?.l;
         if (anchorLow != null && Number.isFinite(anchorLow)) {
@@ -2978,7 +2951,7 @@ const RangeEmaUI = {
             y: yScale.getPixelForValue(anchorLow),
             col: 'rgba(74, 222, 128, 0.80)',
             dash: [3, 3],
-            txt: `X-Low (TP1) ${Number(anchorLow).toFixed(0)}`,
+            txt: `Open low (TP1) ${Number(anchorLow).toFixed(0)}`,
           });
         }
         ctx.font = compact
@@ -3263,27 +3236,27 @@ const RangeEmaUI = {
     const windows = isNifty ? [
       {
         id: 'nse_open',
-        name: 'NSE Open · 5m POB & Trade 1',
+        name: 'NSE Open · mid-zone & leave',
         code: 'NSE OPEN',
         startIstMins: 555,   // 09:15 IST
         endIstMins: 735,     // 12:15 IST
         startStrIst: '09:15',
         endStrIst: '12:15',
-        winRate: '94.9% 2Y POB WR',
-        headline: 'Dr. Dev 09:15 5m X-Candle POB & 1H Trade 1',
-        rule: 'First 5m red @ 09:15 = X-Candle → retest POB 44–56 → SHORT reject (Fill@0.44, SL@0.56, TP1 Anchor Low) or 1H Trade 1 leave'
+        winRate: 'High-interest open',
+        headline: '09:15 open candle · mid-zone & leave',
+        rule: 'First 5m opposing @ 09:15 → retest mid-zone 44–56 → SHORT reject, or higher-TF breakout leave'
       },
       {
         id: 'nse_hunt',
-        name: '12:45 PM Liquidity Hunt',
-        code: '12:45 HUNT',
+        name: 'Afternoon liquidity window',
+        code: '12:45',
         startIstMins: 735,   // 12:15 IST
         endIstMins: 795,     // 13:15 IST
         startStrIst: '12:15',
         endStrIst: '13:15',
-        winRate: 'Dr. Dev Stop Hunt',
-        headline: 'Midday Institutional Liquidity Sweep',
-        rule: 'Flatten morning POB scalps by 12:45 PM; institutions hunt morning High/Low before European desks open'
+        winRate: 'Stop-hunt window',
+        headline: 'Midday liquidity sweep',
+        rule: 'Prefer flat morning scalps by ~12:45; morning high/low often hunted before Europe opens'
       },
       {
         id: 'nse_close',
@@ -3294,21 +3267,21 @@ const RangeEmaUI = {
         startStrIst: '15:15',
         endStrIst: '15:45',
         winRate: 'Fib 0–1 Anchor',
-        headline: 'Closing Range Fib Anchor (15:15–15:45 IST)',
-        rule: 'High/Low wicks of 15:15–15:45 IST lock the Fib 0, POB 44–56, and Fib 1 levels for the next NSE session'
+        headline: 'Closing range Fib anchor (15:15–15:45 IST)',
+        rule: 'High/Low wicks of 15:15–15:45 IST lock Fib 0, mid-zone 44–56, and Fib 1 for the next NSE session'
       }
     ] : isNg ? [
       {
         id: 'mcx_open',
-        name: 'MCX Morning Open · POB & 30m Red',
+        name: 'MCX Morning Open · mid-zone & leave',
         code: 'MCX DAY',
         startIstMins: 540,   // 09:00 IST
         endIstMins: 720,     // 12:00 IST
         startStrIst: '09:00',
         endStrIst: '12:00',
-        winRate: 'Trikal Morning Open',
-        headline: 'MCX 09:00 5m X-Candle POB & 30m First Red',
-        rule: 'First 5m red @ 09:00 = X-Candle → POB 44–56 retest SHORT, plus 30m First Red Trade 1 / Trade 2 anchor'
+        winRate: 'Morning open',
+        headline: 'MCX 09:00 open · mid-zone & 30m leave',
+        rule: 'First 5m opposing @ 09:00 → mid-zone retest SHORT, plus 30m session-box leave / retest'
       },
       {
         id: 'mcx_eve',
@@ -3318,9 +3291,9 @@ const RangeEmaUI = {
         endIstMins: 1110,    // 18:30 IST
         startStrIst: '17:00',
         endStrIst: '18:30',
-        winRate: 'Dr. Dev 5 PM Energy Slot',
-        headline: 'European / MCX Evening Liquidity Injection',
-        rule: 'Dr. Dev 5:00 PM IST commodity window: 5m X-Candle POB 44–56 & MCX Day High/Low liquidity sweep'
+        winRate: '5 PM energy slot',
+        headline: 'European / MCX evening liquidity',
+        rule: '17:00 IST commodity window: mid-zone 44–56 & MCX day high/low liquidity sweep'
       },
       {
         id: 'nymex',
@@ -3343,9 +3316,9 @@ const RangeEmaUI = {
         endIstMins: 510,     // 08:30 IST
         startStrIst: '05:30',
         endStrIst: '08:30',
-        winRate: 'Brahmastra Asia Open',
-        headline: '01:30–02:30 Mark Fib + 05:30 POB & 30m Red',
-        rule: 'After 01:30–02:30 IST Mark Fibs lock, watch 30m First Red Trade 1/2 & 05:30 IST 5m X-Candle POB 44–56'
+        winRate: 'Asia open',
+        headline: 'Mark Fib + 05:30 mid-zone & leave',
+        rule: 'After mark Fibs lock, watch 30m leave/retest & 05:30 IST mid-zone 44–56'
       },
       {
         id: 'xau_london',
@@ -3355,9 +3328,9 @@ const RangeEmaUI = {
         endIstMins: lonOpenMins + 120,
         startStrIst: fmtMins(lonOpenMins),
         endStrIst: fmtMins(lonOpenMins + 120),
-        winRate: 'Brahmastra LBMA Sweep',
-        headline: 'London Bullion Liquidity Sweep & POB',
-        rule: 'London sweeps Asia Bullion H/L; watch 5m X-Candle POB 44–56 & 30m First Red Trade 2 revisit'
+        winRate: 'LBMA sweep',
+        headline: 'London bullion liquidity sweep & mid-zone',
+        rule: 'London sweeps Asia bullion H/L; watch mid-zone 44–56 & 30m shelf retest'
       },
       {
         id: 'xau_comex',
@@ -3369,7 +3342,7 @@ const RangeEmaUI = {
         endStrIst: fmtMins(comexOpenMins + 150),
         winRate: 'Peak Gold Volatility',
         headline: 'COMEX 08:30 ET & NY Cash Open Window',
-        rule: 'Dr. Dev Brahmastra prime window: COMEX open hunts London H/L + 5m X-Candle POB 44–56 + 30m 5 EMA Rubber Band'
+        rule: 'COMEX open often hunts London H/L — watch mid-zone 44–56 and stretch snapback guide'
       }
     ] : [
       {
@@ -3382,7 +3355,7 @@ const RangeEmaUI = {
         endStrIst: '07:00',
         winRate: '71.7% Session Extreme',
         headline: 'Daily Open Discovery Window',
-        rule: '71.7% of days print Asia high/low in first 90m; 05:30 IST 5m X-Candle POB 44–56 & 1H Trade 1'
+        rule: '71.7% of days print Asia high/low in first 90m; 05:30 IST mid-zone & 1H leave'
       },
       {
         id: 'london',
@@ -3394,7 +3367,7 @@ const RangeEmaUI = {
         endStrIst: fmtMins(lonOpenMins + 75),
         winRate: '62.7% Session Extreme',
         headline: 'European Opening Liquidity Window',
-        rule: '62.7% of days print London high/low in first 45m; sweeps Asia H/L + London 5m X-Candle POB 44–56'
+        rule: '62.7% of days print London high/low in first 45m; sweeps Asia H/L + London mid-zone'
       },
       {
         id: 'ny',
@@ -3406,7 +3379,7 @@ const RangeEmaUI = {
         endStrIst: fmtMins(nyOpenMins + 75),
         winRate: '56.0% Session Extreme',
         headline: 'US Cash Open Window',
-        rule: '56.0% of days print NY high/low in first 45m; NY 5m X-Candle POB 44–56 (86.2% 2Y WR) & 1H Trade 2'
+        rule: '56.0% of days print NY high/low in first 45m; NY mid-zone & 1H shelf retest'
       }
     ];
 
@@ -3681,7 +3654,7 @@ const RangeEmaUI = {
       if (todayBand && todayHi != null && todayLo != null) {
         const pLo = todayBand.f44 != null ? Number(todayBand.f44).toFixed(dPrice) : null;
         const pHi = todayBand.f56 != null ? Number(todayBand.f56).toFixed(dPrice) : null;
-        const pobStr = (pLo && pHi) ? ` <span style="color:#a78bfa;" title="Point of Balance 44–56%">POB ${curSign}${pLo}–${curSign}${pHi}</span>` : '';
+        const pobStr = (pLo && pHi) ? ` <span style="color:#a78bfa;" title="Mid-zone 44–56%">Mid ${curSign}${pLo}–${curSign}${pHi}</span>` : '';
         const midStr = todayMid != null ? ` <span style="color:#38bdf8;">Mid ${curSign}${Number(todayMid).toFixed(dPrice)}</span>` : '';
         return ` · <span style="color:#64748b;">Today's Fib:</span> <span style="color:#4ade80;">H ${curSign}${Number(todayHi).toFixed(dPrice)}</span>${pobStr}${midStr} <span style="color:#f87171;">L ${curSign}${Number(todayLo).toFixed(dPrice)}</span>`;
       }
@@ -3883,7 +3856,7 @@ const RangeEmaUI = {
         order: 1,
       },
       ...(ema5Slice ? [{
-        label: 'EMA 5 (30m Rubber Band)',
+        label: 'EMA 5 (30m stretch guide)',
         data: ema5Slice,
         borderColor: COL.ema5,
         borderWidth: 1.75,
@@ -4301,13 +4274,13 @@ const RangeEmaUI = {
                 hoverFibStr = `<strong style="color:#4ade80;background:rgba(34,197,94,0.18);padding:1px 6px;border-radius:4px;">🎯 Today's Fib High (1.0): ${curSign}${Number(tHi).toFixed(d)} (${diffPct >= 0 ? '+' : ''}${diffPct.toFixed(2)}%)</strong>`;
               } else if (t56 != null && Math.abs(evY - yScale.getPixelForValue(t56)) <= 12) {
                 const diffPct = ((t56 - priceNow) / priceNow * 100);
-                hoverFibStr = `<strong style="color:#a78bfa;background:rgba(167,139,250,0.18);padding:1px 6px;border-radius:4px;">🎯 Today's POB 0.56: ${curSign}${Number(t56).toFixed(d)} (${diffPct >= 0 ? '+' : ''}${diffPct.toFixed(2)}%)</strong>`;
+                hoverFibStr = `<strong style="color:#a78bfa;background:rgba(167,139,250,0.18);padding:1px 6px;border-radius:4px;">🎯 Today's mid top 0.56: ${curSign}${Number(t56).toFixed(d)} (${diffPct >= 0 ? '+' : ''}${diffPct.toFixed(2)}%)</strong>`;
               } else if (tMid != null && Math.abs(evY - yScale.getPixelForValue(tMid)) <= 12) {
                 const diffPct = ((tMid - priceNow) / priceNow * 100);
                 hoverFibStr = `<strong style="color:#38bdf8;background:rgba(56,189,248,0.18);padding:1px 6px;border-radius:4px;">🎯 Today's Fib Median (0.50): ${curSign}${Number(tMid).toFixed(d)} (${diffPct >= 0 ? '+' : ''}${diffPct.toFixed(2)}%)</strong>`;
               } else if (t44 != null && Math.abs(evY - yScale.getPixelForValue(t44)) <= 12) {
                 const diffPct = ((t44 - priceNow) / priceNow * 100);
-                hoverFibStr = `<strong style="color:#a78bfa;background:rgba(167,139,250,0.18);padding:1px 6px;border-radius:4px;">🎯 Today's POB 0.44: ${curSign}${Number(t44).toFixed(d)} (${diffPct >= 0 ? '+' : ''}${diffPct.toFixed(2)}%)</strong>`;
+                hoverFibStr = `<strong style="color:#a78bfa;background:rgba(167,139,250,0.18);padding:1px 6px;border-radius:4px;">🎯 Today's mid edge 0.44: ${curSign}${Number(t44).toFixed(d)} (${diffPct >= 0 ? '+' : ''}${diffPct.toFixed(2)}%)</strong>`;
               } else if (tLo != null && Math.abs(evY - yScale.getPixelForValue(tLo)) <= 12) {
                 const diffPct = ((tLo - priceNow) / priceNow * 100);
                 hoverFibStr = `<strong style="color:#f87171;background:rgba(239,68,68,0.18);padding:1px 6px;border-radius:4px;">🎯 Today's Fib Low (0.0): ${curSign}${Number(tLo).toFixed(d)} (${diffPct >= 0 ? '+' : ''}${diffPct.toFixed(2)}%)</strong>`;
@@ -4328,13 +4301,13 @@ const RangeEmaUI = {
                   value: Number(s3.barricade),
                   color: '#fbbf24',
                   bg: 'rgba(251, 191, 36, 0.18)',
-                  role: '5m close across Barricade triggers Rubber Band pullback toward 30m 5 EMA',
+                  role: '5m close across barricade often starts a snapback toward the 30m 5 EMA',
                 });
               }
               if (s3.ema5 != null && Number.isFinite(s3.ema5)) {
                 horizLines.push({
                   id: 's3_ema5',
-                  title: '🧲 30m 5 EMA Target (Rubber Band)',
+                  title: '🧲 30m 5 EMA Target (stretch guide)',
                   value: Number(s3.ema5),
                   color: '#38bdf8',
                   bg: 'rgba(56, 189, 248, 0.18)',
@@ -4406,28 +4379,28 @@ const RangeEmaUI = {
               if (pob.pobHi != null && Number.isFinite(pob.pobHi)) {
                 horizLines.push({
                   id: 'pob_hi',
-                  title: '🛑 POB 0.56 (Stop Loss Ceiling)',
+                  title: '🛑 Mid-zone top 0.56 (stop)',
                   value: Number(pob.pobHi),
                   color: '#f43f5e',
                   bg: 'rgba(244, 63, 94, 0.18)',
-                  role: '5m close above 0.56 invalidates X-Candle POB Short',
+                  role: '5m close above mid-zone top invalidates the mid-zone short',
                 });
               }
               if (pob.pobLo != null && Number.isFinite(pob.pobLo)) {
                 horizLines.push({
                   id: 'pob_lo',
-                  title: '🎯 POB 0.44 (Short Entry Edge)',
+                  title: '🎯 Mid-zone edge 0.44 (short entry)',
                   value: Number(pob.pobLo),
                   color: '#c084fc',
                   bg: 'rgba(192, 132, 252, 0.18)',
-                  role: 'Retest of 0.44–0.56 + 5m close below 0.44 triggers POB Short',
+                  role: 'Retest of mid-zone + 5m close below mid edge triggers mid-zone short',
                 });
               }
               const xLo = pob.xCandle?.low ?? pob.xCandle?.l;
               if (xLo != null && Number.isFinite(xLo)) {
                 horizLines.push({
                   id: 'pob_xlo',
-                  title: '✅ X-Candle Low (POB TP1)',
+                  title: '✅ Open-candle low (TP1)',
                   value: Number(xLo),
                   color: '#4ade80',
                   bg: 'rgba(74, 222, 128, 0.18)',

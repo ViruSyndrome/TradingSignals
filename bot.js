@@ -19,6 +19,7 @@ if (typeof global.localStorage === 'undefined') {
 }
 const { API } = require('./js/api.js');
 const { renderTweetCardPng, TW_OG_FALLBACK } = require('./js/tweet_card.js');
+const TrendRunnerCopy = require('./js/public_copy.js');
 
 global.CONFIG = CONFIG;
 global.Indicators = Indicators; // signals.js references Indicators as a global
@@ -105,7 +106,7 @@ if (token && chatId) {
       try { fs.writeFileSync(BOOT_PING_FILE, JSON.stringify({ at: Date.now() })); } catch (_) {}
       bot.sendMessage(
         chatId,
-        '🟥 Red Bar bot online — ENTER alerts only (Trade 1 / 2 / sweep).',
+        'TrendRunner Desk bot online — ENTER alerts for leave / retest / sweep / session setups.',
         { disable_notification: true }
       ).then(() => console.log('[Telegram] Boot ping sent'))
         .catch((err) => {
@@ -222,38 +223,28 @@ function twCanPostGlobal(now = Date.now()) {
   return now - (twitterState.lastGlobalTweet || 0) > TW_TWO_HOURS;
 }
 
-/** Marketing/SEO STRONG_BUY copy — no raw https:// (403 on this app); plain trendrunner.app + hashtags. */
+/** X / marketing copy for the current TrendRunner Desk (session structure — not legacy STRONG BUY). */
 function buildStrongBuyTweet({ cleanSymbol, score, confidence, price, tpPct, holdDays }) {
   const stamp = new Date().toISOString().slice(11, 16);
   const priceStr = price >= 1 ? price.toFixed(2) : price.toFixed(4);
   const variants = [
-    `🚨 ALGORITHMIC ALERT: $${cleanSymbol} just triggered a STRONG BUY on the daily timeframe!
+    `TrendRunner Desk · $${cleanSymbol}
 
-📈 Algo Confluence: +${score}
-🎯 Confidence: ${confidence}%
-💵 Price: $${priceStr}
+Session structure scan flagged a high-interest long context
+Score +${score} · Confidence ${confidence}% · $${priceStr}
 
-Get exact Stop-Loss, Take-Profit (+${tpPct}%), & ${holdDays}-Day hold limits free on TrendRunner 👇
+Stops, +${tpPct}% targets & ${holdDays}-day hold map on the desk
+Educational research — you place your own trades
 
-#CryptoTrading #${cleanSymbol} #TradingSignals #AlgoTrading
 trendrunner.app
-[${stamp}]`,
-    `🚨 $${cleanSymbol} STRONG BUY signal locked in (daily chart)
+#${cleanSymbol} #Trading #TrendRunner · ${stamp}`,
+    `$${cleanSymbol} on TrendRunner Desk
 
-📈 Score +${score} · 🎯 ${confidence}% confidence · $${priceStr}
-SL / TP (+${tpPct}%) / ${holdDays}-day max hold — mapped inside TrendRunner
+Clarity over noise: structural stop + 1:1 bank plan mapped for you
++${score} · ${confidence}% · $${priceStr}
 
-Free algorithmic setups → trendrunner.app
-
-#CryptoTrading #${cleanSymbol} #TradingSignals
-[${stamp}]`,
-    `⚡ TrendRunner alert: $${cleanSymbol} flipped STRONG BUY on the daily
-
-Confluence +${score} | Confidence ${confidence}% | $${priceStr}
-Stops, +${tpPct}% targets & ${holdDays}-day time limit on the dashboard 👇
-
-#Crypto #${cleanSymbol} #CryptoTrading #TradingSignals
-trendrunner.app · ${stamp}`,
+Open the desk → trendrunner.app
+#${cleanSymbol} #FuturesTrading · ${stamp}`,
   ];
   const idx = Math.abs((Date.now() + (cleanSymbol.charCodeAt(0) || 0)) % variants.length);
   return variants[idx];
@@ -265,19 +256,19 @@ function buildDailySummaryTweet({ fearGreed, marketRegime, strongBuyCount, watch
   const scoreStr = (n) => (Number.isFinite(n) ? (n >= 0 ? `+${n}` : String(n)) : '');
   let setupLine;
   if (strongBuyCount > 0 && topWatch) {
-    setupLine = `${strongBuyCount} core STRONG BUY setup(s) this scan — lead: $${topWatch.symbol} (${scoreStr(topWatch.score)}, ${topWatch.confidence}%).`;
+    setupLine = `${strongBuyCount} high-interest long context(s) — lead $${topWatch.symbol} (${scoreStr(topWatch.score)}, ${topWatch.confidence}%).`;
   } else if (watchCount > 0 && topWatch) {
-    setupLine = `No STRONG BUYs yet. ${watchCount} high-conf watch(es) (≥100% / score ≥3.5) — $${topWatch.symbol} (${scoreStr(topWatch.score)}, ${topWatch.confidence}%).`;
+    setupLine = `No enter-ready alerts yet. ${watchCount} watch(es) — $${topWatch.symbol} (${scoreStr(topWatch.score)}, ${topWatch.confidence}%).`;
   } else {
-    setupLine = 'No 100%-confidence setups near S.BUY this pass — scanner staying selective.';
+    setupLine = 'Quiet scan — desk staying selective until structure confirms.';
   }
-  return `📊 TrendRunner market pulse · ${stamp}
+  return `TrendRunner Desk pulse · ${stamp}
 
 Regime: ${marketRegime} · Fear & Greed: ${fg}
 ${setupLine}
 
-Live signals, SL/TP & hold limits → trendrunner.app
-#CryptoTrading #TradingSignals #AlgoTrading`;
+Session leave / retest / sweep maps → trendrunner.app
+#Trading #TrendRunner`;
 }
 
 function tweetCardOptsFromScan(asset, result, d, price) {
@@ -318,13 +309,28 @@ function tweetCardOptsFromScan(asset, result, d, price) {
 function buildHeartbeatTweet({ fearGreed, marketRegime }) {
   const fg = fearGreed != null ? String(fearGreed) : 'n/a';
   const stamp = new Date().toISOString().slice(11, 16);
-  return `🐦 TrendRunner is scanning 24/7 for algorithmic STRONG BUY setups.
+  return `TrendRunner Desk is live — mapping session structure on BTC, NIFTY & more.
 
 Regime: ${marketRegime} · Fear & Greed: ${fg}
-Core winners only · free SL/TP on the dashboard
+Clear stop · 1:1 bank · you place the trade
 
 trendrunner.app
-#CryptoTrading #TradingSignals · ${stamp}`;
+#Trading #TrendRunner · ${stamp}`;
+}
+
+/** Optional X post when desk ENTER fires (plain language). */
+function buildDeskEnterTweet({ label, side, setupKind, price, stop, tp1, isBinance }) {
+  const setup = TrendRunnerCopy.setupName(setupKind);
+  const tip = TrendRunnerCopy.setupTip(setupKind);
+  const px = isBinance ? '$' : '';
+  const stamp = new Date().toISOString().slice(11, 16);
+  return `TrendRunner Desk · ${label} ${String(side || '').toUpperCase()}
+
+${setup}
+Entry ${px}${price} · Stop ${px}${stop} · 1:1 ${px}${tp1}
+${tip ? `${tip}\n` : ''}
+Educational — not financial advice. You place your own trades.
+trendrunner.app · ${stamp}`;
 }
 
 async function postTweet(text, label = 'tweet', { withImage = false, mediaBuffer = null } = {}) {
@@ -648,7 +654,8 @@ async function _scanOneRedBarInstrument(inst, rbCfg) {
         : null;
       const pxPrefix = isBinance ? '$' : '';
       const emoji = side === 'LONG' ? '🟢' : '🔴';
-      const setupLabel = readout.playbook?.redSetup?.label || setupKind;
+      const setupLabel = TrendRunnerCopy.setupName(setupKind);
+      const setupTip = TrendRunnerCopy.setupTip(setupKind);
       const dhanNote = (() => {
         if (isBinance) return '';
         const e = Number(readout.price), s = Number(readout.invalidation), t = Number(readout.tp1);
@@ -658,24 +665,28 @@ async function _scanOneRedBarInstrument(inst, rbCfg) {
         const riskPts = Math.abs(e - s), tgtPts = Math.abs(t - e);
         const optSl = (riskPts * delta).toFixed(0), optTp = (tgtPts * delta).toFixed(0);
         const rsSl = Math.round(riskPts * delta * lot), rsTp = Math.round(tgtPts * delta * lot);
-        return `\nDHAN (1 lot ${lot}): option SL = buy price - ${optSl} pts · TP = buy price + ${optTp} pts\nSet P&L Exit: Max Loss ~Rs ${rsSl} · Max Profit ~Rs ${rsTp} (kill switch OFF)\nExit manually if NIFTY closes 5m beyond ${fmt(s)}`;
+        return `\nDHAN (1 lot ${lot}): option SL = buy price − ${optSl} pts · TP = buy price + ${optTp} pts\nSuggested P&amp;L Exit: Max Loss ~Rs ${rsSl} · Max Profit ~Rs ${rsTp}\nExit manually if NIFTY closes 5m beyond ${fmt(s)}`;
       })();
       const dhanAutoOn = String(process.env.DHAN_AUTO_TRADE || '').toLowerCase() === 'true'
         && String(inst.id || '').toUpperCase() === 'NIFTY';
       const alertOnlyNote = !isBinance
         ? (dhanAutoOn
-          ? dhanNote + '\n🤖 Dhan AUTO on — bot will place option Super Order (entry+SL+TP)'
-          : dhanNote + '\n⚠️ Alert only — place manually on Dhan (set DHAN_AUTO_TRADE=true for auto)')
+          ? dhanNote + '\n🤖 Dhan AUTO on — placing option Super Order (entry+SL+TP)'
+          : dhanNote + '\n⚠️ Alert only — place manually on Dhan')
         : '';
-      const subject = `Red Bar ${side}: ${inst.label} · ${setupLabel}`;
-      const htmlMsg = `${emoji} <b>ENTER NOW · Red Bar ${_escHtml(inst.label)} ${side}</b>
-${_escHtml(setupLabel)} (${_escHtml(setupKind)})
-Entry <b>${pxPrefix}${fmt(readout.price)}</b> · Stop <b>${pxPrefix}${fmt(readout.invalidation)}</b> (${_escHtml(readout.invalidationReason || '5m swing')}) · 1:1 <b>${pxPrefix}${fmt(readout.tp1)}</b>${isBinance && sz ? ` · ${sz.recLeverage}×` : ''}${alertOnlyNote}
-<a href="${deskUrl}">Open desk</a>${futLink ? ` · <a href="${futLink}">Futures</a>` : ''}`;
+      const subject = `${side}: ${inst.label} · ${setupLabel}`;
+      const planLine = 'Plan: bank ~50% at 1:1 → move stop to cost · trail the rest';
+      const htmlMsg = `${emoji} <b>${_escHtml(TrendRunnerCopy.enterHeadline(inst.label, side))}</b>
+<b>${_escHtml(setupLabel)}</b>
+${setupTip ? `${_escHtml(setupTip)}\n` : ''}Entry <b>${pxPrefix}${fmt(readout.price)}</b> · Stop <b>${pxPrefix}${fmt(readout.invalidation)}</b> (${_escHtml(readout.invalidationReason || '5m structure')}) · 1:1 bank <b>${pxPrefix}${fmt(readout.tp1)}</b>${isBinance && sz ? ` · ${sz.recLeverage}×` : ''}
+${_escHtml(planLine)}${alertOnlyNote}
+<a href="${deskUrl}">Open TrendRunner Desk</a>${futLink ? ` · <a href="${futLink}">Futures</a>` : ''}`;
       const plainMsg = [
-        `ENTER NOW · ${inst.label} ${side}`,
-        `${setupLabel}`,
+        TrendRunnerCopy.enterHeadline(inst.label, side),
+        setupLabel,
+        setupTip || null,
         `Entry ${pxPrefix}${fmt(readout.price)} · Stop ${pxPrefix}${fmt(readout.invalidation)} · 1:1 ${pxPrefix}${fmt(readout.tp1)}`,
+        planLine,
         !isBinance ? (dhanAutoOn ? 'Dhan AUTO placing option order' : 'Alert only — place manually on Dhan') : null,
         deskUrl,
       ].filter(Boolean).join('\n');
@@ -726,7 +737,7 @@ Entry <b>${pxPrefix}${fmt(readout.price)}</b> · Stop <b>${pxPrefix}${fmt(readou
 /** DNA / researched setups eligible for auto (Binance + Dhan). Trade 3 = setup3_rubber_band. Dr. Dev Trikal 12:45 = afternoon_1245_reversal / afternoon_1245_breakout. */
 function _autoSetupAllowed(setupKind) {
   const raw = envTrim('REDBAR_AUTO_SETUPS')
-    || 'trade1_departure,trade2_confirmed,session_sweep,pob_reject,setup3_rubber_band,afternoon_1245_reversal,afternoon_1245_breakout,afternoon_1245_retest';
+    || 'trade1_departure,trade2_confirmed,session_sweep,pob_reject,setup3_rubber_band,afternoon_1245_reversal,afternoon_1245_breakout,afternoon_1245_retest,btc_asia_0530_breakout';
   const allow = raw.split(',').map((s) => s.trim()).filter(Boolean);
   return allow.includes(String(setupKind || ''));
 }
@@ -831,7 +842,13 @@ async function _maybeAutoDhanNifty({ inst, side, readout, alertKey, dayKey, setu
     console.log(`[RedBarBot] NIFTY: past ${Math.floor(entryCutoff / 60)}:${String(entryCutoff % 60).padStart(2, '0')} IST — no new option buys (late-day theta decay / unwind guard)`);
     return;
   }
-  if ((setupKind === 'afternoon_1245_breakout' || setupKind === 'afternoon_1245_reversal') && mins >= (13 * 60 + 45)) {
+  // Match entryGate: breakout + reversal + retest all close after 13:45
+  if (
+    (setupKind === 'afternoon_1245_breakout'
+      || setupKind === 'afternoon_1245_reversal'
+      || setupKind === 'afternoon_1245_retest')
+    && mins >= (13 * 60 + 45)
+  ) {
     console.log('[RedBarBot] NIFTY: past 13:45 IST — Dr. Dev 12:45 Trikal expansion window closed. No chasing late moves.');
     return;
   }
@@ -850,10 +867,32 @@ async function _maybeAutoDhanNifty({ inst, side, readout, alertKey, dayKey, setu
     return;
   }
   const lastTs = Number(lastAlerted[`DHAN_TRADE_${inst.id}_LAST_TS`]) || 0;
+  // Fix Your Trading Day4 Rule 6: after SL hunt, if ENTER still fires (trend intact)
+  // and price revisits the same entry zone — waive cooldown once (other guards stay).
+  let rule6SlRow = null;
   if (lastTs && Date.now() - lastTs < cooldownMs) {
-    const left = Math.ceil((cooldownMs - (Date.now() - lastTs)) / 60000);
-    console.log(`[RedBarBot] ${inst.id}: Dhan cooldown ${left}m — skip ${alertKey}`);
-    return;
+    const reentryWindowMs = Number(process.env.DHAN_SL_REENTRY_WINDOW_MS) || (90 * 60 * 1000);
+    const sameLevelPts = Number(process.env.DHAN_SL_REENTRY_LEVEL_PTS) || 15;
+    const recentSl = loadManagedDhanTrades()
+      .filter((t) => String(t.instrumentId || '').toUpperCase() === 'NIFTY'
+        && t.status === 'closed_sl'
+        && t.side === side
+        && !t.rule6Reentered)
+      .sort((a, b) => Number(b.closedAt || 0) - Number(a.closedAt || 0))[0];
+    const priorEntry = Number(recentSl?.indexEntry);
+    const nowEntry = Number(readout.price);
+    const freshSl = recentSl && (Date.now() - Number(recentSl.closedAt || 0)) <= reentryWindowMs;
+    const levelOk = priorEntry > 0 && nowEntry > 0 && Math.abs(nowEntry - priorEntry) <= sameLevelPts;
+    if (freshSl && levelOk) {
+      rule6SlRow = recentSl;
+      console.log(
+        `[RedBarBot] NIFTY: Rule 6 SL-reentry — waive cooldown (prior ${priorEntry} → now ${nowEntry}, ≤${sameLevelPts} pts)`,
+      );
+    } else {
+      const left = Math.ceil((cooldownMs - (Date.now() - lastTs)) / 60000);
+      console.log(`[RedBarBot] ${inst.id}: Dhan cooldown ${left}m — skip ${alertKey}`);
+      return;
+    }
   }
 
   const indexEntry = Number(readout.price);
@@ -937,6 +976,15 @@ async function _maybeAutoDhanNifty({ inst, side, readout, alertKey, dayKey, setu
       lastAlerted[countKey] = dayCount + 1;
       saveAlertState(lastAlerted);
       const managed = loadManagedDhanTrades().filter((t) => t.status !== 'open');
+      if (rule6SlRow && rule6SlRow.orderId) {
+        for (const row of managed) {
+          if (String(row.orderId) === String(rule6SlRow.orderId) && row.status === 'closed_sl') {
+            row.rule6Reentered = true;
+            row.rule6ReenteredAt = Date.now();
+            row.rule6ReentryAlertKey = alertKey;
+          }
+        }
+      }
       managed.push({
         status: 'open',
         instrumentId: 'NIFTY',
@@ -958,6 +1006,7 @@ async function _maybeAutoDhanNifty({ inst, side, readout, alertKey, dayKey, setu
         indexTp1,
         beMoved: false,
         openedAt: Date.now(),
+        rule6Reentry: Boolean(rule6SlRow),
       });
       saveManagedDhanTrades(managed);
     }
@@ -1938,13 +1987,16 @@ if (!process.env.BOT_WORKER_ONLY) {
     }
     const label = body.label || instrumentId;
     const emoji = side === 'LONG' ? '🟢' : '🔴';
-    const title = body.title || setupKind;
+    const setupLabel = TrendRunnerCopy.setupName(setupKind || body.title);
+    const setupTip = TrendRunnerCopy.setupTip(setupKind || body.title);
     const deskUrl = envTrim('DESK_URL') || 'https://trendrunner.app';
     const text =
-      `${emoji} <b>ENTER NOW · Red Bar ${escHtmlRelay(label)} ${side}</b>\n` +
-      `${escHtmlRelay(title)} (${escHtmlRelay(setupKind)})\n` +
-      `Entry <b>$${escHtmlRelay(body.price ?? '—')}</b> · Stop <b>$${escHtmlRelay(body.stop ?? '—')}</b> · 1:1 <b>$${escHtmlRelay(body.tp1 ?? '—')}</b>\n` +
-      `<a href="${deskUrl}">Open desk</a>`;
+      `${emoji} <b>${escHtmlRelay(TrendRunnerCopy.enterHeadline(label, side))}</b>\n` +
+      `<b>${escHtmlRelay(setupLabel)}</b>\n` +
+      (setupTip ? `${escHtmlRelay(setupTip)}\n` : '') +
+      `Entry <b>$${escHtmlRelay(body.price ?? '—')}</b> · Stop <b>$${escHtmlRelay(body.stop ?? '—')}</b> · 1:1 bank <b>$${escHtmlRelay(body.tp1 ?? '—')}</b>\n` +
+      `Plan: bank ~50% at 1:1 → move stop to cost · trail the rest\n` +
+      `<a href="${deskUrl}">Open TrendRunner Desk</a>`;
     try {
       await bot.sendMessage(chatId, text, { parse_mode: 'HTML', disable_web_page_preview: true });
       relaySeen.set(alertKey, now);
