@@ -707,28 +707,30 @@ ${_escHtml(planLine)}${alertOnlyNote}
       console.log(`[RedBarBot] ${inst.id}: already alerted for ${alertKey} — skip`);
     }
 
-    if (alertOk) {
-      if (!_autoSetupAllowed(setupKind)) {
+    // Place AUTO even if Telegram already fired for this alertKey — otherwise a failed
+    // Dhan/Binance attempt (e.g. insufficient funds) cannot retry while setup stays ENTER.
+    if (!_autoSetupAllowed(setupKind)) {
+      if (alertOk) {
         console.log(`[RedBarBot] ${inst.id}: ENTER alerted but AUTO skipped — setup ${setupKind} not in REDBAR_AUTO_SETUPS`);
-      } else {
-        await _maybeAutoFuturesTwoLeg({
-          inst,
-          side,
-          readout,
-          alertKey,
-          dayKey,
-        });
-        await _maybeAutoDhanNifty({
-          inst,
-          side,
-          readout,
-          alertKey,
-          dayKey,
-          setupKind,
-          bars5m,
-          barsWork,
-        });
       }
+    } else {
+      await _maybeAutoFuturesTwoLeg({
+        inst,
+        side,
+        readout,
+        alertKey,
+        dayKey,
+      });
+      await _maybeAutoDhanNifty({
+        inst,
+        side,
+        readout,
+        alertKey,
+        dayKey,
+        setupKind,
+        bars5m,
+        barsWork,
+      });
     }
   }
   // Do NOT clear RB keys when leaving ENTER — that re-armed spam on flicker.
@@ -850,7 +852,8 @@ async function _maybeAutoDhanNifty({ inst, side, readout, alertKey, dayKey, setu
   const rawDhanCap = process.env.DHAN_AUTO_MAX_PER_DAY;
   const dhanCapDisabled = rawDhanCap === '0' || rawDhanCap === 'none' || rawDhanCap === 'unlimited' || rawDhanCap === 'false';
   const maxPerDay = dhanCapDisabled ? 0 : (Number(rawDhanCap) || Number(process.env.REDBAR_AUTO_MAX_PER_DAY) || 0);
-  const cooldownMs = Math.max(15 * 60 * 1000, Number(process.env.DHAN_AUTO_COOLDOWN_MS) || Number(process.env.REDBAR_AUTO_COOLDOWN_MS) || 75 * 60 * 1000);
+  // Min floor 60s so a failed place (funds) can retry next scans; set DHAN_AUTO_COOLDOWN_MS for longer.
+  const cooldownMs = Math.max(60 * 1000, Number(process.env.DHAN_AUTO_COOLDOWN_MS) || Number(process.env.REDBAR_AUTO_COOLDOWN_MS) || 75 * 60 * 1000);
   const countKey = `DHAN_TRADE_COUNT_${inst.id}_${dayKey || 'noday'}`;
   const dayCount = Number(lastAlerted[countKey]) || 0;
   if (!dhanCapDisabled && maxPerDay > 0 && dayCount >= maxPerDay) {
