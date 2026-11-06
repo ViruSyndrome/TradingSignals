@@ -3921,6 +3921,14 @@ const RedBarTrend = {
           };
         }
       }
+    } else if (setupKind === 'btc_asia_0530_breakout') {
+      // Dr Dev BTC Asia Trikal: SL is the 30m X opposite extreme — not a 5m swing DNA tag.
+      if (!/Asia 05:30|X opposite|X extreme/i.test(stopTag)) {
+        return {
+          state: 'watch',
+          reason: `Asia 05:30 breakout needs SL @ X opposite extreme (got: ${invalidationReason || '—'}).`,
+        };
+      }
     } else {
       const realFiveMinSwing = (/5m swing|extreme drop wick|extreme rally wick|12:45 reversal|12:45 breakout/i.test(stopTag)) && !/too close|floor|default|0\.28%|0\.5%/i.test(stopTag);
       if (!realFiveMinSwing) {
