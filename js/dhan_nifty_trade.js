@@ -220,10 +220,12 @@ function createDhanNiftyTrade(opts = {}) {
       return out;
     }
 
-    // Partial: tear down Super Order legs so they don't exit full size, bank Leg A, protect runner.
-    await cancelSuperAllLegs(orderId);
-    out.superCancelled = true;
-
+    /**
+     * Partial bank — KEEP Super Order legs (OCO).
+     * Dhan RMS: a pending LIMIT TP covering the position makes any extra SELL STOP look like a
+     * fresh short → "insufficient funds ~1.5L". Never cancel Super SL/TP and replace with two
+     * independent exits. Bank with a market SELL of half; move Super STOP → BE / TARGET → 3R.
+     */
     try {
       out.bankOrder = await dhan.placeOrder({
         correlationId: `bank1r-${Date.now()}`.slice(0, 30),
@@ -239,62 +241,23 @@ function createDhanNiftyTrade(opts = {}) {
       });
     } catch (e) {
       out.bankError = e.message;
-      // If bank failed, try to re-protect full qty at BE via fresh exits below using original qty.
     }
 
     const runnerQty = out.bankError ? quantity : split.runnerQty;
     out.runnerQty = runnerQty;
+    out.superCancelled = false;
+
     try {
-      // Prefer STOP_LOSS_MARKET — plain STOP_LOSS on option SELLs was getting REJECTED on Dhan.
-      const slOrd = await dhan.placeOrder({
-        correlationId: `runsl-${Date.now()}`.slice(0, 30),
-        transactionType: 'SELL',
-        exchangeSegment: OPT_SEG,
-        productType,
-        orderType: 'STOP_LOSS_MARKET',
-        validity: 'DAY',
-        securityId: String(securityId),
-        quantity: Number(runnerQty),
-        price: 0,
-        triggerPrice: be,
-      });
-      out.runnerSlOrderId = slOrd?.orderId || slOrd?.data?.orderId || null;
+      await moveStopToBreakeven(orderId, entry, envNum('DHAN_BE_PAD', 0.5));
+      out.beMoved = true;
+      out.runnerSlOrderId = orderId; // still protected by Super STOP_LOSS_LEG
     } catch (e) {
       out.runnerSlError = e.message;
-      try {
-        const slLimit = tickPrem(Math.max(0.05, be - 0.5));
-        const sl2 = await dhan.placeOrder({
-          correlationId: `runslb-${Date.now()}`.slice(0, 30),
-          transactionType: 'SELL',
-          exchangeSegment: OPT_SEG,
-          productType,
-          orderType: 'STOP_LOSS',
-          validity: 'DAY',
-          securityId: String(securityId),
-          quantity: Number(runnerQty),
-          price: slLimit,
-          triggerPrice: be,
-        });
-        out.runnerSlOrderId = sl2?.orderId || sl2?.data?.orderId || null;
-        out.runnerSlError = null;
-      } catch (e2) {
-        out.runnerSlError = `${e.message} | fallback: ${e2.message}`;
-      }
     }
     try {
-      const tpOrd = await dhan.placeOrder({
-        correlationId: `runtp-${Date.now()}`.slice(0, 30),
-        transactionType: 'SELL',
-        exchangeSegment: OPT_SEG,
-        productType,
-        orderType: 'LIMIT',
-        validity: 'DAY',
-        securityId: String(securityId),
-        quantity: Number(runnerQty),
-        price: tp3,
-        triggerPrice: 0,
-      });
-      out.runnerTpOrderId = tpOrd?.orderId || tpOrd?.data?.orderId || null;
+      await modifyTarget(orderId, tp3);
+      out.targetMoved = true;
+      out.runnerTpOrderId = orderId; // Super TARGET_LEG
     } catch (e) {
       out.runnerTpError = e.message;
     }

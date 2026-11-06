@@ -1188,15 +1188,18 @@ async function pollManagedDhanStops() {
             }
           }
 
-          // Soft stop: Dhan rejected standalone SELL STOP (treats as naked short margin).
-          // If LTP ≤ locked floor, cancel TP and market-sell remaining — same as SL hit.
-          if (t.legABooked && !t.softStopFired) {
+          // Soft exits when broker won't hold linked SL+TP as two independent sells
+          // (pending TP covering qty → extra SELL STOP RMS'd as naked short).
+          if (t.legABooked && t.status === 'open') {
             const floor = Number(t.lockedSl) || (Number(t.entryPremium) + 0.5);
-            if (ltp <= floor) {
+            const tpHit = Number(t.targetPrice) > 0 && ltp >= Number(t.targetPrice) - 0.25;
+            const slHit = ltp <= floor;
+            if ((slHit && !t.softStopFired) || (tpHit && !t.softTpFired)) {
               try {
                 const left = await trader.getOpenQtyForSecurity(t.securityId).catch(() => t.qty);
                 const flatQty = Math.abs(left != null ? left : t.qty) || t.qty;
-                console.log(`[RedBarBot] Dhan soft-SL hit · ${t.symbolHint} LTP ${ltp} ≤ floor ${floor} — flattening ${flatQty}`);
+                const why = tpHit ? 'soft-TP' : 'soft-SL';
+                console.log(`[RedBarBot] Dhan ${why} · ${t.symbolHint} LTP ${ltp} floor ${floor} tp ${t.targetPrice} — flattening ${flatQty}`);
                 const flatRes = await trader.flattenTrade({
                   orderId: t.orderId,
                   securityId: t.securityId,
@@ -1204,19 +1207,20 @@ async function pollManagedDhanStops() {
                   runnerSlOrderId: t.runnerSlOrderId,
                   runnerTpOrderId: t.runnerTpOrderId,
                 });
-                t.softStopFired = true;
-                t.status = 'closed_sl';
+                if (tpHit) t.softTpFired = true;
+                if (slHit) t.softStopFired = true;
+                t.status = tpHit ? 'closed_target' : 'closed_sl';
                 t.closedAt = Date.now();
                 if (bot && chatId) {
                   await bot.sendMessage(
                     chatId,
-                    `🛑 Dhan soft-SL · ${t.symbolHint}\nLTP ${ltp} ≤ ${floor}`
+                    `${tpHit ? '🎯' : '🛑'} Dhan ${why} · ${t.symbolHint}\nLTP ${ltp}`
                       + (flatRes?.exitError ? `\n⚠️ ${flatRes.exitError}` : ''),
                     { disable_web_page_preview: true },
                   ).catch(() => {});
                 }
               } catch (e) {
-                console.warn(`[RedBarBot] Dhan soft-SL flatten failed: ${e.message}`);
+                console.warn(`[RedBarBot] Dhan soft exit failed: ${e.message}`);
               }
             }
           }
@@ -1958,7 +1962,7 @@ console.log(`[Bot] Scan interval ${scanEveryMs / 1000}s (redBarOnly=${Boolean(CO
 setTimeout(scanMarket, 15000);
 
 // After 1:1 TP fills → move exchange STOP_MARKET to breakeven (complete two-leg manage)
-const MANAGE_POLL_MS = Math.max(10000, Number(process.env.REDBAR_MANAGE_POLL_MS) || 20000);
+const MANAGE_POLL_MS = Math.max(5000, Number(process.env.REDBAR_MANAGE_POLL_MS) || 8000);
 setInterval(() => {
   pollManagedFuturesStops().catch((e) => console.warn('[RedBarBot] manage poll:', e.message));
   pollManagedDhanStops().catch((e) => console.warn('[RedBarBot] Dhan manage poll:', e.message));
