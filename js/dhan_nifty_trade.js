@@ -245,23 +245,41 @@ function createDhanNiftyTrade(opts = {}) {
     const runnerQty = out.bankError ? quantity : split.runnerQty;
     out.runnerQty = runnerQty;
     try {
-      // Dhan SELL STOP_LOSS requires triggerPrice > price (limit).
-      const slLimit = tickPrem(Math.max(0.05, be - 0.5));
+      // Prefer STOP_LOSS_MARKET — plain STOP_LOSS on option SELLs was getting REJECTED on Dhan.
       const slOrd = await dhan.placeOrder({
         correlationId: `runsl-${Date.now()}`.slice(0, 30),
         transactionType: 'SELL',
         exchangeSegment: OPT_SEG,
         productType,
-        orderType: 'STOP_LOSS',
+        orderType: 'STOP_LOSS_MARKET',
         validity: 'DAY',
         securityId: String(securityId),
         quantity: Number(runnerQty),
-        price: slLimit,
+        price: 0,
         triggerPrice: be,
       });
       out.runnerSlOrderId = slOrd?.orderId || slOrd?.data?.orderId || null;
     } catch (e) {
       out.runnerSlError = e.message;
+      try {
+        const slLimit = tickPrem(Math.max(0.05, be - 0.5));
+        const sl2 = await dhan.placeOrder({
+          correlationId: `runslb-${Date.now()}`.slice(0, 30),
+          transactionType: 'SELL',
+          exchangeSegment: OPT_SEG,
+          productType,
+          orderType: 'STOP_LOSS',
+          validity: 'DAY',
+          securityId: String(securityId),
+          quantity: Number(runnerQty),
+          price: slLimit,
+          triggerPrice: be,
+        });
+        out.runnerSlOrderId = sl2?.orderId || sl2?.data?.orderId || null;
+        out.runnerSlError = null;
+      } catch (e2) {
+        out.runnerSlError = `${e.message} | fallback: ${e2.message}`;
+      }
     }
     try {
       const tpOrd = await dhan.placeOrder({

@@ -1093,11 +1093,12 @@ async function pollManagedDhanStops() {
         continue;
       }
 
-      // Dr Dev ladder: 1:1 → bank ~50% + runner BE; ~2R → trail runner to lock ~1R.
-      if (t.entryPremium > 0 && t.stopLossPrice > 0 && t.entryPremium > t.stopLossPrice) {
+      // Dr Dev ladder: 1:1 → bank ~50% + runner BE; ~2R → trail; soft-stop if broker rejects exit SL.
+      // After BE, stopLossPrice can sit ≥ entry — still manage using oneRPts / lockedSl.
+      if (t.entryPremium > 0 && (t.stopLossPrice > 0 || t.legABooked)) {
         const oneR = Number(t.oneRPts) > 0
           ? Number(t.oneRPts)
-          : (t.entryPremium - t.stopLossPrice);
+          : Math.max(1, t.entryPremium - Math.min(t.stopLossPrice || t.entryPremium, t.entryPremium - 1));
         // Prefer live option-chain LTP — SuperOrder.ltp often sticks at entry fill and never sees 1R.
         let ltp = null;
         try {
@@ -1167,32 +1168,55 @@ async function pollManagedDhanStops() {
             }
           }
 
-          // Step 2 — ~2R: trail runner SL to lock ~1R (entry + 1R)
+          // Step 2 — ~2R: raise soft-stop floor to ~1R (broker exit-SL often RMS-rejects on Dhan options)
           if (t.legABooked && !t.lock2Moved && openR >= 1.95) {
             const trailSl = +(t.entryPremium + oneR * 0.95).toFixed(2);
             const curLock = Number(t.lockedSl) || Number(t.stopLossPrice) || 0;
-            if (trailSl > curLock + 0.4 && trailSl < ltp - 0.5) {
+            if (trailSl > curLock + 0.4) {
+              t.lock2Moved = true;
+              t.lock2MovedAt = Date.now();
+              t.lockedSl = trailSl;
+              t.stopLossPrice = trailSl;
+              console.log(`[RedBarBot] Dhan runner soft-trail @2R · ${t.symbolHint} floor→${trailSl}`);
+              if (bot && chatId) {
+                await bot.sendMessage(
+                  chatId,
+                  `🛡️ Dhan runner trail ~2R · ${t.symbolHint}\nSoft floor→${trailSl} · LTP ${ltp}`,
+                  { disable_web_page_preview: true },
+                ).catch(() => {});
+              }
+            }
+          }
+
+          // Soft stop: Dhan rejected standalone SELL STOP (treats as naked short margin).
+          // If LTP ≤ locked floor, cancel TP and market-sell remaining — same as SL hit.
+          if (t.legABooked && !t.softStopFired) {
+            const floor = Number(t.lockedSl) || (Number(t.entryPremium) + 0.5);
+            if (ltp <= floor) {
               try {
-                await trader.trailRunnerStop({
+                const left = await trader.getOpenQtyForSecurity(t.securityId).catch(() => t.qty);
+                const flatQty = Math.abs(left != null ? left : t.qty) || t.qty;
+                console.log(`[RedBarBot] Dhan soft-SL hit · ${t.symbolHint} LTP ${ltp} ≤ floor ${floor} — flattening ${flatQty}`);
+                const flatRes = await trader.flattenTrade({
                   orderId: t.orderId,
+                  securityId: t.securityId,
+                  quantity: flatQty,
                   runnerSlOrderId: t.runnerSlOrderId,
-                  stopLossPrice: trailSl,
-                  mode: t.legAMode || (t.runnerSlOrderId ? 'partial' : 'be_only'),
+                  runnerTpOrderId: t.runnerTpOrderId,
                 });
-                t.lock2Moved = true;
-                t.lock2MovedAt = Date.now();
-                t.lockedSl = trailSl;
-                t.stopLossPrice = trailSl;
-                console.log(`[RedBarBot] Dhan runner trail @2R · ${t.symbolHint} SL→${trailSl}`);
+                t.softStopFired = true;
+                t.status = 'closed_sl';
+                t.closedAt = Date.now();
                 if (bot && chatId) {
                   await bot.sendMessage(
                     chatId,
-                    `🛡️ Dhan runner trail ~2R · ${t.symbolHint}\nSL→${trailSl} · LTP ${ltp}`,
+                    `🛑 Dhan soft-SL · ${t.symbolHint}\nLTP ${ltp} ≤ ${floor}`
+                      + (flatRes?.exitError ? `\n⚠️ ${flatRes.exitError}` : ''),
                     { disable_web_page_preview: true },
                   ).catch(() => {});
                 }
               } catch (e) {
-                console.warn(`[RedBarBot] Dhan 2R trail failed: ${e.message}`);
+                console.warn(`[RedBarBot] Dhan soft-SL flatten failed: ${e.message}`);
               }
             }
           }
