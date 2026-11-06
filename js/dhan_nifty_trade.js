@@ -2,7 +2,8 @@
 
 /**
  * Dhan NIFTY options auto-trader (live).
- * ENTER → pick weekly ATM CE/PE → Super Order (entry + SL + TP) → modify SL to BE after 1R.
+ * Dr Dev ladder: Super Order (structural SL + ~3R TP) → at 1:1 bank ~50% → runner SL to BE → trail.
+ * Need DHAN_NIFTY_LOTS >= 2 for a true 50% bank (lot size won't split a single lot).
  *
  * Requires:
  *   DHAN_CLIENT_ID, DHAN_ACCESS_TOKEN
@@ -111,23 +112,190 @@ function createDhanNiftyTrade(opts = {}) {
    * Levels are always relative to the Super Order entry `price` (LIMIT), so Dhan's
    * rule targetPrice > price > stopLossPrice holds for BUY options.
    */
+  function tickPrem(n) {
+    return +(Math.round(Number(n) / 0.05) * 0.05).toFixed(2);
+  }
+
   function mapPremiumLevels({ entryPremium, indexEntry, indexStop, indexTp1, delta }) {
     const d = Math.max(0.25, Math.min(0.9, Number(delta) || deltaGuess));
     const indexRisk = Math.abs(Number(indexEntry) - Number(indexStop));
     const indexReward = Math.abs(Number(indexTp1) - Number(indexEntry));
     const fixedSl = envNum('DHAN_OPT_SL_PTS', 0);
     const fixedTp = envNum('DHAN_OPT_TP_PTS', 0);
+    // Dr Dev: structural SL; runner stretch target ~3R (Leg A booked at 1R by manager).
+    const tpMult = Math.max(1, envNum('DHAN_TP_R_MULT', 3));
     const slPts = fixedSl > 0 ? fixedSl : Math.max(8, Math.round(indexRisk * d));
-    const tpPts = fixedTp > 0 ? fixedTp : Math.max(12, Math.round(indexReward * d));
+    const oneRFromIndex = fixedTp > 0 ? fixedTp : Math.max(12, Math.round(indexReward * d));
+    // Prefer premium 1R from SL width; fall back to mapped index 1R.
     const ep = Number(entryPremium);
-    // Round to 0.05 (F&O premium tick) and enforce BUY Super Order inequalities.
-    const tick = (n) => Math.round(Number(n) / 0.05) * 0.05;
-    const price = +tick(ep).toFixed(2);
-    let stopLossPrice = +tick(Math.max(0.05, price - slPts)).toFixed(2);
-    let targetPrice = +tick(price + tpPts).toFixed(2);
-    if (!(targetPrice > price)) targetPrice = +tick(price + Math.max(tpPts, 5)).toFixed(2);
-    if (!(stopLossPrice < price)) stopLossPrice = +tick(Math.max(0.05, price - Math.max(slPts, 5))).toFixed(2);
-    return { entryPrice: price, stopLossPrice, targetPrice, slPts, tpPts, delta: d };
+    const price = tickPrem(ep);
+    let stopLossPrice = tickPrem(Math.max(0.05, price - slPts));
+    if (!(stopLossPrice < price)) stopLossPrice = tickPrem(Math.max(0.05, price - Math.max(slPts, 5)));
+    const oneR = Math.max(oneRFromIndex, +(price - stopLossPrice).toFixed(2));
+    let targetPrice = tickPrem(price + oneR * tpMult);
+    if (!(targetPrice > price)) targetPrice = tickPrem(price + Math.max(oneR * tpMult, 5));
+    return {
+      entryPrice: price,
+      stopLossPrice,
+      targetPrice,
+      slPts,
+      tpPts: +(targetPrice - price).toFixed(2),
+      oneRPts: oneR,
+      tpMult,
+      delta: d,
+    };
+  }
+
+  /** Split total option qty into Leg A (bank) + runner. Single lot → bank 0 (BE-only path). */
+  function splitBankRunnerQty(totalQty) {
+    const q = Math.max(0, Math.floor(Number(totalQty) || 0));
+    const lotsTotal = Math.floor(q / lotSize);
+    if (lotsTotal < 2) {
+      return { bankQty: 0, runnerQty: q, bankLots: 0, runnerLots: lotsTotal, mode: 'be_only' };
+    }
+    const bankLots = Math.max(1, Math.floor(lotsTotal / 2));
+    const bankQty = bankLots * lotSize;
+    const runnerQty = q - bankQty;
+    return {
+      bankQty,
+      runnerQty,
+      bankLots,
+      runnerLots: Math.floor(runnerQty / lotSize),
+      mode: 'partial',
+    };
+  }
+
+  async function cancelSuperAllLegs(orderId) {
+    if (!orderId) return;
+    for (const leg of ['ENTRY_LEG', 'TARGET_LEG', 'STOP_LOSS_LEG']) {
+      try {
+        await dhan.cancelSuperOrderLeg(orderId, leg);
+      } catch (_) { /* already gone / not cancellable */ }
+    }
+  }
+
+  /**
+   * Dr Dev 1:1: bank ~50% (if 2+ lots), move runner SL → BE, keep/raise TP toward ~3R.
+   * Single lot: cannot exchange-split — SL → BE only, stretch TP to 3R.
+   */
+  async function bankHalfAtOneR({
+    orderId,
+    securityId,
+    entryPremium,
+    stopLossPrice,
+    targetPrice,
+    quantity,
+  }) {
+    const entry = Number(entryPremium);
+    const sl0 = Number(stopLossPrice);
+    const oneR = Math.max(1, entry - sl0);
+    const split = splitBankRunnerQty(quantity);
+    const be = tickPrem(entry + Math.max(0.5, envNum('DHAN_BE_PAD', 0.5)));
+    const tp3 = tickPrem(Math.max(Number(targetPrice) || 0, entry + oneR * envNum('DHAN_TP_R_MULT', 3)));
+    const out = {
+      ...split,
+      oneR,
+      be,
+      tp3,
+      bankOrder: null,
+      runnerSlOrderId: null,
+      runnerTpOrderId: null,
+      superCancelled: false,
+    };
+
+    if (split.mode === 'be_only') {
+      // Keep Super Order; only de-risk full size to BE and stretch target.
+      try {
+        await moveStopToBreakeven(orderId, entry, envNum('DHAN_BE_PAD', 0.5));
+        out.beMoved = true;
+      } catch (e) {
+        out.beError = e.message;
+      }
+      try {
+        await modifyTarget(orderId, tp3);
+        out.targetMoved = true;
+      } catch (e) {
+        out.targetError = e.message;
+      }
+      return out;
+    }
+
+    // Partial: tear down Super Order legs so they don't exit full size, bank Leg A, protect runner.
+    await cancelSuperAllLegs(orderId);
+    out.superCancelled = true;
+
+    try {
+      out.bankOrder = await dhan.placeOrder({
+        correlationId: `bank1r-${Date.now()}`.slice(0, 30),
+        transactionType: 'SELL',
+        exchangeSegment: OPT_SEG,
+        productType,
+        orderType: 'MARKET',
+        validity: 'DAY',
+        securityId: String(securityId),
+        quantity: Number(split.bankQty),
+        price: 0,
+        triggerPrice: 0,
+      });
+    } catch (e) {
+      out.bankError = e.message;
+      // If bank failed, try to re-protect full qty at BE via fresh exits below using original qty.
+    }
+
+    const runnerQty = out.bankError ? quantity : split.runnerQty;
+    out.runnerQty = runnerQty;
+    try {
+      const slOrd = await dhan.placeOrder({
+        correlationId: `runsl-${Date.now()}`.slice(0, 30),
+        transactionType: 'SELL',
+        exchangeSegment: OPT_SEG,
+        productType,
+        orderType: 'STOP_LOSS',
+        validity: 'DAY',
+        securityId: String(securityId),
+        quantity: Number(runnerQty),
+        price: be,
+        triggerPrice: be,
+      });
+      out.runnerSlOrderId = slOrd?.orderId || slOrd?.data?.orderId || null;
+    } catch (e) {
+      out.runnerSlError = e.message;
+    }
+    try {
+      const tpOrd = await dhan.placeOrder({
+        correlationId: `runtp-${Date.now()}`.slice(0, 30),
+        transactionType: 'SELL',
+        exchangeSegment: OPT_SEG,
+        productType,
+        orderType: 'LIMIT',
+        validity: 'DAY',
+        securityId: String(securityId),
+        quantity: Number(runnerQty),
+        price: tp3,
+        triggerPrice: 0,
+      });
+      out.runnerTpOrderId = tpOrd?.orderId || tpOrd?.data?.orderId || null;
+    } catch (e) {
+      out.runnerTpError = e.message;
+    }
+    return out;
+  }
+
+  /** After 1:2 on runner: trail SL up under open premium (never loosen). */
+  async function trailRunnerStop({ orderId, runnerSlOrderId, stopLossPrice, mode }) {
+    const px = tickPrem(stopLossPrice);
+    if (mode === 'be_only' && orderId) {
+      return modifyStop(orderId, px, 0);
+    }
+    if (runnerSlOrderId) {
+      return dhan.modifyOrder(runnerSlOrderId, {
+        orderType: 'STOP_LOSS',
+        price: px,
+        triggerPrice: px,
+        validity: 'DAY',
+      });
+    }
+    return null;
   }
 
   /**
@@ -261,15 +429,18 @@ function createDhanNiftyTrade(opts = {}) {
     });
   }
 
-  /** Flatten: cancel super legs then market-sell any leftover option qty. */
-  async function flattenTrade({ orderId, securityId, quantity }) {
+  /** Flatten: cancel super + runner legs then market-sell any leftover option qty. */
+  async function flattenTrade({ orderId, securityId, quantity, runnerSlOrderId, runnerTpOrderId }) {
     const out = { cancelled: null, exit: null };
     if (orderId) {
+      await cancelSuperAllLegs(orderId);
+      out.cancelled = true;
+    }
+    for (const oid of [runnerSlOrderId, runnerTpOrderId]) {
+      if (!oid) continue;
       try {
-        out.cancelled = await dhan.cancelSuperOrderLeg(orderId, 'ENTRY_LEG');
-      } catch (e) {
-        out.cancelError = e.message;
-      }
+        await dhan.cancelOrder(oid);
+      } catch (_) { /* already filled / cancelled */ }
     }
     if (securityId && quantity > 0) {
       try {
@@ -330,7 +501,10 @@ function createDhanNiftyTrade(opts = {}) {
     nearestWeeklyExpiry,
     pickOptionContract,
     mapPremiumLevels,
+    splitBankRunnerQty,
     openOptionSuperTrade,
+    bankHalfAtOneR,
+    trailRunnerStop,
     moveStopToBreakeven,
     modifyStop,
     modifyTarget,

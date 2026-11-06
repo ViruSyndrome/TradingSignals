@@ -980,11 +980,14 @@ async function _maybeAutoDhanNifty({ inst, side, readout, alertKey, dayKey, setu
         entryPremium: result.contract.ltp,
         stopLossPrice: result.levels.stopLossPrice,
         targetPrice: result.levels.targetPrice,
+        oneRPts: result.levels.oneRPts || (result.contract.ltp - result.levels.stopLossPrice),
         qty: result.qty,
         indexEntry,
         indexStop,
         indexTp1,
         beMoved: false,
+        legABooked: false,
+        superActive: true,
         openedAt: Date.now(),
         rule6Reentry: Boolean(rule6SlRow),
       });
@@ -1013,10 +1016,10 @@ async function _maybeAutoDhanNifty({ inst, side, readout, alertKey, dayKey, setu
 }
 
 /**
- * Manage open Dhan Super Orders:
- *  - When option LTP ≥ ~1R toward TP, lock SL above entry (not scratch BE)
- *  - Ratchet SL higher if price keeps running
- *  - Hard flat at 15:10 IST (ops — still closes anything left before RMS)
+ * Manage open Dhan Super Orders — Dr Dev ladder:
+ *  - At ~1:1 premium R: bank ~50% (2+ lots) / BE-only if 1 lot; runner SL → BE
+ *  - At ~2R: trail runner SL up to lock ~1R
+ *  - Hard flat at 15:10 IST (ops — closes anything left before RMS)
  */
 async function pollManagedDhanStops() {
   if (String(process.env.DHAN_AUTO_TRADE || '').toLowerCase() !== 'true') return;
@@ -1061,6 +1064,8 @@ async function pollManagedDhanStops() {
           orderId: t.orderId,
           securityId: t.securityId,
           quantity: flatQty,
+          runnerSlOrderId: t.runnerSlOrderId,
+          runnerTpOrderId: t.runnerTpOrderId,
         });
         if (flatRes && flatRes.exitError) {
           console.error(`[RedBarBot] 🚨 Dhan flat@15:10 FAILED: ${flatRes.exitError}`);
@@ -1085,106 +1090,185 @@ async function pollManagedDhanStops() {
         continue;
       }
 
-      // Profit lock (not scratch BE): once price pays ~1R, SL sits above entry so open green is partly banked.
-      // Env: DHAN_LOCK1_R (default 0.40 of 1R), DHAN_LOCK2_R (default 0.75) after ~1.5R run.
-      if (t.entryPremium > 0 && t.targetPrice > t.entryPremium) {
-        const oneR = t.targetPrice - t.entryPremium;
-        const lock1R = Math.min(0.9, Math.max(0.15, Number(process.env.DHAN_LOCK1_R) || 0.4));
-        const lock2R = Math.min(0.95, Math.max(lock1R, Number(process.env.DHAN_LOCK2_R) || 0.75));
+      // Dr Dev ladder: 1:1 → bank ~50% + runner BE; ~2R → trail runner to lock ~1R.
+      if (t.entryPremium > 0 && t.stopLossPrice > 0 && t.entryPremium > t.stopLossPrice) {
+        const oneR = Number(t.oneRPts) > 0
+          ? Number(t.oneRPts)
+          : (t.entryPremium - t.stopLossPrice);
         let ltp = null;
         try {
-          const supers = await trader.dhan.getSuperOrders();
-          const book = Array.isArray(supers) ? supers : [];
-          const row = book.find((o) => String(o.orderId) === String(t.orderId));
-          ltp = row?.ltp != null ? Number(row.ltp) : null;
+          if (t.orderId && !t.legABooked) {
+            const supers = await trader.dhan.getSuperOrders();
+            const book = Array.isArray(supers) ? supers : [];
+            const row = book.find((o) => String(o.orderId) === String(t.orderId));
+            ltp = row?.ltp != null ? Number(row.ltp) : null;
+          }
         } catch (_) { /* ignore */ }
+        if (ltp == null) {
+          try {
+            const chain = await trader.dhan.getOptionChain({
+              underlyingScrip: 13,
+              underlyingSeg: 'IDX_I',
+              expiry: t.expiry,
+            });
+            const oc = chain?.data?.oc || chain?.oc || {};
+            const node = oc[String(t.strike)] || oc[`${Number(t.strike).toFixed(6)}`];
+            const leg = t.optSide === 'PE' ? node?.pe : node?.ce;
+            ltp = Number(leg?.last_price) || Number(leg?.top_bid_price) || null;
+          } catch (_) { /* ignore */ }
+        }
 
         if (ltp != null && oneR > 0) {
           const openR = (ltp - t.entryPremium) / oneR;
-          const curLock = Number(t.lockedSl) || 0;
-          let wantSl = null;
-          let stage = null;
-          if (openR >= 1.5 && !t.lock2Moved) {
-            wantSl = +(t.entryPremium + oneR * lock2R).toFixed(2);
-            stage = 'lock2';
-          } else if (openR >= 0.95 && !t.beMoved && !t.lock1Moved) {
-            wantSl = +(t.entryPremium + Math.max(1, oneR * lock1R)).toFixed(2);
-            stage = 'lock1';
-          }
-          // Late session: if still green and SL is below ~half of open PnL, tighten once (never loosen).
-          if (!wantSl && mins >= (14 * 60 + 45) && ltp > t.entryPremium + 1) {
-            const lateSl = +(t.entryPremium + Math.max(1, (ltp - t.entryPremium) * 0.5)).toFixed(2);
-            if (lateSl > curLock + 0.4) {
-              wantSl = lateSl;
-              stage = 'late';
-            }
-          }
-          if (wantSl != null && wantSl > curLock + 0.2 && wantSl < ltp - 0.5) {
-            await trader.modifyStop(t.orderId, wantSl, 0);
-            t.lockedSl = wantSl;
-            if (stage === 'lock1') {
-              t.lock1Moved = true;
-              t.beMoved = true; // legacy managed-trade flag
-              t.beMovedAt = Date.now();
-            } else if (stage === 'lock2') {
-              t.lock2Moved = true;
-              t.lock1Moved = true;
+
+          // Step 1 — 1:1 hit
+          if (!t.legABooked && openR >= 0.95) {
+            try {
+              const res = await trader.bankHalfAtOneR({
+                orderId: t.orderId,
+                securityId: t.securityId,
+                entryPremium: t.entryPremium,
+                stopLossPrice: t.stopLossPrice,
+                targetPrice: t.targetPrice,
+                quantity: t.qty,
+              });
+              t.legABooked = true;
+              t.legABookedAt = Date.now();
+              t.legAMode = res.mode;
+              t.bankQty = res.bankQty || 0;
+              t.qty = res.runnerQty != null ? res.runnerQty : t.qty;
               t.beMoved = true;
-              t.lock2MovedAt = Date.now();
-            } else if (stage === 'late') {
-              t.lateLockAt = Date.now();
+              t.beMovedAt = Date.now();
+              t.lockedSl = res.be;
+              t.stopLossPrice = res.be;
+              t.targetPrice = res.tp3 || t.targetPrice;
+              t.runnerSlOrderId = res.runnerSlOrderId || null;
+              t.runnerTpOrderId = res.runnerTpOrderId || null;
+              t.oneRPts = res.oneR || oneR;
+              if (res.mode === 'partial') t.superActive = false;
+              const msg = res.mode === 'partial'
+                ? `📒 Dhan 1:1 bank ${res.bankQty} · runner ${res.runnerQty} SL→BE ${res.be} · TP ${res.tp3}\n${t.symbolHint} · LTP ${ltp}`
+                : `🔒 Dhan 1:1 · 1-lot BE-only (need 2+ lots for 50% bank)\nSL→BE ${res.be} · TP ${res.tp3} · ${t.symbolHint}`;
+              console.log(`[RedBarBot] ${msg.replace(/\n/g, ' | ')}`);
+              if (res.bankError || res.runnerSlError) {
+                console.warn('[RedBarBot] Dhan 1:1 ladder warnings:', res.bankError || '', res.runnerSlError || '');
+              }
+              if (bot && chatId) {
+                await bot.sendMessage(chatId, msg, { disable_web_page_preview: true }).catch(() => {});
+              }
+            } catch (e) {
+              console.warn(`[RedBarBot] Dhan 1:1 bank failed: ${e.message}`);
             }
-            console.log(`[RedBarBot] Dhan SL → +profit ${stage} · ${t.symbolHint} @ ${wantSl} (entry ${t.entryPremium}, LTP ${ltp})`);
-            if (bot && chatId) {
-              await bot.sendMessage(
-                chatId,
-                `🛡️ Dhan SL → lock ${wantSl} · ${t.symbolHint}\nEntry ${t.entryPremium} · LTP ${ltp} · ${stage}`,
-                { disable_web_page_preview: true },
-              ).catch(() => {});
+          }
+
+          // Step 2 — ~2R: trail runner SL to lock ~1R (entry + 1R)
+          if (t.legABooked && !t.lock2Moved && openR >= 1.95) {
+            const trailSl = +(t.entryPremium + oneR * 0.95).toFixed(2);
+            const curLock = Number(t.lockedSl) || Number(t.stopLossPrice) || 0;
+            if (trailSl > curLock + 0.4 && trailSl < ltp - 0.5) {
+              try {
+                await trader.trailRunnerStop({
+                  orderId: t.orderId,
+                  runnerSlOrderId: t.runnerSlOrderId,
+                  stopLossPrice: trailSl,
+                  mode: t.legAMode || (t.runnerSlOrderId ? 'partial' : 'be_only'),
+                });
+                t.lock2Moved = true;
+                t.lock2MovedAt = Date.now();
+                t.lockedSl = trailSl;
+                t.stopLossPrice = trailSl;
+                console.log(`[RedBarBot] Dhan runner trail @2R · ${t.symbolHint} SL→${trailSl}`);
+                if (bot && chatId) {
+                  await bot.sendMessage(
+                    chatId,
+                    `🛡️ Dhan runner trail ~2R · ${t.symbolHint}\nSL→${trailSl} · LTP ${ltp}`,
+                    { disable_web_page_preview: true },
+                  ).catch(() => {});
+                }
+              } catch (e) {
+                console.warn(`[RedBarBot] Dhan 2R trail failed: ${e.message}`);
+              }
             }
           }
         }
       }
 
-      // Drop if super order closed
+      // Drop if super / runner exits closed
       try {
-        const supers = await trader.dhan.getSuperOrders();
-        const book = Array.isArray(supers) ? supers : [];
-        const row = book.find((o) => String(o.orderId) === String(t.orderId));
-        if (row && Array.isArray(row.legDetails)) {
-          const targetLeg = row.legDetails.find((l) => l.legName === 'TARGET_LEG');
-          const slLeg = row.legDetails.find((l) => l.legName === 'STOP_LOSS_LEG');
-          if (targetLeg && String(targetLeg.orderStatus) === 'TRADED') {
-            t.status = 'closed_target';
-            t.closedAt = Date.now();
-            console.log(`[RedBarBot] ✅ Dhan Target hit · ${t.symbolHint}`);
-            if (bot && chatId) {
-              await bot.sendMessage(
-                chatId,
-                `🎯 <b>Dhan Target Hit · ${t.symbolHint}</b>\nEntry: ${t.entryPremium} · Target: ${t.targetPrice} · Status: Profit Booked!`,
-                { parse_mode: 'HTML', disable_web_page_preview: true },
-              ).catch(() => {});
-            }
-          } else if (slLeg && String(slLeg.orderStatus) === 'TRADED') {
-            t.status = 'closed_sl';
-            t.closedAt = Date.now();
-            console.log(`[RedBarBot] 🛑 Dhan SL hit · ${t.symbolHint}`);
-            if (bot && chatId) {
-              await bot.sendMessage(
-                chatId,
-                `🛑 <b>Dhan SL Hit · ${t.symbolHint}</b>\nEntry: ${t.entryPremium} · SL: ${t.stopLossPrice}`,
-                { parse_mode: 'HTML', disable_web_page_preview: true },
-              ).catch(() => {});
+        if (t.legAMode === 'partial' && (t.runnerSlOrderId || t.runnerTpOrderId)) {
+          const checkIds = [t.runnerTpOrderId, t.runnerSlOrderId].filter(Boolean);
+          for (const oid of checkIds) {
+            let st = '';
+            try {
+              const ord = await trader.dhan.getOrderById(oid);
+              st = String(ord?.orderStatus || ord?.status || '').toUpperCase();
+            } catch (_) { /* ignore */ }
+            if (st === 'TRADED' || st === 'COMPLETE' || st === 'FILLED') {
+              const isTp = String(oid) === String(t.runnerTpOrderId);
+              t.status = isTp ? 'closed_target' : 'closed_sl';
+              t.closedAt = Date.now();
+              // Cancel the sibling exit leg
+              const sibling = isTp ? t.runnerSlOrderId : t.runnerTpOrderId;
+              if (sibling) {
+                try { await trader.dhan.cancelOrder(sibling); } catch (_) { /* ignore */ }
+              }
+              console.log(`[RedBarBot] ${isTp ? '✅' : '🛑'} Dhan runner ${isTp ? 'TP' : 'SL'} · ${t.symbolHint}`);
+              if (bot && chatId) {
+                await bot.sendMessage(
+                  chatId,
+                  isTp
+                    ? `🎯 <b>Dhan runner TP · ${t.symbolHint}</b>\nEntry ${t.entryPremium} · TP ${t.targetPrice}`
+                    : `🛑 <b>Dhan runner SL · ${t.symbolHint}</b>\nEntry ${t.entryPremium} · SL ${t.stopLossPrice}`,
+                  { parse_mode: 'HTML', disable_web_page_preview: true },
+                ).catch(() => {});
+              }
+              break;
             }
           }
-        }
-        // Parent terminal states — REJECTED/CANCELLED must clear managed "open" (not only CLOSED).
-        // Do not overwrite a more specific closed_target / closed_sl from the legs above.
-        const parentStatus = row ? String(row.orderStatus || '').toUpperCase() : '';
-        if (t.status === 'open' && ['CLOSED', 'CANCELLED', 'REJECTED'].includes(parentStatus)) {
-          t.status = parentStatus === 'REJECTED' ? 'rejected' : parentStatus === 'CANCELLED' ? 'cancelled' : 'closed';
-          t.closedAt = Date.now();
-          console.log(`[RedBarBot] Dhan SuperOrder ${parentStatus} · ${t.symbolHint || t.orderId} — marking ${t.status}`);
+          if (t.status === 'open' && t.securityId) {
+            const left = await trader.getOpenQtyForSecurity(t.securityId).catch(() => null);
+            if (left != null && Math.abs(left) === 0) {
+              t.status = 'closed';
+              t.closedAt = Date.now();
+            }
+          }
+        } else {
+          const supers = await trader.dhan.getSuperOrders();
+          const book = Array.isArray(supers) ? supers : [];
+          const row = book.find((o) => String(o.orderId) === String(t.orderId));
+          if (row && Array.isArray(row.legDetails)) {
+            const targetLeg = row.legDetails.find((l) => l.legName === 'TARGET_LEG');
+            const slLeg = row.legDetails.find((l) => l.legName === 'STOP_LOSS_LEG');
+            if (targetLeg && String(targetLeg.orderStatus) === 'TRADED') {
+              t.status = 'closed_target';
+              t.closedAt = Date.now();
+              console.log(`[RedBarBot] ✅ Dhan Target hit · ${t.symbolHint}`);
+              if (bot && chatId) {
+                await bot.sendMessage(
+                  chatId,
+                  `🎯 <b>Dhan Target Hit · ${t.symbolHint}</b>\nEntry: ${t.entryPremium} · Target: ${t.targetPrice} · Status: Profit Booked!`,
+                  { parse_mode: 'HTML', disable_web_page_preview: true },
+                ).catch(() => {});
+              }
+            } else if (slLeg && String(slLeg.orderStatus) === 'TRADED') {
+              t.status = 'closed_sl';
+              t.closedAt = Date.now();
+              console.log(`[RedBarBot] 🛑 Dhan SL hit · ${t.symbolHint}`);
+              if (bot && chatId) {
+                await bot.sendMessage(
+                  chatId,
+                  `🛑 <b>Dhan SL Hit · ${t.symbolHint}</b>\nEntry: ${t.entryPremium} · SL: ${t.stopLossPrice}`,
+                  { parse_mode: 'HTML', disable_web_page_preview: true },
+                ).catch(() => {});
+              }
+            }
+          }
+          const parentStatus = row ? String(row.orderStatus || '').toUpperCase() : '';
+          if (t.status === 'open' && ['CLOSED', 'CANCELLED', 'REJECTED'].includes(parentStatus)) {
+            t.status = parentStatus === 'REJECTED' ? 'rejected' : parentStatus === 'CANCELLED' ? 'cancelled' : 'closed';
+            t.closedAt = Date.now();
+            console.log(`[RedBarBot] Dhan SuperOrder ${parentStatus} · ${t.symbolHint || t.orderId} — marking ${t.status}`);
+          }
         }
       } catch (_) { /* keep managing */ }
 
