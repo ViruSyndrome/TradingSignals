@@ -2558,8 +2558,9 @@ const RangeEmaUI = {
             ? area.right
             : xScale.getPixelForValue(i1);
           if (![x0, x1].every(Number.isFinite)) continue;
-          if (b.iMarkStart != null) x0 -= padX;
-          if (i < n - 1 && bands[i + 1]?.iMarkStart != null) x1 -= padX;
+          const halfStep = Number.isFinite(barStep) ? barStep / 2 : padX;
+          if (b.iMarkStart != null) x0 -= halfStep;
+          if (i < n - 1 && bands[i + 1]?.iMarkStart != null) x1 -= halfStep;
           if (x1 < x0) { const t = x0; x0 = x1; x1 = t; }
           if (x1 < area.left || x0 > area.right) continue;
           x0 = Math.max(x0, area.left);
@@ -2609,8 +2610,9 @@ const RangeEmaUI = {
             // Bracket the anchor mark-window candle(s) (02:30–03:30 IST) at the left edge
             // so you can see the exact candle(s) whose High & Low wicks define the Fib box.
             if (b.iMarkEnd != null && b.iMarkStart != null && b.iMarkEnd >= b.iMarkStart) {
-              const xm0 = Math.max(area.left, xScale.getPixelForValue(b.iMarkStart) - padX);
-              const xm1 = Math.min(area.right, xScale.getPixelForValue(b.iMarkEnd) + padX);
+              const half = Number.isFinite(barStep) ? barStep / 2 : padX;
+              const xm0 = Math.max(area.left, xScale.getPixelForValue(b.iMarkStart) - half);
+              const xm1 = Math.min(area.right, xScale.getPixelForValue(b.iMarkEnd) + half);
               const yHi = yScale.getPixelForValue(b.f1 ?? b.high);
               const yLo = yScale.getPixelForValue(b.f0 ?? b.low);
               if ([xm0, xm1, yHi, yLo].every(Number.isFinite) && xm1 > xm0) {
@@ -2618,10 +2620,19 @@ const RangeEmaUI = {
                 const boxH = Math.max(2, Math.abs(yLo - yHi));
                 const boxW = Math.max(6, xm1 - xm0);
                 ctx.save();
-                ctx.strokeStyle = 'rgba(250, 204, 21, 0.85)';
+                ctx.globalAlpha = 1;
+                ctx.strokeStyle = 'rgba(250, 204, 21, 0.9)';
                 ctx.lineWidth = 1.4;
                 ctx.setLineDash([3, 2]);
                 ctx.strokeRect(xm0, topY, boxW, boxH);
+                if (b.t0 != null && b.t1 != null) {
+                  const hm = (t) => new Date(t).toLocaleTimeString(undefined, { hour: '2-digit', minute: '2-digit', hour12: false });
+                  ctx.font = 'bold 9px Outfit, system-ui, sans-serif';
+                  ctx.fillStyle = 'rgba(250, 204, 21, 0.95)';
+                  ctx.textAlign = 'left';
+                  ctx.textBaseline = 'top';
+                  ctx.fillText(`Mark Fib ${hm(b.t0)}–${hm(b.t1)}`, xm0 + 2, topY + boxH + 2);
+                }
                 ctx.restore();
               }
             }
@@ -2843,14 +2854,28 @@ const RangeEmaUI = {
         const d = chart.$rbDecimals ?? 2;
 
         let x0 = area.left;
+        let xEnd = null;
         const times = chart.$rbTimes;
+        const redMs = Number(red.barMs) > 0 ? Number(red.barMs) : 3600000;
+        const barStep = (Array.isArray(times) && times.length > 1 && xScale)
+          ? Math.abs(xScale.getPixelForValue(1) - xScale.getPixelForValue(0))
+          : 0;
+        const half = Number.isFinite(barStep) ? barStep / 2 : 0;
         if (xScale && Array.isArray(times) && times.length && red.t != null) {
           if (red.t > times[0]) {
             const firstIdx = times.findIndex((t) => t >= red.t - 1000);
             if (firstIdx >= 0) {
               const px = xScale.getPixelForValue(firstIdx);
-              if (Number.isFinite(px)) x0 = Math.max(area.left, px);
+              if (Number.isFinite(px)) x0 = Math.max(area.left, px - half);
             }
+          }
+          let lastIdx = -1;
+          for (let k = 0; k < times.length; k++) {
+            if (times[k] >= red.t - 1000 && times[k] < red.t + redMs - 1000) lastIdx = k;
+          }
+          if (lastIdx >= 0) {
+            const px = xScale.getPixelForValue(lastIdx);
+            if (Number.isFinite(px)) xEnd = Math.min(area.right, px + half);
           }
         }
         if (x0 >= area.right) return;
@@ -2862,12 +2887,21 @@ const RangeEmaUI = {
         const ctx = chart.ctx;
         ctx.save();
 
-        // Only the two clean horizontal lines: First Red High and First Red Low
-        const rLbl = chart.$rbFirstRedLabel || 'Red';
+        const rLbl = chart.$rbFirstRedLabel || '1H';
+        const hm = (t) => new Date(t).toLocaleTimeString(undefined, { hour: '2-digit', minute: '2-digit', hour12: false });
+        const win = red.t != null ? ` ${hm(red.t)}–${hm(red.t + redMs)}` : '';
+
+        if (xEnd != null && xEnd > x0) {
+          ctx.strokeStyle = 'rgba(244, 63, 94, 0.9)';
+          ctx.lineWidth = 1.4;
+          ctx.setLineDash([3, 2]);
+          ctx.strokeRect(x0, Math.min(yHi, yLo), Math.max(6, xEnd - x0), Math.max(2, Math.abs(yLo - yHi)));
+        }
+
         const fmtV = (v) => Number(v).toFixed(d === 0 ? 0 : (v % 1 === 0 ? 0 : d));
         const levels = [
-          { v: red.high, y: yHi, style: 'rgba(244, 63, 94, 0.92)', w: 1.5, dash: [6, 3], txt: `🟥 ${rLbl} High ${fmtV(red.high)}`, pos: 'top' },
-          { v: red.low, y: yLo, style: 'rgba(244, 63, 94, 0.78)', w: 1.35, dash: [5, 3], txt: `🟥 ${rLbl} Low ${fmtV(red.low)}`, pos: 'bot' },
+          { v: red.high, y: yHi, style: 'rgba(244, 63, 94, 0.92)', w: 1.5, dash: [6, 3], txt: `🟥 ${rLbl} Red${win} High ${fmtV(red.high)}`, pos: 'top' },
+          { v: red.low, y: yLo, style: 'rgba(244, 63, 94, 0.78)', w: 1.35, dash: [5, 3], txt: `🟥 ${rLbl} Red${win} Low ${fmtV(red.low)}`, pos: 'bot' },
         ];
         ctx.font = compact
           ? 'bold 8px Outfit, system-ui, sans-serif'
@@ -3541,7 +3575,7 @@ const RangeEmaUI = {
       return span ? span.i0 : null;
     };
     const resolveMarkEndIndex = (b, i0) => {
-      const winEndT = b.t1 != null ? b.t1 : (b.endT != null ? b.endT + barMs : null);
+      const winEndT = b.t1 != null ? b.t1 : (b.endT != null ? b.endT + this._barMs(times) : null);
       if (winEndT != null && times.length) {
         if (winEndT <= times[0]) return null;
         // Find the last visible bar that opened inside [t0, t1)

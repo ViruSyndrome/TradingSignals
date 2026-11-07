@@ -692,6 +692,7 @@ const RedBarTrend = {
           open: bar.o,
           close: bar.c,
           t: bar.t,
+          barMs,
           index,
           asOfDay,
           skippedOpen: true,
