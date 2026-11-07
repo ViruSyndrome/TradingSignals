@@ -963,11 +963,30 @@ const RangeEmaUI = {
       const watchExit = useLadder
         ? `If shelf retest prints — 1️⃣ Stop (${stopTag}): ${this._fmt(o.invalidation)}${stopPctStr} · 2️⃣ 50% @ 1:1 ${tp1Str} → stop to cost · 3️⃣ Trail 1:2 ${tp2Str} · 4️⃣ TP 1:3 ${tp3Str}.${stopWarn}`
         : `If ENTER prints — leave / retest / sweep / mid-zone · 1️⃣ Stop (${stopTag}): ${this._fmt(o.invalidation)}${stopPctStr} · 2️⃣ book plan.${stopWarn}`;
+      const frBox = o.firstRed1h;
+      const frLbl = o.firstRedLabel || '1H';
+      const exactWatchSub = (() => {
+        if (o.setupKind === 'pob_reject_watch' && pr && pr.pobLo != null && pr.pobHi != null) {
+          return `Wait for retest of ${this._fmt(pr.pobLo)}–${this._fmt(pr.pobHi)} then 5m close < ${this._fmt(pr.pobLo)} (SHORT) · Stop > ${this._fmt(pr.pobHi)}`;
+        }
+        if (frBox && frBox.high != null && frBox.low != null) {
+          const planBit = (o.invalidation != null && o.tp1 != null)
+            ? ` · Plan: Stop ${this._fmt(o.invalidation)} (${stopTag}) · 1:1 ${this._fmt(o.tp1)}${o.tp3 != null ? ` · 1:3 ${this._fmt(o.tp3)}` : ''}`
+            : '';
+          if (biasDir === 'LONG') {
+            return `${frLbl} Red Box ${this._fmt(frBox.low)}–${this._fmt(frBox.high)}: wait 5m close > ${this._fmt(frBox.high)} (or low sweep + 5m close > ${this._fmt(frBox.low)})${planBit}`;
+          }
+          if (biasDir === 'SHORT') {
+            return `${frLbl} Red Box ${this._fmt(frBox.low)}–${this._fmt(frBox.high)}: wait 5m close < ${this._fmt(frBox.low)} (or high sweep + 5m close < ${this._fmt(frBox.high)})${planBit}`;
+          }
+        }
+        return o.actionReason || 'Bias only — Telegram when ENTER is ready';
+      })();
       return {
         side: 'WATCH',
         cls: 'wait',
         title: watchTitle,
-        subtitle: `${o.actionReason || 'Bias only — Telegram when ENTER is ready'}${emaNote}.`,
+        subtitle: `${exactWatchSub}${emaNote}.`,
         steps: [
           `WATCH ≠ signal. Bias is ${biasDir}. ENTER needs leave, shelf retest, sweep, or mid-zone reject.`,
           ...(pobStep ? [pobStep] : []),
@@ -1948,14 +1967,14 @@ const RangeEmaUI = {
           <div class="rb-step-icon">⏳</div>
           <div class="rb-step-body">
             <div class="rb-step-name">3. Candle Confirm</div>
-            <div class="rb-step-val">Waiting 5m Close</div>
+            <div class="rb-step-val">${o.firstRed1h ? (a.side === 'LONG' || trendWord === 'BULLISH' ? `5m Close > ${this._fmt(o.firstRed1h.high)}` : trendWord === 'BEARISH' ? `5m Close < ${this._fmt(o.firstRed1h.low)}` : 'Waiting 5m Close') : 'Waiting 5m Close'}</div>
           </div>
         </div>
         <div class="rb-step pending">
           <div class="rb-step-icon">🎯</div>
           <div class="rb-step-body">
-            <div class="rb-step-name">4. Two-Leg Execution</div>
-            <div class="rb-step-val">1:1 BE → 1:3 Runner</div>
+            <div class="rb-step-name">4. Two-Leg Plan</div>
+            <div class="rb-step-val">${o.invalidation != null && o.tp1 != null ? `SL ${this._fmt(o.invalidation)} → 1:1 ${this._fmt(o.tp1)}` : '1:1 BE → 1:3 Runner'}</div>
           </div>
         </div>
       `;
