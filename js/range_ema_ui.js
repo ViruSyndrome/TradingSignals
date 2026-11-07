@@ -1639,6 +1639,7 @@ const RangeEmaUI = {
           ${this.activeTf() === '30m' ? '<span class="lg ema5" style="color:#c084fc;"><i style="display:inline-block;width:10px;height:2px;background:#c084fc;vertical-align:middle;margin-right:4px;"></i>EMA 5 (stretch guide)</span>' : ''}
           <span class="lg ema10">EMA ${c.emaFast || 10}</span>
           <span class="lg ema30">EMA ${c.emaSlow || 30}</span>
+          ${instUpper === 'BTC' ? '<span class="lg" style="color:#e2e8f0;"><i style="display:inline-block;width:12px;height:2px;background:#e2e8f0;vertical-align:middle;margin-right:4px;"></i>200 MA (H/L/C)</span><span class="lg" style="color:#4ade80;"><i style="display:inline-block;width:12px;height:2.5px;background:linear-gradient(90deg,#4ade80 50%,#f87171 50%);vertical-align:middle;margin-right:4px;"></i>ST (10, 4.1)</span>' : ''}
           <span class="lg band">${this._isFibStyle(r) ? `Mid-zone 44–56 · Fib 0/1${r.instrument?.markLabel ? ` · ${r.instrument.markLabel}` : ''}` : 'Day ranges'}</span>
           <span class="lg stop">${o.firstRedLabel || '1H'} session box H/L</span>
           <span class="lg sess-london rb-lg-desk">Session opens</span>
@@ -1746,6 +1747,24 @@ const RangeEmaUI = {
         : `<div class="rb-binance-status">Binance: no open BTCUSDT position right now</div>`)
       : '';
 
+    const btcConf = (instUpper === 'BTC') ? (o.btcConfluence || o.playbook?.btcConfluence || null) : null;
+    const btcConfHtml = btcConf ? (() => {
+      const sc = btcConf.score;
+      const gradeCol = sc === 4 ? '#4ade80' : sc === 3 ? '#38bdf8' : sc === 2 ? '#fbbf24' : '#94a3b8';
+      const gradeBg = sc === 4 ? 'rgba(74, 222, 128, 0.12)' : sc === 3 ? 'rgba(56, 189, 248, 0.12)' : sc === 2 ? 'rgba(251, 191, 36, 0.10)' : 'rgba(148, 163, 184, 0.08)';
+      const pills = (btcConf.checks || []).map((ck) => {
+        const cCol = ck.ok ? '#4ade80' : '#94a3b8';
+        const cBg = ck.ok ? 'rgba(74, 222, 128, 0.10)' : 'rgba(255, 255, 255, 0.04)';
+        return `<span title="${escTxt(ck.detail)}" style="display:inline-flex;align-items:center;gap:4px;padding:2px 7px;border-radius:5px;background:${cBg};border:1px solid rgba(255,255,255,0.07);color:${cCol};font-size:11px;font-weight:600;">${ck.ok ? '✓' : '○'} ${escTxt(ck.label)} <span style="color:#cbd5e1;font-weight:500;">· ${escTxt(ck.detail)}</span></span>`;
+      }).join('');
+      return `
+        <div style="margin:6px 0 8px;padding:7px 10px;border-radius:8px;background:${gradeBg};border:1px solid ${gradeCol}44;display:flex;flex-wrap:wrap;align-items:center;gap:6px;">
+          <span style="font-size:11.5px;font-weight:700;color:${gradeCol};margin-right:4px;" title="Dr. Devendra Crypto Course Confluence Score — context only, never blocks Red Bar entries">🎯 Course Confluence: ${sc}/4 (${btcConf.grade})</span>
+          ${pills}
+        </div>
+      `;
+    })() : '';
+
     let actionContentHtml = '';
     if (showEnter) {
       const botBtns = `
@@ -1758,6 +1777,7 @@ const RangeEmaUI = {
 
       actionContentHtml = `
         ${statusBanner}
+        ${btcConfHtml}
         ${tellHtml}
         ${posLine}
         <div class="rb-manage-plan">
@@ -1924,6 +1944,7 @@ const RangeEmaUI = {
 
       actionContentHtml = `
         ${statusBanner}
+        ${btcConfHtml}
         ${tellHtml}
         <div class="rb-stepper-wrap">
           <div class="rb-stepper">
@@ -3771,6 +3792,23 @@ const RangeEmaUI = {
       ema5Slice = isRenkoMode ? fullEma5 : fullEma5.slice(visStart, visStart + bars.length);
     }
 
+    // BTC only: Dr. Dev Crypto Course 3-Line 200 SMA Channel (High/Close/Low) + SuperTrend (10, 4.1)
+    const isBtcChart = String(inst.id || '').toUpperCase() === 'BTC';
+    let ma200HSlice = null;
+    let ma200CSlice = null;
+    let ma200LSlice = null;
+    let stLineSlice = null;
+    let stDirSlice = null;
+    if (isBtcChart && typeof RedBarTrend !== 'undefined' && typeof RedBarTrend.compute200MaAndSupertrendSeries === 'function') {
+      const srcSeriesBars = isRenkoMode ? bars : row.bars;
+      const stSeries = RedBarTrend.compute200MaAndSupertrendSeries(srcSeriesBars, 200, 10, 4.1);
+      ma200HSlice = isRenkoMode ? stSeries.maHigh : stSeries.maHigh.slice(visStart, visStart + bars.length);
+      ma200CSlice = isRenkoMode ? stSeries.maClose : stSeries.maClose.slice(visStart, visStart + bars.length);
+      ma200LSlice = isRenkoMode ? stSeries.maLow : stSeries.maLow.slice(visStart, visStart + bars.length);
+      stLineSlice = isRenkoMode ? stSeries.stLine : stSeries.stLine.slice(visStart, visStart + bars.length);
+      stDirSlice = isRenkoMode ? stSeries.stDir : stSeries.stDir.slice(visStart, visStart + bars.length);
+    }
+
     // Invisible close series: hit-testing + tooltip OHLC (candles drawn by plugin)
     const datasets = [
       {
@@ -3810,12 +3848,61 @@ const RangeEmaUI = {
         label: `EMA ${c.emaSlow || 30}`,
         data: emaS,
         borderColor: COL.ema30,
-        borderWidth: 2.75,
+        borderWidth: 2.25,
         pointRadius: 0,
         fill: false,
         tension: 0.1,
         order: 3,
       },
+      ...(ma200HSlice ? [
+        {
+          label: 'MA 200 High',
+          data: ma200HSlice,
+          borderColor: 'rgba(226, 232, 240, 0.55)',
+          borderWidth: 1.15,
+          pointRadius: 0,
+          fill: false,
+          tension: 0.1,
+          order: 4,
+        },
+        {
+          label: 'MA 200 Close',
+          data: ma200CSlice,
+          borderColor: 'rgba(248, 250, 252, 0.85)',
+          borderWidth: 1.5,
+          pointRadius: 0,
+          fill: false,
+          tension: 0.1,
+          order: 4,
+        },
+        {
+          label: 'MA 200 Low',
+          data: ma200LSlice,
+          borderColor: 'rgba(226, 232, 240, 0.55)',
+          borderWidth: 1.15,
+          pointRadius: 0,
+          fill: '-2',
+          backgroundColor: 'rgba(226, 232, 240, 0.05)',
+          tension: 0.1,
+          order: 4,
+        },
+      ] : []),
+      ...(stLineSlice ? [{
+        label: 'SuperTrend (10, 4.1)',
+        data: stLineSlice,
+        borderColor: '#4ade80',
+        borderWidth: 2.1,
+        pointRadius: 0,
+        fill: false,
+        tension: 0,
+        order: 2,
+        segment: {
+          borderColor: (ctx) => {
+            const idx = ctx.p1DataIndex;
+            return (stDirSlice && stDirSlice[idx] === -1) ? '#f87171' : '#4ade80';
+          },
+        },
+      }] : []),
     ];
 
     // Y-axis: keep it sparse. Chips carry PDH/PDL + Asia/London liquidity.

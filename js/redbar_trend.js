@@ -3736,6 +3736,20 @@ const RedBarTrend = {
       liquidityTip: this._liquidityTip(clock, asiaHl, londonHl, asiaUntouched, sweep),
     };
 
+    const btcConfluence = isBtc
+      ? this.computeBtcCourseConfluence({
+        bars: slice,
+        bars5m,
+        price,
+        trend,
+        firstRed1h,
+        pobReject,
+        btcAsia0530,
+        evalTs,
+      })
+      : null;
+    playbook.btcConfluence = btcConfluence;
+
     const narrative = this._narrative({
       trend,
       phase,
@@ -3763,6 +3777,7 @@ const RedBarTrend = {
       equinox: equinox || null,
       afternoon1245: afternoon1245 || null,
       btcAsia0530: btcAsia0530 || null,
+      btcConfluence: btcConfluence || null,
       squeeze5m: squeeze5m || null,
       openingRange: or,
       lastRedBar: red,
@@ -4165,6 +4180,224 @@ const RedBarTrend = {
       return `Bearish (broke below mark-window Fib 0/1). Book toward liquidity target; 1H first red is the pivot.${redBit}${clockBit}`;
     }
     return `No clear fib-box break yet. Prior-day H/L and session fibs are still magnets.${redBit}${clockBit}`;
+  },
+
+  /**
+   * 3-Line 200 SMA Channel (High / Close / Low) + SuperTrend (10, 4.1) series
+   * from Dr. Devendra's Upsurge Crypto Course. Used for BTC chart overlay & non-blocking Confluence Score.
+   */
+  compute200MaAndSupertrendSeries(bars, maPeriod = 200, stPeriod = 10, stMult = 4.1) {
+    const n = Array.isArray(bars) ? bars.length : 0;
+    const maClose = new Array(n).fill(null);
+    const maHigh = new Array(n).fill(null);
+    const maLow = new Array(n).fill(null);
+    const stLine = new Array(n).fill(null);
+    const stDir = new Array(n).fill(0); // +1 bullish (green), -1 bearish (red)
+    if (!n) return { maClose, maHigh, maLow, stLine, stDir };
+
+    let sumC = 0, sumH = 0, sumL = 0;
+    for (let i = 0; i < n; i++) {
+      sumC += Number(bars[i].c);
+      sumH += Number(bars[i].h);
+      sumL += Number(bars[i].l);
+      if (i >= maPeriod) {
+        sumC -= Number(bars[i - maPeriod].c);
+        sumH -= Number(bars[i - maPeriod].h);
+        sumL -= Number(bars[i - maPeriod].l);
+      }
+      const denom = Math.min(i + 1, maPeriod);
+      if (i >= Math.min(30, maPeriod - 1)) {
+        maClose[i] = sumC / denom;
+        maHigh[i] = sumH / denom;
+        maLow[i] = sumL / denom;
+      }
+    }
+
+    // ATR (RMA / Wilder's smoothing) for SuperTrend (10, 4.1)
+    const tr = new Array(n).fill(0);
+    const atr = new Array(n).fill(0);
+    for (let i = 0; i < n; i++) {
+      const h = Number(bars[i].h);
+      const l = Number(bars[i].l);
+      if (i === 0) {
+        tr[i] = h - l;
+        atr[i] = tr[i];
+      } else {
+        const pc = Number(bars[i - 1].c);
+        tr[i] = Math.max(h - l, Math.abs(h - pc), Math.abs(l - pc));
+        if (i < stPeriod) {
+          let s = 0;
+          for (let k = 0; k <= i; k++) s += tr[k];
+          atr[i] = s / (i + 1);
+        } else {
+          atr[i] = ((atr[i - 1] * (stPeriod - 1)) + tr[i]) / stPeriod;
+        }
+      }
+    }
+
+    const finalUpper = new Array(n).fill(0);
+    const finalLower = new Array(n).fill(0);
+    for (let i = 0; i < n; i++) {
+      const hl2 = (Number(bars[i].h) + Number(bars[i].l)) / 2;
+      const basicUpper = hl2 + stMult * atr[i];
+      const basicLower = hl2 - stMult * atr[i];
+      if (i === 0) {
+        finalUpper[i] = basicUpper;
+        finalLower[i] = basicLower;
+        stDir[i] = 1;
+        stLine[i] = finalLower[i];
+      } else {
+        const prevC = Number(bars[i - 1].c);
+        finalUpper[i] = (basicUpper < finalUpper[i - 1] || prevC > finalUpper[i - 1])
+          ? basicUpper
+          : finalUpper[i - 1];
+        finalLower[i] = (basicLower > finalLower[i - 1] || prevC < finalLower[i - 1])
+          ? basicLower
+          : finalLower[i - 1];
+        const curC = Number(bars[i].c);
+        if (stDir[i - 1] === -1 && curC > finalUpper[i - 1]) {
+          stDir[i] = 1;
+        } else if (stDir[i - 1] === 1 && curC < finalLower[i - 1]) {
+          stDir[i] = -1;
+        } else {
+          stDir[i] = stDir[i - 1];
+        }
+        stLine[i] = stDir[i] === 1 ? finalLower[i] : finalUpper[i];
+      }
+    }
+
+    return { maClose, maHigh, maLow, stLine, stDir };
+  },
+
+  /**
+   * Non-blocking 4-point BTC Confluence Score from Dr. Devendra's Upsurge Crypto Course:
+   *  1. Red Bar / POB / 05:30 Structure locked
+   *  2. 200 MA 3-Line Channel (High / Close / Low) alignment
+   *  3. SuperTrend (10, 4.1) alignment
+   *  4. Latest 30m Trikal Clock (03:30 / 05:30 / 12:30 / 17:30 IST) 50% midpoint alignment
+   */
+  computeBtcCourseConfluence({
+    bars,
+    bars5m,
+    price,
+    trend,
+    firstRed1h,
+    pobReject,
+    btcAsia0530,
+    evalTs,
+  }) {
+    if (!Array.isArray(bars) || bars.length < 30 || !Number.isFinite(Number(price))) return null;
+    const series = this.compute200MaAndSupertrendSeries(bars, 200, 10, 4.1);
+    const lastIdx = bars.length - 1;
+    const maH = series.maHigh[lastIdx];
+    const maC = series.maClose[lastIdx];
+    const maL = series.maLow[lastIdx];
+    const stVal = series.stLine[lastIdx];
+    const stDirection = series.stDir[lastIdx]; // +1 bull, -1 bear
+
+    const isBullBias = trend === 'bullish';
+    const isBearBias = trend === 'bearish';
+    const refDir = isBullBias ? 1 : isBearBias ? -1 : (price > (maH || price) ? 1 : price < (maL || price) ? -1 : stDirection);
+
+    // 1. Structure locked (First Red 1H / Asia 05:30 / POB)
+    const hasStructure = Boolean(firstRed1h || (btcAsia0530 && btcAsia0530.xHigh) || (pobReject && pobReject.xCandle));
+
+    // 2. 200 MA 3-Line Channel (High, Close, Low)
+    const above200Band = maH != null && price > maH;
+    const below200Band = maL != null && price < maL;
+    const inside200Band = maH != null && maL != null && price >= maL && price <= maH;
+    const ma200State = above200Band ? 'bullish' : below200Band ? 'bearish' : 'inside_band';
+    const ma200Aligned = (refDir === 1 && above200Band) || (refDir === -1 && below200Band);
+
+    // 3. SuperTrend (10, 4.1)
+    const stState = stDirection === 1 ? 'bullish' : 'bearish';
+    const stAligned = (refDir === 1 && stDirection === 1) || (refDir === -1 && stDirection === -1);
+
+    // 4. Latest active 30m Trikal Clock candle (03:30, 05:30, 12:30, 17:30 IST) 50% level
+    const srcBars = (Array.isArray(bars5m) && bars5m.length >= 12) ? bars5m : bars;
+    const asOf = evalTs || Date.now();
+    const zNow = this.zonedHms(asOf, 'Asia/Kolkata');
+    const nowMins = zNow.hour * 60 + zNow.minute;
+    const trikalClocks = [
+      { id: '03:30', label: '03:30 IST', mins: 3 * 60 + 30 },
+      { id: '05:30', label: '05:30 IST', mins: 5 * 60 + 30 },
+      { id: '12:30', label: '12:30 IST', mins: 12 * 60 + 30 },
+      { id: '17:30', label: '17:30 IST', mins: 17 * 60 + 30 },
+    ];
+    // Pick the most recently completed 30m clock window (start + 30m <= now)
+    let activeClock = null;
+    let clockDay = zNow.day;
+    for (let k = trikalClocks.length - 1; k >= 0; k--) {
+      if (nowMins >= trikalClocks[k].mins + 30) {
+        activeClock = trikalClocks[k];
+        break;
+      }
+    }
+    if (!activeClock) {
+      activeClock = trikalClocks[trikalClocks.length - 1];
+      clockDay = this.shiftDay(zNow.day, -1);
+    }
+    const winStartUtc = this.zonedClockToUtc(clockDay, 'Asia/Kolkata', Math.floor(activeClock.mins / 60), activeClock.mins % 60);
+    const winEndUtc = winStartUtc + 30 * 60 * 1000;
+    let tHi = -Infinity, tLo = Infinity;
+    for (const b of srcBars) {
+      if (b.t >= winStartUtc - 1000 && b.t < winEndUtc - 1000) {
+        if (b.h > tHi) tHi = b.h;
+        if (b.l < tLo) tLo = b.l;
+      }
+    }
+    const trikalMid = (Number.isFinite(tHi) && Number.isFinite(tLo) && tHi >= tLo) ? (tHi + tLo) / 2 : null;
+    const trikalF44 = (Number.isFinite(tHi) && Number.isFinite(tLo) && tHi >= tLo) ? tLo + (tHi - tLo) * 0.44 : null;
+    const trikalAligned = trikalMid != null
+      ? ((refDir === 1 && price >= (trikalF44 ?? trikalMid)) || (refDir === -1 && price <= (2 * trikalMid - (trikalF44 ?? trikalMid))))
+      : false;
+
+    const checks = [
+      {
+        id: 'structure',
+        label: 'Red Bar Box',
+        ok: hasStructure,
+        detail: firstRed1h ? `1H Red ${Math.round(firstRed1h.low)}–${Math.round(firstRed1h.high)}` : 'Structure marked',
+      },
+      {
+        id: 'ma200',
+        label: '200 MA (H/L/C)',
+        ok: ma200Aligned,
+        detail: above200Band
+          ? `Above 200 MA band (>${Math.round(maH)})`
+          : below200Band
+            ? `Below 200 MA band (<${Math.round(maL)})`
+            : `Inside 200 MA chop (${Math.round(maL || 0)}–${Math.round(maH || 0)})`,
+      },
+      {
+        id: 'supertrend',
+        label: 'ST (10, 4.1)',
+        ok: stAligned,
+        detail: stVal != null ? `${stDirection === 1 ? 'Bullish' : 'Bearish'} @ $${Math.round(stVal)}` : 'n/a',
+      },
+      {
+        id: 'trikal50',
+        label: `${activeClock.id} 30m 50%`,
+        ok: trikalAligned,
+        detail: trikalMid != null ? `${price >= trikalMid ? 'Above' : 'Below'} $${Math.round(trikalMid)}` : 'Awaiting bar',
+      },
+    ];
+
+    const score = checks.reduce((acc, c) => acc + (c.ok ? 1 : 0), 0);
+    const grade = score === 4 ? 'A+' : score === 3 ? 'A' : score === 2 ? 'B' : 'C';
+    const summaryText = `${score}/4 (${grade}) · ${checks.map((c) => `${c.ok ? '✓' : '○'} ${c.label}`).join(' · ')}`;
+
+    return {
+      score,
+      maxScore: 4,
+      grade,
+      refDir: refDir === 1 ? 'LONG' : 'SHORT',
+      ma200: { high: maH, close: maC, low: maL, state: ma200State, aligned: ma200Aligned, insideChop: inside200Band },
+      supertrend: { line: stVal, dir: stDirection, state: stState, aligned: stAligned },
+      trikalClock: { id: activeClock.id, label: activeClock.label, mid: trikalMid, f44: trikalF44, high: Number.isFinite(tHi) ? tHi : null, low: Number.isFinite(tLo) ? tLo : null, aligned: trikalAligned },
+      checks,
+      summaryText,
+    };
   },
 };
 

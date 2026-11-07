@@ -668,10 +668,13 @@ async function _scanOneRedBarInstrument(rawInst, rbCfg) {
         : '';
       const subject = `${side}: ${inst.label} · ${setupLabel}`;
       const planLine = 'Plan: bank ~50% at 1:1 → move stop to cost · trail the rest';
+      const btcConfLine = (String(inst.id || '').toUpperCase() === 'BTC' && readout.btcConfluence?.summaryText)
+        ? `\n🎯 Confluence: <b>${_escHtml(readout.btcConfluence.summaryText)}</b>`
+        : '';
       const htmlMsg = `${emoji} <b>${_escHtml(TrendRunnerCopy.enterHeadline(inst.label, side))}</b>
 <b>${_escHtml(setupLabel)}</b>
 ${setupTip ? `${_escHtml(setupTip)}\n` : ''}Entry <b>${pxPrefix}${fmt(readout.price)}</b> · Stop <b>${pxPrefix}${fmt(readout.invalidation)}</b> (${_escHtml(readout.invalidationReason || 'structure')}) · 1:1 bank <b>${pxPrefix}${fmt(readout.tp1)}</b>${isBinance && sz ? ` · ${sz.recLeverage}×` : ''}
-${_escHtml(planLine)}${alertOnlyNote}
+${_escHtml(planLine)}${btcConfLine}${alertOnlyNote}
 <a href="${deskUrl}">Open TrendRunner Desk</a>${futLink ? ` · <a href="${futLink}">Futures</a>` : ''}`;
       const plainMsg = [
         TrendRunnerCopy.enterHeadline(inst.label, side),
