@@ -3541,15 +3541,22 @@ const RangeEmaUI = {
       return span ? span.i0 : null;
     };
     const resolveMarkEndIndex = (b, i0) => {
+      const winEndT = b.t1 != null ? b.t1 : (b.endT != null ? b.endT + barMs : null);
+      if (winEndT != null && times.length) {
+        if (winEndT <= times[0]) return null;
+        // Find the last visible bar that opened inside [t0, t1)
+        let lastInWin = -1;
+        for (let k = i0; k < times.length; k++) {
+          if (times[k] < winEndT - 1000) lastInWin = k;
+          else break;
+        }
+        if (lastInWin >= i0) return lastInWin;
+      }
       const endT = b.endT != null ? b.endT : b.openT;
       if (endT != null && times.length) {
         if (endT < times[0]) return null;
         const idx = this._nearestBarIndex(times, endT);
         if (idx >= 0) return Math.max(i0, idx);
-      }
-      if (!isRenkoMode && b.i1Mark != null && b.i1Mark >= 0) {
-        const local = b.i1Mark - visStart;
-        if (local >= 0 && local < bars.length) return Math.max(i0, local);
       }
       return null;
     };
