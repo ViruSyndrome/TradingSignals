@@ -3694,6 +3694,8 @@ const RedBarTrend = {
       revisitRead: redSetup.revisitRead || null,
       tpHint: (setupKind === 'pob_reject' && pobReject?.tpHint != null) ? pobReject.tpHint : null,
       equinox,
+      phase,
+      openingRange: or,
     });
 
     const sizingEntry = (setupKind === 'pob_reject' && setupTriggerPrice != null) ? setupTriggerPrice : price;
@@ -3924,7 +3926,7 @@ const RedBarTrend = {
   entryGate({
     trend, setupKind, rr, stopStructural, invalidationReason, stopPct, renko, clock,
     asOfTs, instrumentId, season, setupTriggerTs, entryPrice, stopPrice, livePrice,
-    revisitRead, tpHint, equinox = null,
+    revisitRead, tpHint, equinox = null, phase = null, openingRange = null,
   }) {
     if (trend !== 'bullish' && trend !== 'bearish') {
       return { state: 'wait', reason: 'No directional setup.' };
@@ -4027,6 +4029,22 @@ const RedBarTrend = {
       return {
         state: 'watch',
         reason: 'Pre-Asia dead hours — no fresh Red Bar T1/T2/sweep ENTER. Wait Asia 05:30 Trikal / post-mark first red.',
+      };
+    }
+    // BTC: do not enter while price is trapped inside today's 02:30–03:30 Mark Fib (0..1) accumulation box.
+    const isInsideMarkFib = phase === 'inside_or' || (
+      openingRange && openingRange.locked
+      && Number.isFinite(Number(livePrice))
+      && Number(livePrice) >= Number(openingRange.low)
+      && Number(livePrice) <= Number(openingRange.high)
+    );
+    if ((!inst || inst === 'BTC') && isInsideMarkFib) {
+      const boxStr = (openingRange && openingRange.low != null && openingRange.high != null)
+        ? ` ($${Math.round(openingRange.low)}–$${Math.round(openingRange.high)})`
+        : '';
+      return {
+        state: 'watch',
+        reason: `Price is inside today's 02:30–03:30 Mark Fib box${boxStr} — accumulation chop. Wait for a clean break outside the Fib box before entering.`,
       };
     }
     if (stopPct != null && Number.isFinite(stopPct) && stopPct > 1.0) {
