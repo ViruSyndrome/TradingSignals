@@ -719,6 +719,25 @@ const RangeEmaUI = {
         readout.refs.firstRed1hHigh = firstRed1h ? firstRed1h.high : null;
         readout.refs.firstRed1hLow = firstRed1h ? firstRed1h.low : null;
       }
+      // Recompute BTC Course Confluence on the currently selected chart timeframe (5m / 15m / 30m / 1h)
+      // so the 200 MA (H/L/C) and SuperTrend (10, 4.1) pills match the visible chart timeframe.
+      if (instUpperId === 'BTC' && typeof RedBarTrend.computeBtcCourseConfluence === 'function' && bars30 && bars30.length >= 30) {
+        const tfConf = RedBarTrend.computeBtcCourseConfluence({
+          bars: bars30,
+          bars5m: bars5m && bars5m.length ? bars5m : bars30,
+          price: bars30[bars30.length - 1].c,
+          trend: readout.trend,
+          firstRed1h,
+          pobReject: readout.pobReject,
+          btcAsia0530: readout.btcAsia0530,
+          evalTs: nowTs,
+          tfLabel: tf,
+        });
+        if (tfConf) {
+          readout.btcConfluence = tfConf;
+          if (readout.playbook) readout.playbook.btcConfluence = tfConf;
+        }
+      }
     }
 
     const ema = this._emaOverlay(bars30, c.emaFast || 10, c.emaSlow || 30);
@@ -3745,6 +3764,29 @@ const RangeEmaUI = {
     ))
       .filter((v) => v != null && Number.isFinite(Number(v)))
       .map(Number);
+    // BTC only: Dr. Dev Crypto Course 3-Line 200 SMA Channel (High/Close/Low) + SuperTrend (10, 4.1)
+    const isBtcChart = String(inst.id || '').toUpperCase() === 'BTC';
+    let ma200HSlice = null;
+    let ma200CSlice = null;
+    let ma200LSlice = null;
+    let stLineSlice = null;
+    let stDirSlice = null;
+    let btcLatestMaH = null;
+    let btcLatestMaL = null;
+    let btcLatestSt = null;
+    if (isBtcChart && typeof RedBarTrend !== 'undefined' && typeof RedBarTrend.compute200MaAndSupertrendSeries === 'function') {
+      const srcSeriesBars = isRenkoMode ? bars : row.bars;
+      const stSeries = RedBarTrend.compute200MaAndSupertrendSeries(srcSeriesBars, 200, 10, 4.1);
+      ma200HSlice = isRenkoMode ? stSeries.maHigh : stSeries.maHigh.slice(visStart, visStart + bars.length);
+      ma200CSlice = isRenkoMode ? stSeries.maClose : stSeries.maClose.slice(visStart, visStart + bars.length);
+      ma200LSlice = isRenkoMode ? stSeries.maLow : stSeries.maLow.slice(visStart, visStart + bars.length);
+      stLineSlice = isRenkoMode ? stSeries.stLine : stSeries.stLine.slice(visStart, visStart + bars.length);
+      stDirSlice = isRenkoMode ? stSeries.stDir : stSeries.stDir.slice(visStart, visStart + bars.length);
+      btcLatestMaH = ma200HSlice?.[ma200HSlice.length - 1] ?? null;
+      btcLatestMaL = ma200LSlice?.[ma200LSlice.length - 1] ?? null;
+      btcLatestSt = stLineSlice?.[stLineSlice.length - 1] ?? null;
+    }
+
     const rawNearLevels = [
       o.currentBand?.high, o.currentBand?.low,
       o.invalidation, o.bookZone,
@@ -3752,6 +3794,7 @@ const RangeEmaUI = {
       o.refs?.priorDayHigh, o.refs?.priorDayLow,
       o.refs?.asiaHigh, o.refs?.asiaLow,
       o.refs?.londonHigh, o.refs?.londonLow,
+      btcLatestMaH, btcLatestMaL, btcLatestSt,
       ...bandPrices,
     ].filter((v) => v != null && Number.isFinite(Number(v))).map(Number);
     // Only expand initial Y-scale for levels within reasonable reach of current price action
@@ -3790,23 +3833,6 @@ const RangeEmaUI = {
       const fullCloses = isRenkoMode ? bars.map((b) => b.c) : row.bars.map((b) => b.c);
       const fullEma5 = this._emaSeries(fullCloses, 5);
       ema5Slice = isRenkoMode ? fullEma5 : fullEma5.slice(visStart, visStart + bars.length);
-    }
-
-    // BTC only: Dr. Dev Crypto Course 3-Line 200 SMA Channel (High/Close/Low) + SuperTrend (10, 4.1)
-    const isBtcChart = String(inst.id || '').toUpperCase() === 'BTC';
-    let ma200HSlice = null;
-    let ma200CSlice = null;
-    let ma200LSlice = null;
-    let stLineSlice = null;
-    let stDirSlice = null;
-    if (isBtcChart && typeof RedBarTrend !== 'undefined' && typeof RedBarTrend.compute200MaAndSupertrendSeries === 'function') {
-      const srcSeriesBars = isRenkoMode ? bars : row.bars;
-      const stSeries = RedBarTrend.compute200MaAndSupertrendSeries(srcSeriesBars, 200, 10, 4.1);
-      ma200HSlice = isRenkoMode ? stSeries.maHigh : stSeries.maHigh.slice(visStart, visStart + bars.length);
-      ma200CSlice = isRenkoMode ? stSeries.maClose : stSeries.maClose.slice(visStart, visStart + bars.length);
-      ma200LSlice = isRenkoMode ? stSeries.maLow : stSeries.maLow.slice(visStart, visStart + bars.length);
-      stLineSlice = isRenkoMode ? stSeries.stLine : stSeries.stLine.slice(visStart, visStart + bars.length);
-      stDirSlice = isRenkoMode ? stSeries.stDir : stSeries.stDir.slice(visStart, visStart + bars.length);
     }
 
     // Invisible close series: hit-testing + tooltip OHLC (candles drawn by plugin)

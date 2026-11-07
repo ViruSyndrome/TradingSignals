@@ -4285,8 +4285,10 @@ const RedBarTrend = {
     pobReject,
     btcAsia0530,
     evalTs,
+    tfLabel,
   }) {
     if (!Array.isArray(bars) || bars.length < 30 || !Number.isFinite(Number(price))) return null;
+    const tfTag = tfLabel ? `${tfLabel} ` : '';
     const series = this.compute200MaAndSupertrendSeries(bars, 200, 10, 4.1);
     const lastIdx = bars.length - 1;
     const maH = series.maHigh[lastIdx];
@@ -4361,7 +4363,7 @@ const RedBarTrend = {
       },
       {
         id: 'ma200',
-        label: '200 MA (H/L/C)',
+        label: `${tfTag}200 MA (H/L/C)`,
         ok: ma200Aligned,
         detail: above200Band
           ? `Above 200 MA band (>${Math.round(maH)})`
@@ -4371,7 +4373,7 @@ const RedBarTrend = {
       },
       {
         id: 'supertrend',
-        label: 'ST (10, 4.1)',
+        label: `${tfTag}ST (10, 4.1)`,
         ok: stAligned,
         detail: stVal != null ? `${stDirection === 1 ? 'Bullish' : 'Bearish'} @ $${Math.round(stVal)}` : 'n/a',
       },
