@@ -1658,7 +1658,6 @@ const RangeEmaUI = {
           ${this.activeTf() === '30m' ? '<span class="lg ema5" style="color:#c084fc;"><i style="display:inline-block;width:10px;height:2px;background:#c084fc;vertical-align:middle;margin-right:4px;"></i>EMA 5 (stretch guide)</span>' : ''}
           <span class="lg ema10">EMA ${c.emaFast || 10}</span>
           <span class="lg ema30">EMA ${c.emaSlow || 30}</span>
-          ${instUpper === 'BTC' ? '<span class="lg" style="color:#e2e8f0;"><i style="display:inline-block;width:12px;height:2px;background:#e2e8f0;vertical-align:middle;margin-right:4px;"></i>200 MA (H/L/C)</span><span class="lg" style="color:#4ade80;"><i style="display:inline-block;width:12px;height:2.5px;background:linear-gradient(90deg,#4ade80 50%,#f87171 50%);vertical-align:middle;margin-right:4px;"></i>ST (10, 4.1)</span>' : ''}
           <span class="lg band">${this._isFibStyle(r) ? `Mid-zone 44–56 · Fib 0/1${r.instrument?.markLabel ? ` · ${r.instrument.markLabel}` : ''}` : 'Day ranges'}</span>
           <span class="lg stop">${o.firstRedLabel || '1H'} session box H/L</span>
           <span class="lg sess-london rb-lg-desk">Session opens</span>
@@ -3764,29 +3763,6 @@ const RangeEmaUI = {
     ))
       .filter((v) => v != null && Number.isFinite(Number(v)))
       .map(Number);
-    // BTC only: Dr. Dev Crypto Course 3-Line 200 SMA Channel (High/Close/Low) + SuperTrend (10, 4.1)
-    const isBtcChart = String(inst.id || '').toUpperCase() === 'BTC';
-    let ma200HSlice = null;
-    let ma200CSlice = null;
-    let ma200LSlice = null;
-    let stLineSlice = null;
-    let stDirSlice = null;
-    let btcLatestMaH = null;
-    let btcLatestMaL = null;
-    let btcLatestSt = null;
-    if (isBtcChart && typeof RedBarTrend !== 'undefined' && typeof RedBarTrend.compute200MaAndSupertrendSeries === 'function') {
-      const srcSeriesBars = isRenkoMode ? bars : row.bars;
-      const stSeries = RedBarTrend.compute200MaAndSupertrendSeries(srcSeriesBars, 200, 10, 4.1);
-      ma200HSlice = isRenkoMode ? stSeries.maHigh : stSeries.maHigh.slice(visStart, visStart + bars.length);
-      ma200CSlice = isRenkoMode ? stSeries.maClose : stSeries.maClose.slice(visStart, visStart + bars.length);
-      ma200LSlice = isRenkoMode ? stSeries.maLow : stSeries.maLow.slice(visStart, visStart + bars.length);
-      stLineSlice = isRenkoMode ? stSeries.stLine : stSeries.stLine.slice(visStart, visStart + bars.length);
-      stDirSlice = isRenkoMode ? stSeries.stDir : stSeries.stDir.slice(visStart, visStart + bars.length);
-      btcLatestMaH = ma200HSlice?.[ma200HSlice.length - 1] ?? null;
-      btcLatestMaL = ma200LSlice?.[ma200LSlice.length - 1] ?? null;
-      btcLatestSt = stLineSlice?.[stLineSlice.length - 1] ?? null;
-    }
-
     const rawNearLevels = [
       o.currentBand?.high, o.currentBand?.low,
       o.invalidation, o.bookZone,
@@ -3794,7 +3770,6 @@ const RangeEmaUI = {
       o.refs?.priorDayHigh, o.refs?.priorDayLow,
       o.refs?.asiaHigh, o.refs?.asiaLow,
       o.refs?.londonHigh, o.refs?.londonLow,
-      btcLatestMaH, btcLatestMaL, btcLatestSt,
       ...bandPrices,
     ].filter((v) => v != null && Number.isFinite(Number(v))).map(Number);
     // Only expand initial Y-scale for levels within reasonable reach of current price action
@@ -3874,73 +3849,12 @@ const RangeEmaUI = {
         label: `EMA ${c.emaSlow || 30}`,
         data: emaS,
         borderColor: COL.ema30,
-        borderWidth: 2.25,
+        borderWidth: 2.75,
         pointRadius: 0,
         fill: false,
         tension: 0.1,
         order: 3,
       },
-      ...(ma200HSlice ? [
-        {
-          label: 'MA 200 High',
-          data: ma200HSlice,
-          borderColor: 'rgba(226, 232, 240, 0.55)',
-          borderWidth: 1.15,
-          pointRadius: 0,
-          fill: false,
-          tension: 0.1,
-          order: 4,
-        },
-        {
-          label: 'MA 200 Close',
-          data: ma200CSlice,
-          borderColor: 'rgba(248, 250, 252, 0.85)',
-          borderWidth: 1.5,
-          pointRadius: 0,
-          fill: false,
-          tension: 0.1,
-          order: 4,
-        },
-        {
-          label: 'MA 200 Low',
-          data: ma200LSlice,
-          borderColor: 'rgba(226, 232, 240, 0.55)',
-          borderWidth: 1.15,
-          pointRadius: 0,
-          fill: '-2',
-          backgroundColor: 'rgba(226, 232, 240, 0.05)',
-          tension: 0.1,
-          order: 4,
-        },
-      ] : []),
-      ...(stLineSlice ? [
-        {
-          label: 'SuperTrend Bull (10, 4.1)',
-          data: stLineSlice.map((v, idx) => (stDirSlice && stDirSlice[idx] === 1 ? v : null)),
-          borderColor: '#22c55e',
-          backgroundColor: 'rgba(34, 197, 94, 0.09)',
-          borderWidth: 2,
-          pointRadius: 0,
-          spanGaps: false,
-          stepped: 'before',
-          fill: { target: 0, above: 'rgba(0,0,0,0)', below: 'rgba(34, 197, 94, 0.09)' },
-          tension: 0,
-          order: 2,
-        },
-        {
-          label: 'SuperTrend Bear (10, 4.1)',
-          data: stLineSlice.map((v, idx) => (stDirSlice && stDirSlice[idx] === -1 ? v : null)),
-          borderColor: '#ef4444',
-          backgroundColor: 'rgba(239, 68, 68, 0.09)',
-          borderWidth: 2,
-          pointRadius: 0,
-          spanGaps: false,
-          stepped: 'before',
-          fill: { target: 0, above: 'rgba(239, 68, 68, 0.09)', below: 'rgba(0,0,0,0)' },
-          tension: 0,
-          order: 2,
-        },
-      ] : []),
     ];
 
     // Y-axis: keep it sparse. Chips carry PDH/PDL + Asia/London liquidity.
