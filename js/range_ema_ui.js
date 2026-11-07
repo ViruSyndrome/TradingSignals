@@ -3913,22 +3913,34 @@ const RangeEmaUI = {
           order: 4,
         },
       ] : []),
-      ...(stLineSlice ? [{
-        label: 'SuperTrend (10, 4.1)',
-        data: stLineSlice,
-        borderColor: '#4ade80',
-        borderWidth: 2.1,
-        pointRadius: 0,
-        fill: false,
-        tension: 0,
-        order: 2,
-        segment: {
-          borderColor: (ctx) => {
-            const idx = ctx.p1DataIndex;
-            return (stDirSlice && stDirSlice[idx] === -1) ? '#f87171' : '#4ade80';
-          },
+      ...(stLineSlice ? [
+        {
+          label: 'SuperTrend Bull (10, 4.1)',
+          data: stLineSlice.map((v, idx) => (stDirSlice && stDirSlice[idx] === 1 ? v : null)),
+          borderColor: '#22c55e',
+          backgroundColor: 'rgba(34, 197, 94, 0.09)',
+          borderWidth: 2,
+          pointRadius: 0,
+          spanGaps: false,
+          stepped: 'before',
+          fill: { target: 0, above: 'rgba(0,0,0,0)', below: 'rgba(34, 197, 94, 0.09)' },
+          tension: 0,
+          order: 2,
         },
-      }] : []),
+        {
+          label: 'SuperTrend Bear (10, 4.1)',
+          data: stLineSlice.map((v, idx) => (stDirSlice && stDirSlice[idx] === -1 ? v : null)),
+          borderColor: '#ef4444',
+          backgroundColor: 'rgba(239, 68, 68, 0.09)',
+          borderWidth: 2,
+          pointRadius: 0,
+          spanGaps: false,
+          stepped: 'before',
+          fill: { target: 0, above: 'rgba(239, 68, 68, 0.09)', below: 'rgba(0,0,0,0)' },
+          tension: 0,
+          order: 2,
+        },
+      ] : []),
     ];
 
     // Y-axis: keep it sparse. Chips carry PDH/PDL + Asia/London liquidity.
