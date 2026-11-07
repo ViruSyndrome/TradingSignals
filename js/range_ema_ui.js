@@ -2827,7 +2827,7 @@ const RangeEmaUI = {
     };
   },
 
-  /** Shaded First-Red Box (High, Median 0.50, and Low anchored from that Red Bar forward — matches Sagar's chart box). */
+  /** Clean First-Red High & Low lines anchored from that Red Bar forward (no box fill or Mid line so it never looks like a second Fib box). */
   _firstRed1hPlugin() {
     return {
       id: 'rbFirstRed1h',
@@ -2857,27 +2857,16 @@ const RangeEmaUI = {
 
         const yHi = yScale.getPixelForValue(red.high);
         const yLo = yScale.getPixelForValue(red.low);
-        const midVal = (red.high + red.low) / 2;
-        const yMid = yScale.getPixelForValue(midVal);
         if (!Number.isFinite(yHi) || !Number.isFinite(yLo)) return;
 
         const ctx = chart.ctx;
         ctx.save();
 
-        // 1. Shaded Red Bar Box from x0 to right edge
-        const boxTop = Math.max(area.top, Math.min(yHi, yLo));
-        const boxBot = Math.min(area.bottom, Math.max(yHi, yLo));
-        if (boxBot > boxTop) {
-          ctx.fillStyle = 'rgba(244, 63, 94, 0.11)';
-          ctx.fillRect(x0, boxTop, area.right - x0, boxBot - boxTop);
-        }
-
-        // 2. High, Median (0.50), and Low lines
+        // Only the two clean horizontal lines: First Red High and First Red Low
         const rLbl = chart.$rbFirstRedLabel || 'Red';
         const fmtV = (v) => Number(v).toFixed(d === 0 ? 0 : (v % 1 === 0 ? 0 : d));
         const levels = [
           { v: red.high, y: yHi, style: 'rgba(244, 63, 94, 0.92)', w: 1.5, dash: [6, 3], txt: `🟥 ${rLbl} High ${fmtV(red.high)}`, pos: 'top' },
-          { v: midVal, y: yMid, style: 'rgba(251, 191, 36, 0.78)', w: 1.15, dash: [3, 3], txt: `Mid ${fmtV(midVal)}`, pos: 'mid' },
           { v: red.low, y: yLo, style: 'rgba(244, 63, 94, 0.78)', w: 1.35, dash: [5, 3], txt: `🟥 ${rLbl} Low ${fmtV(red.low)}`, pos: 'bot' },
         ];
         ctx.font = compact
@@ -3536,12 +3525,6 @@ const RangeEmaUI = {
       else daySpans.get(day).i1 = i;
     }
     const resolveBandIndex = (b) => {
-      if (!isRenkoMode && b.index != null && b.index >= 0) {
-        // index is absolute in full series; map into visible window
-        const abs = b.index;
-        const local = abs - visStart;
-        if (local >= 0 && local < bars.length) return local;
-      }
       const targetT = b.t0 != null ? b.t0 : b.openT;
       if (targetT != null && times.length) {
         if (targetT <= times[0]) return 0;
@@ -3550,19 +3533,23 @@ const RangeEmaUI = {
         const firstAfter = times.findIndex((t) => t >= targetT - 1000);
         if (firstAfter >= 0) return firstAfter;
       }
+      if (!isRenkoMode && b.index != null && b.index >= 0) {
+        const local = b.index - visStart;
+        if (local >= 0 && local < bars.length) return local;
+      }
       const span = daySpans.get(b.day);
       return span ? span.i0 : null;
     };
     const resolveMarkEndIndex = (b, i0) => {
-      if (!isRenkoMode && b.i1Mark != null && b.i1Mark >= 0) {
-        const local = b.i1Mark - visStart;
-        if (local >= 0 && local < bars.length) return Math.max(i0, local);
-      }
       const endT = b.endT != null ? b.endT : b.openT;
       if (endT != null && times.length) {
         if (endT < times[0]) return null;
         const idx = this._nearestBarIndex(times, endT);
         if (idx >= 0) return Math.max(i0, idx);
+      }
+      if (!isRenkoMode && b.i1Mark != null && b.i1Mark >= 0) {
+        const local = b.i1Mark - visStart;
+        if (local >= 0 && local < bars.length) return Math.max(i0, local);
       }
       return null;
     };
