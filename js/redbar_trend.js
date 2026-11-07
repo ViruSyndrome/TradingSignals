@@ -10,7 +10,8 @@
  *  4. Dr. Dev Trikal Session Anchor — NIFTY 12:45 IST London Open 30m box (trap auction / breakout).
  *  5. Dr. Dev BTC Asia Trikal — 05:30 IST 30m X range breakout (crypto clocks ≠ NSE 12:45).
  *  6. Magnets / targets = Fib 0/0.44/0.5/0.56/1 on each mark window (targets only).
- *  7. Ladder H1→M5: ENTER with 5m swing SL · 50% @ 1:1 → BE → trail → TP.
+ *  7. Ladder: ENTER with structural SL (15m swing / shelf) · 50% @ 1:1 → BE → trail → TP.
+ *     Confirm on 5m close; stop is NOT nearest 5m fractal noise (desk mash-in removed).
  *
  * EMA is NOT part of this indicator's DNA. Overlay / bot-gate separately if desired.
  *
@@ -666,14 +667,16 @@ const RedBarTrend = {
     const window = this.getMarkWindow(cfg);
     const instId = String(cfg.id || cfg.instrumentId || '').toUpperCase();
     const isEarlyMark = !!(window && this.isSessionFib(cfg) && (Number(window.endHour) <= 6 || window.timeZone === 'America/New_York'));
+    const sessDay = isEarlyMark ? this.sessionDayKey(now, window) : asOfDay;
     const markEndTs = isEarlyMark
-      ? this.zonedClockToUtc(asOfDay, window.timeZone || 'Asia/Kolkata', window.endHour, window.endMinute)
+      ? this.zonedClockToUtc(sessDay, window.timeZone || 'Asia/Kolkata', window.endHour, window.endMinute)
       : (instId === 'NG'
         ? this.zonedClockToUtc(asOfDay, 'Asia/Kolkata', 9, 0)
         : null);
     const dayBars = [];
     for (let i = 0; i < bars.length; i++) {
-      if (this.dayKey(bars[i].t, dayMode) !== asOfDay) continue;
+      const bDay = isEarlyMark ? this.sessionDayKey(bars[i].t, window) : this.dayKey(bars[i].t, dayMode);
+      if (bDay !== sessDay) continue;
       if (bars[i].t + barMs > now) continue; // still forming
       if (markEndTs != null && bars[i].t < markEndTs - 1000) continue;
       dayBars.push({ bar: bars[i], index: i });
@@ -896,18 +899,25 @@ const RedBarTrend = {
   },
 
   /**
-   * IST clock phase for BTC — Dr. Dev session transition anchors:
-   * Asia/Daily 05:30 · London 13:00/13:30 · NY 19:00/20:00 (+ 12:45 liquidity hunt).
+   * IST clock phase for BTC — awareness only (DST-correct London / NY cash opens).
+   * Mid-zone prime = Asia 05:30 Trikal. Mark Fib = CME settle (separate).
+   * London/NY are liquidity clocks — not extra mid-zone / Fib boxes.
    */
   istClockPhase(ts) {
-    const z = this.zonedHms(ts || Date.now(), 'Asia/Kolkata');
+    const asOf = ts || Date.now();
+    const z = this.zonedHms(asOf, 'Asia/Kolkata');
     const mins = z.hour * 60 + z.minute;
     const fmtWait = (m) => {
       const h = Math.floor(m / 60);
       const r = m % 60;
       return h > 0 ? `${h}h ${r}m` : `${r}m`;
     };
-    const isLiquidityHunt = mins >= 12 * 60 + 15 && mins <= 13 * 60 + 15;
+    const lonOpen = this.sessionOpenIstMins(asOf, 'Europe/London', 8, 0);
+    const nyOpen = this.sessionOpenIstMins(asOf, 'America/New_York', 9, 30);
+    const preLon = ((lonOpen - 45) % 1440 + 1440) % 1440;
+    const lonEnd = Math.min(lonOpen + 210, 16 * 60 + 30);
+    const usEnd = Math.min(nyOpen + 210, 22 * 60 + 30);
+    const fmtHm = (m) => `${String(Math.floor(((m % 1440) + 1440) % 1440 / 60)).padStart(2, '0')}:${String(((m % 1440) + 1440) % 1440 % 60).padStart(2, '0')}`;
 
     // Before Asia daily open (00:00–05:30 IST) — dead hours for POB
     if (mins < 5 * 60 + 30) {
@@ -915,64 +925,64 @@ const RedBarTrend = {
       return {
         id: 'pre_asia',
         label: 'Pre-Asia (dead hours)',
-        nextWindow: `Asia / Daily Open (05:30 IST) in ${fmtWait(rem)}`,
-        tip: 'No mid-zone window here — wait for Asia 05:30 / UTC midnight open bell.',
+        nextWindow: `Asia Trikal (05:30 IST) in ${fmtWait(rem)}`,
+        tip: 'No mid-zone X here — wait Asia 05:30 Trikal. CME Fib is magnets only (not Trade 1).',
         isLiquidityHunt: false,
         isPrimePob: false,
       };
     }
-    // Asia / Daily open — UTC midnight candle (05:30 IST)
-    if (mins < 12 * 60 + 15) {
-      const rem = (12 * 60 + 15) - mins;
+    // Asia Trikal — only BTC mid-zone prime (ends before pre-London hunt)
+    if (mins >= 5 * 60 + 30 && mins < preLon) {
+      const rem = preLon - mins;
       return {
         id: 'asia',
-        label: 'Asia / Daily Open (05:30 IST)',
-        nextWindow: `12:45 Liquidity Hunt in ${fmtWait(rem)}`,
-        tip: 'Prime mid-zone: first opposing 5m at 05:30. Retest 44–56 → SHORT reject.',
+        label: 'Asia Trikal (05:30 IST)',
+        nextWindow: `Pre-London liquidity in ${fmtWait(rem)}`,
+        tip: 'Prime mid-zone: first opposing 5m at 05:30. Retest 44–56 → SHORT reject. Red Bar T1/T2 still apply.',
         isLiquidityHunt: false,
         isPrimePob: true,
       };
     }
-    if (mins < 13 * 60) {
+    if (mins >= preLon && mins < lonOpen) {
       return {
         id: 'pre_london',
-        label: '12:45 PM Liquidity Hunt',
-        nextWindow: 'London Open 13:00/13:30 IST',
-        tip: 'Institutional hunt of morning H/L before Europe. Stand aside or wait confirmed sweep — not a fresh POB X yet.',
+        label: 'Pre-London liquidity',
+        nextWindow: `London open ~${fmtHm(lonOpen)} IST`,
+        tip: 'Asia H/L may get hunted into Europe open. Leave / retest / sweep OK — not a fresh BTC mid-zone X.',
         isLiquidityHunt: true,
         isPrimePob: false,
       };
     }
-    if (mins < 16 * 60 + 30) {
-      const rem = (16 * 60 + 30) - mins;
+    if (mins >= lonOpen && mins < lonEnd) {
+      const rem = Math.max(0, nyOpen - mins);
       return {
         id: 'london',
-        label: isLiquidityHunt ? 'London Open · Liquidity Hunt' : 'London Open (13:00/13:30 IST)',
-        nextWindow: `NY Open (19:00/20:00 IST) in ${fmtWait(rem)}`,
-        tip: 'Prime mid-zone at London open. Retest 44–56 → SHORT; close above mid top = invalid.',
-        isLiquidityHunt,
-        isPrimePob: true,
+        label: `London liquidity (~${fmtHm(lonOpen)} IST)`,
+        nextWindow: rem > 0 ? `US cash open ~${fmtHm(nyOpen)} IST in ${fmtWait(rem)}` : `US cash open ~${fmtHm(nyOpen)} IST`,
+        tip: 'London vol / Asia H/L hunts. Not a second Fib box — Red Bar leave/retest/sweep only.',
+        isLiquidityHunt: mins < lonOpen + 60,
+        isPrimePob: false,
       };
     }
-    if (mins < 19 * 60) {
-      const rem = (19 * 60) - mins;
+    if (mins >= lonEnd && mins < nyOpen) {
+      const rem = nyOpen - mins;
       return {
         id: 'us_wait',
         label: 'Between London & NY',
-        nextWindow: `NY Open (19:00 IST) in ${fmtWait(rem)}`,
-        tip: 'Off-prime for new mid-zone opens. Leave / retest / sweep still apply; next mid-zone at NY open.',
+        nextWindow: `US cash open ~${fmtHm(nyOpen)} IST in ${fmtWait(rem)}`,
+        tip: 'Off mid-zone prime. Leave / retest / sweep still apply. Next mid-zone X is Asia 05:30.',
         isLiquidityHunt: false,
         isPrimePob: false,
       };
     }
-    if (mins < 22 * 60 + 30) {
+    if (mins >= nyOpen && mins < usEnd) {
       return {
         id: 'us_open',
-        label: 'NY Open (19:00/20:00 IST)',
-        nextWindow: 'Session wind-down after ~22:30 IST',
-        tip: 'Highest vol injection. Prime POB: first 5m red at NY open → POB retest SHORT. Bank Anchor low / 1R — no overnight hope.',
+        label: `US cash open (~${fmtHm(nyOpen)} IST)`,
+        nextWindow: 'Session wind-down after US cash hours',
+        tip: 'High vol / liquidity hunts — not a Dev mid-zone box. Trade Red Bar structure only; next mid-zone X at Asia 05:30.',
         isLiquidityHunt: false,
-        isPrimePob: true,
+        isPrimePob: false,
       };
     }
     const remToAsia = (24 * 60 - mins) + (5 * 60 + 30);
@@ -980,7 +990,7 @@ const RedBarTrend = {
       id: 'late',
       label: 'After NY (dead hours)',
       nextWindow: `Next Prime: Asia / Daily Open (05:30 IST) in ${fmtWait(remToAsia)}`,
-      tip: 'No new POB anchors in dead hours. Use Renko to filter wick noise; wait next session bell.',
+      tip: 'No new mid-zone X in dead hours. Red Bar leave/retest still OK if structure is clean; next mid-zone at Asia 05:30.',
       isLiquidityHunt: false,
       isPrimePob: false,
     };
@@ -988,7 +998,7 @@ const RedBarTrend = {
 
   /**
    * Dr. Dev X-Candle: first 5m RED at/after a session open clock.
-   * NIFTY: 09:15 IST. BTC: London 13:00/13:30 or NY 19:00/20:00 IST (see findPrimeSessionXCandle5m).
+   * NIFTY: 09:15 IST. BTC: Asia 05:30 via BTC_POB_PRIMES (see findPrimeSessionXCandle5m).
    */
   findOpeningXCandle5m(bars5m, asOfTs, opts = {}) {
     if (!Array.isArray(bars5m) || !bars5m.length) return null;
@@ -1030,15 +1040,42 @@ const RedBarTrend = {
   },
 
   /**
-   * BTC crypto adaptation of Mid-zone: first 5m red at a prime liquidity open (IST),
-   * not blind 24/7 scanning and not the Sagar 1H first-red / mark Fib.
-   * Asia/Daily 05:30 · London 13:00/13:30 · NY 19:00/20:00 (DST variants).
+   * BTC mid-zone X default: Asia Trikal 05:30 IST only.
+   * Mark Fib stays 02:30–03:30 IST (separate). Use btcPobPrimes(asOf) for live list —
+   * may expand London/NY on a dated desk test with DST-correct opens.
    */
   BTC_POB_PRIMES: [
     { id: 'asia', label: 'Asia', opens: [[5, 30]], activeFrom: 5 * 60 + 30, activeTo: 8 * 60 + 30 },
-    { id: 'london', label: 'London', opens: [[13, 0], [13, 30]], activeFrom: 13 * 60, activeTo: 16 * 60 },
-    { id: 'ny', label: 'NY', opens: [[19, 0], [20, 0]], activeFrom: 19 * 60, activeTo: 22 * 60 + 30 },
   ],
+
+  /** Legacy flag — always false. London/NY mid-zone X must never feed live POB / auto. */
+  BTC_POB_SESSION_TEST_DAY: null,
+
+  btcPobSessionTestActive(_asOfTs = Date.now()) {
+    return false;
+  },
+
+  /** Zone-local open → IST minutes-of-day (single DST-correct slot, not 19:00+20:00 mash). */
+  sessionOpenIstMins(asOfTs, timeZone, hour, minute) {
+    const day = this.zonedDay(asOfTs != null ? asOfTs : Date.now(), timeZone);
+    const utc = this.zonedClockToUtc(day, timeZone, hour, minute);
+    if (utc == null || !Number.isFinite(utc)) return hour * 60 + minute;
+    const ist = this.zonedHms(utc, 'Asia/Kolkata');
+    return ((ist.hour * 60 + ist.minute) % 1440 + 1440) % 1440;
+  },
+
+  /** BTC mid-zone POB primes — Asia 05:30 Trikal only (Dr Dev crypto). */
+  btcPobPrimes(_asOfTs = Date.now()) {
+    return [
+      {
+        id: 'asia',
+        label: 'Asia',
+        opens: [[5, 30]],
+        activeFrom: 5 * 60 + 30,
+        activeTo: 8 * 60 + 30,
+      },
+    ];
+  },
 
   /**
    * Dr. Dev Brahmastra / Trikal Gold (XAUUSD) prime session transitions (IST):
@@ -1093,7 +1130,7 @@ const RedBarTrend = {
 
   /**
    * Dr. Dev Setup 1 — 5m X-Candle → POB retest → SHORT only.
-   * NIFTY: NSE 09:15. BTC: Asia 05:30 / London 13:00–13:30 / NY 19:00–20:00 IST.
+   * NIFTY: NSE 09:15. BTC: Asia 05:30 Trikal only (not London/NY discovery boxes).
    * NOT Sagar Trade 1 leave. NOT a 1H candle. NOT a long setup.
    *
    *  1. X-Candle = first 5m red at session open (do not enter on it).
@@ -1108,7 +1145,17 @@ const RedBarTrend = {
     if (!xCandle || !fibs?.pob || !Array.isArray(bars5m) || bars5m.length < 2) return null;
     const pobHi = fibs.pob.high;
     const pobLo = fibs.pob.low;
-    const tol = (touchPct / 100) * Math.max(xCandle.high, xCandle.h || 0, 1);
+    const xHi = Math.max(xCandle.high || 0, xCandle.h || 0, 1);
+    const xLoRaw = Math.min(
+      xCandle.low != null ? xCandle.low : Infinity,
+      xCandle.l != null ? xCandle.l : Infinity,
+    );
+    const xRange = Number.isFinite(xLoRaw) && xHi > xLoRaw ? (xHi - xLoRaw) : xHi * 0.002;
+    // BTC: tol from X size (price-% was too wide). NIFTY/XAU/NG: keep prior price-%.
+    const useBtcTol = opts.btcTol === true;
+    const tol = useBtcTol
+      ? Math.max(xRange * 0.02, Math.min(xRange * 0.08, xHi * (touchPct / 100)))
+      : (touchPct / 100) * xHi;
     const asOf = asOfTs != null ? asOfTs : Date.now();
     const tz = opts.timeZone || 'Asia/Kolkata';
     const z = this.zonedHms(asOf, tz);
@@ -1855,7 +1902,7 @@ const RedBarTrend = {
       return null;
     };
 
-    if (clock.id === 'london' && asiaHl) {
+    if ((clock.id === 'london' || clock.id === 'pre_london') && asiaHl) {
       return checkPool(asiaHl, 'Asia');
     }
     if (clock.id === 'us_open') {
@@ -2151,9 +2198,13 @@ const RedBarTrend = {
       };
     }
 
+    // Dr Dev: decisions on CLOSED 5m candles only — never a still-forming bar.
+    const barMs5 = 5 * 60 * 1000;
+    const isClosed5 = (b) => b.t + barMs5 - 1500 <= evalTs;
+
     // 12:45 30m candle (12:45 to 13:15 IST)
     const window1245Bars = bars5m.filter((b) => {
-      if (b.t > evalTs) return false;
+      if (!isClosed5(b)) return false;
       const h = this.zonedHms(b.t, tz);
       if (h.day !== targetDay) return false;
       const mins = h.hour * 60 + h.minute;
@@ -2161,6 +2212,18 @@ const RedBarTrend = {
     });
 
     if (!window1245Bars.length) return null;
+
+    // Box must be complete (13:15 IST) before any breakout / trap reversal is read.
+    if (evalMins < 13 * 60 + 15) {
+      return {
+        status: 'box_forming',
+        setupKind: 'afternoon_1245_watch',
+        side: null,
+        triggered: false,
+        label: '12:45 London box forming (closes 13:15 IST) · Wait for it to complete',
+        morning,
+      };
+    }
 
     const bar1245Open = window1245Bars[0].o;
     let bar1245High = -Infinity;
@@ -2175,12 +2238,13 @@ const RedBarTrend = {
     const bar1245Color = bar1245Close >= bar1245Open ? 'green' : 'red';
 
     const afternoonBars = bars5m.filter((b) => {
-      if (b.t > evalTs) return false;
+      if (!isClosed5(b)) return false;
       const h = this.zonedHms(b.t, tz);
       if (h.day !== targetDay) return false;
       const mins = h.hour * 60 + h.minute;
       return mins >= 12 * 60 + 45 && mins <= 15 * 60 + 5;
     });
+    if (!afternoonBars.length) return null;
 
     const lastBar = afternoonBars[afternoonBars.length - 1];
     const currentPrice = lastBar.c;
@@ -2484,8 +2548,10 @@ const RedBarTrend = {
       };
     }
 
+    const barMs5 = 5 * 60 * 1000;
+    // Dr Dev: breakout = closed 5m beyond X — never a still-forming wick.
     const afterBars = bars5m.filter((b) => {
-      if (b.t > evalTs) return false;
+      if (b.t + barMs5 - 1500 > evalTs) return false;
       const h = this.zonedHms(b.t, tz);
       if (h.day !== targetDay) return false;
       const mins = h.hour * 60 + h.minute;
@@ -2672,7 +2738,7 @@ const RedBarTrend = {
     preferSwingStop = false,
     /** Trade 2: fixed 1:1 / 1:2 / 1:3 ladder (book = 1:3) */
     rrLadder = false,
-    /** Trade 2 beginner SL: 5m swing H/L (Sagar: stay on 5m until ready for 15m) */
+    /** Trade 1/2/sweep SL: 15m swing H/L (Dev structure — not nearest 5m fractal) */
     bars5m = null,
     /** Trade 2 liquidity-sweep wick extreme (beyond 1H high/low) */
     sweepExtreme = null,
@@ -2843,44 +2909,51 @@ const RedBarTrend = {
     let localHigh = workRecent.length ? Math.max(...workRecent.map((b) => b.h)) : null;
     let swingStopTagLow = 'prev swing low';
     let swingStopTagHigh = 'prev swing high';
-    const extra5mLowCands = [];
-    const extra5mHighCands = [];
-    // Trade 2 / DNA: lock SL to 5m swing (not working-TF / 15m yet)
-    if (preferSwingStop && Array.isArray(bars5m) && bars5m.length >= 10) {
-      const i5 = bars5m.length - 1;
-      const sw5 = this.nearestSwings(bars5m, i5, 2);
-      const recent5 = bars5m.slice(-24); // ~2h of 5m structure
-      const min5 = Math.min(...recent5.map((b) => b.l));
-      const max5 = Math.max(...recent5.map((b) => b.h));
-      // Collect all completed 5m fractal swings in the last ~4h so a micro-wick <0.28%
-      // does not hide a real 5m swing low/high sitting inside the 0.28%–1.0% stop window.
-      const start5 = Math.max(2, i5 - 48);
-      for (let j = start5; j <= i5 - 2; j++) {
-        const b = bars5m[j];
-        if (b.l < bars5m[j - 1].l && b.l < bars5m[j - 2].l && b.l < bars5m[j + 1].l && b.l < bars5m[j + 2].l) {
-          extra5mLowCands.push(b.l);
+    const extraSwingLowCands = [];
+    const extraSwingHighCands = [];
+    // Dev DNA T1/T2/sweep: SL beyond real structure on the working TF (desk default 15m).
+    // Confirm stays on 5m close; stop is NOT nearest 5m fractal (that was desk noise-hunting).
+    if (preferSwingStop && Array.isArray(slice) && slice.length >= 10) {
+      const iW = slice.length - 1;
+      const swW = this.nearestSwings(slice, iW, 2);
+      const recentW = slice.slice(-16); // ~4h of 15m structure
+      const minW = Math.min(...recentW.map((b) => b.l));
+      const maxW = Math.max(...recentW.map((b) => b.h));
+      const startW = Math.max(2, iW - 24);
+      for (let j = startW; j <= iW - 2; j++) {
+        const b = slice[j];
+        if (b.l < slice[j - 1].l && b.l < slice[j - 2].l && b.l < slice[j + 1].l && b.l < slice[j + 2].l) {
+          extraSwingLowCands.push(b.l);
         }
-        if (b.h > bars5m[j - 1].h && b.h > bars5m[j - 2].h && b.h > bars5m[j + 1].h && b.h > bars5m[j + 2].h) {
-          extra5mHighCands.push(b.h);
+        if (b.h > slice[j - 1].h && b.h > slice[j - 2].h && b.h > slice[j + 1].h && b.h > slice[j + 2].h) {
+          extraSwingHighCands.push(b.h);
         }
       }
-      if (sw5.swingLow != null) extra5mLowCands.push(sw5.swingLow);
-      if (sw5.nearLow != null) extra5mLowCands.push(sw5.nearLow);
-      if (Number.isFinite(min5)) extra5mLowCands.push(min5);
-      if (sw5.swingHigh != null) extra5mHighCands.push(sw5.swingHigh);
-      if (sw5.nearHigh != null) extra5mHighCands.push(sw5.nearHigh);
-      if (Number.isFinite(max5)) extra5mHighCands.push(max5);
-      // Prefer nearest completed 5m swing; fall back to recent 5m extreme
-      localLow = (sw5.nearLow != null ? sw5.nearLow : sw5.swingLow) ?? min5;
-      localHigh = (sw5.nearHigh != null ? sw5.nearHigh : sw5.swingHigh) ?? max5;
-      swingStopTagLow = '5m swing low';
-      swingStopTagHigh = '5m swing high';
+      if (swW.swingLow != null) extraSwingLowCands.push(swW.swingLow);
+      if (swW.nearLow != null) extraSwingLowCands.push(swW.nearLow);
+      if (Number.isFinite(minW)) extraSwingLowCands.push(minW);
+      if (swW.swingHigh != null) extraSwingHighCands.push(swW.swingHigh);
+      if (swW.nearHigh != null) extraSwingHighCands.push(swW.nearHigh);
+      if (Number.isFinite(maxW)) extraSwingHighCands.push(maxW);
+      localLow = (swW.nearLow != null ? swW.nearLow : swW.swingLow) ?? minW;
+      localHigh = (swW.nearHigh != null ? swW.nearHigh : swW.swingHigh) ?? maxW;
+      swingStopTagLow = '15m swing low';
+      swingStopTagHigh = '15m swing high';
     }
     const prevSwingLow = localLow;
     const prevSwingHigh = localHigh;
-    const minStopDist = price * 0.0028; // 0.28% minimum stop floor (avoids micro noise stops)
+    const minStopDist = price * 0.0006; // 6 bps minimum (wick pad only — never overwrite real shelf/Red Bar structure with a fake 0.28% floor)
     const maxStopDist = price * 0.015;  // 1.50% maximum stop cap on 30m futures
     const pad = price * 0.0006;         // 6 bps buffer beyond structure wick
+    const dnaSwingRe = /15m swing|structure swing/i;
+    // Dr Dev: Trade 2 / sweep / T1 stop = shelf / wick / box edge FIRST — 15m swing is fallback only.
+    const eventStructureRe = /shelf|sweep wick|1H red|session sweep/i;
+    const shelfFirst = preferSwingStop && (
+      setupKind === 'trade2_confirmed'
+      || setupKind === 'trade2_watch'
+      || setupKind === 'session_sweep'
+      || setupKind === 'trade1_departure'
+    );
 
     // Each candidate carries its structural source so the UI can say *why* the stop is there,
     // and flag when no real structure fits the 0.28%–1.50% window (stop = % cap, not a swing).
@@ -2890,16 +2963,70 @@ const RedBarTrend = {
     const capReason = (rawDist, tag) => (rawDist > maxStopDist
       ? `1.5% cap — real ${tag} is ${((rawDist / price) * 100).toFixed(2)}% away`
       : `0.28% floor — ${tag} too close`);
+    const pickStructuralStop = (candidates, isLong) => {
+      const dist = (x) => (isLong ? price - x.v : x.v - price);
+      const inWindow = (x) => dist(x) >= minStopDist && dist(x) <= maxStopDist;
+      const sortTight = (a, b) => (isLong ? b.v - a.v : a.v - b.v);
+      const take = (pool, allowClamp) => {
+        if (!pool.length) return false;
+        const inWin = pool.filter(inWindow).sort(sortTight);
+        if (inWin[0]) {
+          invalidation = inWin[0].v;
+          invalidationReason = inWin[0].tag;
+          stopStructural = true;
+          return true;
+        }
+        if (allowClamp && pool[0]) {
+          const rawDist = dist(pool[0]);
+          invalidation = isLong
+            ? price - Math.min(maxStopDist, Math.max(minStopDist, rawDist))
+            : price + Math.min(maxStopDist, Math.max(minStopDist, rawDist));
+          invalidationReason = capReason(rawDist, pool[0].tag);
+          stopStructural = true;
+          return true;
+        }
+        return false;
+      };
+      if (shelfFirst) {
+        const eventCands = candidates.filter((x) => eventStructureRe.test(x.tag)).sort(sortTight);
+        // Event structure must win when present — do not invent a nearer 15m fractal.
+        if (take(eventCands, true)) return;
+      }
+      const swingCands = preferSwingStop
+        ? candidates.filter((x) => dnaSwingRe.test(x.tag)).sort(sortTight)
+        : [];
+      if (take(swingCands, true)) return;
+      const valid = candidates.filter(inWindow).sort(sortTight);
+      if (valid[0]) {
+        invalidation = valid[0].v;
+        invalidationReason = valid[0].tag;
+        stopStructural = true;
+        return;
+      }
+      const any = candidates.slice().sort(sortTight)[0];
+      if (any) {
+        const rawDist = dist(any);
+        invalidation = isLong
+          ? price - Math.min(maxStopDist, Math.max(minStopDist, rawDist))
+          : price + Math.min(maxStopDist, Math.max(minStopDist, rawDist));
+        invalidationReason = capReason(rawDist, any.tag);
+        stopStructural = rawDist <= maxStopDist;
+        return;
+      }
+      invalidation = isLong ? price - price * 0.0065 : price + price * 0.0065;
+      invalidationReason = '0.65% default — no structure found';
+      stopStructural = false;
+    };
+
     if (trend === 'bullish') {
-      // Trade 2 (Sagar): prefer recent swing low for SL; mark-window Fibs are targets only.
+      // Dev: structural SL below the move — shelf/wick/box before 15m swing. Fibs = targets only.
       const rawCands = preferSwingStop
         ? [
-          // Public USD-M winners: prefer 5m swing over sweep wick / 1H red (wick-only bled)
-          localLow != null && localLow < price ? { v: localLow - pad, tag: swingStopTagLow } : null,
-          ...extra5mLowCands.filter((v) => v != null && v < price).map((v) => ({ v: v - pad, tag: '5m swing low' })),
-          sweepExtreme != null && sweepExtreme < price ? { v: sweepExtreme - pad, tag: '5m sweep wick (1H low)' } : null,
+          sweepExtreme != null && sweepExtreme < price ? { v: sweepExtreme - pad, tag: 'shelf / sweep wick (1H low)' } : null,
           sweep?.side === 'bullish' && sweep.wickExtreme != null ? { v: sweep.wickExtreme - pad, tag: 'session sweep wick' } : null,
           firstRed1h?.low != null && firstRed1h.low < price ? { v: firstRed1h.low - pad, tag: '1H red low' } : null,
+          localLow != null && localLow < price ? { v: localLow - pad, tag: swingStopTagLow } : null,
+          ...extraSwingLowCands.filter((v) => v != null && v < price).map((v) => ({ v: v - pad, tag: '15m swing low' })),
           support != null && support < price ? { v: support - pad, tag: 'prior fib support' } : null,
         ]
         : [
@@ -2910,53 +3037,15 @@ const RedBarTrend = {
           support != null && support < price ? { v: support - pad, tag: 'prior fib support' } : null,
           swingLow != null && swingLow < price ? { v: swingLow, tag: 'pivot swing low' } : null,
         ];
-      const candidates = rawCands.filter((x) => x && Number.isFinite(x.v) && x.v < price);
-
-      // Pick the tightest structural stop that is at least minStopDist away and at most maxStopDist away
-      const valid = candidates
-        .filter((x) => (price - x.v) >= minStopDist && (price - x.v) <= maxStopDist)
-        .sort((a, b) => b.v - a.v); // closest to price first
-      // Winning formula: lock to 5m swing whenever it exists (clamp into 0.28–1.5% if needed)
-      // so ENTER + Telegram can fire — do not fall through to 1H red / fib (those bled OOS).
-      const swingCands = preferSwingStop
-        ? candidates.filter((x) => /5m swing/i.test(x.tag)).sort((a, b) => b.v - a.v)
-        : [];
-      const swingInWindow = swingCands.filter((x) => (price - x.v) >= minStopDist && (price - x.v) <= maxStopDist);
-      const pickLong = swingInWindow[0] || null;
-      if (pickLong) {
-        invalidation = pickLong.v;
-        invalidationReason = pickLong.tag;
-        stopStructural = true;
-      } else if (swingCands[0]) {
-        const rawDist = price - swingCands[0].v;
-        invalidation = price - Math.min(maxStopDist, Math.max(minStopDist, rawDist));
-        invalidationReason = capReason(rawDist, swingCands[0].tag);
-        stopStructural = true; // real 5m structure — floor/cap must not block Telegram ENTER
-      } else if (valid[0]) {
-        invalidation = valid[0].v;
-        invalidationReason = valid[0].tag;
-        stopStructural = true;
-      } else {
-        const anyBelow = candidates.slice().sort((a, b) => b.v - a.v)[0];
-        if (anyBelow) {
-          const rawDist = price - anyBelow.v;
-          invalidation = price - Math.min(maxStopDist, Math.max(minStopDist, rawDist));
-          invalidationReason = capReason(rawDist, anyBelow.tag);
-          stopStructural = rawDist <= maxStopDist;
-        } else {
-          invalidation = price - price * 0.0065;
-          invalidationReason = '0.65% default — no structure found';
-          stopStructural = false;
-        }
-      }
+      pickStructuralStop(rawCands.filter((x) => x && Number.isFinite(x.v) && x.v < price), true);
     } else {
       const rawCands = preferSwingStop
         ? [
-          localHigh != null && localHigh > price ? { v: localHigh + pad, tag: swingStopTagHigh } : null,
-          ...extra5mHighCands.filter((v) => v != null && v > price).map((v) => ({ v: v + pad, tag: '5m swing high' })),
-          sweepExtreme != null && sweepExtreme > price ? { v: sweepExtreme + pad, tag: '5m sweep wick (1H high)' } : null,
+          sweepExtreme != null && sweepExtreme > price ? { v: sweepExtreme + pad, tag: 'shelf / sweep wick (1H high)' } : null,
           sweep?.side === 'bearish' && sweep.wickExtreme != null ? { v: sweep.wickExtreme + pad, tag: 'session sweep wick' } : null,
           firstRed1h?.high != null && firstRed1h.high > price ? { v: firstRed1h.high + pad, tag: '1H red high' } : null,
+          localHigh != null && localHigh > price ? { v: localHigh + pad, tag: swingStopTagHigh } : null,
+          ...extraSwingHighCands.filter((v) => v != null && v > price).map((v) => ({ v: v + pad, tag: '15m swing high' })),
           resist != null && resist > price ? { v: resist + pad, tag: 'prior fib resistance' } : null,
         ]
         : [
@@ -2967,42 +3056,7 @@ const RedBarTrend = {
           resist != null && resist > price ? { v: resist + pad, tag: 'prior fib resistance' } : null,
           swingHigh != null && swingHigh > price ? { v: swingHigh, tag: 'pivot swing high' } : null,
         ];
-      const candidates = rawCands.filter((x) => x && Number.isFinite(x.v) && x.v > price);
-
-      const valid = candidates
-        .filter((x) => (x.v - price) >= minStopDist && (x.v - price) <= maxStopDist)
-        .sort((a, b) => a.v - b.v); // closest to price first
-      const swingCandsShort = preferSwingStop
-        ? candidates.filter((x) => /5m swing/i.test(x.tag)).sort((a, b) => a.v - b.v)
-        : [];
-      const swingInWindowShort = swingCandsShort.filter((x) => (x.v - price) >= minStopDist && (x.v - price) <= maxStopDist);
-      const pickShort = swingInWindowShort[0] || null;
-      if (pickShort) {
-        invalidation = pickShort.v;
-        invalidationReason = pickShort.tag;
-        stopStructural = true;
-      } else if (swingCandsShort[0]) {
-        const rawDist = swingCandsShort[0].v - price;
-        invalidation = price + Math.min(maxStopDist, Math.max(minStopDist, rawDist));
-        invalidationReason = capReason(rawDist, swingCandsShort[0].tag);
-        stopStructural = true;
-      } else if (valid[0]) {
-        invalidation = valid[0].v;
-        invalidationReason = valid[0].tag;
-        stopStructural = true;
-      } else {
-        const anyAbove = candidates.slice().sort((a, b) => a.v - b.v)[0];
-        if (anyAbove) {
-          const rawDist = anyAbove.v - price;
-          invalidation = price + Math.min(maxStopDist, Math.max(minStopDist, rawDist));
-          invalidationReason = capReason(rawDist, anyAbove.tag);
-          stopStructural = rawDist <= maxStopDist;
-        } else {
-          invalidation = price + price * 0.0065;
-          invalidationReason = '0.65% default — no structure found';
-          stopStructural = false;
-        }
-      }
+      pickStructuralStop(rawCands.filter((x) => x && Number.isFinite(x.v) && x.v > price), false);
     }
 
     // NIFTY morning leave/retest: stop = real 5m structure (prev candle / pullback / box mid / box edge).
@@ -3322,15 +3376,24 @@ const RedBarTrend = {
     const markWin = this.getMarkWindow(c);
     const isEarlyMarkAsset = !!(markWin && this.isSessionFib(c) && (Number(markWin.endHour) <= 6 || markWin.timeZone === 'America/New_York'));
     const cb = bands.find((b) => b.day === asOfDay) || null;
-    const firstRed1h = c.firstRed1h || (isEarlyMarkAsset && cb ? {
-      high: cb.high,
-      low: cb.low,
-      open: cb.low,
-      close: cb.high,
-      t: cb.t0,
-      asOfDay,
-      isMarkWindow: true,
-    } : null);
+    // Dr Dev: CME / mark-window Fib ≠ Trade 1 first-red. Never invent firstRed from the Fib box.
+    // Prefer caller-supplied first red; else real first red AFTER mark locks (1H / work TF).
+    let firstRed1h = c.firstRed1h || null;
+    if (!firstRed1h && isEarlyMarkAsset) {
+      const frBars = (Array.isArray(c.bars1h) && c.bars1h.length >= 24) ? c.bars1h : slice;
+      const defaultFrMs = c.firstRedTf === '30m' ? 1800000 : 3600000;
+      const frMs = (Array.isArray(c.bars1h) && c.bars1h.length >= 24)
+        ? this._inferBarMs(frBars, defaultFrMs)
+        : this._inferBarMs(frBars, 15 * 60 * 1000, i);
+      firstRed1h = this.firstRedBarOfSession(frBars, asOfDay, {
+        ...c,
+        asOfTs: evalTs,
+        barMs: frMs,
+      });
+    } else if (!firstRed1h && !isEarlyMarkAsset) {
+      // Non-early assets may still omit firstRed — leave null (no mark-box fake).
+      firstRed1h = null;
+    }
     const firstRedFibs = this.firstRedFibs(firstRed1h);
     const bars5m = Array.isArray(c.bars5m) && c.bars5m.length ? c.bars5m : null;
     const dayMode = c.dayMode || 'ist';
@@ -3360,6 +3423,8 @@ const RedBarTrend = {
     // NIFTY: NSE 09:15 IST. BTC: Asia/London/NY. XAU: Asia/London/COMEX. NG: MCX 09:00 / MCX Eve 17:00 / NYMEX 18:30–19:30.
     const instId = String(c.id || c.instrumentId || '').toUpperCase();
     const isBtc = !instId || instId === 'BTC';
+    const isBinanceWeekendNg = instId === 'NG' && String(c.symbol || '').toUpperCase().endsWith('USDT');
+    const isBtcOrXau = isBtc || instId === 'XAU' || isBinanceWeekendNg;
     let xCandle5m = null;
     let pobOpts = null;
     if (bars5m && instId === 'NIFTY') {
@@ -3377,22 +3442,20 @@ const RedBarTrend = {
         maxEntryMins: 180,
         freshMins: 20,
       };
-    } else if (bars5m && isBtc) {
-      // Was missing — BTC_POB_PRIMES existed but evaluate never wired them.
+    } else if (bars5m && isBtcOrXau) {
       xCandle5m = this.findPrimeSessionXCandle5m(bars5m, evalTs, {
         timeZone: 'Asia/Kolkata',
-        primes: this.BTC_POB_PRIMES,
+        primes: this.btcPobPrimes(evalTs),
         maxBars: 6,
       });
       pobOpts = {
         timeZone: 'Asia/Kolkata',
         maxEntryMins: 150,
         freshMins: 20,
+        btcTol: true,
       };
-    } else if (bars5m && (instId === 'XAU' || instId === 'NG')) {
-      const primes = instId === 'XAU'
-        ? this.XAU_POB_PRIMES
-        : this.NG_POB_PRIMES;
+    } else if (bars5m && instId === 'NG') {
+      const primes = this.NG_POB_PRIMES;
       xCandle5m = this.findPrimeSessionXCandle5m(bars5m, evalTs, {
         timeZone: 'Asia/Kolkata',
         primes,
@@ -3418,8 +3481,8 @@ const RedBarTrend = {
     const squeeze5m = (bars5m && instId === 'NIFTY')
       ? this.detectSqueezePattern(bars5m, evalTs)
       : null;
-    // Dr. Dev BTC Asia 05:30 (30m X breakout) — crypto clocks, not NSE 12:45
-    const btcAsia0530 = (bars5m && isBtc)
+    // Dr. Dev BTC + Gold (XAU) Asia 05:30 (30m X breakout) — Trikal 05:30 clock
+    const btcAsia0530 = (bars5m && isBtcOrXau)
       ? this.detectBtcAsia0530Trikal(bars5m, evalTs)
       : null;
 
@@ -3537,8 +3600,7 @@ const RedBarTrend = {
     };
 
     const isTrade2 = setupKind === 'trade2_confirmed' || setupKind === 'trade2_watch';
-    // Public USD-M study: ENTERs with a real 5m swing stop were the only robust winners.
-    // Prefer 5m structure for Trade 1 / Trade 2 / sweep — not only Trade 2.
+    // Dev DNA: structural stop on 15m swing / shelf. Confirm still uses 5m close.
     const is1245 = setupKind === 'afternoon_1245_reversal'
       || setupKind === 'afternoon_1245_breakout'
       || setupKind === 'afternoon_1245_retest';
@@ -3550,6 +3612,34 @@ const RedBarTrend = {
       || setupKind === 'setup3_rubber_band'
       || is1245
       || isBtc0530;
+
+    // Event candle first — levels / R:R / auto fill must anchor on the trigger, not a chase print.
+    const setupTriggerTs0 = (setupKind === 'session_sweep' && sweep?.triggerTs != null)
+      ? sweep.triggerTs
+      : (setupKind === 'pob_reject' && pobReject?.triggerTs != null)
+        ? pobReject.triggerTs
+        : (setupKind === 'setup3_rubber_band' && setup3?.triggerTs != null)
+          ? setup3.triggerTs
+          : (setupKind === 'btc_asia_0530_breakout')
+            ? btcAsia0530?.triggerTs
+            : (setupKind === 'afternoon_1245_reversal' || setupKind === 'afternoon_1245_breakout' || setupKind === 'afternoon_1245_retest')
+              ? afternoon1245?.triggerTs
+              : (redSetup.triggerTs || null);
+    const t2Stale = setupKind === 'trade2_confirmed' && redSetup.trade1Fresh && redSetup.trade2TriggerTs != null
+      && redSetup.triggerTs != null && (evalTs - Number(redSetup.triggerTs)) > 20 * 60000;
+    const setupTriggerTs = t2Stale ? redSetup.trade2TriggerTs : setupTriggerTs0;
+    const setupTriggerPrice = (setupKind === 'session_sweep' && sweep?.triggerPrice != null)
+      ? sweep.triggerPrice
+      : (setupKind === 'pob_reject' && pobReject?.triggerPrice != null)
+        ? pobReject.triggerPrice
+        : (setupKind === 'setup3_rubber_band' && setup3?.triggerPrice != null)
+          ? setup3.triggerPrice
+          : (setupKind === 'btc_asia_0530_breakout' && btcAsia0530?.triggerPrice != null)
+            ? btcAsia0530.triggerPrice
+            : (t2Stale && redSetup.trade2TriggerPrice != null ? redSetup.trade2TriggerPrice
+              : (redSetup.triggerPrice != null ? redSetup.triggerPrice : price));
+    // Levels from live price: auto fills at market, so stop/1:1 must be measured from where we actually get in.
+    // Chase is still blocked by entryGate (≤0.5R past the trigger candle).
     const levels = this._resolveStopAndBook({
       trend,
       price,
@@ -3583,31 +3673,6 @@ const RedBarTrend = {
 
     const invalidation = levels.invalidation;
     const bookZone = levels.bookZone;
-
-    const setupTriggerTs0 = (setupKind === 'session_sweep' && sweep?.triggerTs != null)
-      ? sweep.triggerTs
-      : (setupKind === 'pob_reject' && pobReject?.triggerTs != null)
-        ? pobReject.triggerTs
-        : (setupKind === 'setup3_rubber_band' && setup3?.triggerTs != null)
-          ? setup3.triggerTs
-          : (setupKind === 'btc_asia_0530_breakout')
-            ? btcAsia0530?.triggerTs
-            : (setupKind === 'afternoon_1245_reversal' || setupKind === 'afternoon_1245_breakout' || setupKind === 'afternoon_1245_retest')
-              ? afternoon1245?.triggerTs
-              : (redSetup.triggerTs || null);
-    const t2Stale = setupKind === 'trade2_confirmed' && redSetup.trade1Fresh && redSetup.trade2TriggerTs != null
-      && redSetup.triggerTs != null && (evalTs - Number(redSetup.triggerTs)) > 20 * 60000;
-    const setupTriggerTs = t2Stale ? redSetup.trade2TriggerTs : setupTriggerTs0;
-    const setupTriggerPrice = (setupKind === 'session_sweep' && sweep?.triggerPrice != null)
-      ? sweep.triggerPrice
-      : (setupKind === 'pob_reject' && pobReject?.triggerPrice != null)
-        ? pobReject.triggerPrice
-        : (setupKind === 'setup3_rubber_band' && setup3?.triggerPrice != null)
-          ? setup3.triggerPrice
-          : (setupKind === 'btc_asia_0530_breakout' && btcAsia0530?.triggerPrice != null)
-            ? btcAsia0530.triggerPrice
-            : (t2Stale && redSetup.trade2TriggerPrice != null ? redSetup.trade2TriggerPrice
-              : (redSetup.triggerPrice != null ? redSetup.triggerPrice : price));
 
     // Entry gate: full DNA pack + Dr. Dev session POB (see entryGate docstring).
     const { state: actionState, reason: actionReason } = this.entryGate({
@@ -3765,7 +3830,7 @@ const RedBarTrend = {
         swingLow,
         prevSwingHigh: levels.prevSwingHigh ?? swingHigh,
         prevSwingLow: levels.prevSwingLow ?? swingLow,
-        swingStopTf: preferSwingStop ? '5m' : null,
+        swingStopTf: preferSwingStop ? (instId === 'NIFTY' ? '5m' : '15m') : null,
       },
       invalidation,
       invalidationReason: levels.invalidationReason,
@@ -3828,17 +3893,17 @@ const RedBarTrend = {
   },
 
   /**
-   * Full DNA ENTER pack (BTC public USD-M 5m-swing book Oct24–Sep26 unless noted).
+   * Full DNA ENTER pack — Dr Dev Red Bar (crypto + NIFTY clocks differ).
    * LIVE must match this list — no partial ports.
    *
-   * BTC/NIFTY allow → ENTER when ALL pass:
-   *  1. Actionable: trade1_departure | trade2_confirmed | session_sweep | pob_reject
-   *  2. RR ≥ 1, structural stop
-   *  3. DNA T1/T2/sweep: real 5m-swing SL. POB: SL @ POB 0.56 (own structure)
-   *  4. Clock: skip late only (DNA). POB already session-bounded (Asia/London/NY or NSE)
-   *  5. stopPct ≤ 1% (POB uses tight corridor stop)
-   *  6. Skip T2 LONG + liq_sweep_low (BTC)
-   *  7. Freshness: T1/T2/sweep ≤90m BTC / ≤20m NIFTY; POB ≤20m scalp window
+   * Allow → ENTER when ALL pass:
+   *  1. Actionable: trade1_departure | trade2_confirmed | session_sweep | pob_reject | btc_asia_0530_breakout
+   *  2. RR ≥ 1, structural stop (shelf / wick / box / 15m swing — not % invent)
+   *  3. POB: SL @ POB 0.56; Asia 05:30: SL @ X opposite; DNA: shelf-first
+   *  4. BTC: no T1/T2/sweep ENTER in pre_asia; POB = Asia 05:30 only
+   *  5. stopPct ≤ 1% desk risk gate (wait tighter base — not fake SL)
+   *  6. Freshness: Trade 2 ≤20m; T1/sweep ≤90m BTC / ≤20m NIFTY; POB ≤20m
+   *  7. No chase: max ~0.5R extension past trigger for DNA (event candle)
    * Setup 3 = WATCH/overlay until its own PASS.
    */
   entryGate({
@@ -3879,7 +3944,7 @@ const RedBarTrend = {
         magnet_bounce_watch: 'Fib bounce is chart context — not an ENTER.',
         pivot_reversal: 'Price crossed the 1H red against Fib bias — conflicting, wait.',
         trade2_watch: 'H1→M5 Trade 2: wait for 1H high/low liquidity sweep, then 5m close back through that level (median confluence).',
-        pob_reject_watch: 'Mid-zone (5m): open candle marked — wait retest of 44–56 then SHORT reject. Asia / London / NY or NSE 09:15.',
+        pob_reject_watch: 'Mid-zone (5m): open candle marked — wait retest of 44–56 then SHORT reject. NSE 09:15 or BTC Asia 05:30.',
         setup3_primed: 'Setup 3 Primed (overlay): ≥4× 30m candles detached from 5 EMA. Watch LTF Barricade — not ENTER until walk-forward PASS.',
         setup3_rubber_band: 'Setup 3 Barricade broken (overlay): rubber-band snapback visible — chart guide only.',
         btc_asia_0530_watch: 'Asia open: 30m range marked or forming — wait breakout close beyond X high/low (06:00–08:30 IST).',
@@ -3923,31 +3988,45 @@ const RedBarTrend = {
         };
       }
     } else {
-      const realFiveMinSwing = (/5m swing|extreme drop wick|extreme rally wick|12:45 reversal|12:45 breakout/i.test(stopTag)) && !/too close|floor|default|0\.28%|0\.5%/i.test(stopTag);
-      if (!realFiveMinSwing) {
+      // Keep "5m swing" accepted — NIFTY morning T1/T2 still tags stops that way (do not break NIFTY).
+      const realStructureStop = (/15m swing|5m swing|shelf|1H red|session sweep|extreme drop wick|extreme rally wick|12:45 reversal|12:45 breakout/i.test(stopTag))
+        && !/too close|floor|default|0\.28%|0\.5%/i.test(stopTag);
+      if (!realStructureStop) {
         return {
           state: 'watch',
-          reason: `Setup present but SL is ${invalidationReason || 'not a 5m swing'} — wait until stop locks to a real 5m swing (not a % floor).`,
+          reason: `Setup present but SL is ${invalidationReason || 'not real structure'} — wait until stop locks to shelf / 15m swing (not a % floor).`,
         };
       }
     }
-    // Clocks: POB is already prime-session gated (Asia 05:30 / London / NY).
-    // Do NOT hard-kill Red Bar T1/T2 in pre_asia or late — those were desk adaptations.
-    // Dev: 02:30–03:30 IST = CME/US-close Fib context (mark window); Red Bar can leave after it locks.
-    // Dev tip "pre-Asia dead" / "after NY" is mainly no new POB X — not a ban on first-red leave/retest.
+    // Clocks: BTC mid-zone X is Asia 05:30 only. CME Fib = magnets, not Trade 1.
+    // Pre-Asia: no fresh T1/T2/sweep ENTER (dead hours) — wait Asia Trikal / real first red after mark.
+    const inst = String(instrumentId || '').toUpperCase();
+    const isNifty = inst === 'NIFTY';
+    const isBtcGate = !inst || inst === 'BTC' || inst === 'XAU' || inst === 'NG';
+    if (
+      isBtcGate
+      && clock
+      && clock.id === 'pre_asia'
+      && (setupKind === 'trade1_departure' || setupKind === 'trade2_confirmed' || setupKind === 'session_sweep')
+    ) {
+      return {
+        state: 'watch',
+        reason: 'Pre-Asia dead hours — no fresh Red Bar T1/T2/sweep ENTER. Wait Asia 05:30 Trikal / post-mark first red.',
+      };
+    }
     if (stopPct != null && Number.isFinite(stopPct) && stopPct > 1.0) {
       return {
         state: 'watch',
         reason: `Setup present but stop is ${stopPct.toFixed(2)}% (>1%) — stand aside until a tighter structure fits.`,
       };
     }
-    // Removed desk-only filter that blocked BTC Trade 2 LONG after 1H low sweep (research PASS, not Dev rule).
-    const inst = String(instrumentId || '').toUpperCase();
-    const isNifty = inst === 'NIFTY';
-    // POB is a quick session scalp — 20m fresh window on all assets
-    const freshMins = isPob ? 20 : (isNifty ? 20 : 90);
+    // Trade 2 confirm window is ~20m; T1/sweep stay wider on BTC; POB = scalp 20m
+    const isTrade2Gate = setupKind === 'trade2_confirmed';
+    const freshMins = isPob || isTrade2Gate ? 20 : (isNifty ? 20 : 90);
     const ENTER_FRESH_MS = freshMins * 60 * 1000;
-    const maxFavR = isPob ? 99 : (isNifty ? 0.5 : 1.5); // POB: fill@0.44; reject close below is confirmation, not chase
+    // Dr Dev: prefer event candle — do not chase mid-air (POB fill@0.44 is not a chase).
+    // BTC + NIFTY: 0.5R. XAU/NG unchanged at 1.5R.
+    const maxFavR = isPob ? 99 : ((isNifty || isBtcGate) ? 0.5 : 1.5);
     const asOf = asOfTs != null ? Number(asOfTs) : Date.now();
     const trigTs = setupTriggerTs != null ? Number(setupTriggerTs) : null;
     if (trigTs == null || !Number.isFinite(trigTs)) {
@@ -3989,29 +4068,33 @@ const RedBarTrend = {
       }
     }
 
-    // Season filter is Trade 1 DNA — do not blank Mid-zone on NIFTY
-    if (inst === 'NIFTY' && !isPob && (season === 'APR–AUG' || (!season && asOfTs != null && this._istSeasonBucket(asOfTs) === 'APR–AUG'))) {
-      return {
-        state: 'watch',
-        reason: 'Nifty: APR–AUG season — stand aside (weaker half on 2y book). Prefer SEP–DEC / JAN–MAR Trade 1.',
-      };
+    // Dr Dev Trikal: lunch decay 11:30–12:30 IST — no fresh NIFTY entries. Wait for 12:45 London box.
+    if (inst === 'NIFTY') {
+      const lz = this.zonedHms(asOf, 'Asia/Kolkata');
+      const lm = lz.hour * 60 + lz.minute;
+      if (lm >= 11 * 60 + 30 && lm < 12 * 60 + 30) {
+        return {
+          state: 'watch',
+          reason: 'Lunch decay (11:30–12:30 IST) — no fresh entries. Wait for the 12:45 London box.',
+        };
+      }
     }
     if (inst === 'NIFTY' && !isPob && stopPct != null && Number.isFinite(stopPct) && stopPct > 0.65) {
       return {
         state: 'watch',
-        reason: `Nifty: stop ${stopPct.toFixed(2)}% (>0.65%) — wait for a tighter 5m swing.`,
+        reason: `Nifty: stop ${stopPct.toFixed(2)}% (>0.65%) — wait for a tighter structural base.`,
       };
     }
 
     const trailBit = isPob
       ? 'Mid-zone SHORT · fill near mid · stop mid top · bank at anchor / 2R · no overnight'
       : setupKind === 'trade2_confirmed'
-        ? 'H1→M5 sweep+close-through · SL 5m swing · 50% @ 1:1 → BE → trail 1:2 → TP 1:3'
+        ? 'H1→M5 confirm · SL shelf / 15m · 50% @ 1:1 → BE → trail after 1:2 → TP 1:3'
         : setupKind === 'btc_asia_0530_breakout'
-          ? 'BTC Asia 05:30 · SL@30m X extreme · 50% @ 1:1 → BE → trail → TP 1:3'
+          ? 'BTC Asia 05:30 · SL@30m X extreme · 50% @ 1:1 → BE → trail after 1:2 → TP 1:3'
           : setupKind === 'trade1_departure'
-            ? 'Trade 1 leave · SL 5m swing · 50% TP at 1:1 → trail runner (stretch target)'
-            : 'SL 5m swing · 50% TP at 1:1 → trail runner (stretch target)';
+            ? 'Trade 1 leave · SL shelf / 15m · 50% TP at 1:1 → trail after 1:2 (stretch)'
+            : 'SL shelf / 15m · 50% TP at 1:1 → trail after 1:2 (stretch)';
     return { state: 'enter', reason: `Fresh trigger · ${trailBit}.` };
   },
 

@@ -529,10 +529,13 @@ async function _deskBars(inst, interval, limit) {
   return API.getDeskOHLC(inst, interval, limit);
 }
 
-async function _scanOneRedBarInstrument(inst, rbCfg) {
+async function _scanOneRedBarInstrument(rawInst, rbCfg) {
+  const inst = (typeof API.resolveInstrumentForSession === 'function')
+    ? API.resolveInstrumentForSession(rawInst)
+    : rawInst;
   const workTf = rbCfg.workingTf || '15m';
   const need5m = workTf !== '5m';
-  const firstRedTf = inst.firstRedTf !== undefined ? inst.firstRedTf : (inst.id === 'NIFTY' ? '5m' : (inst.id === 'BTC' ? null : '1h'));
+  const firstRedTf = inst.firstRedTf !== undefined ? inst.firstRedTf : (inst.id === 'NIFTY' ? '5m' : '1h');
   const firstRedBarMs = firstRedTf === '30m' ? 30 * 60000
     : firstRedTf === '15m' ? 15 * 60000
       : firstRedTf === '5m' ? 5 * 60000
@@ -619,18 +622,7 @@ async function _scanOneRedBarInstrument(inst, rbCfg) {
   const actionable = Array.isArray(RedBarTrend.ACTIONABLE_SETUPS)
     && RedBarTrend.ACTIONABLE_SETUPS.includes(setupKind);
   if (actionState === 'enter' && actionable && (side === 'LONG' || side === 'SHORT')) {
-    // Trend alignment filter: prevent counter-trend entries against stacked EMAs
-    const trendInfo = _instTrendState.get(String(inst.id).toUpperCase());
-    if (trendInfo) {
-      if (side === 'SHORT' && trendInfo.ema10 > trendInfo.ema30) {
-        console.log(`[RedBarBot] ${inst.id}: Counter-trend SHORT blocked — EMA 10 (${trendInfo.ema10.toFixed(1)}) > EMA 30 (${trendInfo.ema30.toFixed(1)}) (Bullish momentum in play)`);
-        return;
-      }
-      if (side === 'LONG' && trendInfo.ema10 < trendInfo.ema30) {
-        console.log(`[RedBarBot] ${inst.id}: Counter-trend LONG blocked — EMA 10 (${trendInfo.ema10.toFixed(1)}) < EMA 30 (${trendInfo.ema30.toFixed(1)}) (Bearish momentum in play)`);
-        return;
-      }
-    }
+    // EMA is chart context only — not Red Bar. Never blocks an ENTER (BTC or NIFTY).
     if (!_redBarBotInstrumentAllowed(inst)) {
       console.log(`[RedBarBot] ${inst.id}: ENTER ignored on worker (REDBAR_BOT_INSTRUMENTS) — desk can still show it`);
       return;
@@ -678,7 +670,7 @@ async function _scanOneRedBarInstrument(inst, rbCfg) {
       const planLine = 'Plan: bank ~50% at 1:1 → move stop to cost · trail the rest';
       const htmlMsg = `${emoji} <b>${_escHtml(TrendRunnerCopy.enterHeadline(inst.label, side))}</b>
 <b>${_escHtml(setupLabel)}</b>
-${setupTip ? `${_escHtml(setupTip)}\n` : ''}Entry <b>${pxPrefix}${fmt(readout.price)}</b> · Stop <b>${pxPrefix}${fmt(readout.invalidation)}</b> (${_escHtml(readout.invalidationReason || '5m structure')}) · 1:1 bank <b>${pxPrefix}${fmt(readout.tp1)}</b>${isBinance && sz ? ` · ${sz.recLeverage}×` : ''}
+${setupTip ? `${_escHtml(setupTip)}\n` : ''}Entry <b>${pxPrefix}${fmt(readout.price)}</b> · Stop <b>${pxPrefix}${fmt(readout.invalidation)}</b> (${_escHtml(readout.invalidationReason || 'structure')}) · 1:1 bank <b>${pxPrefix}${fmt(readout.tp1)}</b>${isBinance && sz ? ` · ${sz.recLeverage}×` : ''}
 ${_escHtml(planLine)}${alertOnlyNote}
 <a href="${deskUrl}">Open TrendRunner Desk</a>${futLink ? ` · <a href="${futLink}">Futures</a>` : ''}`;
       const plainMsg = [
@@ -783,20 +775,26 @@ function saveManagedTrades(rows) {
   }
 }
 
-/** Live Telegram ENTER allow-list. Default BTC+NIFTY. */
+/** Live Telegram ENTER allow-list. Default BTC+NIFTY+XAU+NG. */
 function _redBarBotInstrumentAllowed(inst) {
-  const raw = envTrim('REDBAR_BOT_INSTRUMENTS') || 'BTC,NIFTY';
+  const raw = envTrim('REDBAR_BOT_INSTRUMENTS') || 'BTC,NIFTY,XAU,NG';
   const allow = raw.split(',').map((s) => s.trim().toUpperCase()).filter(Boolean);
   const id = String(inst?.id || '').toUpperCase();
   const sym = String(inst?.symbol || '').toUpperCase();
   return allow.includes(id) || allow.includes(sym);
 }
 
-/** Only BTCUSDT on Binance USD-M. */
+/** BTCUSDT + XAUUSDT + NATGASUSDT (weekend NG) on Binance USD-M. Optional REDBAR_BINANCE_AUTO_SYMBOLS filter. */
 function _canAutoTradeBinanceFutures(inst) {
   if (!_redBarBotInstrumentAllowed(inst)) return false;
   const sym = String(inst?.symbol || '').toUpperCase();
-  return sym === 'BTCUSDT';
+  const id = String(inst?.id || '').toUpperCase();
+  const autoRaw = envTrim('REDBAR_BINANCE_AUTO_SYMBOLS');
+  if (autoRaw) {
+    const autoAllow = autoRaw.split(',').map((s) => s.trim().toUpperCase()).filter(Boolean);
+    if (!autoAllow.includes(sym) && !autoAllow.includes(id)) return false;
+  }
+  return sym === 'BTCUSDT' || sym === 'XAUUSDT' || sym === 'NATGASUSDT';
 }
 
 function _canAutoTradeDhanNifty(inst) {
@@ -903,39 +901,8 @@ async function _maybeAutoDhanNifty({ inst, side, readout, alertKey, dayKey, setu
     console.log(`[RedBarBot] NIFTY: structural risk ${riskPts.toFixed(1)} index pts (wide) — taking trade; size option premium carefully.`);
   }
 
-  // Guard 1: Pullback Bounce Confirmation for Trade 2 (No Falling Knives into Support)
-  if (setupKind === 'trade2_confirmed') {
-    const barsCheck = Array.isArray(bars5m) && bars5m.length ? bars5m : (Array.isArray(barsWork) ? barsWork : []);
-    if (barsCheck.length >= 2) {
-      const lastB = barsCheck[barsCheck.length - 1];
-      const prevB = barsCheck[barsCheck.length - 2];
-      if (side === 'LONG' && !(lastB.c >= lastB.o || lastB.c > prevB.h)) {
-        console.log(`[RedBarBot] NIFTY: Trade 2 LONG paused — latest 5m bar is RED (C ${lastB.c} < O ${lastB.o}). Awaiting green bounce confirmation.`);
-        return;
-      }
-      if (side === 'SHORT' && !(lastB.c <= lastB.o || lastB.c < prevB.l)) {
-        console.log(`[RedBarBot] NIFTY: Trade 2 SHORT paused — latest 5m bar is GREEN (C ${lastB.c} > O ${lastB.o}). Awaiting red drop confirmation.`);
-        return;
-      }
-    }
-  }
-
-  // Guard 3: 10:00 to 10:30 IST Mid-Morning Volatility Flush Guard (Opening IV deflation window)
-  if (mins >= 600 && mins < 630 && setupKind === 'trade2_confirmed') {
-    const barsCheck = Array.isArray(bars5m) && bars5m.length ? bars5m : (Array.isArray(barsWork) ? barsWork : []);
-    if (barsCheck.length >= 2) {
-      const lastB = barsCheck[barsCheck.length - 1];
-      const prevB = barsCheck[barsCheck.length - 2];
-      if (side === 'LONG' && !(lastB.c > lastB.o && lastB.c > prevB.h)) {
-        console.log(`[RedBarBot] NIFTY: 10:00–10:30 IST mid-morning lull — awaiting strong 5m bounce candle above prior high (${prevB.h})`);
-        return;
-      }
-      if (side === 'SHORT' && !(lastB.c < lastB.o && lastB.c < prevB.l)) {
-        console.log(`[RedBarBot] NIFTY: 10:00–10:30 IST mid-morning lull — awaiting strong 5m drop candle below prior low (${prevB.l})`);
-        return;
-      }
-    }
-  }
+  // Dhan follows the same ENTER as desk + Telegram. Trade 2 confirmation (5m close back through)
+  // is already required by the engine — no extra Dhan-only candle checks.
 
   try {
     const { createDhanNiftyTrade } = require('./js/dhan_nifty_trade.js');
@@ -1129,7 +1096,8 @@ async function pollManagedDhanStops() {
           const openR = (ltp - t.entryPremium) / oneR;
 
           // Step 1 — 1:1 hit
-          if (!t.legABooked && openR >= 0.95) {
+          // Dr Dev: bank + breakeven only when 1:1 is actually reached (no early BE).
+          if (!t.legABooked && openR >= 1.0) {
             try {
               const res = await trader.bankHalfAtOneR({
                 orderId: t.orderId,
@@ -1169,8 +1137,8 @@ async function pollManagedDhanStops() {
           }
 
           // Step 2 — ~2R: raise soft-stop floor to ~1R (broker exit-SL often RMS-rejects on Dhan options)
-          if (t.legABooked && !t.lock2Moved && openR >= 1.95) {
-            const trailSl = +(t.entryPremium + oneR * 0.95).toFixed(2);
+          if (t.legABooked && !t.lock2Moved && openR >= 2.0) {
+            const trailSl = +(t.entryPremium + oneR * 1.0).toFixed(2);
             const curLock = Number(t.lockedSl) || Number(t.stopLossPrice) || 0;
             if (trailSl > curLock + 0.4) {
               t.lock2Moved = true;
@@ -1209,7 +1177,8 @@ async function pollManagedDhanStops() {
                 });
                 if (tpHit) t.softTpFired = true;
                 if (slHit) t.softStopFired = true;
-                t.status = tpHit ? 'closed_target' : 'closed_sl';
+                // After the 1:1 bank the stop is at cost or better — that exit is not an SL hunt (Rule 6 must not fire).
+                t.status = tpHit ? 'closed_target' : (t.legABooked ? 'closed_be' : 'closed_sl');
                 t.closedAt = Date.now();
                 if (bot && chatId) {
                   await bot.sendMessage(
@@ -1239,7 +1208,7 @@ async function pollManagedDhanStops() {
             } catch (_) { /* ignore */ }
             if (st === 'TRADED' || st === 'COMPLETE' || st === 'FILLED') {
               const isTp = String(oid) === String(t.runnerTpOrderId);
-              t.status = isTp ? 'closed_target' : 'closed_sl';
+              t.status = isTp ? 'closed_target' : (t.legABooked ? 'closed_be' : 'closed_sl');
               t.closedAt = Date.now();
               // Cancel the sibling exit leg
               const sibling = isTp ? t.runnerSlOrderId : t.runnerTpOrderId;
@@ -1285,7 +1254,7 @@ async function pollManagedDhanStops() {
                 ).catch(() => {});
               }
             } else if (slLeg && String(slLeg.orderStatus) === 'TRADED') {
-              t.status = 'closed_sl';
+              t.status = t.legABooked ? 'closed_be' : 'closed_sl';
               t.closedAt = Date.now();
               console.log(`[RedBarBot] 🛑 Dhan SL hit · ${t.symbolHint}`);
               if (bot && chatId) {
@@ -1352,6 +1321,7 @@ async function _maybeAutoFuturesTwoLeg({ inst, side, readout, alertKey, dayKey }
   }
   const stop = Number(readout.invalidation);
   const tpA = Number(readout.tp1);
+  // Market fill ≈ live price; engine levels are measured from the same price so $ risk matches sizing.
   const entry = Number(readout.price);
   const oneR = Math.abs(entry - stop);
   const tpB = Number(readout.tp3) || (side === 'LONG' ? entry + 3 * oneR : entry - 3 * oneR);
@@ -1390,6 +1360,14 @@ async function _maybeAutoFuturesTwoLeg({ inst, side, readout, alertKey, dayKey }
       console.log(`[RedBarBot] ${inst.id}: open ${inst.symbol} ${openSide} (${Math.abs(openAmt)}) already active — skip auto-entry for ${alertKey}`);
       return;
     }
+    if (typeof fut.getAvailableUsdt === 'function') {
+      try {
+        const avbl = await fut.getAvailableUsdt();
+        if (avbl > 5 && marginUsdt > avbl * 0.92) {
+          marginUsdt = Math.max(5, Math.floor(avbl * 0.92));
+        }
+      } catch (_) {}
+    }
     console.log(`[RedBarBot] AUTO_TRADE ${side} ${inst.symbol} risk=$${riskUsd.toFixed(2)} margin=$${marginUsdt.toFixed(2)} lev=${leverage}× notional≈$${(marginUsdt * leverage).toFixed(0)}`);
     const result = await fut.openTwoLegDeskTrade({
       symbol: inst.symbol,
@@ -1425,7 +1403,11 @@ async function _maybeAutoFuturesTwoLeg({ inst, side, readout, alertKey, dayKey }
         tpAOrderId,
         tpAAlgoId: tpAOrderId,
         tpBOrderId: result.tpBOrder?.algoId || result.tpBOrder?.orderId || null,
+        initialStop: stop,
+        oneR: Math.abs(fillEntry - stop),
+        tp2: Number(readout.tp2) || (side === 'LONG' ? fillEntry + 2 * Math.abs(fillEntry - stop) : fillEntry - 2 * Math.abs(fillEntry - stop)),
         beMoved: false,
+        trailArmed: false,
         openedAt: Date.now(),
       });
       saveManagedTrades(managed);
@@ -1440,192 +1422,239 @@ async function _maybeAutoFuturesTwoLeg({ inst, side, readout, alertKey, dayKey }
     }
   } catch (e) {
     console.error('[RedBarBot] AUTO_TRADE failed:', e.message);
-    if (bot && chatId) {
-      await bot.sendMessage(
-        chatId,
-        `❌ Auto trade failed ${inst.symbol} ${side}: ${e.message}`,
-        { disable_web_page_preview: true }
-      ).catch(() => {});
+    const errKey = `TRADE_FAIL_${inst.id}_${alertKey}`;
+    if (!lastAlerted[errKey]) {
+      lastAlerted[errKey] = Date.now();
+      saveAlertState(lastAlerted);
+      if (bot && chatId) {
+        const extraHint = /TradFi-Perps agreement/i.test(e.message || '')
+          ? '\n👉 Open XAUUSDT or NATGASUSDT once in the Binance app/web Futures tab and click "Agree" on the TradFi-Perps popup — then auto-trade will work.'
+          : '';
+        await bot.sendMessage(
+          chatId,
+          `❌ Auto trade failed ${inst.symbol} ${side}: ${e.message}${extraHint}`,
+          { disable_web_page_preview: true }
+        ).catch(() => {});
+      }
     }
   }
 }
 
-/** Poll open two-leg trades: when TP A (1:1) fills, move STOP_MARKET to breakeven. */
+/** Poll open two-leg trades: when TP A (1:1) fills, move STOP_MARKET to breakeven; trail 15m after 1:2. */
+let _manageFuturesInFlight = false;
+let _manageFuturesStartedAt = 0;
 async function pollManagedFuturesStops() {
   if (String(process.env.REDBAR_AUTO_TRADE || '').toLowerCase() !== 'true') return;
   if (String(process.env.TRADE_ENABLED || '').toLowerCase() !== 'true') return;
   if (!envTrim('BINANCE_API_KEY') || !envTrim('BINANCE_API_SECRET')) return;
+  // A hung exchange call must not freeze BE / trail forever.
+  if (_manageFuturesInFlight && Date.now() - _manageFuturesStartedAt < 90 * 1000) return;
+  _manageFuturesInFlight = true;
+  _manageFuturesStartedAt = Date.now();
 
-  let rows = loadManagedTrades();
-  if (!rows.length) return;
-
-  const { createBinanceFuturesTrade } = require('./js/binance_futures_trade.js');
-  let fut;
   try {
-    fut = createBinanceFuturesTrade();
-  } catch {
-    return;
-  }
+    let rows = loadManagedTrades();
+    if (!rows.length) return;
 
-  const keep = [];
-  for (const t of rows) {
+    const { createBinanceFuturesTrade } = require('./js/binance_futures_trade.js');
+    let fut;
     try {
-      const positions = await fut.getPositionRisk(t.symbol);
-      const pos = (positions || []).find((p) => String(p.symbol).toUpperCase() === String(t.symbol).toUpperCase());
-      const amt = Math.abs(parseFloat(pos?.positionAmt || 0));
-      if (!(amt > 0)) {
-        console.log(`[RedBarBot] ${t.symbol}: position flat — cancel leftover algos/orders`);
-        try {
-          if (typeof fut.clearSymbolForEntry === 'function') {
-            const notes = await fut.clearSymbolForEntry(t.symbol, { closePosition: false });
-            if (notes?.length) console.log(`[RedBarBot] ${t.symbol} cleanup:`, notes.join('; '));
-          }
-        } catch (e) {
-          console.warn(`[RedBarBot] ${t.symbol} flat cleanup:`, e.message);
-        }
-        continue;
-      }
-      if (t.beMoved) {
-        // Active runner trailing behind 5m swing structure
-        try {
-          const markPrice = await fut.getMarkPrice(t.symbol);
-          const isLong = String(t.side).toUpperCase() === 'LONG';
-          const curStop = Number(t.currentStopPrice || t.bePrice || t.entry);
+      fut = createBinanceFuturesTrade();
+    } catch {
+      return;
+    }
 
-          // Fetch recent 5m completed bars to find the real 5m swing low / high
-          const raw5m = await _deskBars({ id: 'BTC', symbol: t.symbol, feed: 'binanceFutures' }, '5m', 15).catch(() => null);
-          const bars5m = Array.isArray(raw5m) ? raw5m : [];
-
-          let trailCandidate = null;
-          if (bars5m.length >= 3) {
-            // Take the last 2 completed 5m candles (excluding forming bar [-1])
-            const completed = bars5m.slice(-3, -1);
-            if (isLong) {
-              const swingLow5m = Math.min(...completed.map((b) => Number(b.l != null ? b.l : b[3])));
-              // Place stop just below the 5m swing low (buffer: $15)
-              trailCandidate = swingLow5m - 15;
-            } else {
-              const swingHigh5m = Math.max(...completed.map((b) => Number(b.h != null ? b.h : b[2])));
-              // Place stop just above the 5m swing high (buffer: $15)
-              trailCandidate = swingHigh5m + 15;
-            }
-          }
-
-          // Fallback to percentage trail if 5m bars fetch was delayed
-          if (!trailCandidate || !Number.isFinite(trailCandidate)) {
-            const fallbackDist = Math.max(120, markPrice * 0.0035);
-            trailCandidate = isLong ? (markPrice - fallbackDist) : (markPrice + fallbackDist);
-          }
-
-          if (isLong && markPrice > t.entry) {
-            // Only advance if higher than current stop by at least $25 and strictly above entry
-            if (trailCandidate > curStop + 25 && trailCandidate > t.entry) {
-              const moved = await fut.moveStopToBreakeven({
-                symbol: t.symbol,
-                side: t.side,
-                stopPrice: trailCandidate,
-                stopOrderId: t.stopOrderId,
-                stopAlgoId: t.stopAlgoId || t.stopOrderId,
-                quantity: amt,
-              });
-              t.currentStopPrice = moved.bePrice;
-              t.stopOrderId = moved.stopOrder?.algoId || moved.stopOrder?.orderId || t.stopOrderId;
-              t.stopAlgoId = t.stopOrderId;
-              const lockedUsd = ((moved.bePrice - t.entry) * amt).toFixed(2);
-              console.log(`[RedBarBot] ${t.symbol} LONG runner SL trailed behind 5m swing low to ${moved.bePrice} (Locked in +${lockedUsd} profit!)`);
-              if (bot && chatId) {
-                await bot.sendMessage(chatId, `🛡️ ${t.symbol} LONG runner SL trailed behind 5m swing low to ${moved.bePrice} (Locked in +${lockedUsd} profit!)`, { disable_web_page_preview: true }).catch(() => {});
-              }
-            }
-          } else if (!isLong && markPrice < t.entry) {
-            // Only advance down if lower than current stop by at least $25 and strictly below entry
-            if (trailCandidate < curStop - 25 && trailCandidate < t.entry) {
-              const moved = await fut.moveStopToBreakeven({
-                symbol: t.symbol,
-                side: t.side,
-                stopPrice: trailCandidate,
-                stopOrderId: t.stopOrderId,
-                stopAlgoId: t.stopAlgoId || t.stopOrderId,
-                quantity: amt,
-              });
-              t.currentStopPrice = moved.bePrice;
-              t.stopOrderId = moved.stopOrder?.algoId || moved.stopOrder?.orderId || t.stopOrderId;
-              t.stopAlgoId = t.stopOrderId;
-              const lockedUsd = ((t.entry - moved.bePrice) * amt).toFixed(2);
-              console.log(`[RedBarBot] ${t.symbol} SHORT runner SL trailed behind 5m swing high to ${moved.bePrice} (Locked in +${lockedUsd} profit!)`);
-              if (bot && chatId) {
-                await bot.sendMessage(chatId, `🛡️ ${t.symbol} SHORT runner SL trailed behind 5m swing high to ${moved.bePrice} (Locked in +${lockedUsd} profit!)`, { disable_web_page_preview: true }).catch(() => {});
-              }
-            }
-          }
-        } catch (e) {
-          console.warn(`[RedBarBot] ${t.symbol} 5m swing trail error:`, e.message);
-        }
-        keep.push(t);
-        continue;
-      }
-      if (!t.tpAOrderId) {
-        keep.push(t);
-        continue;
-      }
-
-      let tpAStatus = null;
-      const tpAId = t.tpAAlgoId || t.tpAOrderId;
+    const keep = [];
+    const processed = new Set();
+    for (const t of rows) {
+      const symKey = String(t.symbol || '').toUpperCase();
+      processed.add(symKey);
       try {
-        if (typeof fut.getAlgoOrder === 'function') {
-          const ord = await fut.getAlgoOrder(t.symbol, tpAId);
-          tpAStatus = ord?.algoStatus || ord?.status || null;
-        } else {
-          const ord = await fut.getOrder(t.symbol, tpAId);
-          tpAStatus = ord?.status || null;
+        const positions = await fut.getPositionRisk(t.symbol);
+        const pos = (positions || []).find((p) => String(p.symbol).toUpperCase() === symKey);
+        const amt = Math.abs(parseFloat(pos?.positionAmt || 0));
+        if (!(amt > 0)) {
+          console.log(`[RedBarBot] ${t.symbol}: position flat — cancel leftover algos/orders`);
+          try {
+            if (typeof fut.clearSymbolForEntry === 'function') {
+              const notes = await fut.clearSymbolForEntry(t.symbol, { closePosition: false });
+              if (notes?.length) console.log(`[RedBarBot] ${t.symbol} cleanup:`, notes.join('; '));
+            }
+          } catch (e) {
+            console.warn(`[RedBarBot] ${t.symbol} flat cleanup:`, e.message);
+          }
+          continue;
         }
-      } catch (e) {
-        // Fallback: position shrunk toward runner size ⇒ treat 1:1 as done
-        const runnerTarget = Number(t.qtyB) > 0 ? Number(t.qtyB) : (Number(t.qty) > 0 ? Number(t.qty) * 0.55 : 0);
-        if (runnerTarget > 0 && amt <= runnerTarget * 1.05) {
-          tpAStatus = 'FILLED';
-        } else {
-          console.warn(`[RedBarBot] ${t.symbol}: TP A order check: ${e.message}`);
+        if (t.beMoved) {
+          // Dr Dev ladder: stay at BE until 1:2, then trail behind 15m structure (not 5m noise).
+          try {
+            const markPrice = await fut.getMarkPrice(t.symbol);
+            const isLong = String(t.side).toUpperCase() === 'LONG';
+            const curStop = Number(t.currentStopPrice || t.bePrice || t.entry);
+            const oneR = Number(t.oneR) > 0
+              ? Number(t.oneR)
+              : Math.abs(Number(t.entry) - Number(t.initialStop || t.bePrice || t.entry));
+            const r2Level = Number(t.tp2) > 0
+              ? Number(t.tp2)
+              : (isLong ? Number(t.entry) + 2 * oneR : Number(t.entry) - 2 * oneR);
+            const reached12 = isLong ? markPrice >= r2Level : markPrice <= r2Level;
+            if (!reached12 || !(oneR > 0)) {
+              keep.push(t);
+              continue;
+            }
+            if (!t.trailArmed) {
+              t.trailArmed = true;
+              console.log(`[RedBarBot] ${t.symbol}: 1:2 touched — arming 15m structure trail`);
+            }
+
+            const raw15 = await _deskBars({ id: symKey.replace(/USDT$/, '') || 'BTC', symbol: t.symbol, feed: 'binanceFutures' }, '15m', 24).catch(() => null);
+            const bars15 = Array.isArray(raw15) ? raw15 : [];
+            const buf = markPrice * 0.0003; // ~3 bps (≈$23 on BTC, ≈$1.20 on XAU)
+            let trailCandidate = null;
+            if (bars15.length >= 5) {
+              const completed = bars15.slice(-5, -1); // last ~1h closed 15m structure
+              if (isLong) {
+                const swingLow = Math.min(...completed.map((b) => Number(b.l != null ? b.l : b[3])));
+                trailCandidate = swingLow - buf;
+              } else {
+                const swingHigh = Math.max(...completed.map((b) => Number(b.h != null ? b.h : b[2])));
+                trailCandidate = swingHigh + buf;
+              }
+            }
+            if (!trailCandidate || !Number.isFinite(trailCandidate)) {
+              const fallbackDist = Math.max(oneR * 0.35, markPrice * 0.0025);
+              trailCandidate = isLong ? (markPrice - fallbackDist) : (markPrice + fallbackDist);
+            }
+
+            const minStep = Math.max(buf, oneR * 0.08);
+            if (isLong && markPrice > t.entry) {
+              if (trailCandidate > curStop + minStep && trailCandidate > t.entry) {
+                const moved = await fut.moveStopToBreakeven({
+                  symbol: t.symbol,
+                  side: t.side,
+                  stopPrice: trailCandidate,
+                  stopOrderId: t.stopOrderId,
+                  stopAlgoId: t.stopAlgoId || t.stopOrderId,
+                  quantity: amt,
+                });
+                t.currentStopPrice = moved.bePrice;
+                t.stopOrderId = moved.stopOrder?.algoId || moved.stopOrder?.orderId || t.stopOrderId;
+                t.stopAlgoId = t.stopOrderId;
+                const lockedUsd = ((moved.bePrice - t.entry) * amt).toFixed(2);
+                console.log(`[RedBarBot] ${t.symbol} LONG runner SL trailed behind 15m swing to ${moved.bePrice} (+${lockedUsd})`);
+                if (bot && chatId) {
+                  await bot.sendMessage(chatId, `🛡️ ${t.symbol} LONG runner SL trailed behind 15m structure to ${moved.bePrice} (Locked +${lockedUsd})`, { disable_web_page_preview: true }).catch(() => {});
+                }
+              }
+            } else if (!isLong && markPrice < t.entry) {
+              if (trailCandidate < curStop - minStep && trailCandidate < t.entry) {
+                const moved = await fut.moveStopToBreakeven({
+                  symbol: t.symbol,
+                  side: t.side,
+                  stopPrice: trailCandidate,
+                  stopOrderId: t.stopOrderId,
+                  stopAlgoId: t.stopAlgoId || t.stopOrderId,
+                  quantity: amt,
+                });
+                t.currentStopPrice = moved.bePrice;
+                t.stopOrderId = moved.stopOrder?.algoId || moved.stopOrder?.orderId || t.stopOrderId;
+                t.stopAlgoId = t.stopOrderId;
+                const lockedUsd = ((t.entry - moved.bePrice) * amt).toFixed(2);
+                console.log(`[RedBarBot] ${t.symbol} SHORT runner SL trailed behind 15m swing to ${moved.bePrice} (+${lockedUsd})`);
+                if (bot && chatId) {
+                  await bot.sendMessage(chatId, `🛡️ ${t.symbol} SHORT runner SL trailed behind 15m structure to ${moved.bePrice} (Locked +${lockedUsd})`, { disable_web_page_preview: true }).catch(() => {});
+                }
+              }
+            }
+          } catch (e) {
+            console.warn(`[RedBarBot] ${t.symbol} 15m trail error:`, e.message);
+          }
           keep.push(t);
           continue;
         }
-      }
-
-      const tpADone = tpAStatus === 'FILLED' || tpAStatus === 'TRIGGERED' || tpAStatus === 'FINISHED';
-      if (tpADone) {
-        console.log(`[RedBarBot] ${t.symbol}: TP A ${tpAStatus} — moving SL to BE @ ${t.entry}`);
-        const moved = await fut.moveStopToBreakeven({
-          symbol: t.symbol,
-          side: t.side,
-          entryPrice: t.entry,
-          stopOrderId: t.stopOrderId,
-          stopAlgoId: t.stopAlgoId || t.stopOrderId,
-          quantity: amt,
-        });
-        t.beMoved = true;
-        t.stopOrderId = moved.stopOrder?.algoId || moved.stopOrder?.orderId || t.stopOrderId;
-        t.stopAlgoId = t.stopOrderId;
-        t.bePrice = moved.bePrice;
-        t.beMovedAt = Date.now();
-        keep.push(t);
-        if (bot && chatId) {
-          await bot.sendMessage(
-            chatId,
-            `🔒 ${t.symbol} ${t.side}: 1:1 hit — SL moved to BE @ ${moved.bePrice}`,
-            { disable_web_page_preview: true }
-          ).catch(() => {});
+        if (!t.tpAOrderId) {
+          keep.push(t);
+          continue;
         }
-      } else if (tpAStatus === 'CANCELED' || tpAStatus === 'EXPIRED' || tpAStatus === 'REJECTED') {
-        console.log(`[RedBarBot] ${t.symbol}: TP A ${tpAStatus} — stop manage for this leg`);
-      } else {
+
+        let tpAStatus = null;
+        const tpAId = t.tpAAlgoId || t.tpAOrderId;
+        try {
+          if (typeof fut.getAlgoOrder === 'function') {
+            const ord = await fut.getAlgoOrder(t.symbol, tpAId);
+            tpAStatus = ord?.algoStatus || ord?.status || null;
+          } else {
+            const ord = await fut.getOrder(t.symbol, tpAId);
+            tpAStatus = ord?.status || null;
+          }
+        } catch (e) {
+          const runnerTarget = Number(t.qtyB) > 0 ? Number(t.qtyB) : (Number(t.qty) > 0 ? Number(t.qty) * 0.55 : 0);
+          if (runnerTarget > 0 && amt <= runnerTarget * 1.05) {
+            tpAStatus = 'FILLED';
+          } else {
+            console.warn(`[RedBarBot] ${t.symbol}: TP A order check: ${e.message}`);
+            keep.push(t);
+            continue;
+          }
+        }
+
+        const tpADone = tpAStatus === 'FILLED' || tpAStatus === 'TRIGGERED' || tpAStatus === 'FINISHED';
+        if (tpADone) {
+          console.log(`[RedBarBot] ${t.symbol}: TP A ${tpAStatus} — moving SL to BE @ ${t.entry}`);
+          const moved = await fut.moveStopToBreakeven({
+            symbol: t.symbol,
+            side: t.side,
+            entryPrice: t.entry,
+            stopOrderId: t.stopOrderId,
+            stopAlgoId: t.stopAlgoId || t.stopOrderId,
+            quantity: amt,
+          });
+          t.beMoved = true;
+          t.stopOrderId = moved.stopOrder?.algoId || moved.stopOrder?.orderId || t.stopOrderId;
+          t.stopAlgoId = t.stopOrderId;
+          t.bePrice = moved.bePrice;
+          t.currentStopPrice = moved.bePrice;
+          t.beMovedAt = Date.now();
+          keep.push(t);
+          if (bot && chatId) {
+            await bot.sendMessage(
+              chatId,
+              `🔒 ${t.symbol} ${t.side}: 1:1 hit — SL moved to BE @ ${moved.bePrice}`,
+              { disable_web_page_preview: true }
+            ).catch(() => {});
+          }
+        } else if (tpAStatus === 'CANCELED' || tpAStatus === 'EXPIRED' || tpAStatus === 'REJECTED') {
+          console.log(`[RedBarBot] ${t.symbol}: TP A ${tpAStatus} — stop manage for this leg`);
+        } else {
+          keep.push(t);
+        }
+      } catch (e) {
+        console.warn(`[RedBarBot] manage poll ${t.symbol}:`, e.message);
         keep.push(t);
       }
-    } catch (e) {
-      console.warn(`[RedBarBot] manage poll ${t.symbol}:`, e.message);
-      keep.push(t);
     }
+    // Merge: do not drop trades appended while this poll ran.
+    const latest = loadManagedTrades();
+    const keepBySym = new Map(keep.map((t) => [String(t.symbol).toUpperCase(), t]));
+    const merged = [];
+    const seen = new Set();
+    for (const t of keep) {
+      const k = String(t.symbol).toUpperCase();
+      if (seen.has(k)) continue;
+      seen.add(k);
+      merged.push(t);
+    }
+    for (const t of latest) {
+      const k = String(t.symbol).toUpperCase();
+      if (seen.has(k)) continue;
+      if (processed.has(k) && !keepBySym.has(k)) continue; // intentionally dropped (flat)
+      seen.add(k);
+      merged.push(t);
+    }
+    saveManagedTrades(merged);
+  } finally {
+    _manageFuturesInFlight = false;
   }
-  saveManagedTrades(keep);
 }
 async function scanRedBarDesk() {
   const rbCfg = CONFIG.rangeEma || {};
@@ -2097,20 +2126,7 @@ if (!process.env.BOT_WORKER_ONLY) {
       return res.json({ ok: true, ignored: true });
     }
 
-    // Trend alignment guard: prevent counter-trend Telegram alerts against stacked EMAs
-    const cachedTrend = _instTrendState.get(String(instrumentId).toUpperCase());
-    const fastEma = body.emaFast != null ? Number(body.emaFast) : cachedTrend?.ema10;
-    const slowEma = body.emaSlow != null ? Number(body.emaSlow) : cachedTrend?.ema30;
-    if (fastEma != null && slowEma != null) {
-      if (side === 'SHORT' && fastEma > slowEma) {
-        console.log(`[AlertRelay] Counter-trend SHORT blocked for ${instrumentId}: EMA 10 (${fastEma.toFixed(1)}) > EMA 30 (${slowEma.toFixed(1)}) (Bullish momentum in play)`);
-        return res.json({ ok: true, ignored: true, reason: 'counter_trend_blocked' });
-      }
-      if (side === 'LONG' && fastEma < slowEma) {
-        console.log(`[AlertRelay] Counter-trend LONG blocked for ${instrumentId}: EMA 10 (${fastEma.toFixed(1)}) < EMA 30 (${slowEma.toFixed(1)}) (Bearish momentum in play)`);
-        return res.json({ ok: true, ignored: true, reason: 'counter_trend_blocked' });
-      }
-    }
+    // EMA is chart context only — relays are never blocked on it.
     const now = Date.now();
     for (const [k, t] of relaySeen) {
       if (now - t > RELAY_TTL_MS) relaySeen.delete(k);

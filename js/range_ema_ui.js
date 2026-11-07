@@ -255,18 +255,10 @@ const RangeEmaUI = {
     const isEnter = a?.side === 'LONG' || a?.side === 'SHORT';
     const actionable = o?.actionState === 'enter' && !a?.isFibMagnet && isEnter;
 
-    // Trend alignment guard: do not alert counter-trend entries against stacked EMAs
-    // (matches bot.js execution filter so UI and Telegram alerts stay in 100% sync)
-    const emaFast = row.ema?.emaFast;
-    const emaSlow = row.ema?.emaSlow;
-    const isCounterTrend = (a?.side === 'SHORT' && emaFast != null && emaSlow != null && emaFast > emaSlow)
-      || (a?.side === 'LONG' && emaFast != null && emaSlow != null && emaFast < emaSlow)
-      || row.emaAgree === 'disagrees';
-    if (isCounterTrend) {
-      this._pendingEnterAlert = null;
-      console.log(`[DeskAlerts] Blocked counter-trend ${a?.side} alert for ${inst.id || inst.symbol} (EMA disagrees)`);
-      return;
-    }
+    // EMA on the 15m working timeframe (same basis as the bot), not the chart tab.
+    const emaFast = row.emaWork?.emaFast ?? row.ema?.emaFast;
+    const emaSlow = row.emaWork?.emaSlow ?? row.ema?.emaSlow;
+    // EMA is chart context only — never blocks an ENTER alert (BTC or NIFTY).
 
     // WATCH / bias is NOT an ENTER — do not Telegram.
     // But keep retrying the last real ENTER for a few minutes (brief Trade 2
@@ -564,16 +556,19 @@ const RangeEmaUI = {
   },
 
   async _buildRow(inst, c) {
-    const instrument = typeof inst === 'string'
+    const rawInst = typeof inst === 'string'
       ? { id: inst, symbol: inst, feed: 'binanceFutures', dayMode: c.dayMode || 'utc' }
       : (inst || this.activeInstrument());
+    const instrument = (typeof API !== 'undefined' && typeof API.resolveInstrumentForSession === 'function')
+      ? API.resolveInstrumentForSession(rawInst)
+      : rawInst;
     const tf = this.activeTf();
     const lim = this._ohlcLimit(tf, c, instrument);
-    // Sagar: NIFTY uses 15m first-red (locks morning Red Bar box by 09:45 IST); NG/Crude/metals use 30m; BTC uses 1H
+    // First-red TF comes from config (NIFTY 5m, BTC 1H, NG/metals 30m). Defaults below only if config omits it.
     const instUpperId = String(instrument.id || '').toUpperCase();
     let firstRedTf = instrument.firstRedTf !== undefined
       ? instrument.firstRedTf
-      : (instUpperId === 'NIFTY' ? '15m' : (instUpperId === 'BTC' ? null : '1h'));
+      : (instUpperId === 'NIFTY' ? '15m' : '1h');
     const firstRedBarMs = firstRedTf === '30m' ? 30 * 60000
       : firstRedTf === '15m' ? 15 * 60000
         : firstRedTf === '5m' ? 5 * 60000
@@ -687,22 +682,7 @@ const RangeEmaUI = {
             barMs: firstRedBarMs,
           });
         }
-        // Fallback: if primary TF (e.g. 1H or 30m) has no closed Red Bar yet on a strong morning trend,
-        // fall back to 15m working bars (or 5m on NSE) so you don't miss Trade 1 / Trade 2
-        if (!firstRed1h && evalBars && evalBars.length >= 24 && firstRedTf !== '15m') {
-          const fb15 = RedBarTrend.firstRedBarOfSession(evalBars, calDay, {
-            ...readCfg,
-            asOfTs: nowTs,
-            barMs: 15 * 60000,
-          });
-          if (fb15) {
-            firstRed1h = fb15;
-            firstRedTf = '15m';
-            firstRedLabel = '15M';
-            readCfg.firstRedTf = '15m';
-            readCfg.firstRedLabel = '15M';
-          }
-        }
+        // No 15m fallback: the bot never uses one, so the desk must not show a first red the bot ignores.
         if (!firstRed1h && instUpperId === 'NIFTY' && bars5m && bars5m.length >= 24) {
           const fb5 = RedBarTrend.firstRedBarOfSession(bars5m, calDay, {
             ...readCfg,
@@ -742,11 +722,15 @@ const RangeEmaUI = {
     }
 
     const ema = this._emaOverlay(bars30, c.emaFast || 10, c.emaSlow || 30);
+    // Agreement uses the working timeframe (15m) like the bot — chart tab only draws lines.
+    const emaWork = (evalBars && evalBars.length >= 35)
+      ? this._emaOverlay(evalBars, c.emaFast || 10, c.emaSlow || 30)
+      : ema;
 
     let emaAgree = 'n/a';
-    if (readout && ema.cross !== 'none') {
-      const emaBull = ema.cross === 'bull_cross' || ema.cross === 'stacked_bull';
-      const emaBear = ema.cross === 'bear_cross' || ema.cross === 'stacked_bear';
+    if (readout && emaWork.cross !== 'none') {
+      const emaBull = emaWork.cross === 'bull_cross' || emaWork.cross === 'stacked_bull';
+      const emaBear = emaWork.cross === 'bear_cross' || emaWork.cross === 'stacked_bear';
       if (readout.trend === 'bullish') emaAgree = emaBull ? 'agrees' : emaBear ? 'disagrees' : 'n/a';
       else if (readout.trend === 'bearish') emaAgree = emaBear ? 'agrees' : emaBull ? 'disagrees' : 'n/a';
       else emaAgree = 'neutral_trend';
@@ -794,6 +778,7 @@ const RangeEmaUI = {
       sessionTell,
       readout,
       ema,
+      emaWork,
       emaAgree,
       action,
       feedCurrency,
@@ -817,7 +802,7 @@ const RangeEmaUI = {
     const emaNote = emaAgree === 'agrees'
       ? ' · EMA agrees'
       : emaAgree === 'disagrees'
-        ? ' · EMA disagrees — size down or wait for alignment'
+        ? ' · EMA disagrees (chart context only — not a Red Bar rule)'
         : '';
     const clockStep = clock.tip ? clock.tip : null;
     const liqStep = pb.liquidityTip && pb.liquidityTip !== clock.tip ? pb.liquidityTip : null;
@@ -855,6 +840,10 @@ const RangeEmaUI = {
       && o.setupKind !== 'pob_reject_watch'
       && o.setupKind !== 'setup3_rubber_band'
       && o.setupKind !== 'setup3_primed'
+      && o.setupKind !== 'btc_asia_0530_breakout'
+      && o.setupKind !== 'afternoon_1245_breakout'
+      && o.setupKind !== 'afternoon_1245_reversal'
+      && o.setupKind !== 'afternoon_1245_retest'
       && !trade2Live
     ) {
       const fibHi = o.currentBand?.high ?? o.refs?.orHigh;
@@ -880,8 +869,8 @@ const RangeEmaUI = {
     const isActionable = o.actionState === 'enter' && (biasDir === 'LONG' || biasDir === 'SHORT');
     const stopTag = o.invalidationReason
       || (trade2Live
-        ? (biasDir === 'LONG' ? '5m swing low' : '5m swing high')
-        : (biasDir === 'LONG' ? 'recent swing low' : 'recent swing high'));
+        ? (biasDir === 'LONG' ? 'shelf / 15m swing low' : 'shelf / 15m swing high')
+        : (biasDir === 'LONG' ? 'structure low' : 'structure high'));
     const stopWarn = o.stopStructural === false
       ? ` ⚠️ Stop is a ${stopTag} (not a tight local swing — watch size).`
       : '';
@@ -889,28 +878,6 @@ const RangeEmaUI = {
     // 1. ENTER: leave / retest / sweep / mid-zone / afternoon
     if (isActionable) {
       const TC = (typeof window !== 'undefined' && window.TrendRunnerCopy) || null;
-      if (emaAgree === 'disagrees') {
-        const setupName = (TC && TC.setupName(o.setupKind)) || o.setupKind || 'Setup';
-        return {
-          side: 'WAIT',
-          cls: 'wait',
-          title: `⚠️ Counter-trend ${biasDir} filtered (${setupName})`,
-          subtitle: `Averages disagree with this ${biasDir}. Desk skips to avoid fakeout wicks.`,
-          steps: [
-            `Trend alignment: shorter averages are stacked against ${biasDir}. Fighting momentum leads to whipsaws.`,
-            `Wait for averages to align with the move or for a valid leave in the true trend direction.`,
-            pivotStep,
-            ...(liqStep ? [liqStep] : clockStep ? [clockStep] : []),
-          ],
-          entry: null,
-          stop: o.invalidation,
-          tp1: o.tp1,
-          tp2: o.tp2,
-          tp3: o.tp3,
-          exit: o.bookZone,
-          rr: o.rr,
-        };
-      }
       const isPob = o.setupKind === 'pob_reject';
       const publicName = (TC && TC.setupName(o.setupKind)) || o.setupKind || 'Setup';
       const setupLabel = `${publicName} · ${biasDir}`;
@@ -1465,7 +1432,7 @@ const RangeEmaUI = {
 
     const steps = (a.steps || []).map((s) => `<li>${s}</li>`).join('');
     const ladder = !!(a.rrLadder || o.rrLadder || o.setupKind === 'trade2_confirmed' || o.setupKind === 'trade2_watch');
-    const stopSub = o.stopPct != null ? `<small class="rb-level-sub">-${o.stopPct.toFixed(2)}% (${o.invalidationReason || (ladder ? '5m swing' : 'recent swing')})</small>` : '';
+    const stopSub = o.stopPct != null ? `<small class="rb-level-sub">-${o.stopPct.toFixed(2)}% (${o.invalidationReason || (ladder ? 'shelf / 15m' : 'structure')})</small>` : '';
     const tp1Sub = o.stopPct != null ? `<small class="rb-level-sub">+${o.stopPct.toFixed(2)}% · Bank 50% &amp; SL→BE</small>` : '';
     const tp2Sub = '<small class="rb-level-sub">Trail remaining after 1:1</small>';
     const runnerSub = ladder
@@ -1548,22 +1515,23 @@ const RangeEmaUI = {
     const isNiftyInst = instUpper === 'NIFTY';
     const isXauInst = instUpper === 'XAU';
     const isNgInst = instUpper === 'NG';
+    const isBinanceWeekendNg = isNgInst && String(r.instrument?.symbol || '').toUpperCase() === 'NATGASUSDT';
     const isNsePrime = isNiftyInst && curMins >= 555 && curMins < 735;
     const isNseHunt = isNiftyInst && curMins >= 735 && curMins <= 795;
     const isNseAfternoon = isNiftyInst && curMins > 795 && curMins < 915;
     const isNseMark = isNiftyInst && curMins >= 915 && curMins <= 945;
 
-    const isXauMark = isXauInst && curMins >= 90 && curMins < 150; // 01:30–02:30 IST
+    const isXauMark = isXauInst && isMark; // 16:00–17:00 ET (02:30–03:30 IST in EST)
     const comexOpenMins = this._getSessionOpenMins(nowMs, 'America/New_York', 8, 30);
     const comexOpenStr = fmtHm(comexOpenMins);
     const isComexOpen = isXauInst && curMins >= comexOpenMins && curMins < comexOpenMins + 90;
 
     const nymexOpenMins = this._getSessionOpenMins(nowMs, 'America/New_York', 9, 0);
     const nymexOpenStr = fmtHm(nymexOpenMins);
-    const isMcxDay = isNgInst && curMins >= 540 && curMins < 1020; // 09:00–17:00 IST
-    const isMcxEve = isNgInst && curMins >= 1020 && curMins < nymexOpenMins; // 17:00–NYMEX
-    const isNymex = isNgInst && curMins >= nymexOpenMins && curMins < 1380; // NYMEX–23:00 IST
-    const isNgMark = isNgInst && curMins >= 1380 && curMins <= 1410; // 23:00–23:30 IST
+    const isMcxDay = isNgInst && !isBinanceWeekendNg && curMins >= 540 && curMins < 1020; // 09:00–17:00 IST
+    const isMcxEve = isNgInst && !isBinanceWeekendNg && curMins >= 1020 && curMins < nymexOpenMins; // 17:00–NYMEX
+    const isNymex = isNgInst && !isBinanceWeekendNg && curMins >= nymexOpenMins && curMins < 1380; // NYMEX–23:00 IST
+    const isNgMark = isNgInst && !isBinanceWeekendNg && curMins >= 1380 && curMins <= 1410; // 23:00–23:30 IST
 
     const activeSessionName = isNiftyInst
       ? (isNsePrime ? 'NSE prime · mid-zone & leave (09:15–12:15 IST)'
@@ -1571,26 +1539,23 @@ const RangeEmaUI = {
         : isNseAfternoon ? 'NSE afternoon session (13:15–15:15 IST)'
         : isNseMark ? 'NSE close mark window (15:15–15:45 IST)'
         : 'NSE closed (opens 09:15 IST)')
-      : isNgInst
+      : (isNgInst && !isBinanceWeekendNg)
         ? (isMcxDay ? 'MCX morning · mid-zone & leave (09:00–17:00 IST)'
           : isMcxEve ? `MCX evening open · mid-zone (17:00–${nymexOpenStr} IST)`
           : isNymex ? `US NYMEX open · energy session (${nymexOpenStr}–23:00 IST)`
           : isNgMark ? 'MCX close mark window (23:00–23:30 IST)'
           : 'MCX closed · Globex overnight (MCX opens 09:00 IST)')
-      : isXauInst
+      : (isXauInst || isBinanceWeekendNg)
         ? (isXauMark ? 'Gold daily mark window (01:30–02:30 IST)'
           : isComexOpen ? `COMEX / US bullion open (${comexOpenStr}–${nyEndStr} IST)`
           : isAsia ? `Asia bullion session (05:30–${lonOpenStr} IST)`
           : isLon ? `London bullion / LBMA (${lonOpenStr}–${comexOpenStr} IST)`
           : isLonClose ? `London close / LBMA fix (${fmtHm(lonCloseStart)}–${fmtHm(lonCloseEnd)} IST)`
           : 'Off-prime bullion hours')
-      : isMark ? 'Daily mark window (02:30–03:30 IST)'
-      : isNy ? `New York open (${nyOpenStr}–${nyEndStr} IST)`
-      : isAsia ? `Asia session (05:30–${lonOpenStr} IST)`
-      : isLon ? `London session (${lonOpenStr}–${nyOpenStr} IST)`
-      : isLonClose ? `London close / 4 PM fix (${fmtHm(lonCloseStart)}–${fmtHm(lonCloseEnd)} IST)`
-      : isUsClose ? 'US cash close & CME settle (01:15–02:30 IST)'
-      : 'Off-prime / quiet hours';
+      : isMark ? 'Daily mark Fib (02:30–03:30 IST)'
+      : isAsia ? 'Asia Trikal window (05:30 IST)'
+      : isUsClose ? 'US cash close → mark Fib next (01:15–02:30 IST)'
+      : 'BTC · mark Fib + Red Bar (no desk discovery boxes)';
 
     // Trigger level text for Stepper
     const firstRedTag = o.firstRedLabel || (r.instrument?.firstRedTf === '30m' ? '30m' : '1H');
@@ -1633,7 +1598,11 @@ const RangeEmaUI = {
             <span style="color:#94a3b8;">⏱️ Candle close: <strong style="color:#cbd5e1;">${nextBarStr}</strong></span>
           </div>
           <div class="rb-beacon-right">
-            ${prime.active ? `
+            ${!isNiftyInst && (!isNgInst || isBinanceWeekendNg) ? (
+              `<span class="rb-prime-pill next" title="${isXauInst ? 'XAU: COMEX close Fib = magnets only. 30m First Red DNA + Asia 05:30 Trikal / POB.' : isBinanceWeekendNg ? 'NG (Weekend Binance NATGASUSDT): NYMEX close Fib = magnets only. 30m First Red DNA + Asia 05:30 Trikal / POB.' : 'BTC: CME mark Fib = magnets only. Red Bar first-red DNA + Asia 05:30 Trikal / POB. London/NY = vol awareness, not mid-zone X.'}">
+                <strong>${isXauInst ? 'XAU:' : isBinanceWeekendNg ? 'NG (Binance):' : 'BTC:'}</strong> Mark Fib · ${(isXauInst || isBinanceWeekendNg) ? '30m ' : ''}Red Bar · Asia 05:30 Trikal
+              </span>`
+            ) : prime.active ? `
               <span class="rb-prime-pill active" title="${prime.active.rule}">
                 <strong>Prime Window:</strong> ${prime.active.name} (${prime.active.remStr} left · ${prime.active.winRate})
               </span>
@@ -1641,13 +1610,13 @@ const RangeEmaUI = {
               <span class="rb-prime-pill alert" title="${prime.next.rule}">
                 <strong>Window in ${prime.next.waitMins}m:</strong> ${prime.next.name} (${prime.next.startStrIst} IST${!prime.isUserIst ? ` / ${prime.next.localStart} ${prime.userTzName}` : ''})
               </span>
-            ` : `
+            ` : prime.next ? `
               <span class="rb-prime-pill next" title="${prime.next.rule}">
                 <strong>Next Window:</strong> ${prime.next.name} in <strong>${prime.next.waitStr}</strong> (${prime.next.startStrIst} IST${!prime.isUserIst ? ` / ${prime.next.localStart} ${prime.userTzName}` : ''})
               </span>
-            `}
+            ` : ''}
             ${r.sessionTell ? `<span style="font-weight:600; color:${r.sessionTell.type === 'bullish' ? '#4ade80' : r.sessionTell.type === 'bearish' ? '#f87171' : '#7dd3fc'}; font-size:11px; background:rgba(255,255,255,0.05); padding:2px 8px; border-radius:4px;">${r.sessionTell.badge}</span>` : ''}
-            ${o.equinox && o.equinox.seasonActive && inst.id === 'NIFTY' ? `
+            ${o.equinox && o.equinox.seasonActive && isNiftyInst ? `
               <span class="rb-prime-pill" style="background:${o.equinox.territory === 'positive' ? 'rgba(34,197,94,0.15)' : 'rgba(239,68,68,0.15)'}; border-color:${o.equinox.territory === 'positive' ? '#22c55e' : '#ef4444'}; color:${o.equinox.territory === 'positive' ? '#4ade80' : '#f87171'};" title="Seasonal baseline ${o.equinox.baseline} · ${o.equinox.territory === 'positive' ? 'Positive: prefer calls' : 'Negative: prefer puts'}">
                 🌐 <strong>Season bias:</strong> ${o.equinox.territory.toUpperCase()} (${o.equinox.allowedSide.replace('_', ' ')})
               </span>
@@ -2034,37 +2003,26 @@ const RangeEmaUI = {
             <span class="seg-name">LBMA Fix</span>
           </div>
           ` : `
-          <div class="rb-session-seg ${isMark ? 'active' : ''}">
+          <div class="rb-session-seg ${isMark ? 'active' : ''}" title="Dev mark Fib — US close / CME settle (02:30–03:30 IST)">
             <span class="seg-time">02:30</span>
-            <span class="seg-name">Mark</span>
+            <span class="seg-name">Mark Fib</span>
           </div>
-          <div class="rb-session-seg ${isAsia ? 'active' : ''} is-prime">
+          <div class="rb-session-seg ${isAsia ? 'active' : ''}" title="Asia Trikal 05:30 IST — crypto clock, not a second Fib box">
             <span class="seg-time">05:30</span>
-            <span class="seg-name">Asia</span>
+            <span class="seg-name">Asia Trikal</span>
           </div>
-          <div class="rb-session-seg ${isLon ? 'active' : ''} is-prime">
-            <span class="seg-time">${lonOpenStr}</span>
-            <span class="seg-name">London</span>
-          </div>
-          <div class="rb-session-seg ${isNy ? 'active' : ''} is-prime">
-            <span class="seg-time">${nyOpenStr}</span>
-            <span class="seg-name">NY Open</span>
-          </div>
-          <div class="rb-session-seg ${isLonClose ? 'active' : ''}" title="London 4 PM Fix · ${fmtHm(lonCloseStart)}–${fmtHm(lonCloseEnd)} IST">
-            <span class="seg-time">${fmtHm(lonCloseStart)}</span>
-            <span class="seg-name">Lon Close</span>
-          </div>
-          <div class="rb-session-seg ${isUsClose ? 'active' : ''}" title="US equity close / CME settle · 01:15–02:30 IST">
+          <div class="rb-session-seg ${isUsClose ? 'active' : ''}" title="US equity close / CME settle · leads into mark Fib">
             <span class="seg-time">01:15</span>
             <span class="seg-name">US Close</span>
           </div>
           `}
         </div>
 
-        <!-- Prime Execution Windows Reference Matrix -->
+        ${(isNiftyInst || (isNgInst && !isBinanceWeekendNg)) ? `
+        <!-- Instrument-specific prime windows (NIFTY / Weekday MCX NG). BTC + XAU + Weekend NG: mark Fib + Asia 05:30 Trikal only — no desk 3-box matrix. -->
         <div style="margin-top: 14px; padding-top: 10px; border-top: 1px solid rgba(255,255,255,0.06);">
           <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom: 8px;">
-            <span style="font-size: 11px; font-weight: 700; color: #94a3b8; text-transform: uppercase; letter-spacing: 0.04em;">3 Prime Timing Windows (Session Extreme &amp; Discovery Windows)</span>
+            <span style="font-size: 11px; font-weight: 700; color: #94a3b8; text-transform: uppercase; letter-spacing: 0.04em;">Session Timing Windows</span>
             <span style="font-size: 10.5px; color: #64748b;">${prime.isUserIst ? 'Times in IST' : `Times in IST &amp; your ${prime.userTzName} timezone`}</span>
           </div>
           <div class="rb-prime-windows-grid">
@@ -2085,11 +2043,17 @@ const RangeEmaUI = {
             `).join('')}
           </div>
         </div>
+        ` : `
+        <div style="margin-top: 12px; padding-top: 10px; border-top: 1px solid rgba(255,255,255,0.06); font-size: 11.5px; color: #94a3b8; line-height: 1.45;">
+          <strong style="color:#cbd5e1;">${isXauInst ? 'XAU (Gold)' : 'BTC'} boxes:</strong> one mark Fib at <strong>02:30–03:30 IST</strong> (16:00–17:00 ET settle).
+          Red Bar = ${isXauInst ? '30m' : '1H'} first-red H/L. Asia <strong>05:30</strong> = Trikal 30m breakout &amp; POB — London/NY are liquidity sweeps, not extra Fib boxes.
+        </div>
+        `}
       </div>
     `;
 
     // 4. Key Levels Matrix (3-Column clean grid)
-    const markTag = isNiftyInst ? '15:15 Mark Fib' : isNgInst ? '23:00 Mark Fib' : isXauInst ? '01:30 Mark Fib' : '02:30 Mark Fib';
+    const markTag = isNiftyInst ? '15:15 Mark Fib' : (isNgInst && !isBinanceWeekendNg) ? '23:00 Mark Fib' : '02:30 Mark Fib';
     const sess1Tag = isNgInst ? 'MCX Day H/L' : isNiftyInst ? 'NSE Morning H/L' : 'Asia H/L';
     const sess2Tag = isNgInst ? 'MCX Eve H/L' : isNiftyInst ? 'NSE Midday H/L' : 'London H/L';
     const sess3Tag = isNgInst ? 'NYMEX H/L' : isXauInst ? 'COMEX/NY H/L' : isNiftyInst ? 'NSE Session H/L' : 'NY H/L';
@@ -3345,42 +3309,8 @@ const RangeEmaUI = {
         rule: 'COMEX open often hunts London H/L — watch mid-zone 44–56 and stretch snapback guide'
       }
     ] : [
-      {
-        id: 'asia',
-        name: 'Asia Open / Daily Open',
-        code: 'ASIA',
-        startIstMins: 330,   // 05:30 IST
-        endIstMins: 420,     // 07:00 IST
-        startStrIst: '05:30',
-        endStrIst: '07:00',
-        winRate: '71.7% Session Extreme',
-        headline: 'Daily Open Discovery Window',
-        rule: '71.7% of days print Asia high/low in first 90m; 05:30 IST mid-zone & 1H leave'
-      },
-      {
-        id: 'london',
-        name: 'London Open Window',
-        code: 'LON',
-        startIstMins: lonOpenMins,
-        endIstMins: lonOpenMins + 75,
-        startStrIst: fmtMins(lonOpenMins),
-        endStrIst: fmtMins(lonOpenMins + 75),
-        winRate: '62.7% Session Extreme',
-        headline: 'European Opening Liquidity Window',
-        rule: '62.7% of days print London high/low in first 45m; sweeps Asia H/L + London mid-zone'
-      },
-      {
-        id: 'ny',
-        name: 'New York Open Window',
-        code: 'NY',
-        startIstMins: nyOpenMins,
-        endIstMins: nyOpenMins + 75,
-        startStrIst: fmtMins(nyOpenMins),
-        endStrIst: fmtMins(nyOpenMins + 75),
-        winRate: '56.0% Session Extreme',
-        headline: 'US Cash Open Window',
-        rule: '56.0% of days print NY high/low in first 45m; NY mid-zone & 1H shelf retest'
-      }
+      // BTC: no Asia/London/NY "discovery box" matrix — Dev mark Fib is 02:30–03:30 only.
+      // Asia 05:30 Trikal is a clock (timeline strip), not a third Fib window card.
     ];
 
     let active = null;
@@ -4678,7 +4608,19 @@ const RangeEmaUI = {
     this._chart.$rbFirstRedLabel = o.firstRedLabel || '1H';
     this._chart.$rbFirstRedFibs = o.firstRedFibs || o.playbook?.redSetup?.fibs || null;
     this._chart.$rbShowFirstRed = showPivot;
-    this._chart.$rbPobReject = o.pobReject || o.playbook?.pobReject || null;
+    // Paint Mid-top / Mid-edge / Open-low when a live POB X exists.
+    // BTC = Asia 05:30 Trikal only (Dr Dev crypto mid-zone).
+    {
+      const pob = o.pobReject || o.playbook?.pobReject || null;
+      const pobLive = !!(pob && (pob.watching || pob.triggered
+        || pob.status === 'await_retest' || pob.status === 'x_candle_wait'
+        || pob.status === 'watching' || pob.status === 'stale'));
+      const label = String(pob?.xCandle?.sessionLabel || '');
+      const isBtcOrXauDesk = ['BTC', 'XAU'].includes(String(inst.id || '').toUpperCase())
+        || String(inst.symbol || '').toUpperCase() === 'NATGASUSDT';
+      const sessionOk = !isBtcOrXauDesk || /asia/i.test(label);
+      this._chart.$rbPobReject = (pobLive && sessionOk) ? pob : null;
+    }
     this._chart.$rbSetup3 = o.setup3 || o.playbook?.setup3 || null;
     this._chart.$rbLevelTags = levelTags;
     this._chart.$rbCompact = compact;

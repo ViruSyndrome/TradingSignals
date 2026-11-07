@@ -86,7 +86,7 @@
     if ('serviceWorker' in navigator) {
       window.addEventListener('load', () => {
         const hadController = Boolean(navigator.serviceWorker.controller);
-        navigator.serviceWorker.register('./service-worker.js?v=7.57', { updateViaCache: 'none' })
+        navigator.serviceWorker.register('./service-worker.js?v=7.60', { updateViaCache: 'none' })
           .then(reg => {
             reg.update().catch(() => {});
             navigator.serviceWorker.addEventListener('controllerchange', () => {
@@ -347,7 +347,7 @@
             <p>Each session can mark an open candle and draw levels <code>0, 0.44, 0.5, 0.56, 1</code> on that structure:</p>
             <ul>
               <li><strong>Mid-zone (44–56%):</strong> The middle band of the open mark candle — where price often retests after the first leave.</li>
-              <li><strong>Mid-zone reject (ENTER):</strong> After the open candle is marked (e.g. NIFTY ~09:15, BTC Asia / London / NY opens), wait for leave → retest of mid-zone → <strong>SHORT</strong> only if a 5m candle rejects back below mid. Close through the top of mid-zone = idea invalid.</li>
+              <li><strong>Mid-zone reject (ENTER):</strong> After the open candle is marked (NIFTY ~09:15; BTC Asia Trikal ~05:30), wait for leave → retest of mid-zone → <strong>SHORT</strong> only if a 5m candle rejects back below mid. Close through the top of mid-zone = idea invalid.</li>
               <li><strong>Also ENTER paths:</strong> breakout leave, shelf retest, liquidity sweep, afternoon window. Stretch snapback stays a chart guide only.</li>
               <li><strong>Mark windows:</strong> BTC ~US cash close · NIFTY late-session window · used as <strong>targets / context</strong>, not automatic entries.</li>
               <li><strong>Inside the full [0, 1] box:</strong> often chop → <strong>WAIT</strong>.</li>
@@ -630,15 +630,15 @@
       });
     } catch(e) {}
   </script>
-  <script src="js/config.js?v=7.26" defer></script>
-  <script src="js/api.js?v=7.00" defer></script>
+  <script src="js/config.js?v=7.27" defer></script>
+  <script src="js/api.js?v=7.01" defer></script>
   <script src="js/indicators.js?v=6.60" defer></script>
-  <script src="js/redbar_trend.js?v=2.20" defer></script>
+  <script src="js/redbar_trend.js?v=2.23" defer></script>
   <script src="js/fib_magnet.js?v=1.10" defer></script>
   <script src="js/range_ema_engine.js?v=1.2" defer></script>
   <script src="js/desk_alerts.js?v=1.13" defer></script>
   <script src="js/public_copy.js?v=1.0" defer></script>
-  <script src="js/range_ema_ui.js?v=2.50" defer></script>
+  <script src="js/range_ema_ui.js?v=2.52" defer></script>
   <script src="js/signals.js?v=6.70" defer></script>
   <script src="js/charts.js?v=6.60" defer></script>
   
@@ -865,45 +865,30 @@
           </div>
         </div>
 
-        <h3 style="font-size:13px; font-weight:700; color:#f8fafc; margin:16px 0 6px;">🕒 24-Hour Session Rhythm (Empirical Tells)</h3>
+        <h3 style="font-size:13px; font-weight:700; color:#f8fafc; margin:16px 0 6px;">🕒 Clocks that matter (not three Fib boxes)</h3>
         <table style="width:100%; border-collapse:collapse; font-size:12px; margin-bottom:16px;">
           <thead>
             <tr style="border-bottom:1px solid rgba(255,255,255,0.1); color:#94a3b8; text-align:left;">
-              <th style="padding:6px 8px;">Session</th>
+              <th style="padding:6px 8px;">Anchor</th>
               <th style="padding:6px 8px;">Window (IST)</th>
-              <th style="padding:6px 8px;">Historical Tell (730 Days Data)</th>
+              <th style="padding:6px 8px;">Role</th>
             </tr>
           </thead>
           <tbody>
             <tr style="border-bottom:1px solid rgba(255,255,255,0.05);">
-              <td style="padding:6px 8px; font-weight:600; color:#f8fafc;">Daily Mark Window</td>
+              <td style="padding:6px 8px; font-weight:600; color:#f8fafc;">BTC Mark Fib</td>
               <td style="padding:6px 8px;">02:30–03:30</td>
-              <td style="padding:6px 8px; color:#94a3b8;">Locks daily Fib box (0·44·50·56·1). Acts as fair-value magnet (69.2% return rate).</td>
+              <td style="padding:6px 8px; color:#94a3b8;">Single daily Fib box (0·44·50·56·1) from US close / CME settle. Targets / context — not automatic ENTER.</td>
             </tr>
             <tr style="border-bottom:1px solid rgba(255,255,255,0.05);">
-              <td style="padding:6px 8px; font-weight:600; color:#f8fafc;">Asia Open (UTC 00:00)</td>
-              <td style="padding:6px 8px;">05:30–07:15</td>
-              <td style="padding:6px 8px; color:#94a3b8;">71.7% of days print Asia High or Low in first 90m. Sweeping Mark Window sets daily wick.</td>
+              <td style="padding:6px 8px; font-weight:600; color:#f8fafc;">Asia Trikal</td>
+              <td style="padding:6px 8px;">05:30</td>
+              <td style="padding:6px 8px; color:#94a3b8;">BTC crypto clock for 30m X / mid-zone — not a second mark Fib box. London/NY opens are liquidity awareness only (desk no longer draws discovery boxes for them).</td>
             </tr>
             <tr style="border-bottom:1px solid rgba(255,255,255,0.05);">
               <td style="padding:6px 8px; font-weight:600; color:#f8fafc;">Afternoon window</td>
               <td style="padding:6px 8px;">12:45–13:15</td>
-              <td style="padding:6px 8px; color:#94a3b8;">Mark the early-afternoon auction. Trap one side then reclaim, or expand beyond morning high/low.</td>
-            </tr>
-            <tr style="border-bottom:1px solid rgba(255,255,255,0.05);">
-              <td style="padding:6px 8px; font-weight:600; color:#f8fafc;">London Open</td>
-              <td style="padding:6px 8px;">12:30 (BST) / 13:30 (GMT)</td>
-              <td style="padding:6px 8px; color:#94a3b8;">62.7% print London extreme in opening 45m. Sweeping Asia High/Low often produces a fakeout reversal.</td>
-            </tr>
-            <tr style="border-bottom:1px solid rgba(255,255,255,0.05);">
-              <td style="padding:6px 8px; font-weight:600; color:#f8fafc;">New York Open</td>
-              <td style="padding:6px 8px;">19:00 (EDT) / 20:00 (EST)</td>
-              <td style="padding:6px 8px; color:#94a3b8;">56.0% print NY extreme in first 45m. Sweeping London Low bounces 53.7% of the time.</td>
-            </tr>
-            <tr style="border-bottom:1px solid rgba(255,255,255,0.05);">
-              <td style="padding:6px 8px; font-weight:600; color:#f8fafc;">London Close / 4 PM Fix</td>
-              <td style="padding:6px 8px;">19:30–21:30</td>
-              <td style="padding:6px 8px; color:#94a3b8;">61.8% of trend days reverse or chop as European desks square books. Avoid chasing late breakouts.</td>
+              <td style="padding:6px 8px; color:#94a3b8;">NIFTY early-afternoon auction. Trap one side then reclaim, or expand beyond morning high/low.</td>
             </tr>
             <tr>
               <td style="padding:6px 8px; font-weight:600; color:#f8fafc;">US Cash Close &amp; Settle</td>

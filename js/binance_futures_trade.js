@@ -74,7 +74,7 @@ function createBinanceFuturesTrade(opts = {}) {
       err.status = r.status;
       throw err;
     }
-    if (!r.ok || (typeof data.code === 'number' && data.code !== 0)) {
+    if (!r.ok || (typeof data.code === 'number' && data.code < 0)) {
       const err = new Error(data.msg || `Binance FAPI HTTP ${r.status}`);
       err.status = r.status;
       err.binanceCode = data.code;
@@ -140,6 +140,14 @@ function createBinanceFuturesTrade(opts = {}) {
     await _syncTime();
     const rows = await _request('GET', '/fapi/v2/positionRisk', { symbol: String(symbol).toUpperCase() }, { signed: true });
     return Array.isArray(rows) ? rows : [];
+  }
+
+  async function getAvailableUsdt() {
+    await _syncTime();
+    const rows = await _request('GET', '/fapi/v2/balance', {}, { signed: true });
+    const usdt = (Array.isArray(rows) ? rows : []).find((r) => String(r.asset).toUpperCase() === 'USDT');
+    const avbl = parseFloat(usdt?.availableBalance ?? usdt?.withdrawAvailable ?? 0);
+    return Number.isFinite(avbl) ? avbl : 0;
   }
 
   async function getOpenOrders(symbol) {
@@ -295,22 +303,6 @@ function createBinanceFuturesTrade(opts = {}) {
     const closeSide = tradeSide === 'LONG' ? 'SELL' : 'BUY';
     const bePx = roundPrice(targetPx, filters.tickSize);
 
-    const algoId = stopAlgoId || stopOrderId;
-    if (algoId) {
-      try {
-        await cancelAlgoOrder(sym, algoId);
-      } catch (e) {
-        // unknown / already triggered — try legacy cancel, then continue
-        try {
-          await cancelOrder(sym, algoId);
-        } catch (e2) {
-          if (e.binanceCode !== -2011 && e2.binanceCode !== -2011) {
-            console.warn('[FuturesTrade] cancel stop:', e.message);
-          }
-        }
-      }
-    }
-
     let qty = Number(quantity);
     if (!(qty > 0)) {
       const rows = await getPositionRisk(sym);
@@ -320,6 +312,7 @@ function createBinanceFuturesTrade(opts = {}) {
     qty = roundStep(qty, filters.stepSize, 'down');
     if (!(qty >= filters.minQty)) throw new Error(`BE stop qty ${qty} below min`);
 
+    // Place the new protective stop FIRST so the position is never naked, then cancel the old one.
     const stopOrder = await placeAlgoConditional({
       symbol: sym,
       side: closeSide,
@@ -328,6 +321,21 @@ function createBinanceFuturesTrade(opts = {}) {
       quantity: String(qty),
       reduceOnly: 'true',
     });
+
+    const algoId = stopAlgoId || stopOrderId;
+    if (algoId) {
+      try {
+        await cancelAlgoOrder(sym, algoId);
+      } catch (e) {
+        try {
+          await cancelOrder(sym, algoId);
+        } catch (e2) {
+          if (e.binanceCode !== -2011 && e2.binanceCode !== -2011) {
+            console.warn('[FuturesTrade] cancel old stop after replace:', e.message);
+          }
+        }
+      }
+    }
 
     return {
       ok: true,
@@ -633,6 +641,7 @@ function createBinanceFuturesTrade(opts = {}) {
     cancelOrder,
     cancelAlgoOrder,
     getPositionRisk,
+    getAvailableUsdt,
     getOpenOrders,
     getMarkPrice,
     setLeverage,

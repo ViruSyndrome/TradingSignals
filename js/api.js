@@ -624,12 +624,47 @@ const API = {
     return this._set(key, rows, CONFIG.refresh.cacheMs);
   },
 
+  /** True when IST calendar day is Saturday or Sunday (MCX closed). */
+  isIstWeekend(ts = Date.now()) {
+    try {
+      const wd = new Intl.DateTimeFormat('en-US', { timeZone: 'Asia/Kolkata', weekday: 'short' }).format(new Date(ts));
+      return wd === 'Sat' || wd === 'Sun';
+    } catch (_) {
+      return false;
+    }
+  },
+
+  /** On weekends (Sat/Sun IST), MCX is closed — switch NG to Binance Futures NATGASUSDT. */
+  resolveInstrumentForSession(instrument, ts = Date.now()) {
+    if (!instrument) return instrument;
+    const id = String(instrument.id || '').toUpperCase();
+    if (id === 'NG' && this.isIstWeekend(ts)) {
+      return {
+        ...instrument,
+        symbol: 'NATGASUSDT',
+        currency: 'USD',
+        feed: 'binanceFutures',
+        dayMode: 'ny',
+        markWindow: {
+          timeZone: 'America/New_York',
+          startHour: 16, startMinute: 0,
+          endHour: 17, endMinute: 0,
+        },
+        markLabel: '16:00–17:00 ET (NYMEX Settle)',
+        priceDecimals: 3,
+        tradeHint: 'Binance Futures (Weekend) · NATGASUSDT · Fib 16:00–17:00 ET · first red 30m (Mon–Fri: Dhan MCX ₹)',
+      };
+    }
+    return instrument;
+  },
+
   /**
    * Desk OHLC router by instrument.feed.
    * instrument: { feed, symbol, fallbackSymbol? }
    */
   async getDeskOHLC(instrument, interval = '30m', limitOverride) {
     if (!instrument) return null;
+    instrument = this.resolveInstrumentForSession(instrument);
     let feed = instrument.feed || 'binanceFutures';
     const sym = String(instrument.symbol || '').toUpperCase();
     const id = String(instrument.id || '').toUpperCase();
