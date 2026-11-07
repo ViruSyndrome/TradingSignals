@@ -2695,10 +2695,23 @@ const RangeEmaUI = {
         const yMid = pf.mid != null ? yScale.getPixelForValue(pf.mid) : null;
         if (!Number.isFinite(yHi) || !Number.isFinite(yLo)) return;
 
-        // Extend forward across into today's trend line
-        const nBars = chart.$rbTimes ? chart.$rbTimes.length : 0;
+        // Start at THAT day's 02:30–03:30 mark (not at the next day's box).
+        // If the mark is off-screen to the left, the lines enter from the chart edge.
+        const times = chart.$rbTimes || [];
+        const nBars = times.length;
         const halfStep = nBars > 1 ? Math.abs(xScale.getPixelForValue(1) - xScale.getPixelForValue(0)) / 2 : 0;
-        const xStart = Math.max(area.left, (pf.band?.i1 != null ? xScale.getPixelForValue(pf.band.i1) - halfStep : area.left));
+        const startT = pf.band?.t0 ?? pf.band?.openT ?? pf.startT ?? null;
+        let xStart = area.left;
+        if (startT != null && nBars && startT > times[0]) {
+          const idx = times.findIndex((t) => t >= startT - 1000);
+          if (idx >= 0) {
+            const px = xScale.getPixelForValue(idx) - halfStep;
+            if (Number.isFinite(px)) xStart = Math.max(area.left, px);
+          }
+        } else if (pf.band?.iMarkStart != null) {
+          const px = xScale.getPixelForValue(pf.band.iMarkStart) - halfStep;
+          if (Number.isFinite(px)) xStart = Math.max(area.left, px);
+        }
         const xEnd = area.right;
         if (xEnd <= xStart) return;
 
@@ -3708,6 +3721,7 @@ const RangeEmaUI = {
         priorCandidates.push({
           dayKey,
           dayLabel,
+          startT: markT,
           band: mappedPrior,
           high: pHi,
           low: pLo,
