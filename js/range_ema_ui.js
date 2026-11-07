@@ -963,30 +963,11 @@ const RangeEmaUI = {
       const watchExit = useLadder
         ? `If shelf retest prints — 1️⃣ Stop (${stopTag}): ${this._fmt(o.invalidation)}${stopPctStr} · 2️⃣ 50% @ 1:1 ${tp1Str} → stop to cost · 3️⃣ Trail 1:2 ${tp2Str} · 4️⃣ TP 1:3 ${tp3Str}.${stopWarn}`
         : `If ENTER prints — leave / retest / sweep / mid-zone · 1️⃣ Stop (${stopTag}): ${this._fmt(o.invalidation)}${stopPctStr} · 2️⃣ book plan.${stopWarn}`;
-      const frBox = o.firstRed1h;
-      const frLbl = o.firstRedLabel || '1H';
-      const exactWatchSub = (() => {
-        if (o.setupKind === 'pob_reject_watch' && pr && pr.pobLo != null && pr.pobHi != null) {
-          return `Wait for retest of ${this._fmt(pr.pobLo)}–${this._fmt(pr.pobHi)} then 5m close < ${this._fmt(pr.pobLo)} (SHORT) · Stop > ${this._fmt(pr.pobHi)}`;
-        }
-        if (frBox && frBox.high != null && frBox.low != null) {
-          const planBit = (o.invalidation != null && o.tp1 != null)
-            ? ` · Plan: Stop ${this._fmt(o.invalidation)} (${stopTag}) · 1:1 ${this._fmt(o.tp1)}${o.tp3 != null ? ` · 1:3 ${this._fmt(o.tp3)}` : ''}`
-            : '';
-          if (biasDir === 'LONG') {
-            return `${frLbl} Red Box ${this._fmt(frBox.low)}–${this._fmt(frBox.high)}: wait 5m close > ${this._fmt(frBox.high)} (or low sweep + 5m close > ${this._fmt(frBox.low)})${planBit}`;
-          }
-          if (biasDir === 'SHORT') {
-            return `${frLbl} Red Box ${this._fmt(frBox.low)}–${this._fmt(frBox.high)}: wait 5m close < ${this._fmt(frBox.low)} (or high sweep + 5m close < ${this._fmt(frBox.high)})${planBit}`;
-          }
-        }
-        return o.actionReason || 'Bias only — Telegram when ENTER is ready';
-      })();
       return {
         side: 'WATCH',
         cls: 'wait',
         title: watchTitle,
-        subtitle: `${exactWatchSub}${emaNote}.`,
+        subtitle: `${o.actionReason || 'Bias only — Telegram when ENTER is ready'}${emaNote}.`,
         steps: [
           `WATCH ≠ signal. Bias is ${biasDir}. ENTER needs leave, shelf retest, sweep, or mid-zone reject.`,
           ...(pobStep ? [pobStep] : []),
