@@ -2696,7 +2696,9 @@ const RangeEmaUI = {
         if (!Number.isFinite(yHi) || !Number.isFinite(yLo)) return;
 
         // Extend forward across into today's trend line
-        const xStart = Math.max(area.left, (pf.band?.i1 != null ? xScale.getPixelForValue(pf.band.i1) : area.left));
+        const nBars = chart.$rbTimes ? chart.$rbTimes.length : 0;
+        const halfStep = nBars > 1 ? Math.abs(xScale.getPixelForValue(1) - xScale.getPixelForValue(0)) / 2 : 0;
+        const xStart = Math.max(area.left, (pf.band?.i1 != null ? xScale.getPixelForValue(pf.band.i1) - halfStep : area.left));
         const xEnd = area.right;
         if (xEnd <= xStart) return;
 
@@ -3080,11 +3082,22 @@ const RangeEmaUI = {
         if (hl && Number.isFinite(hl.value)) {
           const yH = yScale.getPixelForValue(hl.value);
           if (Number.isFinite(yH) && yH >= area.top - 2 && yH <= area.bottom + 2) {
+            let xL = area.left;
+            const hTimes = chart.$rbTimes;
+            const xScale = chart.scales.x;
+            if (hl.startT != null && xScale && Array.isArray(hTimes) && hTimes.length > 1 && hl.startT > hTimes[0]) {
+              const si = hTimes.findIndex((t) => t >= hl.startT - 1000);
+              if (si >= 0) {
+                const half = Math.abs(xScale.getPixelForValue(1) - xScale.getPixelForValue(0)) / 2;
+                const px = xScale.getPixelForValue(si) - half;
+                if (Number.isFinite(px)) xL = Math.max(area.left, px);
+              }
+            }
             ctx.strokeStyle = hl.color || '#38bdf8';
             ctx.lineWidth = 2.2;
             ctx.setLineDash([6, 3]);
             ctx.beginPath();
-            ctx.moveTo(area.left, yH);
+            ctx.moveTo(xL, yH);
             ctx.lineTo(area.right, yH);
             ctx.stroke();
             ctx.setLineDash([]);
@@ -3684,10 +3697,13 @@ const RangeEmaUI = {
         const pLo = Number(b.f0 ?? b.low);
         const pMid = b.f50 != null ? Number(b.f50) : (b.mid != null ? Number(b.mid) : ((pHi + pLo) / 2));
         if (!Number.isFinite(pHi) || !Number.isFinite(pLo)) continue;
+        const markT = b.t0 ?? b.openT;
         const dayParts = String(dayKey).split('-');
-        const dayLabel = dayParts.length === 3
-          ? `${parseInt(dayParts[2], 10)} ${['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'][parseInt(dayParts[1], 10) - 1] || ''}`
-          : dayKey;
+        const dayLabel = markT != null
+          ? `${new Date(markT).toLocaleDateString('en-GB', { day: 'numeric', month: 'short' })} ${new Date(markT).toLocaleTimeString(undefined, { hour: '2-digit', minute: '2-digit', hour12: false })}`
+          : (dayParts.length === 3
+            ? `${parseInt(dayParts[2], 10)} ${['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'][parseInt(dayParts[1], 10) - 1] || ''}`
+            : dayKey);
         const mappedPrior = dayBands.find((db) => db.day === dayKey) || b;
         priorCandidates.push({
           dayKey,
@@ -4319,6 +4335,7 @@ const RangeEmaUI = {
               if (tb0 != null && Number.isFinite(tb0)) {
                 horizLines.push({
                   id: 'today_fib_0',
+                  startT: todayBand.t0 ?? todayBand.openT ?? null,
                   title: '🧲 Today Fib 0.0 (Anchor Low)',
                   value: Number(tb0),
                   color: '#38bdf8',
@@ -4329,6 +4346,7 @@ const RangeEmaUI = {
               if (tbMid != null && Number.isFinite(tbMid)) {
                 horizLines.push({
                   id: 'today_fib_mid',
+                  startT: todayBand.t0 ?? todayBand.openT ?? null,
                   title: '🎯 Today Fib 0.50 (Median)',
                   value: Number(tbMid),
                   color: '#38bdf8',
@@ -4339,6 +4357,7 @@ const RangeEmaUI = {
               if (tb1 != null && Number.isFinite(tb1)) {
                 horizLines.push({
                   id: 'today_fib_1',
+                  startT: todayBand.t0 ?? todayBand.openT ?? null,
                   title: '🧲 Today Fib 1.0 (Anchor High)',
                   value: Number(tb1),
                   color: '#f43f5e',
@@ -4350,10 +4369,14 @@ const RangeEmaUI = {
             const fr = this._chart?.$rbFirstRed1h;
             if (fr && this._chart?.$rbShowFirstRed !== false) {
               const rLbl = o.firstRedLabel || '1H';
+              const frMsH = Number(fr.barMs) > 0 ? Number(fr.barMs) : 3600000;
+              const hmH = (t) => new Date(t).toLocaleTimeString(undefined, { hour: '2-digit', minute: '2-digit', hour12: false });
+              const frWin = fr.t != null ? ` ${hmH(fr.t)}–${hmH(fr.t + frMsH)}` : '';
               if (fr.high != null && Number.isFinite(fr.high)) {
                 horizLines.push({
                   id: 'fr_high',
-                  title: `🟥 ${rLbl} First Red High`,
+                  startT: fr.t ?? null,
+                  title: `🟥 ${rLbl} First Red${frWin} High`,
                   value: Number(fr.high),
                   color: '#f43f5e',
                   bg: 'rgba(244, 63, 94, 0.18)',
@@ -4363,7 +4386,8 @@ const RangeEmaUI = {
               if (fr.low != null && Number.isFinite(fr.low)) {
                 horizLines.push({
                   id: 'fr_low',
-                  title: `🟥 ${rLbl} First Red Low`,
+                  startT: fr.t ?? null,
+                  title: `🟥 ${rLbl} First Red${frWin} Low`,
                   value: Number(fr.low),
                   color: '#fb7185',
                   bg: 'rgba(244, 63, 94, 0.16)',
