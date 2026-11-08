@@ -116,8 +116,8 @@ const CONFIG = {
         priceDecimals: 2,
         tradeHint: 'Binance USDⓈ-M · BTCUSDT · Fib US Close (16:00–17:00 ET / 02:30–03:30 IST)',
         showSessionMarkers: true,
-        // Dr Dev: CME 16:00–17:00 ET Fib = magnets only. First-red DNA = 1H red AFTER that mark locks.
-        firstRedTf: '1h',
+        // BTC uses only the single 02:30–03:30 IST mark window Fib box — no second 1H red box
+        firstRedTf: null,
         sessions: [
           { id: 'asia', label: 'Asia', timeZone: 'Asia/Tokyo', open: [9, 0], close: [15, 0], color: '#818cf8' },
           { id: 'london', label: 'London', timeZone: 'Europe/London', open: [8, 0], close: [16, 30], color: '#f472b6' },

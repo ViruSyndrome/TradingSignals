@@ -535,7 +535,9 @@ async function _scanOneRedBarInstrument(rawInst, rbCfg) {
     : rawInst;
   const workTf = rbCfg.workingTf || '15m';
   const need5m = workTf !== '5m';
-  const firstRedTf = inst.firstRedTf !== undefined ? inst.firstRedTf : (inst.id === 'NIFTY' ? '5m' : '1h');
+  const firstRedTf = inst.firstRedTf !== undefined
+    ? inst.firstRedTf
+    : (inst.id === 'NIFTY' ? '5m' : (inst.id === 'BTC' ? null : '1h'));
   const firstRedBarMs = firstRedTf === '30m' ? 30 * 60000
     : firstRedTf === '15m' ? 15 * 60000
       : firstRedTf === '5m' ? 5 * 60000

@@ -568,7 +568,7 @@ const RangeEmaUI = {
     const instUpperId = String(instrument.id || '').toUpperCase();
     let firstRedTf = instrument.firstRedTf !== undefined
       ? instrument.firstRedTf
-      : (instUpperId === 'NIFTY' ? '15m' : '1h');
+      : (instUpperId === 'NIFTY' ? '15m' : (instUpperId === 'BTC' ? null : '1h'));
     const firstRedBarMs = firstRedTf === '30m' ? 30 * 60000
       : firstRedTf === '15m' ? 15 * 60000
         : firstRedTf === '5m' ? 5 * 60000

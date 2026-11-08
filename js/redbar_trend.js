@@ -3417,9 +3417,20 @@ const RedBarTrend = {
     const isEarlyMarkAsset = !!(markWin && this.isSessionFib(c) && (Number(markWin.endHour) <= 6 || markWin.timeZone === 'America/New_York'));
     const cb = bands.find((b) => b.day === asOfDay) || null;
     // Dr Dev: CME / mark-window Fib ≠ Trade 1 first-red. Never invent firstRed from the Fib box.
-    // Prefer caller-supplied first red; else real first red AFTER mark locks (1H / work TF).
+    // BTC (firstRedTf: null) anchors directly to today's 02:30–03:30 Mark Fib box (isMarkWindow: true)
+    // so there is never a second 1H red box drawn or competing with the Mark Fib box.
     let firstRed1h = c.firstRed1h || null;
-    if (!firstRed1h && isEarlyMarkAsset) {
+    if (!firstRed1h && c.firstRedTf === null) {
+      firstRed1h = (isEarlyMarkAsset && cb) ? {
+        high: cb.high,
+        low: cb.low,
+        open: cb.low,
+        close: cb.high,
+        t: cb.t0,
+        asOfDay,
+        isMarkWindow: true,
+      } : null;
+    } else if (!firstRed1h && isEarlyMarkAsset) {
       const frBars = (Array.isArray(c.bars1h) && c.bars1h.length >= 24) ? c.bars1h : slice;
       const defaultFrMs = c.firstRedTf === '30m' ? 1800000 : 3600000;
       const frMs = (Array.isArray(c.bars1h) && c.bars1h.length >= 24)
@@ -4468,9 +4479,11 @@ const RedBarTrend = {
     const checks = [
       {
         id: 'structure',
-        label: 'Red Bar Box',
+        label: 'Mark Fib Box',
         ok: hasStructure,
-        detail: firstRed1h ? `1H Red ${Math.round(firstRed1h.low)}–${Math.round(firstRed1h.high)}` : 'Structure marked',
+        detail: firstRed1h
+          ? `${firstRed1h.isMarkWindow ? 'Mark Fib' : '1H Red'} ${Math.round(firstRed1h.low)}–${Math.round(firstRed1h.high)}`
+          : 'Structure marked',
       },
       {
         id: 'ma200',
