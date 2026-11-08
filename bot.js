@@ -537,7 +537,7 @@ async function _scanOneRedBarInstrument(rawInst, rbCfg) {
   const need5m = workTf !== '5m';
   const firstRedTf = inst.firstRedTf !== undefined
     ? inst.firstRedTf
-    : (inst.id === 'NIFTY' ? '5m' : (inst.id === 'BTC' ? null : '1h'));
+    : (inst.id === 'NIFTY' ? '5m' : null);
   const firstRedBarMs = firstRedTf === '30m' ? 30 * 60000
     : firstRedTf === '15m' ? 15 * 60000
       : firstRedTf === '5m' ? 5 * 60000
@@ -678,7 +678,7 @@ async function _scanOneRedBarInstrument(rawInst, rbCfg) {
         : '';
       const subject = `${side}: ${inst.label} · ${setupLabel}`;
       const planLine = 'Plan: bank ~50% at 1:1 → move stop to cost · trail the rest';
-      const btcConfLine = (String(inst.id || '').toUpperCase() === 'BTC' && readout.btcConfluence?.summaryText)
+      const btcConfLine = (String(inst.id || '').toUpperCase() !== 'NIFTY' && readout.btcConfluence?.summaryText)
         ? `\n🎯 Confluence: <b>${_escHtml(readout.btcConfluence.summaryText)}</b>`
         : '';
       const htmlMsg = `${emoji} <b>${_escHtml(TrendRunnerCopy.enterHeadline(inst.label, side))}</b>

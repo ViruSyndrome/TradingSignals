@@ -651,8 +651,9 @@ const API = {
           endHour: 17, endMinute: 0,
         },
         markLabel: '16:00–17:00 ET (NYMEX Settle)',
+        firstRedTf: null,
         priceDecimals: 3,
-        tradeHint: 'Binance Futures (Weekend) · NATGASUSDT · Fib 16:00–17:00 ET · first red 30m (Mon–Fri: Dhan MCX ₹)',
+        tradeHint: 'Binance Futures (Weekend) · NATGASUSDT · Fib 16:00–17:00 ET (Mon–Fri: Dhan MCX ₹)',
       };
     }
     return instrument;

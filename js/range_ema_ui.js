@@ -568,7 +568,7 @@ const RangeEmaUI = {
     const instUpperId = String(instrument.id || '').toUpperCase();
     let firstRedTf = instrument.firstRedTf !== undefined
       ? instrument.firstRedTf
-      : (instUpperId === 'NIFTY' ? '15m' : (instUpperId === 'BTC' ? null : '1h'));
+      : (instUpperId === 'NIFTY' ? '15m' : null);
     const firstRedBarMs = firstRedTf === '30m' ? 30 * 60000
       : firstRedTf === '15m' ? 15 * 60000
         : firstRedTf === '5m' ? 5 * 60000
@@ -719,9 +719,9 @@ const RangeEmaUI = {
         readout.refs.firstRed1hHigh = firstRed1h ? firstRed1h.high : null;
         readout.refs.firstRed1hLow = firstRed1h ? firstRed1h.low : null;
       }
-      // Recompute BTC Course Confluence on the currently selected chart timeframe (5m / 15m / 30m / 1h)
-      // so the 200 MA (H/L/C) and SuperTrend (10, 4.1) pills match the visible chart timeframe.
-      if (instUpperId === 'BTC' && typeof RedBarTrend.computeBtcCourseConfluence === 'function' && bars30 && bars30.length >= 30) {
+      // Recompute Course Confluence on the currently selected chart timeframe (5m / 15m / 30m / 1h)
+      // so the 200 MA (H/L/C) and SuperTrend (10, 4.1) pills match the visible chart timeframe on BTC, XAU, and NG.
+      if (instUpperId !== 'NIFTY' && typeof RedBarTrend.computeBtcCourseConfluence === 'function' && bars30 && bars30.length >= 30) {
         const tfConf = RedBarTrend.computeBtcCourseConfluence({
           bars: bars30,
           bars5m: bars5m && bars5m.length ? bars5m : bars30,
@@ -1765,7 +1765,7 @@ const RangeEmaUI = {
         : `<div class="rb-binance-status">Binance: no open BTCUSDT position right now</div>`)
       : '';
 
-    const btcConf = (instUpper === 'BTC') ? (o.btcConfluence || o.playbook?.btcConfluence || null) : null;
+    const btcConf = (instUpper !== 'NIFTY') ? (o.btcConfluence || o.playbook?.btcConfluence || null) : null;
     const btcConfHtml = btcConf ? (() => {
       const sc = btcConf.score;
       const gradeCol = sc === 4 ? '#4ade80' : sc === 3 ? '#38bdf8' : sc === 2 ? '#fbbf24' : '#94a3b8';

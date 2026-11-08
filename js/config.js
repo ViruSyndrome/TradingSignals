@@ -162,8 +162,8 @@ const CONFIG = {
         feed: 'binanceFutures',
         dayMode: 'ny',
         bandStyle: 'sessionFib',
-        // Sagar: gold/silver/copper first-red on 30m (not 1H)
-        firstRedTf: '30m',
+        // XAU uses only the single 16:00–17:00 ET COMEX Settle Mark Fib box — no second red box
+        firstRedTf: null,
         markWindow: {
           timeZone: 'America/New_York',
           startHour: 16, startMinute: 0,
@@ -172,7 +172,7 @@ const CONFIG = {
         markLabel: '16:00–17:00 ET (COMEX Settle)',
         fibLevels: [0, 0.44, 0.5, 0.56, 1],
         priceDecimals: 2,
-        tradeHint: 'Binance Futures · XAUUSDT · Fib COMEX Settle (16:00–17:00 ET) · first red 30m',
+        tradeHint: 'Binance Futures · XAUUSDT · Fib COMEX Settle (16:00–17:00 ET / 02:30–03:30 IST)',
         showSessionMarkers: true,
         sessions: [
           { id: 'asia', label: 'Asia', timeZone: 'Asia/Tokyo', open: [9, 0], close: [15, 0], color: '#818cf8' },
@@ -195,7 +195,8 @@ const CONFIG = {
         fallbackSymbol: 'NG=F',
         dayMode: 'ist',
         bandStyle: 'sessionFib',
-        firstRedTf: '30m',
+        // NG uses only the single Mark Fib box — no second red box
+        firstRedTf: null,
         markWindow: {
           timeZone: 'Asia/Kolkata',
           startHour: 23, startMinute: 0,
@@ -206,7 +207,7 @@ const CONFIG = {
         priceDecimals: 1,
         timeframes: ['5m', '15m', '30m', '1h'],
         ohlcLimit: { '5m': 360, '15m': 500, '30m': 500, '1h': 400 },
-        tradeHint: 'Dhan MCX · NATURALGAS NOV FUT (574319) · Fib 23:00–23:30 IST close · first red 30m',
+        tradeHint: 'Dhan MCX · NATURALGAS NOV FUT (574319) · Fib 23:00–23:30 IST close',
         showSessionMarkers: true,
         sessions: [
           { id: 'mcx_day', label: 'MCX day', timeZone: 'Asia/Kolkata', open: [9, 0], close: [17, 0], color: '#818cf8' },

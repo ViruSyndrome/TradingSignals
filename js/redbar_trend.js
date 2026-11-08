@@ -3417,16 +3417,17 @@ const RedBarTrend = {
     const isEarlyMarkAsset = !!(markWin && this.isSessionFib(c) && (Number(markWin.endHour) <= 6 || markWin.timeZone === 'America/New_York'));
     const cb = bands.find((b) => b.day === asOfDay) || null;
     // Dr Dev: CME / mark-window Fib ≠ Trade 1 first-red. Never invent firstRed from the Fib box.
-    // BTC (firstRedTf: null) anchors directly to today's 02:30–03:30 Mark Fib box (isMarkWindow: true)
-    // so there is never a second 1H red box drawn or competing with the Mark Fib box.
+    // BTC, XAU, and NG (firstRedTf: null) anchor directly to their Mark Fib box (isMarkWindow: true)
+    // so there is never a second red box drawn or competing with the Mark Fib box.
     let firstRed1h = c.firstRed1h || null;
     if (!firstRed1h && c.firstRedTf === null) {
-      firstRed1h = (isEarlyMarkAsset && cb) ? {
-        high: cb.high,
-        low: cb.low,
-        open: cb.low,
-        close: cb.high,
-        t: cb.t0,
+      const markBand = (cb && cb.locked !== false) ? cb : (prior.length ? prior[prior.length - 1] : cb);
+      firstRed1h = markBand ? {
+        high: markBand.high,
+        low: markBand.low,
+        open: markBand.low,
+        close: markBand.high,
+        t: markBand.t0,
         asOfDay,
         isMarkWindow: true,
       } : null;
@@ -3725,7 +3726,7 @@ const RedBarTrend = {
     const invalidation = levels.invalidation;
     const bookZone = levels.bookZone;
 
-    const btcConfluence = isBtc
+    const btcConfluence = (instId !== 'NIFTY')
       ? this.computeBtcCourseConfluence({
         bars: slice,
         bars5m,
@@ -4085,23 +4086,30 @@ const RedBarTrend = {
         reason: 'Pre-Asia dead hours — no fresh Red Bar T1/T2/sweep ENTER. Wait Asia 05:30 Trikal / post-mark first red.',
       };
     }
-    // BTC: do not enter while price is trapped inside today's 02:30–03:30 Mark Fib (0..1) accumulation box.
+    const fmtGatePx = (v) => {
+      const n = Number(v);
+      if (!Number.isFinite(n)) return '0';
+      if (Math.abs(n) < 20) return n.toFixed(3);
+      if (Math.abs(n) < 500) return n.toFixed(2);
+      return String(Math.round(n));
+    };
+    // BTC / XAU / NG: do not enter while price is trapped inside today's Mark Fib (0..1) accumulation box.
     const isInsideMarkFib = phase === 'inside_or' || (
       openingRange && openingRange.locked
       && Number.isFinite(Number(livePrice))
       && Number(livePrice) >= Number(openingRange.low)
       && Number(livePrice) <= Number(openingRange.high)
     );
-    if ((!inst || inst === 'BTC') && isInsideMarkFib) {
+    if (isBtcGate && isInsideMarkFib) {
       const boxStr = (openingRange && openingRange.low != null && openingRange.high != null)
-        ? ` ($${Math.round(openingRange.low)}–$${Math.round(openingRange.high)})`
+        ? ` (${fmtGatePx(openingRange.low)}–${fmtGatePx(openingRange.high)})`
         : '';
       return {
         state: 'watch',
-        reason: `Price is inside today's 02:30–03:30 Mark Fib box${boxStr} — accumulation chop. Wait for a clean break outside the Fib box before entering.`,
+        reason: `Price is inside today's Mark Fib box${boxStr} — accumulation chop. Wait for a clean break outside the Fib box before entering.`,
       };
     }
-    // BTC: do not enter while price is trapped inside the 05:30–06:00 Asia 30m X box.
+    // BTC / XAU / NG: do not enter while price is trapped inside the 05:30–06:00 Asia 30m X box.
     const asiaBox = btcAsia0530 && btcAsia0530.xCandle;
     const isInsideAsiaBox = Boolean(
       asiaBox
@@ -4111,36 +4119,36 @@ const RedBarTrend = {
       && Number(livePrice) >= Number(asiaBox.low)
       && Number(livePrice) <= Number(asiaBox.high)
     );
-    if ((!inst || inst === 'BTC') && isInsideAsiaBox) {
+    if (isBtcGate && isInsideAsiaBox) {
       return {
         state: 'watch',
-        reason: `Price is inside today's 05:30–06:00 Asia X range ($${Math.round(asiaBox.low)}–$${Math.round(asiaBox.high)}) — stand aside until a clean break outside the range.`,
+        reason: `Price is inside today's 05:30–06:00 Asia X range (${fmtGatePx(asiaBox.low)}–${fmtGatePx(asiaBox.high)}) — stand aside until a clean break outside the range.`,
       };
     }
-    // BTC: Dr. Dev Crypto Course Filter — 200 MA (High/Low/Close) chop band & SuperTrend (10, 4.1) alignment
-    if ((!inst || inst === 'BTC') && btcConfluence) {
+    // BTC / XAU / NG: Dr. Dev Course Filter — 200 MA (High/Low/Close) chop band & SuperTrend (10, 4.1) alignment
+    if (isBtcGate && btcConfluence) {
       if (btcConfluence.ma200 && btcConfluence.ma200.insideChop) {
         return {
           state: 'watch',
-          reason: `Crypto Course Filter: Price is inside the 200 MA High–Low chop band ($${Math.round(btcConfluence.ma200.low || 0)}–$${Math.round(btcConfluence.ma200.high || 0)}) — strict No-Trade Zone.`,
+          reason: `Course Filter: Price is inside the 200 MA High–Low chop band (${fmtGatePx(btcConfluence.ma200.low)}–${fmtGatePx(btcConfluence.ma200.high)}) — strict No-Trade Zone.`,
         };
       }
       if (btcConfluence.ma200 && btcConfluence.ma200.high != null && !btcConfluence.ma200.aligned) {
         return {
           state: 'watch',
-          reason: `Crypto Course Filter: ${trend.toUpperCase()} setup conflicts with 200 MA channel (${btcConfluence.ma200.state === 'bullish' ? `Above $${Math.round(btcConfluence.ma200.high)}` : `Below $${Math.round(btcConfluence.ma200.low)}`}) — stand aside.`,
+          reason: `Course Filter: ${trend.toUpperCase()} setup conflicts with 200 MA channel (${btcConfluence.ma200.state === 'bullish' ? `Above ${fmtGatePx(btcConfluence.ma200.high)}` : `Below ${fmtGatePx(btcConfluence.ma200.low)}`}) — stand aside.`,
         };
       }
       if (btcConfluence.supertrend && btcConfluence.supertrend.line != null && !btcConfluence.supertrend.aligned) {
         return {
           state: 'watch',
-          reason: `Crypto Course Filter: ${trend.toUpperCase()} setup conflicts with ${btcConfluence.supertrend.state.toUpperCase()} SuperTrend (10, 4.1 @ $${Math.round(btcConfluence.supertrend.line)}) — stand aside.`,
+          reason: `Course Filter: ${trend.toUpperCase()} setup conflicts with ${btcConfluence.supertrend.state.toUpperCase()} SuperTrend (10, 4.1 @ ${fmtGatePx(btcConfluence.supertrend.line)}) — stand aside.`,
         };
       }
     }
-    // BTC: Trade 2 LONG on 1H low sweep is WATCH-only unless backed by full 4/4 (A+) Course Confluence
+    // BTC / XAU / NG: Trade 2 LONG on 1H low sweep is WATCH-only unless backed by full 4/4 (A+) Course Confluence
     if (
-      (!inst || inst === 'BTC')
+      isBtcGate
       && setupKind === 'trade2_confirmed'
       && trend === 'bullish'
       && String(revisitRead || '') === 'liq_sweep_low'
@@ -4148,7 +4156,7 @@ const RedBarTrend = {
     ) {
       return {
         state: 'watch',
-        reason: 'BTC DNA: Trade 2 LONG after 1H low sweep is WATCH-only unless 4/4 (A+) Crypto Course Confluence aligns.',
+        reason: 'DNA Filter: Trade 2 LONG after low sweep is WATCH-only unless 4/4 (A+) Course Confluence aligns.',
       };
     }
     if (stopPct != null && Number.isFinite(stopPct) && stopPct > 1.0) {
@@ -4476,13 +4484,21 @@ const RedBarTrend = {
       ? ((refDir === 1 && price >= (trikalF44 ?? trikalMid)) || (refDir === -1 && price <= (2 * trikalMid - (trikalF44 ?? trikalMid))))
       : false;
 
+    const fmtConfPx = (v) => {
+      const n = Number(v);
+      if (!Number.isFinite(n)) return '0';
+      if (Math.abs(n) < 20) return n.toFixed(3);
+      if (Math.abs(n) < 500) return n.toFixed(2);
+      return String(Math.round(n));
+    };
+
     const checks = [
       {
         id: 'structure',
         label: 'Mark Fib Box',
         ok: hasStructure,
         detail: firstRed1h
-          ? `${firstRed1h.isMarkWindow ? 'Mark Fib' : '1H Red'} ${Math.round(firstRed1h.low)}–${Math.round(firstRed1h.high)}`
+          ? `${firstRed1h.isMarkWindow ? 'Mark Fib' : '1H Red'} ${fmtConfPx(firstRed1h.low)}–${fmtConfPx(firstRed1h.high)}`
           : 'Structure marked',
       },
       {
@@ -4490,22 +4506,22 @@ const RedBarTrend = {
         label: `${tfTag}200 MA (H/L/C)`,
         ok: ma200Aligned,
         detail: above200Band
-          ? `Above 200 MA band (>${Math.round(maH)})`
+          ? `Above 200 MA band (>${fmtConfPx(maH)})`
           : below200Band
-            ? `Below 200 MA band (<${Math.round(maL)})`
-            : `Inside 200 MA chop (${Math.round(maL || 0)}–${Math.round(maH || 0)})`,
+            ? `Below 200 MA band (<${fmtConfPx(maL)})`
+            : `Inside 200 MA chop (${fmtConfPx(maL || 0)}–${fmtConfPx(maH || 0)})`,
       },
       {
         id: 'supertrend',
         label: `${tfTag}ST (10, 4.1)`,
         ok: stAligned,
-        detail: stVal != null ? `${stDirection === 1 ? 'Bullish' : 'Bearish'} @ $${Math.round(stVal)}` : 'n/a',
+        detail: stVal != null ? `${stDirection === 1 ? 'Bullish' : 'Bearish'} @ ${fmtConfPx(stVal)}` : 'n/a',
       },
       {
         id: 'trikal50',
         label: `${activeClock.id} 30m 50%`,
         ok: trikalAligned,
-        detail: trikalMid != null ? `${price >= trikalMid ? 'Above' : 'Below'} $${Math.round(trikalMid)}` : 'Awaiting bar',
+        detail: trikalMid != null ? `${price >= trikalMid ? 'Above' : 'Below'} ${fmtConfPx(trikalMid)}` : 'Awaiting bar',
       },
     ];
 
