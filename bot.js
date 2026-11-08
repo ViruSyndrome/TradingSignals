@@ -605,13 +605,21 @@ async function _scanOneRedBarInstrument(rawInst, rbCfg) {
   const setupKind = readout.setupKind || 'wait';
   const actionState = readout.actionState || 'wait';
   const dayKey = readout.asOfDay || '';
-  // One alert per fresh trigger (20m bucket) × side × setup — allows multiple quality ENTERs/day,
-  // blocks the old flicker spam that re-fired the same Trade 2 every scan.
+  // NIFTY keeps a 20m trigger bucket (for Rule 6 SL re-entry).
+  // BTC / Binance futures locks morning clock setups (btc_asia_0530_breakout, pob_reject, trade1_departure)
+  // to ONCE per session day, and uses a 60m bucket on Trade 2 / sweep so chop cannot re-fire the same level.
   const triggerTs = Number(readout.triggerTs)
     || Number(readout.playbook?.redSetup?.triggerTs)
     || Number(readout.t)
     || Date.now();
-  const trigBucket = Math.floor(triggerTs / (20 * 60 * 1000));
+  const isNiftyInst = String(inst.id || '').toUpperCase() === 'NIFTY';
+  const isOneShotMorningSetup = !isNiftyInst && (
+    setupKind === 'btc_asia_0530_breakout'
+    || setupKind === 'pob_reject'
+    || setupKind === 'trade1_departure'
+  );
+  const bucketMs = isNiftyInst ? (20 * 60 * 1000) : (60 * 60 * 1000);
+  const trigBucket = isOneShotMorningSetup ? 'session' : Math.floor(triggerTs / bucketMs);
   const alertKey = `${side}|${setupKind}|${dayKey}|${trigBucket}`;
   const alreadyAlerted = _rbAlertSeen(inst.id, alertKey);
 
@@ -1308,8 +1316,9 @@ async function _maybeAutoFuturesTwoLeg({ inst, side, readout, alertKey, dayKey }
   const futuresCapDisabled = rawFuturesCap === '0' || rawFuturesCap === 'none' || rawFuturesCap === 'unlimited' || rawFuturesCap === 'false';
   const maxPerDay = futuresCapDisabled ? 0 : (Number(rawFuturesCap) || 0);
   const rawCooldown = process.env.REDBAR_AUTO_COOLDOWN_MS;
-  const cooldownDisabled = rawCooldown === '0' || rawCooldown === 'none' || rawCooldown === 'false';
-  const cooldownMs = cooldownDisabled ? 0 : Math.max(15 * 60 * 1000, Number(rawCooldown) || 75 * 60 * 1000);
+  // Enforce a hard 45-minute minimum cooldown on Binance USD-M futures (opened OR closed) so chop cannot machine-gun re-entries.
+  const minFuturesCooldownMs = 45 * 60 * 1000;
+  const cooldownMs = Math.max(minFuturesCooldownMs, Number(rawCooldown) || 45 * 60 * 1000);
   const countKey = `TRADE_COUNT_${inst.id}_${dayKey || 'noday'}`;
   const dayCount = Number(lastAlerted[countKey]) || 0;
   if (!futuresCapDisabled && maxPerDay > 0 && dayCount >= maxPerDay) {
@@ -1317,7 +1326,7 @@ async function _maybeAutoFuturesTwoLeg({ inst, side, readout, alertKey, dayKey }
     return;
   }
   const lastTs = Number(lastAlerted[`TRADE_${inst.id}_LAST_TS`]) || 0;
-  if (!cooldownDisabled && lastTs && Date.now() - lastTs < cooldownMs) {
+  if (lastTs && Date.now() - lastTs < cooldownMs) {
     const mins = Math.ceil((cooldownMs - (Date.now() - lastTs)) / 60000);
     console.log(`[RedBarBot] ${inst.id}: auto cooldown ${mins}m left — skip ${alertKey}`);
     return;
@@ -1477,7 +1486,12 @@ async function pollManagedFuturesStops() {
         const pos = (positions || []).find((p) => String(p.symbol).toUpperCase() === symKey);
         const amt = Math.abs(parseFloat(pos?.positionAmt || 0));
         if (!(amt > 0)) {
-          console.log(`[RedBarBot] ${t.symbol}: position flat — cancel leftover algos/orders`);
+          console.log(`[RedBarBot] ${t.symbol}: position flat — cancel leftover algos/orders & start 45m cooldown`);
+          const closedInstId = symKey === 'BTCUSDT' ? 'BTC' : symKey === 'XAUUSDT' ? 'XAU' : symKey === 'NATGASUSDT' ? 'NG' : symKey.replace(/USDT$/, '');
+          if (closedInstId) {
+            lastAlerted[`TRADE_${closedInstId}_LAST_TS`] = Date.now();
+            saveAlertState(lastAlerted);
+          }
           try {
             if (typeof fut.clearSymbolForEntry === 'function') {
               const notes = await fut.clearSymbolForEntry(t.symbol, { closePosition: false });

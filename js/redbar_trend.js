@@ -2573,14 +2573,49 @@ const RedBarTrend = {
     const price = lastBar.c;
     const maxRiskPct = 1.0;
 
-    // Bullish breakout: 5m close above Asia X high
+    // Bullish breakout: FIRST 5m close above Asia X high (one-shot; invalidated if price closes back inside X)
     let bullCross = null;
+    let bullCrossIdx = -1;
     for (let i = 0; i < afterBars.length; i++) {
       const b = afterBars[i];
       const prev = i > 0 ? afterBars[i - 1] : null;
-      if (b.c > xHigh && (!prev || prev.c <= xHigh)) bullCross = b;
+      if (!bullCross && b.c > xHigh && (!prev || prev.c <= xHigh)) {
+        bullCross = b;
+        bullCrossIdx = i;
+      }
     }
-    if (bullCross && price > xHigh) {
+    let bullFailedBackInside = false;
+    if (bullCross && bullCrossIdx >= 0) {
+      for (let j = bullCrossIdx + 1; j < afterBars.length; j++) {
+        if (afterBars[j].c <= xHigh) {
+          bullFailedBackInside = true;
+          break;
+        }
+      }
+    }
+
+    // Bearish breakout: FIRST 5m close below Asia X low (one-shot; invalidated if price closes back inside X)
+    let bearCross = null;
+    let bearCrossIdx = -1;
+    for (let i = 0; i < afterBars.length; i++) {
+      const b = afterBars[i];
+      const prev = i > 0 ? afterBars[i - 1] : null;
+      if (!bearCross && b.c < xLow && (!prev || prev.c >= xLow)) {
+        bearCross = b;
+        bearCrossIdx = i;
+      }
+    }
+    let bearFailedBackInside = false;
+    if (bearCross && bearCrossIdx >= 0) {
+      for (let j = bearCrossIdx + 1; j < afterBars.length; j++) {
+        if (afterBars[j].c >= xLow) {
+          bearFailedBackInside = true;
+          break;
+        }
+      }
+    }
+
+    if (bullCross && !bullFailedBackInside && price > xHigh) {
       const triggerPrice = bullCross.c;
       const triggerTs = bullCross.t;
       const stopLoss = Math.min(xLow, bullCross.l);
@@ -2606,14 +2641,7 @@ const RedBarTrend = {
       };
     }
 
-    // Bearish breakout: 5m close below Asia X low
-    let bearCross = null;
-    for (let i = 0; i < afterBars.length; i++) {
-      const b = afterBars[i];
-      const prev = i > 0 ? afterBars[i - 1] : null;
-      if (b.c < xLow && (!prev || prev.c >= xLow)) bearCross = b;
-    }
-    if (bearCross && price < xLow) {
+    if (bearCross && !bearFailedBackInside && price < xLow) {
       const triggerPrice = bearCross.c;
       const triggerTs = bearCross.t;
       const stopLoss = Math.max(xHigh, bearCross.h);
@@ -2636,6 +2664,17 @@ const RedBarTrend = {
         label: isRiskOk
           ? 'BTC Asia 05:30 · Breakout below 30m X low · Asia open clock'
           : `BTC Asia 05:30 breakout risk ${riskPct.toFixed(2)}% > ${maxRiskPct}% — wait tighter retest of X low`,
+      };
+    }
+
+    if (bullFailedBackInside || bearFailedBackInside) {
+      return {
+        status: 'invalidated_chop',
+        setupKind: 'btc_asia_0530_watch',
+        side: null,
+        triggered: false,
+        xCandle: { high: xHigh, low: xLow, mid: xMid, color: xColor, open: xOpen, close: xClose },
+        label: `Asia 05:30 breakout failed back inside X (${xLow.toFixed(0)}–${xHigh.toFixed(0)}) · Chop — no re-entry`,
       };
     }
 
@@ -3675,7 +3714,20 @@ const RedBarTrend = {
     const invalidation = levels.invalidation;
     const bookZone = levels.bookZone;
 
-    // Entry gate: full DNA pack + Dr. Dev session POB (see entryGate docstring).
+    const btcConfluence = isBtc
+      ? this.computeBtcCourseConfluence({
+        bars: slice,
+        bars5m,
+        price,
+        trend,
+        firstRed1h,
+        pobReject,
+        btcAsia0530,
+        evalTs,
+      })
+      : null;
+
+    // Entry gate: full DNA pack + Dr. Dev session POB + Crypto Course Filter (see entryGate docstring).
     const { state: actionState, reason: actionReason } = this.entryGate({
       trend,
       setupKind,
@@ -3697,6 +3749,8 @@ const RedBarTrend = {
       equinox,
       phase,
       openingRange: or,
+      btcConfluence,
+      btcAsia0530,
     });
 
     const sizingEntry = (setupKind === 'pob_reject' && setupTriggerPrice != null) ? setupTriggerPrice : price;
@@ -3721,6 +3775,7 @@ const RedBarTrend = {
       equinox,
       afternoon1245,
       btcAsia0530,
+      btcConfluence,
       squeeze5m,
       triggerTs: setupTriggerTs,
       triggerPrice: setupTriggerPrice,
@@ -3738,20 +3793,6 @@ const RedBarTrend = {
       targetPct: levels.targetPct,
       liquidityTip: this._liquidityTip(clock, asiaHl, londonHl, asiaUntouched, sweep),
     };
-
-    const btcConfluence = isBtc
-      ? this.computeBtcCourseConfluence({
-        bars: slice,
-        bars5m,
-        price,
-        trend,
-        firstRed1h,
-        pobReject,
-        btcAsia0530,
-        evalTs,
-      })
-      : null;
-    playbook.btcConfluence = btcConfluence;
 
     const narrative = this._narrative({
       trend,
@@ -3928,6 +3969,7 @@ const RedBarTrend = {
     trend, setupKind, rr, stopStructural, invalidationReason, stopPct, renko, clock,
     asOfTs, instrumentId, season, setupTriggerTs, entryPrice, stopPrice, livePrice,
     revisitRead, tpHint, equinox = null, phase = null, openingRange = null,
+    btcConfluence = null, btcAsia0530 = null,
   }) {
     if (trend !== 'bullish' && trend !== 'bearish') {
       return { state: 'wait', reason: 'No directional setup.' };
@@ -4046,6 +4088,56 @@ const RedBarTrend = {
       return {
         state: 'watch',
         reason: `Price is inside today's 02:30–03:30 Mark Fib box${boxStr} — accumulation chop. Wait for a clean break outside the Fib box before entering.`,
+      };
+    }
+    // BTC: do not enter while price is trapped inside the 05:30–06:00 Asia 30m X box.
+    const asiaBox = btcAsia0530 && btcAsia0530.xCandle;
+    const isInsideAsiaBox = Boolean(
+      asiaBox
+      && Number.isFinite(Number(asiaBox.low))
+      && Number.isFinite(Number(asiaBox.high))
+      && Number.isFinite(Number(livePrice))
+      && Number(livePrice) >= Number(asiaBox.low)
+      && Number(livePrice) <= Number(asiaBox.high)
+    );
+    if ((!inst || inst === 'BTC') && isInsideAsiaBox) {
+      return {
+        state: 'watch',
+        reason: `Price is inside today's 05:30–06:00 Asia X range ($${Math.round(asiaBox.low)}–$${Math.round(asiaBox.high)}) — stand aside until a clean break outside the range.`,
+      };
+    }
+    // BTC: Dr. Dev Crypto Course Filter — 200 MA (High/Low/Close) chop band & SuperTrend (10, 4.1) alignment
+    if ((!inst || inst === 'BTC') && btcConfluence) {
+      if (btcConfluence.ma200 && btcConfluence.ma200.insideChop) {
+        return {
+          state: 'watch',
+          reason: `Crypto Course Filter: Price is inside the 200 MA High–Low chop band ($${Math.round(btcConfluence.ma200.low || 0)}–$${Math.round(btcConfluence.ma200.high || 0)}) — strict No-Trade Zone.`,
+        };
+      }
+      if (btcConfluence.ma200 && btcConfluence.ma200.high != null && !btcConfluence.ma200.aligned) {
+        return {
+          state: 'watch',
+          reason: `Crypto Course Filter: ${trend.toUpperCase()} setup conflicts with 200 MA channel (${btcConfluence.ma200.state === 'bullish' ? `Above $${Math.round(btcConfluence.ma200.high)}` : `Below $${Math.round(btcConfluence.ma200.low)}`}) — stand aside.`,
+        };
+      }
+      if (btcConfluence.supertrend && btcConfluence.supertrend.line != null && !btcConfluence.supertrend.aligned) {
+        return {
+          state: 'watch',
+          reason: `Crypto Course Filter: ${trend.toUpperCase()} setup conflicts with ${btcConfluence.supertrend.state.toUpperCase()} SuperTrend (10, 4.1 @ $${Math.round(btcConfluence.supertrend.line)}) — stand aside.`,
+        };
+      }
+    }
+    // BTC: Trade 2 LONG on 1H low sweep is WATCH-only unless backed by full 4/4 (A+) Course Confluence
+    if (
+      (!inst || inst === 'BTC')
+      && setupKind === 'trade2_confirmed'
+      && trend === 'bullish'
+      && String(revisitRead || '') === 'liq_sweep_low'
+      && !(btcConfluence && btcConfluence.score >= 4)
+    ) {
+      return {
+        state: 'watch',
+        reason: 'BTC DNA: Trade 2 LONG after 1H low sweep is WATCH-only unless 4/4 (A+) Crypto Course Confluence aligns.',
       };
     }
     if (stopPct != null && Number.isFinite(stopPct) && stopPct > 1.0) {

@@ -2905,13 +2905,7 @@ const RangeEmaUI = {
         const rLbl = chart.$rbFirstRedLabel || '1H';
         const hm = (t) => new Date(t).toLocaleTimeString(undefined, { hour: '2-digit', minute: '2-digit', hour12: false });
         const win = red.t != null ? ` ${hm(red.t)}–${hm(red.t + redMs)}` : '';
-
-        if (xEnd != null && xEnd > x0) {
-          ctx.strokeStyle = 'rgba(244, 63, 94, 0.9)';
-          ctx.lineWidth = 1.4;
-          ctx.setLineDash([3, 2]);
-          ctx.strokeRect(x0, Math.min(yHi, yLo), Math.max(6, xEnd - x0), Math.max(2, Math.abs(yLo - yHi)));
-        }
+        // Only the two clean horizontal H/L lines — no second box outline on the chart.
 
         const fmtV = (v) => Number(v).toFixed(d === 0 ? 0 : (v % 1 === 0 ? 0 : d));
         const levels = [
