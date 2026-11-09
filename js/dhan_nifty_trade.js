@@ -71,9 +71,13 @@ function createDhanNiftyTrade(opts = {}) {
     if (!strikes.length) throw new Error('Empty option chain');
 
     const mode = String(process.env.DHAN_STRIKE_MODE || 'atm').toLowerCase();
-    let want = roundStrike(spotPx, 50);
+    // Never pick an OTM strike when buying options:
+    // LONG (CE) → at or below spot (slight ITM / ATM); SHORT (PE) → at or above spot (slight ITM / ATM)
+    let want = side === 'LONG'
+      ? Math.floor(Number(spotPx) / 50) * 50
+      : Math.ceil(Number(spotPx) / 50) * 50;
     if (mode === 'itm') {
-      // LONG → ITM call (strike below spot); SHORT → ITM put (strike above spot)
+      // Deeper 1-step ITM override if explicitly requested
       want = side === 'LONG' ? want - 50 : want + 50;
     }
     let best = strikes[0];
@@ -122,10 +126,10 @@ function createDhanNiftyTrade(opts = {}) {
     const indexReward = Math.abs(Number(indexTp1) - Number(indexEntry));
     const fixedSl = envNum('DHAN_OPT_SL_PTS', 0);
     const fixedTp = envNum('DHAN_OPT_TP_PTS', 0);
-    // Dr Dev: structural SL; runner stretch target ~3R (Leg A booked at 1R by manager).
+    // Dr Dev: structural SL (minimum 14 option pts ≈ 25 NIFTY index pts at ~0.55 delta); runner stretch target ~3R.
     const tpMult = Math.max(1, envNum('DHAN_TP_R_MULT', 3));
-    const slPts = fixedSl > 0 ? fixedSl : Math.max(8, Math.round(indexRisk * d));
-    const oneRFromIndex = fixedTp > 0 ? fixedTp : Math.max(12, Math.round(indexReward * d));
+    const slPts = fixedSl > 0 ? fixedSl : Math.max(14, Math.round(indexRisk * d));
+    const oneRFromIndex = fixedTp > 0 ? fixedTp : Math.max(14, Math.round(indexReward * d));
     // Prefer premium 1R from SL width; fall back to mapped index 1R.
     const ep = Number(entryPremium);
     const price = tickPrem(ep);
