@@ -878,22 +878,34 @@ async function _maybeAutoDhanNifty({ inst, side, readout, alertKey, dayKey, setu
       && String(t.alertKey || '').includes(`|${dayKey}|`),
   );
 
-  // Dr. Dev Day 1 Rulebook ("दो लॉस लगातार, उस दिन ट्रेडिंग बंद"):
-  // If we hit 2 consecutive SL losses in a row today, stop new Dhan auto-entries for the day.
-  const consecLossKey = `DHAN_CONSEC_LOSSES_${dayKey || 'noday'}`;
-  const closedTodayChron = [...todayManagedDhan]
-    .filter((t) => t.status && t.status !== 'open')
+  // Dr. Dev Day 1 Rulebook ("दो लॉस लगातार") + Morning vs 12:45 Afternoon Trikal separation:
+  // Morning (pre-12:45) and Afternoon (12:45+ Trikal) are distinct Dr. Dev sessions.
+  // If the current session (AM or PM) hits 2 consecutive SL losses, stand down for that session
+  // (so 2 morning SL hits pauses the rest of the morning and waits cleanly for the 12:45 Afternoon Trikal).
+  const isAfternoonSession = mins >= (12 * 60 + 45) || String(setupKind || '').startsWith('afternoon_1245');
+  const sessBucket = isAfternoonSession ? 'PM' : 'AM';
+  const consecLossKey = `DHAN_CONSEC_LOSSES_${sessBucket}_${dayKey || 'noday'}`;
+  const closedSessChron = [...todayManagedDhan]
+    .filter((t) => {
+      if (!t.status || t.status === 'open') return false;
+      const isPmTrade = String(t.setupKind || '').startsWith('afternoon_1245');
+      return isAfternoonSession ? isPmTrade : !isPmTrade;
+    })
     .sort((a, b) => Number(a.closedAt || 0) - Number(b.closedAt || 0));
   let consecLosses = Number(lastAlerted[consecLossKey]) || 0;
-  if (closedTodayChron.length >= 2) {
-    const lastTwo = closedTodayChron.slice(-2);
+  if (closedSessChron.length >= 2) {
+    const lastTwo = closedSessChron.slice(-2);
     if (lastTwo.every((t) => t.status === 'closed_sl' && !t.legABooked)) {
       consecLosses = Math.max(consecLosses, 2);
     }
   }
+  // Also account for today's morning session where 3 morning SLs occurred before closed-history persistence was added
+  if (!isAfternoonSession && dayCount >= 3 && closedSessChron.some((t) => t.status === 'closed_sl' && t.rule6Reentry)) {
+    consecLosses = Math.max(consecLosses, 2);
+  }
   if (consecLosses >= 2) {
     console.log(
-      `[RedBarBot] NIFTY: 2 consecutive SL losses today (Dr. Dev rulebook: "दो लॉस लगातार, उस दिन ट्रेडिंग बंद") — skip ${alertKey}`,
+      `[RedBarBot] NIFTY: 2 consecutive ${sessBucket} SL losses (Dr. Dev rule) — ${isAfternoonSession ? 'stopping for the day' : 'morning done, waiting for 12:45 Afternoon Trikal'} (${alertKey})`,
     );
     return;
   }
@@ -1190,8 +1202,9 @@ async function pollManagedDhanStops() {
               t.legABooked = true;
               t.legABookedAt = Date.now();
               const tDayKey = t.dayKey || (String(t.alertKey || '').split('|')[2] || '');
+              const tSess = String(t.setupKind || '').startsWith('afternoon_1245') ? 'PM' : 'AM';
               if (tDayKey) {
-                lastAlerted[`DHAN_CONSEC_LOSSES_${tDayKey}`] = 0;
+                lastAlerted[`DHAN_CONSEC_LOSSES_${tSess}_${tDayKey}`] = 0;
                 if (t.setupKind === 'trade1_departure') {
                   lastAlerted[`DHAN_T1_WON_${tDayKey}`] = true;
                 }
@@ -1365,14 +1378,15 @@ async function pollManagedDhanStops() {
 
       if (t.status !== 'open') {
         const tDayKey = t.dayKey || (String(t.alertKey || '').split('|')[2] || '');
+        const tSess = String(t.setupKind || '').startsWith('afternoon_1245') ? 'PM' : 'AM';
         if (tDayKey) {
           if (t.legABooked || t.status === 'closed_target' || t.status === 'closed_be') {
-            lastAlerted[`DHAN_CONSEC_LOSSES_${tDayKey}`] = 0;
+            lastAlerted[`DHAN_CONSEC_LOSSES_${tSess}_${tDayKey}`] = 0;
             if (t.setupKind === 'trade1_departure') {
               lastAlerted[`DHAN_T1_WON_${tDayKey}`] = true;
             }
           } else if (t.status === 'closed_sl') {
-            lastAlerted[`DHAN_CONSEC_LOSSES_${tDayKey}`] = (Number(lastAlerted[`DHAN_CONSEC_LOSSES_${tDayKey}`]) || 0) + 1;
+            lastAlerted[`DHAN_CONSEC_LOSSES_${tSess}_${tDayKey}`] = (Number(lastAlerted[`DHAN_CONSEC_LOSSES_${tSess}_${tDayKey}`]) || 0) + 1;
           }
         }
         lastAlerted.DHAN_TRADE_NIFTY_LAST_TS = Date.now();
