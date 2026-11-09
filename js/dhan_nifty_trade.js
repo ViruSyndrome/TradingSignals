@@ -50,11 +50,6 @@ function createDhanNiftyTrade(opts = {}) {
     const d = String(ist.getDate()).padStart(2, '0');
     const todayStr = `${y}-${m}-${d}`;
     const upcoming = dates.filter((x) => String(x) >= todayStr).sort();
-    // On weekly expiry day (0DTE), roll to next week's expiry to avoid extreme gamma whipsaws & theta decay
-    const allow0dte = String(process.env.DHAN_ALLOW_0DTE || '').toLowerCase() === 'true';
-    if (!allow0dte && upcoming.length >= 2 && String(upcoming[0]) === todayStr) {
-      return upcoming[1];
-    }
     return upcoming[0] || dates[dates.length - 1];
   }
 

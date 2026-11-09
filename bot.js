@@ -878,6 +878,26 @@ async function _maybeAutoDhanNifty({ inst, side, readout, alertKey, dayKey, setu
       && String(t.alertKey || '').includes(`|${dayKey}|`),
   );
 
+  // Dr. Dev Day 1 Rulebook ("दो लॉस लगातार, उस दिन ट्रेडिंग बंद"):
+  // If we hit 2 consecutive SL losses in a row today, stop new Dhan auto-entries for the day.
+  const consecLossKey = `DHAN_CONSEC_LOSSES_${dayKey || 'noday'}`;
+  const closedTodayChron = [...todayManagedDhan]
+    .filter((t) => t.status && t.status !== 'open')
+    .sort((a, b) => Number(a.closedAt || 0) - Number(b.closedAt || 0));
+  let consecLosses = Number(lastAlerted[consecLossKey]) || 0;
+  if (closedTodayChron.length >= 2) {
+    const lastTwo = closedTodayChron.slice(-2);
+    if (lastTwo.every((t) => t.status === 'closed_sl' && !t.legABooked)) {
+      consecLosses = Math.max(consecLosses, 2);
+    }
+  }
+  if (consecLosses >= 2) {
+    console.log(
+      `[RedBarBot] NIFTY: 2 consecutive SL losses today (Dr. Dev rulebook: "दो लॉस लगातार, उस दिन ट्रेडिंग बंद") — skip ${alertKey}`,
+    );
+    return;
+  }
+
   // Once Trade 1 (trade1_departure) has already been taken today, do not re-fire trade1_departure
   // in later 20m buckets — 2nd and 3rd morning trades must be Trade 2 (shelf retest / sweep) or Session Sweep,
   // unless Trade 1 stopped out and qualifies for the single Rule 6 re-entry below.
@@ -1170,8 +1190,11 @@ async function pollManagedDhanStops() {
               t.legABooked = true;
               t.legABookedAt = Date.now();
               const tDayKey = t.dayKey || (String(t.alertKey || '').split('|')[2] || '');
-              if (t.setupKind === 'trade1_departure' && tDayKey) {
-                lastAlerted[`DHAN_T1_WON_${tDayKey}`] = true;
+              if (tDayKey) {
+                lastAlerted[`DHAN_CONSEC_LOSSES_${tDayKey}`] = 0;
+                if (t.setupKind === 'trade1_departure') {
+                  lastAlerted[`DHAN_T1_WON_${tDayKey}`] = true;
+                }
                 saveAlertState(lastAlerted);
               }
               t.legAMode = res.mode;
@@ -1342,8 +1365,15 @@ async function pollManagedDhanStops() {
 
       if (t.status !== 'open') {
         const tDayKey = t.dayKey || (String(t.alertKey || '').split('|')[2] || '');
-        if (t.setupKind === 'trade1_departure' && tDayKey && (t.legABooked || t.status === 'closed_target' || t.status === 'closed_be')) {
-          lastAlerted[`DHAN_T1_WON_${tDayKey}`] = true;
+        if (tDayKey) {
+          if (t.legABooked || t.status === 'closed_target' || t.status === 'closed_be') {
+            lastAlerted[`DHAN_CONSEC_LOSSES_${tDayKey}`] = 0;
+            if (t.setupKind === 'trade1_departure') {
+              lastAlerted[`DHAN_T1_WON_${tDayKey}`] = true;
+            }
+          } else if (t.status === 'closed_sl') {
+            lastAlerted[`DHAN_CONSEC_LOSSES_${tDayKey}`] = (Number(lastAlerted[`DHAN_CONSEC_LOSSES_${tDayKey}`]) || 0) + 1;
+          }
         }
         lastAlerted.DHAN_TRADE_NIFTY_LAST_TS = Date.now();
         saveAlertState(lastAlerted);
