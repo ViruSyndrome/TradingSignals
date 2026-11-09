@@ -1070,20 +1070,10 @@ const RangeEmaUI = {
 
   _tabsHtml(inst) {
     const loading = !!this.state.loading;
-    let lastGroup = null;
     const instBtns = this.instruments().map((x) => {
       const active = x.id === inst.id;
       const cls = `rb-inst-btn${active ? ' active' : ''}${active && loading ? ' is-loading' : ''}`;
-      let prefix = '';
-      if (x.optionGroup && x.optionGroup !== lastGroup) {
-        lastGroup = x.optionGroup;
-        const badgeText = x.optionGroup === 'B' ? '🇮🇳 Option B' : x.optionGroup === 'A' ? '🔥 Option A' : `Option ${x.optionGroup}`;
-        const badgeTitle = x.optionGroup === 'B'
-          ? 'Option B: Native Dr. Dev Indian Indices (09:15–15:30 IST · Dhan NSE/BSE Options)'
-          : 'Option A: Native Dr. Dev MCX Evening Commodities (09:00–23:30 IST · Dhan MCX Options)';
-        prefix = `<span class="rb-opt-group-tag" title="${badgeTitle}" style="display:inline-flex;align-items:center;font-size:10.5px;font-weight:700;color:#94a3b8;background:rgba(255,255,255,0.05);border:1px solid rgba(255,255,255,0.1);border-radius:6px;padding:3px 7px;margin-left:6px;margin-right:2px;letter-spacing:0.03em;">${badgeText}</span>`;
-      }
-      return `${prefix}<button type="button" class="${cls}" data-rb-inst="${x.id}" title="${x.tradeHint || x.label}"${loading && active ? ' aria-busy="true"' : ''}>${x.label}${active && loading ? ' …' : ''}</button>`;
+      return `<button type="button" class="${cls}" data-rb-inst="${x.id}" title="${x.tradeHint || x.label}"${loading && active ? ' aria-busy="true"' : ''}>${x.label}${active && loading ? ' …' : ''}</button>`;
     }).join('');
     const alertsOn = this.state.alertsOn !== false;
     const alertBtn = `<button type="button" class="rb-inst-btn rb-alert-btn${alertsOn ? ' active' : ''}" id="rbAlertsToggle" title="Telegram + banner when desk ENTER is ready. Worker keeps scanning when this tab is closed." aria-pressed="${alertsOn ? 'true' : 'false'}">${alertsOn ? 'Alerts ON' : 'Alerts OFF'}</button>`;

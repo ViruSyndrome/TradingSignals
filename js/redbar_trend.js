@@ -3108,16 +3108,17 @@ const RedBarTrend = {
       pickStructuralStop(rawCands.filter((x) => x && Number.isFinite(x.v) && x.v > price), false);
     }
 
-    // Indian Index (NIFTY / BANKNIFTY / SENSEX) morning leave/retest: stop = real 5m structure (pullback wick / box mid / box edge / real swing).
-    // Never pick a micro 2–5 pt candle wiggle (< ~0.06% index pts) when real box/pullback structure is right behind it.
+    // Indian Index (NIFTY / BANKNIFTY / SENSEX) & MCX (CRUDEOIL / NG) leave/retest: stop = real 5m structure (pullback wick / box mid / box edge / real swing).
+    // Never pick a micro candle wiggle (< ~0.06% index pts or < ~0.12% MCX pts) when real box/pullback structure is right behind it.
     if (
-      this.isIndianIndex(instId)
+      (this.isIndianIndex(instId) || this.isMcxCommodity(instId))
       && firstRed1h && Number.isFinite(firstRed1h.low) && Number.isFinite(firstRed1h.high)
       && (setupKind === 'trade1_departure' || setupKind === 'trade2_confirmed')
     ) {
-      const boxPad = price * 0.00015; // ~3.5 pts on NIFTY
-      const minNiftyStop = price * 0.0006; // ~15 pts minimum structural stop distance on NIFTY (prevents 3–5 pt micro-stops)
-      const preferMax = price * 0.0016; // ~38 pts — preference window only, not a skip rule
+      const isMcxStop = this.isMcxCommodity(instId);
+      const boxPad = price * (isMcxStop ? 0.0003 : 0.00015); // ~3.5 pts on NIFTY, ~2.5 pts on Crude
+      const minNiftyStop = price * (isMcxStop ? 0.0012 : 0.0006); // ~15 pts on NIFTY, ~36 pts on BANKNIFTY, ~48 pts on SENSEX, ~10 pts on CRUDEOIL, ~0.4 pts on NG
+      const preferMax = price * (isMcxStop ? 0.0045 : 0.0016); // preference window only, not a skip rule
       const boxMid = (firstRed1h.high + firstRed1h.low) / 2;
       const last3 = Array.isArray(bars5m) && bars5m.length >= 3 ? bars5m.slice(-4, -1) : (Array.isArray(bars5m) ? bars5m.slice(-2) : []);
       const prev5Lo = last3.length ? Math.min(...last3.map((b) => b.l)) : null;

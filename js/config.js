@@ -124,12 +124,10 @@ const CONFIG = {
           { id: 'ny', label: 'US', timeZone: 'America/New_York', open: [9, 30], close: [16, 0], color: '#cbd5e1' },
         ],
       },
-      // ─── OPTION B: 100% Native Dr. Dev Indian Indices (09:15–15:30 IST) ─────────
+      // ─── 100% Native Dr. Dev Indian Indices (09:15–15:30 IST) ─────────
       {
         id: 'NIFTY',
         label: 'NIFTY',
-        optionGroup: 'B',
-        optionGroupTitle: 'Option B · Indian Index',
         symbol: '^NSEI',
         currency: 'INR',
         dhanSecurityId: '13',
@@ -156,7 +154,7 @@ const CONFIG = {
         priceDecimals: 2,
         timeframes: ['5m', '15m', '30m', '1h'],
         ohlcLimit: { '5m': 360, '15m': 500, '30m': 500, '1h': 400 },
-        tradeHint: 'Option B · Dhan NSE · NIFTY 50 (Lot 65) · 09:15 POB & 12:45 Trikal · Fib 15:15–15:45 IST',
+        tradeHint: 'Dhan NSE · NIFTY 50 (Lot 65) · 09:15 POB & 12:45 Trikal · Fib 15:15–15:45 IST',
         showSessionMarkers: true,
         sessions: [
           { id: 'nse', label: 'NSE', timeZone: 'Asia/Kolkata', open: [9, 15], close: [15, 30], color: '#38bdf8' },
@@ -165,8 +163,6 @@ const CONFIG = {
       {
         id: 'BANKNIFTY',
         label: 'BANKNIFTY',
-        optionGroup: 'B',
-        optionGroupTitle: 'Option B · Indian Index',
         symbol: '^NSEBANK',
         currency: 'INR',
         dhanSecurityId: '25',
@@ -191,7 +187,7 @@ const CONFIG = {
         priceDecimals: 2,
         timeframes: ['5m', '15m', '30m', '1h'],
         ohlcLimit: { '5m': 360, '15m': 500, '30m': 500, '1h': 400 },
-        tradeHint: 'Option B · Dhan NSE · BANKNIFTY (Lot 30) · 09:15 POB & 12:45 Trikal · Fib 15:15–15:45 IST',
+        tradeHint: 'Dhan NSE · BANKNIFTY (Lot 30) · 09:15 POB & 12:45 Trikal · Fib 15:15–15:45 IST',
         showSessionMarkers: true,
         sessions: [
           { id: 'nse', label: 'NSE', timeZone: 'Asia/Kolkata', open: [9, 15], close: [15, 30], color: '#38bdf8' },
@@ -200,8 +196,6 @@ const CONFIG = {
       {
         id: 'SENSEX',
         label: 'SENSEX',
-        optionGroup: 'B',
-        optionGroupTitle: 'Option B · Indian Index',
         symbol: '^BSESN',
         currency: 'INR',
         dhanSecurityId: '51',
@@ -226,18 +220,16 @@ const CONFIG = {
         priceDecimals: 2,
         timeframes: ['5m', '15m', '30m', '1h'],
         ohlcLimit: { '5m': 360, '15m': 500, '30m': 500, '1h': 400 },
-        tradeHint: 'Option B · Dhan BSE · SENSEX (Lot 20) · 09:15 POB & 12:45 Trikal · Fib 15:15–15:45 IST',
+        tradeHint: 'Dhan BSE · SENSEX (Lot 20) · 09:15 POB & 12:45 Trikal · Fib 15:15–15:45 IST',
         showSessionMarkers: true,
         sessions: [
           { id: 'nse', label: 'BSE', timeZone: 'Asia/Kolkata', open: [9, 15], close: [15, 30], color: '#38bdf8' },
         ],
       },
-      // ─── OPTION A: 100% Native Dr. Dev MCX Evening Commodities (09:00–23:30 IST) ─
+      // ─── 100% Native Dr. Dev MCX Evening Commodities (09:00–23:30 IST) ─
       {
         id: 'CRUDEOIL',
         label: 'CRUDEOIL',
-        optionGroup: 'A',
-        optionGroupTitle: 'Option A · MCX Evening',
         symbol: 'CRUDEOIL NOV FUT',
         currency: 'INR',
         dhanSecurityId: '573422',
@@ -264,7 +256,7 @@ const CONFIG = {
         priceDecimals: 0,
         timeframes: ['5m', '15m', '30m', '1h'],
         ohlcLimit: { '5m': 360, '15m': 500, '30m': 500, '1h': 400 },
-        tradeHint: 'Option A · Dhan MCX · CRUDEOIL NOV FUT (573422) · 5 PM & NYMEX Open · Fib 23:00–23:30 IST',
+        tradeHint: 'Dhan MCX · CRUDEOIL NOV FUT (573422) · 5 PM & NYMEX Open · Fib 23:00–23:30 IST',
         showSessionMarkers: true,
         sessions: [
           { id: 'mcx_day', label: 'MCX day', timeZone: 'Asia/Kolkata', open: [9, 0], close: [17, 0], color: '#818cf8' },
@@ -275,8 +267,6 @@ const CONFIG = {
       {
         id: 'NG',
         label: 'NG (MCX)',
-        optionGroup: 'A',
-        optionGroupTitle: 'Option A · MCX Evening',
         symbol: 'NATURALGAS NOV FUT',
         currency: 'INR',
         dhanSecurityId: '574319',
@@ -303,7 +293,7 @@ const CONFIG = {
         priceDecimals: 1,
         timeframes: ['5m', '15m', '30m', '1h'],
         ohlcLimit: { '5m': 360, '15m': 500, '30m': 500, '1h': 400 },
-        tradeHint: 'Option A · Dhan MCX · NATURALGAS NOV FUT (574319) · 5 PM & NYMEX Open · Fib 23:00–23:30 IST',
+        tradeHint: 'Dhan MCX · NATURALGAS NOV FUT (574319) · 5 PM & NYMEX Open · Fib 23:00–23:30 IST',
         showSessionMarkers: true,
         sessions: [
           { id: 'mcx_day', label: 'MCX day', timeZone: 'Asia/Kolkata', open: [9, 0], close: [17, 0], color: '#818cf8' },

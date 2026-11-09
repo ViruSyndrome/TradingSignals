@@ -673,11 +673,13 @@ async function _scanOneRedBarInstrument(rawInst, rbCfg) {
         const e = Number(readout.price), s = Number(readout.invalidation), t = Number(readout.tp1);
         if (!(e > 0 && s > 0 && t > 0)) return '';
         const lot = Number(inst.lotSize) || Number(process.env.NIFTY_LOT_SIZE) || 65;
+        const mult = Number(inst.contractMultiplier) || 1;
+        const unitCount = lot * mult;
         const delta = Number(process.env.NIFTY_OPT_DELTA) || 0.7; // observed ~0.7 on ITM/ATM
         const riskPts = Math.abs(e - s), tgtPts = Math.abs(t - e);
-        const optSl = (riskPts * delta).toFixed(0), optTp = (tgtPts * delta).toFixed(0);
-        const rsSl = Math.round(riskPts * delta * lot), rsTp = Math.round(tgtPts * delta * lot);
-        return `\nDHAN (1 lot ${lot}): option SL = buy price − ${optSl} pts · TP = buy price + ${optTp} pts\nSuggested P&amp;L Exit: Max Loss ~Rs ${rsSl} · Max Profit ~Rs ${rsTp}\nExit manually if ${inst.label || inst.id} closes 5m beyond ${fmt(s)}`;
+        const optSl = (riskPts * delta).toFixed(1), optTp = (tgtPts * delta).toFixed(1);
+        const rsSl = Math.round(riskPts * delta * unitCount), rsTp = Math.round(tgtPts * delta * unitCount);
+        return `\nDHAN (1 lot · ${unitCount} units): option SL = buy price − ${optSl} pts · TP = buy price + ${optTp} pts\nSuggested P&amp;L Exit: Max Loss ~Rs ${rsSl} · Max Profit ~Rs ${rsTp}\nExit manually if ${inst.label || inst.id} closes 5m beyond ${fmt(s)}`;
       })();
       const dhanAutoOn = String(process.env.DHAN_AUTO_TRADE || '').toLowerCase() === 'true'
         && _canAutoTradeDhanNifty(inst);
@@ -944,7 +946,8 @@ async function _maybeAutoDhanNifty({ inst, side, readout, alertKey, dayKey, setu
   let rule6SlRow = null;
   if (!rule6UsedToday) {
     const reentryWindowMs = Number(process.env.DHAN_SL_REENTRY_WINDOW_MS) || (90 * 60 * 1000);
-    const sameLevelPts = Number(process.env.DHAN_SL_REENTRY_LEVEL_PTS) || 15;
+    const sameLevelPts = Number(process.env.DHAN_SL_REENTRY_LEVEL_PTS)
+      || Math.max(0.5, +(Number(readout.price || 25000) * 0.0006).toFixed(2));
     const recentSl = todayManagedDhan
       .filter((t) => t.status === 'closed_sl'
         && t.side === side

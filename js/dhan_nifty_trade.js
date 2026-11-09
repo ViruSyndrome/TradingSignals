@@ -53,6 +53,7 @@ const DHAN_INSTRUMENT_SPECS = {
     underlyingSeg: 'MCX_COMM',
     optSeg: 'MCX_COMM',
     lotSize: 1,
+    contractMultiplier: 100,
     strikeStep: 50,
     tickSize: 0.10,
     minSlPts: 15,
@@ -63,9 +64,10 @@ const DHAN_INSTRUMENT_SPECS = {
     underlyingSeg: 'MCX_COMM',
     optSeg: 'MCX_COMM',
     lotSize: 1,
+    contractMultiplier: 1250,
     strikeStep: 5,
     tickSize: 0.05,
-    minSlPts: 3,
+    minSlPts: 2.5,
   },
 };
 
@@ -393,8 +395,9 @@ function createDhanNiftyTrade(opts = {}) {
       );
     }
 
-    // BUY premium ≈ price * qty; reject early if wallet can't cover (Dhan RMS adds buffer).
-    const notional = levels.entryPrice * qty;
+    // BUY premium ≈ price * qty * contractMultiplier; reject early if wallet can't cover (Dhan RMS adds buffer).
+    const contractMultiplier = Number(spec.contractMultiplier) || 1;
+    const notional = levels.entryPrice * qty * contractMultiplier;
     const bufferPct = Math.max(1.05, envNum('DHAN_FUND_BUFFER', 1.15));
     const need = Math.ceil(notional * bufferPct);
     try {
