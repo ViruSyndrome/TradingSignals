@@ -553,7 +553,7 @@ async function _scanOneRedBarInstrument(rawInst, rbCfg) {
       : firstRedTf === '5m' ? 5 * 60000
         : 3600000;
   const firstRedMinBars = (firstRedTf === '15m' || firstRedTf === '5m') ? 6 : firstRedTf === '30m' ? 48 : 24;
-  const needPivotFetch = !!firstRedTf && workTf !== firstRedTf;
+  const needPivotFetch = !!firstRedTf && workTf !== firstRedTf && !(firstRedTf === '5m' && need5m);
   const rawPair = await _withTimeout(
     Promise.all([
       _deskBars(inst, workTf, 500),
@@ -569,8 +569,8 @@ async function _scanOneRedBarInstrument(rawInst, rbCfg) {
     return raw.map((k) => ({ t: +k[0], o: +k[1], h: +k[2], l: +k[3], c: +k[4] }));
   };
   const barsWork = toBars(rawPair[0]);
-  const bars1h = needPivotFetch ? toBars(rawPair[1]) : barsWork;
   const bars5m = need5m ? toBars(rawPair[2]) : barsWork;
+  const bars1h = needPivotFetch ? toBars(rawPair[1]) : (firstRedTf === '5m' ? bars5m : barsWork);
   if (!barsWork || barsWork.length < 40) {
     console.warn(`[RedBarBot] ${inst.id}: not enough bars (${barsWork?.length || 0})`);
     return;

@@ -1,11 +1,30 @@
 'use strict';
 
 /**
- * Minimal DhanHQ v2 client for TrendRunner (Nifty path).
+ * Minimal DhanHQ v2 client for TrendRunner (Nifty / BankNifty / Sensex / MCX path).
  * Auth: access-token header + dhanClientId where required.
  * Docs: https://dhanhq.co/docs/v2/
  */
 const DEFAULT_BASE = 'https://api.dhan.co/v2';
+
+// Shared in-memory cache + rate-limit queue for /charts/intraday across all client instances
+const _klineCache = new Map();
+const KLINE_CACHE_TTL_MS = 12 * 1000;
+let _lastChartCallTs = 0;
+let _chartQueue = Promise.resolve();
+
+function _throttleChartCall(fn) {
+  const run = async () => {
+    const now = Date.now();
+    const wait = Math.max(0, _lastChartCallTs + 260 - now);
+    if (wait > 0) await new Promise((r) => setTimeout(r, wait));
+    _lastChartCallTs = Date.now();
+    return fn();
+  };
+  const next = _chartQueue.then(run, run);
+  _chartQueue = next.catch(() => {});
+  return next;
+}
 
 function env(key, fallback = '') {
   const v = process.env[key];
@@ -79,7 +98,7 @@ function createDhanClient(opts = {}) {
   /**
    * Intraday OHLC (needs Data APIs subscription).
    * interval: "1"|"5"|"15"|"25"|"60" (minutes)
-   * exchangeSegment e.g. IDX_I for index, NSE_FNO for futures
+   * exchangeSegment e.g. IDX_I for index, NSE_FNO for futures, MCX_COMM for commodities
    */
   async function getIntradayOhlc({
     securityId,
@@ -89,7 +108,7 @@ function createDhanClient(opts = {}) {
     fromDate,
     toDate,
   } = {}) {
-    return _request('POST', '/charts/intraday', {
+    return _throttleChartCall(() => _request('POST', '/charts/intraday', {
       body: {
         securityId: String(securityId),
         exchangeSegment,
@@ -99,7 +118,7 @@ function createDhanClient(opts = {}) {
         fromDate,
         toDate,
       },
-    });
+    }));
   }
 
   /** Map Dhan TF label → supported API interval (no native 30m). */
@@ -161,9 +180,14 @@ function createDhanClient(opts = {}) {
    */
   async function getKlines(instrument, interval = '15m', limit = 500) {
     const securityId = instrument.dhanSecurityId || instrument.securityId || '13';
-    const exchangeSegment = instrument.dhanExchangeSegment || 'IDX_I';
-    const instrumentType = instrument.dhanInstrument || 'INDEX';
+    const exchangeSegment = instrument.dhanExchangeSegment || instrument.exchangeSegment || 'IDX_I';
+    const instrumentType = instrument.dhanInstrument || instrument.instrument || 'INDEX';
     const { api, resampleMs } = mapInterval(interval);
+    const cacheKey = `${securityId}|${exchangeSegment}|${instrumentType}|${api}|${resampleMs || 0}`;
+    const cached = _klineCache.get(cacheKey);
+    if (cached && Date.now() - cached.ts < KLINE_CACHE_TTL_MS && cached.rows.length >= Math.min(limit, 40)) {
+      return cached.rows.length > limit ? cached.rows.slice(-limit) : cached.rows;
+    }
     const days = Math.min(80, Math.max(3, Math.ceil((Number(limit) || 500) / 50) + 2));
     const to = new Date();
     const from = new Date(Date.now() - days * 86400000);
@@ -177,6 +201,9 @@ function createDhanClient(opts = {}) {
     });
     let rows = _toRows(payload);
     rows = _resample(rows, resampleMs);
+    if (rows.length) {
+      _klineCache.set(cacheKey, { ts: Date.now(), rows });
+    }
     if (rows.length > limit) rows = rows.slice(-limit);
     return rows;
   }
