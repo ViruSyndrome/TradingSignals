@@ -3,12 +3,10 @@
 #
 # One-time setup: GitHub repo → Settings → Secrets → Actions
 #   RENDER_HEALTH_URL = https://YOUR-SERVICE.onrender.com/health
+# Legacy Render keep-alive disabled — Oracle VM is the primary 24/7 bot host.
 name: Render keep-alive
 
 on:
-  schedule:
-    # Every 5 minutes (GitHub may drift a few minutes)
-    - cron: '*/5 * * * *'
   workflow_dispatch:
 
 permissions:

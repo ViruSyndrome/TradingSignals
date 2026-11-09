@@ -25,8 +25,15 @@ global.CONFIG = CONFIG;
 global.Indicators = Indicators; // signals.js references Indicators as a global
 global.RedBarTrend = RedBarTrend;
 
-const token = process.env.TELEGRAM_BOT_TOKEN;
-const chatId = process.env.TELEGRAM_CHAT_ID;
+// Silence legacy Render container so only the Oracle VM sends Telegram alerts & trades
+const isLegacyRenderHost = Boolean(
+  process.env.RENDER || process.env.RENDER_SERVICE_ID || process.env.RENDER_EXTERNAL_URL
+) && String(process.env.ALLOW_RENDER_BOT || '').toLowerCase() !== 'true';
+if (isLegacyRenderHost) {
+  console.log('[Bot] Legacy Render host detected — Telegram & scanner disabled (Oracle VM is primary).');
+}
+const token = isLegacyRenderHost ? null : process.env.TELEGRAM_BOT_TOKEN;
+const chatId = isLegacyRenderHost ? null : process.env.TELEGRAM_CHAT_ID;
 const pollingEnabled = Boolean(token && chatId) && process.env.TELEGRAM_POLLING === 'true';
 
 const { TwitterApi } = require('twitter-api-v2');
@@ -1780,6 +1787,7 @@ async function pollManagedFuturesStops() {
   }
 }
 async function scanRedBarDesk() {
+  if (isLegacyRenderHost) return;
   const rbCfg = CONFIG.rangeEma || {};
   const instruments = Array.isArray(rbCfg.instruments) ? rbCfg.instruments.slice() : [];
   // BTC first so a slow Nifty/Yahoo hop cannot delay the main alert
@@ -1794,6 +1802,7 @@ async function scanRedBarDesk() {
 }
 
 async function scanMarket() {
+  if (isLegacyRenderHost) return;
   if (scanInProgress) {
     console.log('Scan already running — skipping overlapping trigger.');
     return;
