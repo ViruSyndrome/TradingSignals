@@ -1,7 +1,8 @@
 'use strict';
 
 /**
- * Dhan options auto-trader (live) — supports Option B (NIFTY, BANKNIFTY, SENSEX) and Option A (CRUDEOIL, NG).
+ * Dhan options auto-trader (live) — NIFTY is the verified path.
+ * BANKNIFTY / SENSEX / CRUDEOIL / NG share the same Super Order ladder but stay off auto until verified.
  * Dr Dev ladder: Super Order (structural SL + ~3R TP) → at 1:1 bank ~50% → runner SL to BE → trail.
  * Need DHAN_NIFTY_LOTS >= 2 for a true 50% bank (lot size won't split a single lot).
  *

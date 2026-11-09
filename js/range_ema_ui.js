@@ -565,7 +565,7 @@ const RangeEmaUI = {
       : rawInst;
     const tf = this.activeTf();
     const lim = this._ohlcLimit(tf, c, instrument);
-    // First-red TF comes from config (Option B indices: 5m, BTC/Option A MCX: null). Defaults below only if config omits it.
+    // First-red TF comes from config (Indian indices: 5m, BTC/MCX: null). Defaults below only if config omits it.
     const instUpperId = String(instrument.id || '').toUpperCase();
     const isIndIdxId = ['NIFTY', 'BANKNIFTY', 'SENSEX'].includes(instUpperId);
     let firstRedTf = instrument.firstRedTf !== undefined

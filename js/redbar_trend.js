@@ -3488,7 +3488,7 @@ const RedBarTrend = {
     // Dr. Devendra Pratap Singh: Setup 3 (30m 5 EMA Rubber Band Mean Reversion)
     const setup3 = this.detect30m5EmaRubberBand(slice, bars5m, evalTs);
     // Dr. Dev Setup 1 POB (5m X-Candle → retest → SHORT only). Never 1H first-red (tautology).
-    // Option B (NIFTY, BANKNIFTY, SENSEX): NSE/BSE 09:15 IST. BTC: Asia 05:30. Option A (CRUDEOIL, NG): MCX 09:00 / MCX Eve 17:00 / NYMEX 18:30–19:30.
+    // Indian indices: NSE/BSE 09:15 IST. BTC: Asia 05:30. MCX (CRUDEOIL, NG): 09:00 / 17:00 / NYMEX 18:30–19:30.
     const instId = String(c.id || c.instrumentId || '').toUpperCase();
     const isIndIdx = this.isIndianIndex(instId);
     const isMcx = this.isMcxCommodity(instId);
@@ -3542,7 +3542,7 @@ const RedBarTrend = {
     // Dr. Dev Equinox Macro Territory
     const equinox = this.computeEquinoxMacro(price, instId, evalTs);
 
-    // Dr. Dev Trikal 12:45 Afternoon Engine & Dr. Dev 5m Squeeze (Option B Indian Indices: NIFTY, BANKNIFTY, SENSEX)
+    // Dr. Dev Trikal 12:45 Afternoon Engine & Dr. Dev 5m Squeeze (NIFTY; same NSE/BSE clocks on BANKNIFTY / SENSEX)
     const afternoon1245 = (bars5m && isIndIdx)
       ? this.detect1245AfternoonSetup(bars5m, evalTs)
       : null;
@@ -4019,7 +4019,7 @@ const RedBarTrend = {
     const instEarly = String(instrumentId || '').toUpperCase();
     const isIndIdxEarly = this.isIndianIndex(instEarly);
 
-    // Option B Indian Indices (NIFTY, BANKNIFTY, SENSEX): no clock-based ENTER kills (14:15 / 13:45 / pt caps were desk inventions).
+    // Indian indices (NIFTY, BANKNIFTY, SENSEX): no clock-based ENTER kills (14:15 / 13:45 / pt caps were desk inventions).
     // Setup quality decides. EOD flatten (~15:10) is ops-only in the bot.
     const isPob = setupKind === 'pob_reject';
     // Indian Index Trade 3 (Setup 3 rubber band) may ENTER when enabled — BTC keeps it overlay-only
@@ -4110,7 +4110,7 @@ const RedBarTrend = {
       if (Math.abs(n) < 500) return n.toFixed(2);
       return String(Math.round(n));
     };
-    // BTC / MCX (Option A): do not enter while price is trapped inside today's Mark Fib (0..1) accumulation box.
+    // BTC / MCX: do not enter while price is trapped inside today's Mark Fib (0..1) accumulation box.
     const isInsideMarkFib = phase === 'inside_or' || (
       openingRange && openingRange.locked
       && Number.isFinite(Number(livePrice))

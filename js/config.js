@@ -80,7 +80,7 @@ const CONFIG = {
   // Sagar playbook: mark-window fibs + 1H first-red pivot (trade 1 / revisit trade 2)
   // + prior-day H/L book + Asia→London→US liquidity clock (js/redbar_trend.js).
   // EMA 10/30 is a SEPARATE overlay on the desk — not the trend engine.
-  // Tabs: BTC + Option B (NIFTY, BANKNIFTY, SENSEX) + Option A (CRUDEOIL, NG on Dhan MCX).
+  // Tabs: BTC, NIFTY, BANKNIFTY, SENSEX, CRUDEOIL, NG (MCX). Live Dhan auto is NIFTY-only until the others are verified.
   rangeEma: {
     enabled: true,
     workingTf: '15m',

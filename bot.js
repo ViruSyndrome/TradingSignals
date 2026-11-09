@@ -800,9 +800,9 @@ function saveManagedTrades(rows) {
   }
 }
 
-/** Live Telegram ENTER allow-list. Default BTC + Option B (NIFTY,BANKNIFTY,SENSEX) + Option A (CRUDEOIL,NG). */
+/** Live Telegram ENTER allow-list. Default BTC + NIFTY only until other desks are verified. */
 function _redBarBotInstrumentAllowed(inst) {
-  const raw = envTrim('REDBAR_BOT_INSTRUMENTS') || 'BTC,NIFTY,BANKNIFTY,SENSEX,CRUDEOIL,NG';
+  const raw = envTrim('REDBAR_BOT_INSTRUMENTS') || 'BTC,NIFTY';
   const allow = raw.split(',').map((s) => s.trim().toUpperCase()).filter(Boolean);
   const id = String(inst?.id || '').toUpperCase();
   const sym = String(inst?.symbol || '').toUpperCase();
@@ -825,7 +825,7 @@ function _canAutoTradeBinanceFutures(inst) {
 function _canAutoTradeDhanNifty(inst) {
   if (!_redBarBotInstrumentAllowed(inst)) return false;
   const id = String(inst?.id || '').toUpperCase();
-  const dhanRaw = envTrim('DHAN_AUTO_INSTRUMENTS') || 'NIFTY,BANKNIFTY,SENSEX,CRUDEOIL,NG';
+  const dhanRaw = envTrim('DHAN_AUTO_INSTRUMENTS') || 'NIFTY';
   const dhanAllow = dhanRaw.split(',').map((s) => s.trim().toUpperCase()).filter(Boolean);
   return dhanAllow.includes(id);
 }
@@ -2148,6 +2148,9 @@ const LEGACY_SCAN_MS = 3600000;
 const scanEveryMs = CONFIG.ui?.redBarOnly ? REDBAR_SCAN_MS : LEGACY_SCAN_MS;
 setInterval(scanMarket, scanEveryMs);
 console.log(`[Bot] Scan interval ${scanEveryMs / 1000}s (redBarOnly=${Boolean(CONFIG.ui?.redBarOnly)})`);
+console.log(
+  `[RedBarBot] worker Telegram=${envTrim('REDBAR_BOT_INSTRUMENTS') || 'BTC,NIFTY'} · Dhan auto=${envTrim('DHAN_AUTO_INSTRUMENTS') || 'NIFTY'} · DHAN_AUTO_TRADE=${process.env.DHAN_AUTO_TRADE || 'false'} · Binance auto=${process.env.REDBAR_AUTO_TRADE || 'false'}`,
+);
 
 // Delay first scan so Render restarts do not immediately re-trigger a Binance 418 ban
 setTimeout(scanMarket, 15000);
@@ -2317,7 +2320,7 @@ if (!process.env.BOT_WORKER_ONLY) {
     const scannerKey = `${side}|${setupKind}|${dayKey}|${trigBucket}`;
     const alertKey = `RB_${instrumentId}|${scannerKey}`;
 
-    const allowed = (envTrim('REDBAR_BOT_INSTRUMENTS') || 'BTC,NIFTY,BANKNIFTY,SENSEX,CRUDEOIL,NG').split(',').map((s) => s.trim().toUpperCase());
+    const allowed = (envTrim('REDBAR_BOT_INSTRUMENTS') || 'BTC,NIFTY').split(',').map((s) => s.trim().toUpperCase());
     if (!allowed.includes(String(instrumentId).toUpperCase())) {
       return res.json({ ok: true, ignored: true });
     }
