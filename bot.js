@@ -909,7 +909,7 @@ async function _maybeAutoDhanNifty({ inst, side, readout, alertKey, dayKey, setu
     }
   }
 
-  if (setupKind === 'trade1_departure' && (t1AlreadyWonToday || (priorT1Today.length > 0 && !rule6SlRow))) {
+  if (setupKind === 'trade1_departure' && (t1AlreadyWonToday || ((priorT1Today.length > 0 || dayCount >= 1) && !rule6SlRow))) {
     console.log(
       `[RedBarBot] NIFTY: Trade 1 departure already completed today — waiting for Trade 2 (shelf retest) or Sweep for 2nd/3rd trade`,
     );
