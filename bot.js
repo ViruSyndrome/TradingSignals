@@ -542,9 +542,12 @@ async function _scanOneRedBarInstrument(rawInst, rbCfg) {
     : rawInst;
   const workTf = rbCfg.workingTf || '15m';
   const need5m = workTf !== '5m';
+  const isIndianIdx = typeof RedBarTrend.isIndianIndex === 'function'
+    ? RedBarTrend.isIndianIndex(inst.id)
+    : ['NIFTY', 'BANKNIFTY', 'SENSEX'].includes(String(inst.id || '').toUpperCase());
   const firstRedTf = inst.firstRedTf !== undefined
     ? inst.firstRedTf
-    : (inst.id === 'NIFTY' ? '5m' : null);
+    : (isIndianIdx ? '5m' : null);
   const firstRedBarMs = firstRedTf === '30m' ? 30 * 60000
     : firstRedTf === '15m' ? 15 * 60000
       : firstRedTf === '5m' ? 5 * 60000
@@ -593,7 +596,7 @@ async function _scanOneRedBarInstrument(rawInst, rbCfg) {
       ...rbCfg, ...inst, asOfTs: nowTs, barMs: firstRedBarMs,
     })
     : null;
-  if (!firstRed1h && inst.id === 'NIFTY' && bars5m && bars5m.length >= 6) {
+  if (!firstRed1h && isIndianIdx && bars5m && bars5m.length >= 6) {
     firstRed1h = RedBarTrend.firstRedBarOfSession(bars5m, calDay, {
       ...rbCfg, ...inst, asOfTs: nowTs, barMs: 5 * 60000,
     });
@@ -614,14 +617,14 @@ async function _scanOneRedBarInstrument(rawInst, rbCfg) {
   const setupKind = readout.setupKind || 'wait';
   const actionState = readout.actionState || 'wait';
   const dayKey = readout.asOfDay || '';
-  // NIFTY keeps a 20m trigger bucket (for Rule 6 SL re-entry).
-  // BTC / Binance futures locks morning clock setups (btc_asia_0530_breakout, pob_reject, trade1_departure)
+  // Indian indices (NIFTY, BANKNIFTY, SENSEX) keep a 20m trigger bucket (for Rule 6 SL re-entry).
+  // BTC / MCX locks morning clock setups (btc_asia_0530_breakout, pob_reject, trade1_departure)
   // to ONCE per session day, and uses a 60m bucket on Trade 2 / sweep so chop cannot re-fire the same level.
   const triggerTs = Number(readout.triggerTs)
     || Number(readout.playbook?.redSetup?.triggerTs)
     || Number(readout.t)
     || Date.now();
-  const isNiftyInst = String(inst.id || '').toUpperCase() === 'NIFTY';
+  const isNiftyInst = isIndianIdx;
   const isOneShotMorningSetup = !isNiftyInst && (
     setupKind === 'btc_asia_0530_breakout'
     || setupKind === 'pob_reject'
@@ -639,7 +642,7 @@ async function _scanOneRedBarInstrument(rawInst, rbCfg) {
   const actionable = Array.isArray(RedBarTrend.ACTIONABLE_SETUPS)
     && RedBarTrend.ACTIONABLE_SETUPS.includes(setupKind);
   if (actionState === 'enter' && actionable && (side === 'LONG' || side === 'SHORT')) {
-    // EMA is chart context only — not Red Bar. Never blocks an ENTER (BTC or NIFTY).
+    // EMA is chart context only — not Red Bar. Never blocks an ENTER.
     if (!_redBarBotInstrumentAllowed(inst)) {
       console.log(`[RedBarBot] ${inst.id}: ENTER ignored on worker (REDBAR_BOT_INSTRUMENTS) — desk can still show it`);
       return;
@@ -661,7 +664,7 @@ async function _scanOneRedBarInstrument(rawInst, rbCfg) {
       const futLink = isBinance
         ? `https://www.binance.com/en/futures/${inst.symbol}?ref=TRENDRUNNER`
         : null;
-      const pxPrefix = isBinance ? '$' : '';
+      const pxPrefix = isBinance ? '$' : '₹';
       const emoji = side === 'LONG' ? '🟢' : '🔴';
       const setupLabel = TrendRunnerCopy.setupName(setupKind);
       const setupTip = TrendRunnerCopy.setupTip(setupKind);
@@ -669,15 +672,15 @@ async function _scanOneRedBarInstrument(rawInst, rbCfg) {
         if (isBinance) return '';
         const e = Number(readout.price), s = Number(readout.invalidation), t = Number(readout.tp1);
         if (!(e > 0 && s > 0 && t > 0)) return '';
-        const lot = Number(process.env.NIFTY_LOT_SIZE) || 65;
-        const delta = Number(process.env.NIFTY_OPT_DELTA) || 0.7; // observed ~0.7 on ITM/ATM today
+        const lot = Number(inst.lotSize) || Number(process.env.NIFTY_LOT_SIZE) || 65;
+        const delta = Number(process.env.NIFTY_OPT_DELTA) || 0.7; // observed ~0.7 on ITM/ATM
         const riskPts = Math.abs(e - s), tgtPts = Math.abs(t - e);
         const optSl = (riskPts * delta).toFixed(0), optTp = (tgtPts * delta).toFixed(0);
         const rsSl = Math.round(riskPts * delta * lot), rsTp = Math.round(tgtPts * delta * lot);
-        return `\nDHAN (1 lot ${lot}): option SL = buy price − ${optSl} pts · TP = buy price + ${optTp} pts\nSuggested P&amp;L Exit: Max Loss ~Rs ${rsSl} · Max Profit ~Rs ${rsTp}\nExit manually if NIFTY closes 5m beyond ${fmt(s)}`;
+        return `\nDHAN (1 lot ${lot}): option SL = buy price − ${optSl} pts · TP = buy price + ${optTp} pts\nSuggested P&amp;L Exit: Max Loss ~Rs ${rsSl} · Max Profit ~Rs ${rsTp}\nExit manually if ${inst.label || inst.id} closes 5m beyond ${fmt(s)}`;
       })();
       const dhanAutoOn = String(process.env.DHAN_AUTO_TRADE || '').toLowerCase() === 'true'
-        && String(inst.id || '').toUpperCase() === 'NIFTY';
+        && _canAutoTradeDhanNifty(inst);
       const alertOnlyNote = !isBinance
         ? (dhanAutoOn
           ? dhanNote + '\n🤖 Dhan AUTO on — placing option Super Order (entry+SL+TP)'
@@ -685,7 +688,7 @@ async function _scanOneRedBarInstrument(rawInst, rbCfg) {
         : '';
       const subject = `${side}: ${inst.label} · ${setupLabel}`;
       const planLine = 'Plan: bank ~50% at 1:1 → move stop to cost · trail the rest';
-      const btcConfLine = (String(inst.id || '').toUpperCase() !== 'NIFTY' && readout.btcConfluence?.summaryText)
+      const btcConfLine = (!isIndianIdx && readout.btcConfluence?.summaryText)
         ? `\n🎯 Confluence: <b>${_escHtml(readout.btcConfluence.summaryText)}</b>`
         : '';
       const htmlMsg = `${emoji} <b>${_escHtml(TrendRunnerCopy.enterHeadline(inst.label, side))}</b>
@@ -795,16 +798,16 @@ function saveManagedTrades(rows) {
   }
 }
 
-/** Live Telegram ENTER allow-list. Default BTC+NIFTY+XAU+NG. */
+/** Live Telegram ENTER allow-list. Default BTC + Option B (NIFTY,BANKNIFTY,SENSEX) + Option A (CRUDEOIL,NG). */
 function _redBarBotInstrumentAllowed(inst) {
-  const raw = envTrim('REDBAR_BOT_INSTRUMENTS') || 'BTC,NIFTY,XAU,NG';
+  const raw = envTrim('REDBAR_BOT_INSTRUMENTS') || 'BTC,NIFTY,BANKNIFTY,SENSEX,CRUDEOIL,NG';
   const allow = raw.split(',').map((s) => s.trim().toUpperCase()).filter(Boolean);
   const id = String(inst?.id || '').toUpperCase();
   const sym = String(inst?.symbol || '').toUpperCase();
   return allow.includes(id) || allow.includes(sym);
 }
 
-/** BTCUSDT + XAUUSDT + NATGASUSDT (weekend NG) on Binance USD-M. Optional REDBAR_BINANCE_AUTO_SYMBOLS filter. */
+/** BTCUSDT on Binance USD-M. Optional REDBAR_BINANCE_AUTO_SYMBOLS filter. */
 function _canAutoTradeBinanceFutures(inst) {
   if (!_redBarBotInstrumentAllowed(inst)) return false;
   const sym = String(inst?.symbol || '').toUpperCase();
@@ -814,12 +817,15 @@ function _canAutoTradeBinanceFutures(inst) {
     const autoAllow = autoRaw.split(',').map((s) => s.trim().toUpperCase()).filter(Boolean);
     if (!autoAllow.includes(sym) && !autoAllow.includes(id)) return false;
   }
-  return sym === 'BTCUSDT' || sym === 'XAUUSDT' || sym === 'NATGASUSDT';
+  return sym === 'BTCUSDT';
 }
 
 function _canAutoTradeDhanNifty(inst) {
   if (!_redBarBotInstrumentAllowed(inst)) return false;
-  return String(inst?.id || '').toUpperCase() === 'NIFTY';
+  const id = String(inst?.id || '').toUpperCase();
+  const dhanRaw = envTrim('DHAN_AUTO_INSTRUMENTS') || 'NIFTY,BANKNIFTY,SENSEX,CRUDEOIL,NG';
+  const dhanAllow = dhanRaw.split(',').map((s) => s.trim().toUpperCase()).filter(Boolean);
+  return dhanAllow.includes(id);
 }
 
 const MANAGED_DHAN_FILE = 'managed_dhan_trades.json';
@@ -853,18 +859,19 @@ async function _maybeAutoDhanNifty({ inst, side, readout, alertKey, dayKey, setu
     console.warn('[RedBarBot] DHAN_AUTO_TRADE on but DHAN_CLIENT_ID / DHAN_ACCESS_TOKEN missing');
     return;
   }
+  const instKey = String(inst.id || 'NIFTY').toUpperCase();
   // No clock-based entry kills (14:15 / 13:45 were desk inventions). Setup quality decides.
-  // Operational only: EOD flatten ~15:10 still closes open option risk before cash market.
+  // Operational only: EOD flatten ~15:10 (NSE/BSE) or ~23:15 (MCX) still closes open option risk before session end.
   // Optional override: DHAN_ENTRY_CUTOFF_MINS (IST mins) if you ever want a hard cutoff again.
   const mins = _istMinsNow();
   const entryCutoffRaw = process.env.DHAN_ENTRY_CUTOFF_MINS;
   const entryCutoff = entryCutoffRaw === '' || entryCutoffRaw == null ? 0 : Number(entryCutoffRaw);
   if (entryCutoff > 0 && mins >= entryCutoff) {
-    console.log(`[RedBarBot] NIFTY: past ${Math.floor(entryCutoff / 60)}:${String(entryCutoff % 60).padStart(2, '0')} IST — DHAN_ENTRY_CUTOFF_MINS hard stop`);
+    console.log(`[RedBarBot] ${instKey}: past ${Math.floor(entryCutoff / 60)}:${String(entryCutoff % 60).padStart(2, '0')} IST — DHAN_ENTRY_CUTOFF_MINS hard stop`);
     return;
   }
-  if (lastAlerted[`DHAN_TRADE_${inst.id}_DETAIL`] === alertKey) {
-    console.log(`[RedBarBot] ${inst.id}: Dhan already opened for ${alertKey}`);
+  if (lastAlerted[`DHAN_TRADE_${instKey}_DETAIL`] === alertKey) {
+    console.log(`[RedBarBot] ${instKey}: Dhan already opened for ${alertKey}`);
     return;
   }
   const rawDhanCap = process.env.DHAN_AUTO_MAX_PER_DAY;
@@ -872,16 +879,16 @@ async function _maybeAutoDhanNifty({ inst, side, readout, alertKey, dayKey, setu
   const maxPerDay = dhanCapDisabled ? 0 : (Number(rawDhanCap) || Number(process.env.REDBAR_AUTO_MAX_PER_DAY) || 0);
   // Min floor 60s so a failed place (funds) can retry next scans; set DHAN_AUTO_COOLDOWN_MS for longer.
   const cooldownMs = Math.max(60 * 1000, Number(process.env.DHAN_AUTO_COOLDOWN_MS) || Number(process.env.REDBAR_AUTO_COOLDOWN_MS) || 75 * 60 * 1000);
-  const countKey = `DHAN_TRADE_COUNT_${inst.id}_${dayKey || 'noday'}`;
+  const countKey = `DHAN_TRADE_COUNT_${instKey}_${dayKey || 'noday'}`;
   const dayCount = Number(lastAlerted[countKey]) || 0;
   if (!dhanCapDisabled && maxPerDay > 0 && dayCount >= maxPerDay) {
-    console.log(`[RedBarBot] ${inst.id}: Dhan day cap ${dayCount}/${maxPerDay} — skip ${alertKey}`);
+    console.log(`[RedBarBot] ${instKey}: Dhan day cap ${dayCount}/${maxPerDay} — skip ${alertKey}`);
     return;
   }
-  const lastTs = Number(lastAlerted[`DHAN_TRADE_${inst.id}_LAST_TS`]) || 0;
+  const lastTs = Number(lastAlerted[`DHAN_TRADE_${instKey}_LAST_TS`]) || 0;
   const allManagedDhan = loadManagedDhanTrades();
   const todayManagedDhan = allManagedDhan.filter(
-    (t) => String(t.instrumentId || '').toUpperCase() === 'NIFTY'
+    (t) => String(t.instrumentId || 'NIFTY').toUpperCase() === instKey
       && String(t.alertKey || '').includes(`|${dayKey}|`),
   );
 
@@ -891,7 +898,9 @@ async function _maybeAutoDhanNifty({ inst, side, readout, alertKey, dayKey, setu
   // (so 2 morning SL hits pauses the rest of the morning and waits cleanly for the 12:45 Afternoon Trikal).
   const isAfternoonSession = mins >= (12 * 60 + 45) || String(setupKind || '').startsWith('afternoon_1245');
   const sessBucket = isAfternoonSession ? 'PM' : 'AM';
-  const consecLossKey = `DHAN_CONSEC_LOSSES_${sessBucket}_${dayKey || 'noday'}`;
+  const consecLossKey = instKey === 'NIFTY'
+    ? `DHAN_CONSEC_LOSSES_${sessBucket}_${dayKey || 'noday'}`
+    : `DHAN_CONSEC_LOSSES_${instKey}_${sessBucket}_${dayKey || 'noday'}`;
   const closedSessChron = [...todayManagedDhan]
     .filter((t) => {
       if (!t.status || t.status === 'open') return false;
@@ -912,7 +921,7 @@ async function _maybeAutoDhanNifty({ inst, side, readout, alertKey, dayKey, setu
   }
   if (consecLosses >= 2) {
     console.log(
-      `[RedBarBot] NIFTY: 2 consecutive ${sessBucket} SL losses (Dr. Dev rule) — ${isAfternoonSession ? 'stopping for the day' : 'morning done, waiting for 12:45 Afternoon Trikal'} (${alertKey})`,
+      `[RedBarBot] ${instKey}: 2 consecutive ${sessBucket} SL losses (Dr. Dev rule) — ${isAfternoonSession ? 'stopping for the day' : 'morning done, waiting for 12:45 Afternoon Trikal'} (${alertKey})`,
     );
     return;
   }
@@ -921,12 +930,15 @@ async function _maybeAutoDhanNifty({ inst, side, readout, alertKey, dayKey, setu
   // in later 20m buckets — 2nd and 3rd morning trades must be Trade 2 (shelf retest / sweep) or Session Sweep,
   // unless Trade 1 stopped out and qualifies for the single Rule 6 re-entry below.
   const priorT1Today = todayManagedDhan.filter((t) => t.setupKind === 'trade1_departure');
-  const t1AlreadyWonToday = Boolean(lastAlerted[`DHAN_T1_WON_${dayKey}`])
+  const t1WonKey = instKey === 'NIFTY' ? `DHAN_T1_WON_${dayKey}` : `DHAN_T1_WON_${instKey}_${dayKey}`;
+  const t1AlreadyWonToday = Boolean(lastAlerted[t1WonKey])
     || priorT1Today.some((t) => t.legABooked || t.status === 'closed_target' || t.status === 'closed_be');
 
   // Fix Your Trading Day4 Rule 6: after SL hunt, if ENTER still fires (trend intact)
   // and price revisits the same entry zone — waive cooldown once per day (never chain Rule 6 on Rule 6).
-  const rule6CountKey = `DHAN_RULE6_COUNT_${dayKey || 'noday'}`;
+  const rule6CountKey = instKey === 'NIFTY'
+    ? `DHAN_RULE6_COUNT_${dayKey || 'noday'}`
+    : `DHAN_RULE6_COUNT_${instKey}_${dayKey || 'noday'}`;
   const rule6UsedToday = (Number(lastAlerted[rule6CountKey]) || 0) >= 1
     || todayManagedDhan.some((t) => t.rule6Reentry);
   let rule6SlRow = null;
@@ -950,7 +962,7 @@ async function _maybeAutoDhanNifty({ inst, side, readout, alertKey, dayKey, setu
 
   if (setupKind === 'trade1_departure' && (t1AlreadyWonToday || ((priorT1Today.length > 0 || dayCount >= 1) && !rule6SlRow))) {
     console.log(
-      `[RedBarBot] NIFTY: Trade 1 departure already completed today — waiting for Trade 2 (shelf retest) or Sweep for 2nd/3rd trade`,
+      `[RedBarBot] ${instKey}: Trade 1 departure already completed today — waiting for Trade 2 (shelf retest) or Sweep for 2nd/3rd trade`,
     );
     return;
   }
@@ -971,11 +983,11 @@ async function _maybeAutoDhanNifty({ inst, side, readout, alertKey, dayKey, setu
   if (lastTs && Date.now() - lastTs < effectiveCooldownMs) {
     if (rule6SlRow) {
       console.log(
-        `[RedBarBot] NIFTY: Rule 6 SL-reentry (1/1 today) — waive cooldown (prior ${rule6SlRow.indexEntry} → now ${readout.price})`,
+        `[RedBarBot] ${instKey}: Rule 6 SL-reentry (1/1 today) — waive cooldown (prior ${rule6SlRow.indexEntry} → now ${readout.price})`,
       );
     } else {
       const left = Math.ceil((effectiveCooldownMs - (Date.now() - lastTs)) / 60000);
-      console.log(`[RedBarBot] ${inst.id}: Dhan cooldown ${left}m — skip ${alertKey}`);
+      console.log(`[RedBarBot] ${instKey}: Dhan cooldown ${left}m — skip ${alertKey}`);
       return;
     }
   }
@@ -991,7 +1003,7 @@ async function _maybeAutoDhanNifty({ inst, side, readout, alertKey, dayKey, setu
   // Desk note only — not a Dr Dev hard rule. SL stays structural; we do not abort on index-pt width.
   const riskPts = Math.abs(indexEntry - indexStop);
   if (riskPts > 38) {
-    console.log(`[RedBarBot] NIFTY: structural risk ${riskPts.toFixed(1)} index pts (wide) — taking trade; size option premium carefully.`);
+    console.log(`[RedBarBot] ${instKey}: structural risk ${riskPts.toFixed(1)} pts (wide) — taking trade; size option premium carefully.`);
   }
 
   // Dhan follows the same ENTER as desk + Telegram. Trade 2 confirmation (5m close back through)
@@ -999,23 +1011,23 @@ async function _maybeAutoDhanNifty({ inst, side, readout, alertKey, dayKey, setu
 
   try {
     const { createDhanNiftyTrade } = require('./js/dhan_nifty_trade.js');
-    const trader = createDhanNiftyTrade();
+    const trader = createDhanNiftyTrade({ instrumentId: instKey });
     if (await trader.hasOpenNiftyOptionPosition()) {
-      console.log('[RedBarBot] NIFTY: open F&O position already — skip new Dhan entry');
+      console.log(`[RedBarBot] ${instKey}: open F&O/MCX option position already — skip new Dhan entry`);
       return;
     }
-    console.log(`[RedBarBot] DHAN_AUTO ${side} ${setupKind} index=${indexEntry} stop=${indexStop} tp1=${indexTp1}`);
+    console.log(`[RedBarBot] DHAN_AUTO ${instKey} ${side} ${setupKind} index=${indexEntry} stop=${indexStop} tp1=${indexTp1}`);
     const result = await trader.openOptionSuperTrade({
       side,
       indexEntry,
       indexStop,
       indexTp1,
-      correlationId: `rb-${setupKind}-${Date.now()}`.replace(/[^a-zA-Z0-9_-]/g, '').slice(0, 30),
+      correlationId: `rb-${instKey.toLowerCase()}-${setupKind}-${Date.now()}`.replace(/[^a-zA-Z0-9_-]/g, '').slice(0, 30),
     });
 
     if (result.ok && result.orderId) {
-      lastAlerted[`DHAN_TRADE_${inst.id}_DETAIL`] = alertKey;
-      lastAlerted[`DHAN_TRADE_${inst.id}_LAST_TS`] = Date.now();
+      lastAlerted[`DHAN_TRADE_${instKey}_DETAIL`] = alertKey;
+      lastAlerted[`DHAN_TRADE_${instKey}_LAST_TS`] = Date.now();
       lastAlerted[countKey] = dayCount + 1;
       if (rule6SlRow) {
         lastAlerted[rule6CountKey] = (Number(lastAlerted[rule6CountKey]) || 0) + 1;
@@ -1033,7 +1045,10 @@ async function _maybeAutoDhanNifty({ inst, side, readout, alertKey, dayKey, setu
       }
       managed.push({
         status: 'open',
-        instrumentId: 'NIFTY',
+        instrumentId: instKey,
+        underlyingScrip: trader.underlyingScrip,
+        underlyingSeg: trader.underlyingSeg,
+        optSeg: trader.optSeg,
         dayKey: dayKey || '',
         side,
         setupKind,
@@ -1071,11 +1086,11 @@ async function _maybeAutoDhanNifty({ inst, side, readout, alertKey, dayKey, setu
   } catch (e) {
     console.error('[RedBarBot] DHAN_AUTO failed:', e.message);
     // Don't spam the same ENTER every 30s — cooldown even on failure.
-    lastAlerted[`DHAN_TRADE_${inst.id}_LAST_TS`] = Date.now();
-    lastAlerted[`DHAN_TRADE_${inst.id}_LAST_ERR`] = String(e.message || e).slice(0, 180);
+    lastAlerted[`DHAN_TRADE_${instKey}_LAST_TS`] = Date.now();
+    lastAlerted[`DHAN_TRADE_${instKey}_LAST_ERR`] = String(e.message || e).slice(0, 180);
     saveAlertState(lastAlerted);
     if (bot && chatId) {
-      await bot.sendMessage(chatId, `❌ Dhan AUTO failed NIFTY ${side}: ${e.message}`, {
+      await bot.sendMessage(chatId, `❌ Dhan AUTO failed ${instKey} ${side}: ${e.message}`, {
         disable_web_page_preview: true,
       }).catch(() => {});
     }
@@ -1086,7 +1101,7 @@ async function _maybeAutoDhanNifty({ inst, side, readout, alertKey, dayKey, setu
  * Manage open Dhan Super Orders — Dr Dev ladder:
  *  - At ~1:1 premium R: bank ~50% (2+ lots) / BE-only if 1 lot; runner SL → BE
  *  - At ~2R: trail runner SL up to lock ~1R
- *  - Hard flat at 15:10 IST (ops — closes anything left before RMS)
+ *  - Hard flat at 15:10 IST for NSE/BSE indices, or 23:15 IST for MCX evening commodities
  */
 async function pollManagedDhanStops() {
   if (String(process.env.DHAN_AUTO_TRADE || '').toLowerCase() !== 'true') return;
@@ -1099,22 +1114,29 @@ async function pollManagedDhanStops() {
   if (!rows.length) return;
 
   const { createDhanNiftyTrade } = require('./js/dhan_nifty_trade.js');
-  let trader;
-  try {
-    trader = createDhanNiftyTrade();
-  } catch (e) {
-    console.warn('[RedBarBot] Dhan manage init:', e.message);
-    return;
-  }
-
   const mins = _istMinsNow();
   const flatMins = Number(process.env.DHAN_FLAT_IST_MINS) || (15 * 60 + 10);
+  const mcxFlatMins = Number(process.env.DHAN_MCX_FLAT_IST_MINS) || (23 * 60 + 15);
   const next = [];
 
   for (const t of rows) {
     try {
-      if (mins >= flatMins) {
-        // Only check THIS managed contract — another manual NIFTY option must not force a flatten.
+      const tInst = String(t.instrumentId || 'NIFTY').toUpperCase();
+      const isMcx = ['CRUDEOIL', 'NG'].includes(tInst);
+      let trader;
+      try {
+        trader = createDhanNiftyTrade({ instrumentId: tInst });
+      } catch (e) {
+        console.warn('[RedBarBot] Dhan manage init:', e.message);
+        next.push(t);
+        continue;
+      }
+
+      const shouldFlatEod = isMcx
+        ? (mins >= mcxFlatMins && mins <= 1415)
+        : (mins >= flatMins && mins <= 940);
+      if (shouldFlatEod) {
+        // Only check THIS managed contract — another manual option must not force a flatten.
         const openQty = t.securityId
           ? await trader.getOpenQtyForSecurity(t.securityId).catch(() => null)
           : null;
@@ -1128,7 +1150,8 @@ async function pollManagedDhanStops() {
         const flatQty = openQty != null && Math.abs(openQty) > 0
           ? Math.abs(openQty)
           : t.qty;
-        console.log(`[RedBarBot] Dhan flat@15:10 — closing ${t.symbolHint || t.orderId} qty=${flatQty}`);
+        const flatClockLabel = isMcx ? '23:15' : '15:10';
+        console.log(`[RedBarBot] Dhan flat@${flatClockLabel} — closing ${t.symbolHint || t.orderId} qty=${flatQty}`);
         const flatRes = await trader.flattenTrade({
           orderId: t.orderId,
           securityId: t.securityId,
@@ -1137,11 +1160,11 @@ async function pollManagedDhanStops() {
           runnerTpOrderId: t.runnerTpOrderId,
         });
         if (flatRes && flatRes.exitError) {
-          console.error(`[RedBarBot] 🚨 Dhan flat@15:10 FAILED: ${flatRes.exitError}`);
+          console.error(`[RedBarBot] 🚨 Dhan flat@${flatClockLabel} FAILED: ${flatRes.exitError}`);
           if (bot && chatId) {
             await bot.sendMessage(
               chatId,
-              `🚨 <b>CRITICAL: Dhan EOD Flatten FAILED!</b>\n${flatRes.exitError}\nContract: ${t.symbolHint || t.orderId}\n👉 <b>MANUALLY EXIT ON DHAN BEFORE 15:20 RMS!</b>`,
+              `🚨 <b>CRITICAL: Dhan EOD Flatten FAILED!</b>\n${flatRes.exitError}\nContract: ${t.symbolHint || t.orderId}\n👉 <b>MANUALLY EXIT ON DHAN BEFORE RMS!</b>`,
               { parse_mode: 'HTML', disable_web_page_preview: true },
             ).catch(() => {});
           }
@@ -1170,8 +1193,8 @@ async function pollManagedDhanStops() {
         try {
           if (t.expiry && t.strike != null) {
             const chain = await trader.dhan.getOptionChain({
-              underlyingScrip: 13,
-              underlyingSeg: 'IDX_I',
+              underlyingScrip: t.underlyingScrip || trader.underlyingScrip || 13,
+              underlyingSeg: t.underlyingSeg || trader.underlyingSeg || 'IDX_I',
               expiry: t.expiry,
             });
             const oc = chain?.data?.oc || chain?.oc || {};
@@ -1211,9 +1234,11 @@ async function pollManagedDhanStops() {
               const tDayKey = t.dayKey || (String(t.alertKey || '').split('|')[2] || '');
               const tSess = String(t.setupKind || '').startsWith('afternoon_1245') ? 'PM' : 'AM';
               if (tDayKey) {
-                lastAlerted[`DHAN_CONSEC_LOSSES_${tSess}_${tDayKey}`] = 0;
+                const cKey = tInst === 'NIFTY' ? `DHAN_CONSEC_LOSSES_${tSess}_${tDayKey}` : `DHAN_CONSEC_LOSSES_${tInst}_${tSess}_${tDayKey}`;
+                const wKey = tInst === 'NIFTY' ? `DHAN_T1_WON_${tDayKey}` : `DHAN_T1_WON_${tInst}_${tDayKey}`;
+                lastAlerted[cKey] = 0;
                 if (t.setupKind === 'trade1_departure') {
-                  lastAlerted[`DHAN_T1_WON_${tDayKey}`] = true;
+                  lastAlerted[wKey] = true;
                 }
                 saveAlertState(lastAlerted);
               }
@@ -1387,16 +1412,18 @@ async function pollManagedDhanStops() {
         const tDayKey = t.dayKey || (String(t.alertKey || '').split('|')[2] || '');
         const tSess = String(t.setupKind || '').startsWith('afternoon_1245') ? 'PM' : 'AM';
         if (tDayKey) {
+          const cKey = tInst === 'NIFTY' ? `DHAN_CONSEC_LOSSES_${tSess}_${tDayKey}` : `DHAN_CONSEC_LOSSES_${tInst}_${tSess}_${tDayKey}`;
+          const wKey = tInst === 'NIFTY' ? `DHAN_T1_WON_${tDayKey}` : `DHAN_T1_WON_${tInst}_${tDayKey}`;
           if (t.legABooked || t.status === 'closed_target' || t.status === 'closed_be') {
-            lastAlerted[`DHAN_CONSEC_LOSSES_${tSess}_${tDayKey}`] = 0;
+            lastAlerted[cKey] = 0;
             if (t.setupKind === 'trade1_departure') {
-              lastAlerted[`DHAN_T1_WON_${tDayKey}`] = true;
+              lastAlerted[wKey] = true;
             }
           } else if (t.status === 'closed_sl') {
-            lastAlerted[`DHAN_CONSEC_LOSSES_${tSess}_${tDayKey}`] = (Number(lastAlerted[`DHAN_CONSEC_LOSSES_${tSess}_${tDayKey}`]) || 0) + 1;
+            lastAlerted[cKey] = (Number(lastAlerted[cKey]) || 0) + 1;
           }
         }
-        lastAlerted.DHAN_TRADE_NIFTY_LAST_TS = Date.now();
+        lastAlerted[`DHAN_TRADE_${tInst}_LAST_TS`] = Date.now();
         saveAlertState(lastAlerted);
       }
       next.push(t);
@@ -2218,6 +2245,40 @@ if (!process.env.BOT_WORKER_ONLY) {
     relay: true,
   }));
 
+  // Proxy Dhan OHLC for browser desk (NIFTY, BANKNIFTY, SENSEX, CRUDEOIL, NG)
+  app.get('/api/dhan/ohlc', async (req, res) => {
+    try {
+      const securityId = String(req.query.securityId || '').trim();
+      const exchangeSegment = String(req.query.exchangeSegment || 'IDX_I').trim();
+      const instrument = String(req.query.instrument || 'INDEX').trim();
+      const interval = String(req.query.interval || '15m').trim();
+      const limit = Math.min(600, Math.max(10, Number(req.query.limit) || 260));
+      if (!securityId) {
+        return res.status(400).json({ ok: false, error: 'securityId required' });
+      }
+      const { createDhanClient, isDhanConfigured } = require('./js/dhan_client.js');
+      if (!isDhanConfigured()) {
+        return res.status(503).json({ ok: false, error: 'Dhan credentials not configured on server' });
+      }
+      const dhan = createDhanClient();
+      const rows = await dhan.getKlines({
+        securityId,
+        exchangeSegment,
+        instrument,
+        interval,
+        limit,
+      });
+      return res.json({
+        ok: true,
+        rows: Array.isArray(rows) ? rows : [],
+        meta: { feed: 'dhan', unit: 'INR', securityId, exchangeSegment, instrument },
+      });
+    } catch (e) {
+      console.warn('[DhanProxy] /api/dhan/ohlc failed:', e.message);
+      return res.status(502).json({ ok: false, error: e.message });
+    }
+  });
+
   // Desk → Telegram when PWA sees ENTER (brief Trade 1/2 must not wait for scan)
   const relaySeen = new Map();
   const RELAY_TTL_MS = 4 * 60 * 60 * 1000;
@@ -2253,7 +2314,7 @@ if (!process.env.BOT_WORKER_ONLY) {
     const scannerKey = `${side}|${setupKind}|${dayKey}|${trigBucket}`;
     const alertKey = `RB_${instrumentId}|${scannerKey}`;
 
-    const allowed = (envTrim('REDBAR_BOT_INSTRUMENTS') || 'BTC,NIFTY').split(',').map((s) => s.trim().toUpperCase());
+    const allowed = (envTrim('REDBAR_BOT_INSTRUMENTS') || 'BTC,NIFTY,BANKNIFTY,SENSEX,CRUDEOIL,NG').split(',').map((s) => s.trim().toUpperCase());
     if (!allowed.includes(String(instrumentId).toUpperCase())) {
       return res.json({ ok: true, ignored: true });
     }
@@ -2271,11 +2332,12 @@ if (!process.env.BOT_WORKER_ONLY) {
     const setupLabel = TrendRunnerCopy.setupName(setupKind || body.title);
     const setupTip = TrendRunnerCopy.setupTip(setupKind || body.title);
     const deskUrl = envTrim('DESK_URL') || 'https://trendrunner.app';
+    const relaySym = String(instrumentId).toUpperCase() === 'BTC' ? '$' : '₹';
     const text =
       `${emoji} <b>${escHtmlRelay(TrendRunnerCopy.enterHeadline(label, side))}</b>\n` +
       `<b>${escHtmlRelay(setupLabel)}</b>\n` +
       (setupTip ? `${escHtmlRelay(setupTip)}\n` : '') +
-      `Entry <b>$${escHtmlRelay(body.price ?? '—')}</b> · Stop <b>$${escHtmlRelay(body.stop ?? '—')}</b> · 1:1 bank <b>$${escHtmlRelay(body.tp1 ?? '—')}</b>\n` +
+      `Entry <b>${relaySym}${escHtmlRelay(body.price ?? '—')}</b> · Stop <b>${relaySym}${escHtmlRelay(body.stop ?? '—')}</b> · 1:1 bank <b>${relaySym}${escHtmlRelay(body.tp1 ?? '—')}</b>\n` +
       `Plan: bank ~50% at 1:1 → move stop to cost · trail the rest\n` +
       `<a href="${deskUrl}">Open TrendRunner Desk</a>`;
     try {

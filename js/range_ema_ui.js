@@ -295,7 +295,8 @@ const RangeEmaUI = {
     };
     this._pendingEnterAlert = payload;
     // Freeze levels for place/bot — live refresh was changing Entry/SL/TP mid-signal
-    const freshMins = (String(inst.id || '').toUpperCase() === 'NIFTY' || payload.setupKind === 'pob_reject') ? 20 : 90;
+    const isIndIdx = ['NIFTY', 'BANKNIFTY', 'SENSEX'].includes(String(inst.id || '').toUpperCase());
+    const freshMins = (isIndIdx || payload.setupKind === 'pob_reject') ? 20 : 90;
     const snapKey = `${payload.dayKey}|${payload.side}|${payload.setupKind}|${payload.triggerTs}`;
     const prevSnap = this.state.enterSnapshot;
     const prevStale = prevSnap?.at ? ((Date.now() - prevSnap.at) / 60000 > freshMins) : false;
@@ -564,11 +565,12 @@ const RangeEmaUI = {
       : rawInst;
     const tf = this.activeTf();
     const lim = this._ohlcLimit(tf, c, instrument);
-    // First-red TF comes from config (NIFTY 5m, BTC 1H, NG/metals 30m). Defaults below only if config omits it.
+    // First-red TF comes from config (Option B indices: 5m, BTC/Option A MCX: null). Defaults below only if config omits it.
     const instUpperId = String(instrument.id || '').toUpperCase();
+    const isIndIdxId = ['NIFTY', 'BANKNIFTY', 'SENSEX'].includes(instUpperId);
     let firstRedTf = instrument.firstRedTf !== undefined
       ? instrument.firstRedTf
-      : (instUpperId === 'NIFTY' ? '15m' : null);
+      : (isIndIdxId ? '5m' : null);
     const firstRedBarMs = firstRedTf === '30m' ? 30 * 60000
       : firstRedTf === '15m' ? 15 * 60000
         : firstRedTf === '5m' ? 5 * 60000
@@ -683,7 +685,7 @@ const RangeEmaUI = {
           });
         }
         // No 15m fallback: the bot never uses one, so the desk must not show a first red the bot ignores.
-        if (!firstRed1h && instUpperId === 'NIFTY' && bars5m && bars5m.length >= 24) {
+        if (!firstRed1h && isIndIdxId && bars5m && bars5m.length >= 24) {
           const fb5 = RedBarTrend.firstRedBarOfSession(bars5m, calDay, {
             ...readCfg,
             asOfTs: nowTs,
@@ -720,8 +722,8 @@ const RangeEmaUI = {
         readout.refs.firstRed1hLow = firstRed1h ? firstRed1h.low : null;
       }
       // Recompute Course Confluence on the currently selected chart timeframe (5m / 15m / 30m / 1h)
-      // so the 200 MA (H/L/C) and SuperTrend (10, 4.1) pills match the visible chart timeframe on BTC, XAU, and NG.
-      if (instUpperId !== 'NIFTY' && typeof RedBarTrend.computeBtcCourseConfluence === 'function' && bars30 && bars30.length >= 30) {
+      // so the 200 MA (H/L/C) and SuperTrend (10, 4.1) pills match the visible chart timeframe on BTC and MCX (CRUDEOIL, NG).
+      if (!isIndIdxId && typeof RedBarTrend.computeBtcCourseConfluence === 'function' && bars30 && bars30.length >= 30) {
         const tfConf = RedBarTrend.computeBtcCourseConfluence({
           bars: bars30,
           bars5m: bars5m && bars5m.length ? bars5m : bars30,
@@ -1068,10 +1070,20 @@ const RangeEmaUI = {
 
   _tabsHtml(inst) {
     const loading = !!this.state.loading;
+    let lastGroup = null;
     const instBtns = this.instruments().map((x) => {
       const active = x.id === inst.id;
       const cls = `rb-inst-btn${active ? ' active' : ''}${active && loading ? ' is-loading' : ''}`;
-      return `<button type="button" class="${cls}" data-rb-inst="${x.id}"${loading && active ? ' aria-busy="true"' : ''}>${x.label}${active && loading ? ' …' : ''}</button>`;
+      let prefix = '';
+      if (x.optionGroup && x.optionGroup !== lastGroup) {
+        lastGroup = x.optionGroup;
+        const badgeText = x.optionGroup === 'B' ? '🇮🇳 Option B' : x.optionGroup === 'A' ? '🔥 Option A' : `Option ${x.optionGroup}`;
+        const badgeTitle = x.optionGroup === 'B'
+          ? 'Option B: Native Dr. Dev Indian Indices (09:15–15:30 IST · Dhan NSE/BSE Options)'
+          : 'Option A: Native Dr. Dev MCX Evening Commodities (09:00–23:30 IST · Dhan MCX Options)';
+        prefix = `<span class="rb-opt-group-tag" title="${badgeTitle}" style="display:inline-flex;align-items:center;font-size:10.5px;font-weight:700;color:#94a3b8;background:rgba(255,255,255,0.05);border:1px solid rgba(255,255,255,0.1);border-radius:6px;padding:3px 7px;margin-left:6px;margin-right:2px;letter-spacing:0.03em;">${badgeText}</span>`;
+      }
+      return `${prefix}<button type="button" class="${cls}" data-rb-inst="${x.id}" title="${x.tradeHint || x.label}"${loading && active ? ' aria-busy="true"' : ''}>${x.label}${active && loading ? ' …' : ''}</button>`;
     }).join('');
     const alertsOn = this.state.alertsOn !== false;
     const alertBtn = `<button type="button" class="rb-inst-btn rb-alert-btn${alertsOn ? ' active' : ''}" id="rbAlertsToggle" title="Telegram + banner when desk ENTER is ready. Worker keeps scanning when this tab is closed." aria-pressed="${alertsOn ? 'true' : 'false'}">${alertsOn ? 'Alerts ON' : 'Alerts OFF'}</button>`;
@@ -1531,10 +1543,10 @@ const RangeEmaUI = {
     const isUsClose = (curMins >= 75 && curMins < 150);
 
     const instUpper = String(r.instrument?.id || '').toUpperCase();
-    const isNiftyInst = instUpper === 'NIFTY';
-    const isXauInst = instUpper === 'XAU';
-    const isNgInst = instUpper === 'NG';
-    const isBinanceWeekendNg = isNgInst && String(r.instrument?.symbol || '').toUpperCase() === 'NATGASUSDT';
+    const isNiftyInst = ['NIFTY', 'BANKNIFTY', 'SENSEX'].includes(instUpper);
+    const isXauInst = false;
+    const isNgInst = ['NG', 'CRUDEOIL'].includes(instUpper);
+    const isBinanceWeekendNg = false;
     const isNsePrime = isNiftyInst && curMins >= 555 && curMins < 735;
     const isNseHunt = isNiftyInst && curMins >= 735 && curMins <= 795;
     const isNseAfternoon = isNiftyInst && curMins > 795 && curMins < 915;
@@ -1690,7 +1702,7 @@ const RangeEmaUI = {
 
     // 2. Action & Status HUD
     const isEnter = a.side === 'LONG' || a.side === 'SHORT';
-    const freshMins = (String(r.instrument?.id || '').toUpperCase() === 'NIFTY' || o.setupKind === 'pob_reject') ? 20 : 90;
+    const freshMins = (isNiftyInst || o.setupKind === 'pob_reject') ? 20 : 90;
     const snap = this.state.enterSnapshot;
     const snapAgeMin = snap?.at ? (Date.now() - snap.at) / 60000 : 0;
     const reasonStale = /stale|do not chase|window closed|already \d/i.test(String(o.actionReason || ''));
@@ -1765,7 +1777,7 @@ const RangeEmaUI = {
         : `<div class="rb-binance-status">Binance: no open BTCUSDT position right now</div>`)
       : '';
 
-    const btcConf = (instUpper !== 'NIFTY') ? (o.btcConfluence || o.playbook?.btcConfluence || null) : null;
+    const btcConf = (!isNiftyInst) ? (o.btcConfluence || o.playbook?.btcConfluence || null) : null;
     const btcConfHtml = btcConf ? (() => {
       const sc = btcConf.score;
       const gradeCol = sc === 4 ? '#4ade80' : sc === 3 ? '#38bdf8' : sc === 2 ? '#fbbf24' : '#94a3b8';
@@ -3274,9 +3286,9 @@ const RangeEmaUI = {
     const fmtMins = (m) => `${String(Math.floor(((m % 1440) + 1440) % 1440 / 60)).padStart(2, '0')}:${String(((m % 1440) + 1440) % 1440 % 60).padStart(2, '0')}`;
 
     const instUpper = String(instId || this.activeInstrument()?.id || '').toUpperCase();
-    const isNifty = instUpper === 'NIFTY';
-    const isXau = instUpper === 'XAU';
-    const isNg = instUpper === 'NG';
+    const isNifty = ['NIFTY', 'BANKNIFTY', 'SENSEX'].includes(instUpper);
+    const isXau = false;
+    const isNg = ['NG', 'CRUDEOIL'].includes(instUpper);
     const comexOpenMins = this._getSessionOpenMins(nowMs, 'America/New_York', 8, 30);
     const nymexOpenMins = this._getSessionOpenMins(nowMs, 'America/New_York', 9, 0);
     const windows = isNifty ? [
@@ -3659,7 +3671,7 @@ const RangeEmaUI = {
 
     const dPrice = row.feedPriceDecimals != null ? row.feedPriceDecimals : (inst.priceDecimals ?? 2);
     const feedCur = String(row.feedCurrency || inst.currency || '').toUpperCase();
-    const curSign = (feedCur === 'INR' || (feedCur !== 'USD' && (String(inst.id || '').toUpperCase() === 'NIFTY' || String(inst.id || '').toUpperCase() === 'NG')))
+    const curSign = (feedCur === 'INR' || (feedCur !== 'USD' && ['NIFTY', 'BANKNIFTY', 'SENSEX', 'CRUDEOIL', 'NG'].includes(String(inst.id || '').toUpperCase())))
       ? '₹'
       : '$';
     const getFibSummaryHtml = (pinnedOrHovered) => {
@@ -4715,8 +4727,7 @@ const RangeEmaUI = {
         || pob.status === 'await_retest' || pob.status === 'x_candle_wait'
         || pob.status === 'watching' || pob.status === 'stale'));
       const label = String(pob?.xCandle?.sessionLabel || '');
-      const isBtcOrXauDesk = ['BTC', 'XAU'].includes(String(inst.id || '').toUpperCase())
-        || String(inst.symbol || '').toUpperCase() === 'NATGASUSDT';
+      const isBtcOrXauDesk = String(inst.id || '').toUpperCase() === 'BTC';
       const sessionOk = !isBtcOrXauDesk || /asia/i.test(label);
       this._chart.$rbPobReject = (pobLive && sessionOk) ? pob : null;
     }

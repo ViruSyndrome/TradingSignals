@@ -649,6 +649,14 @@ const RedBarTrend = {
     return null;
   },
 
+  isIndianIndex(instId) {
+    return ['NIFTY', 'BANKNIFTY', 'SENSEX'].includes(String(instId || '').toUpperCase());
+  },
+
+  isMcxCommodity(instId) {
+    return ['NG', 'CRUDEOIL'].includes(String(instId || '').toUpperCase());
+  },
+
   /**
    * First red on the calendar day (Sagar: 1H first-red pivot).
    * - Use calendar dayKey (IST), NOT mark-window session day — fibs and first-red
@@ -661,16 +669,17 @@ const RedBarTrend = {
     const dayMode = cfg.dayMode || 'ist';
     const now = cfg.asOfTs != null ? cfg.asOfTs : Date.now();
     const barMs = cfg.barMs != null ? cfg.barMs : 3600000; // 1H default
-    // On 24/7 early-morning session-Fib assets (BTC 02:30–03:30 IST, XAU 01:30–02:30 IST),
+    // On 24/7 early-morning session-Fib assets (BTC 02:30–03:30 IST),
     // 00:30 & 01:30 IST belong to the prior US close and the mark window is the day's open anchor.
     // Anchor today's 1H first-red only after that early mark window completes (endHour <= 6).
     const window = this.getMarkWindow(cfg);
     const instId = String(cfg.id || cfg.instrumentId || '').toUpperCase();
+    const isMcx = this.isMcxCommodity(instId);
     const isEarlyMark = !!(window && this.isSessionFib(cfg) && (Number(window.endHour) <= 6 || window.timeZone === 'America/New_York'));
     const sessDay = isEarlyMark ? this.sessionDayKey(now, window) : asOfDay;
     const markEndTs = isEarlyMark
       ? this.zonedClockToUtc(sessDay, window.timeZone || 'Asia/Kolkata', window.endHour, window.endMinute)
-      : (instId === 'NG'
+      : (isMcx
         ? this.zonedClockToUtc(asOfDay, 'Asia/Kolkata', 9, 0)
         : null);
     const dayBars = [];
@@ -681,8 +690,8 @@ const RedBarTrend = {
       if (markEndTs != null && bars[i].t < markEndTs - 1000) continue;
       dayBars.push({ bar: bars[i], index: i });
     }
-    // If markEndTs already skipped the mark-window open candle (BTC/XAU), start at 0; for NG/NSE skip open bar [0]
-    const startJ = (markEndTs != null && instId !== 'NG') ? 0 : 1;
+    // If markEndTs already skipped the mark-window open candle (BTC), start at 0; for MCX/NSE skip open bar [0]
+    const startJ = (markEndTs != null && !isMcx) ? 0 : 1;
     for (let j = startJ; j < dayBars.length; j++) {
       const { bar, index } = dayBars[j];
       if (bar.c < bar.o) {
@@ -3099,10 +3108,10 @@ const RedBarTrend = {
       pickStructuralStop(rawCands.filter((x) => x && Number.isFinite(x.v) && x.v > price), false);
     }
 
-    // NIFTY morning leave/retest: stop = real 5m structure (pullback wick / box mid / box edge / real swing).
-    // Never pick a micro 2–5 pt candle wiggle (< ~15 index pts) when real box/pullback structure is right behind it.
+    // Indian Index (NIFTY / BANKNIFTY / SENSEX) morning leave/retest: stop = real 5m structure (pullback wick / box mid / box edge / real swing).
+    // Never pick a micro 2–5 pt candle wiggle (< ~0.06% index pts) when real box/pullback structure is right behind it.
     if (
-      String(instId).toUpperCase() === 'NIFTY'
+      this.isIndianIndex(instId)
       && firstRed1h && Number.isFinite(firstRed1h.low) && Number.isFinite(firstRed1h.high)
       && (setupKind === 'trade1_departure' || setupKind === 'trade2_confirmed')
     ) {
@@ -3478,21 +3487,21 @@ const RedBarTrend = {
     // Dr. Devendra Pratap Singh: Setup 3 (30m 5 EMA Rubber Band Mean Reversion)
     const setup3 = this.detect30m5EmaRubberBand(slice, bars5m, evalTs);
     // Dr. Dev Setup 1 POB (5m X-Candle → retest → SHORT only). Never 1H first-red (tautology).
-    // NIFTY: NSE 09:15 IST. BTC: Asia/London/NY. XAU: Asia/London/COMEX. NG: MCX 09:00 / MCX Eve 17:00 / NYMEX 18:30–19:30.
+    // Option B (NIFTY, BANKNIFTY, SENSEX): NSE/BSE 09:15 IST. BTC: Asia 05:30. Option A (CRUDEOIL, NG): MCX 09:00 / MCX Eve 17:00 / NYMEX 18:30–19:30.
     const instId = String(c.id || c.instrumentId || '').toUpperCase();
+    const isIndIdx = this.isIndianIndex(instId);
+    const isMcx = this.isMcxCommodity(instId);
     const isBtc = !instId || instId === 'BTC';
-    const isBinanceWeekendNg = instId === 'NG' && String(c.symbol || '').toUpperCase().endsWith('USDT');
-    const isBtcOrXau = isBtc || instId === 'XAU' || isBinanceWeekendNg;
     let xCandle5m = null;
     let pobOpts = null;
-    if (bars5m && instId === 'NIFTY') {
+    if (bars5m && isIndIdx) {
       xCandle5m = this.findOpeningXCandle5m(bars5m, evalTs, {
         timeZone: 'Asia/Kolkata',
         openHour: 9,
         openMinute: 15,
         maxBars: 6,
         sessionId: 'nse',
-        sessionLabel: 'NSE 09:15 IST',
+        sessionLabel: `${instId === 'SENSEX' ? 'BSE' : 'NSE'} 09:15 IST`,
       });
       pobOpts = {
         timeZone: 'Asia/Kolkata',
@@ -3500,7 +3509,7 @@ const RedBarTrend = {
         maxEntryMins: 180,
         freshMins: 20,
       };
-    } else if (bars5m && isBtcOrXau) {
+    } else if (bars5m && isBtc) {
       xCandle5m = this.findPrimeSessionXCandle5m(bars5m, evalTs, {
         timeZone: 'Asia/Kolkata',
         primes: this.btcPobPrimes(evalTs),
@@ -3512,7 +3521,7 @@ const RedBarTrend = {
         freshMins: 20,
         btcTol: true,
       };
-    } else if (bars5m && instId === 'NG') {
+    } else if (bars5m && isMcx) {
       const primes = this.NG_POB_PRIMES;
       xCandle5m = this.findPrimeSessionXCandle5m(bars5m, evalTs, {
         timeZone: 'Asia/Kolkata',
@@ -3532,15 +3541,15 @@ const RedBarTrend = {
     // Dr. Dev Equinox Macro Territory
     const equinox = this.computeEquinoxMacro(price, instId, evalTs);
 
-    // Dr. Dev Trikal 12:45 Afternoon Engine & Dr. Dev 5m Squeeze (NIFTY)
-    const afternoon1245 = (bars5m && instId === 'NIFTY')
+    // Dr. Dev Trikal 12:45 Afternoon Engine & Dr. Dev 5m Squeeze (Option B Indian Indices: NIFTY, BANKNIFTY, SENSEX)
+    const afternoon1245 = (bars5m && isIndIdx)
       ? this.detect1245AfternoonSetup(bars5m, evalTs)
       : null;
-    const squeeze5m = (bars5m && instId === 'NIFTY')
+    const squeeze5m = (bars5m && isIndIdx)
       ? this.detectSqueezePattern(bars5m, evalTs)
       : null;
-    // Dr. Dev BTC + Gold (XAU) Asia 05:30 (30m X breakout) — Trikal 05:30 clock
-    const btcAsia0530 = (bars5m && isBtcOrXau)
+    // Dr. Dev BTC Asia 05:30 (30m X breakout) — Trikal 05:30 clock
+    const btcAsia0530 = (bars5m && isBtc)
       ? this.detectBtcAsia0530Trikal(bars5m, evalTs)
       : null;
 
@@ -3732,7 +3741,7 @@ const RedBarTrend = {
     const invalidation = levels.invalidation;
     const bookZone = levels.bookZone;
 
-    const btcConfluence = (instId !== 'NIFTY')
+    const btcConfluence = (!isIndIdx)
       ? this.computeBtcCourseConfluence({
         bars: slice,
         bars5m,
@@ -3907,7 +3916,7 @@ const RedBarTrend = {
         swingLow,
         prevSwingHigh: levels.prevSwingHigh ?? swingHigh,
         prevSwingLow: levels.prevSwingLow ?? swingLow,
-        swingStopTf: preferSwingStop ? (instId === 'NIFTY' ? '5m' : '15m') : null,
+        swingStopTf: preferSwingStop ? (isIndIdx ? '5m' : '15m') : null,
       },
       invalidation,
       invalidationReason: levels.invalidationReason,
@@ -4007,12 +4016,13 @@ const RedBarTrend = {
     }
 
     const instEarly = String(instrumentId || '').toUpperCase();
+    const isIndIdxEarly = this.isIndianIndex(instEarly);
 
-    // NIFTY: no clock-based ENTER kills (14:15 / 13:45 / pt caps were desk inventions).
+    // Option B Indian Indices (NIFTY, BANKNIFTY, SENSEX): no clock-based ENTER kills (14:15 / 13:45 / pt caps were desk inventions).
     // Setup quality decides. EOD flatten (~15:10) is ops-only in the bot.
     const isPob = setupKind === 'pob_reject';
-    // NIFTY Trade 3 (Setup 3 rubber band) may ENTER when enabled — BTC keeps it overlay-only
-    const niftySetup3 = instEarly === 'NIFTY' && setupKind === 'setup3_rubber_band';
+    // Indian Index Trade 3 (Setup 3 rubber band) may ENTER when enabled — BTC keeps it overlay-only
+    const niftySetup3 = isIndIdxEarly && setupKind === 'setup3_rubber_band';
     if (!this.ACTIONABLE_SETUPS.includes(setupKind) && !niftySetup3) {
       const why = {
         trend_bias: 'Bias only — wait for leave, shelf retest, sweep, or mid-zone reject.',
@@ -4079,8 +4089,8 @@ const RedBarTrend = {
     // Clocks: BTC mid-zone X is Asia 05:30 only. CME Fib = magnets, not Trade 1.
     // Pre-Asia: no fresh T1/T2/sweep ENTER (dead hours) — wait Asia Trikal / real first red after mark.
     const inst = String(instrumentId || '').toUpperCase();
-    const isNifty = inst === 'NIFTY';
-    const isBtcGate = !inst || inst === 'BTC' || inst === 'XAU' || inst === 'NG';
+    const isNifty = this.isIndianIndex(inst);
+    const isBtcGate = !isNifty;
     if (
       isBtcGate
       && clock
@@ -4099,7 +4109,7 @@ const RedBarTrend = {
       if (Math.abs(n) < 500) return n.toFixed(2);
       return String(Math.round(n));
     };
-    // BTC / XAU / NG: do not enter while price is trapped inside today's Mark Fib (0..1) accumulation box.
+    // BTC / MCX (Option A): do not enter while price is trapped inside today's Mark Fib (0..1) accumulation box.
     const isInsideMarkFib = phase === 'inside_or' || (
       openingRange && openingRange.locked
       && Number.isFinite(Number(livePrice))
@@ -4115,7 +4125,7 @@ const RedBarTrend = {
         reason: `Price is inside today's Mark Fib box${boxStr} — accumulation chop. Wait for a clean break outside the Fib box before entering.`,
       };
     }
-    // BTC / XAU / NG: do not enter while price is trapped inside the 05:30–06:00 Asia 30m X box.
+    // BTC: do not enter while price is trapped inside the 05:30–06:00 Asia 30m X box.
     const asiaBox = btcAsia0530 && btcAsia0530.xCandle;
     const isInsideAsiaBox = Boolean(
       asiaBox
@@ -4131,7 +4141,7 @@ const RedBarTrend = {
         reason: `Price is inside today's 05:30–06:00 Asia X range (${fmtGatePx(asiaBox.low)}–${fmtGatePx(asiaBox.high)}) — stand aside until a clean break outside the range.`,
       };
     }
-    // BTC / XAU / NG: Dr. Dev Course Filter — 200 MA (High/Low/Close) chop band & SuperTrend (10, 4.1) alignment
+    // BTC / MCX: Dr. Dev Course Filter — 200 MA (High/Low/Close) chop band & SuperTrend (10, 4.1) alignment
     if (isBtcGate && btcConfluence) {
       if (btcConfluence.ma200 && btcConfluence.ma200.insideChop) {
         return {
@@ -4152,7 +4162,7 @@ const RedBarTrend = {
         };
       }
     }
-    // BTC / XAU / NG: Trade 2 LONG on 1H low sweep is WATCH-only unless backed by full 4/4 (A+) Course Confluence
+    // BTC / MCX: Trade 2 LONG on 1H low sweep is WATCH-only unless backed by full 4/4 (A+) Course Confluence
     if (
       isBtcGate
       && setupKind === 'trade2_confirmed'
@@ -4176,7 +4186,6 @@ const RedBarTrend = {
     const freshMins = isPob || isTrade2Gate ? 20 : (isNifty ? 20 : 90);
     const ENTER_FRESH_MS = freshMins * 60 * 1000;
     // Dr Dev: prefer event candle — do not chase mid-air (POB fill@0.44 is not a chase).
-    // BTC + NIFTY: 0.5R. XAU/NG unchanged at 1.5R.
     const maxFavR = isPob ? 99 : ((isNifty || isBtcGate) ? 0.5 : 1.5);
     const asOf = asOfTs != null ? Number(asOfTs) : Date.now();
     const trigTs = setupTriggerTs != null ? Number(setupTriggerTs) : null;
@@ -4219,8 +4228,8 @@ const RedBarTrend = {
       }
     }
 
-    // Dr Dev Trikal: lunch decay 11:30–12:30 IST — no fresh NIFTY entries. Wait for 12:45 London box.
-    if (inst === 'NIFTY') {
+    // Dr Dev Trikal: lunch decay 11:30–12:30 IST — no fresh Indian Index (NIFTY, BANKNIFTY, SENSEX) entries. Wait for 12:45 London box.
+    if (isNifty) {
       const lz = this.zonedHms(asOf, 'Asia/Kolkata');
       const lm = lz.hour * 60 + lz.minute;
       if (lm >= 11 * 60 + 30 && lm < 12 * 60 + 30) {
@@ -4230,10 +4239,10 @@ const RedBarTrend = {
         };
       }
     }
-    if (inst === 'NIFTY' && !isPob && stopPct != null && Number.isFinite(stopPct) && stopPct > 0.65) {
+    if (isNifty && !isPob && stopPct != null && Number.isFinite(stopPct) && stopPct > 0.65) {
       return {
         state: 'watch',
-        reason: `Nifty: stop ${stopPct.toFixed(2)}% (>0.65%) — wait for a tighter structural base.`,
+        reason: `Index stop ${stopPct.toFixed(2)}% (>0.65%) — wait for a tighter structural base.`,
       };
     }
 

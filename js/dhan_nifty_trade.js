@@ -1,7 +1,7 @@
 'use strict';
 
 /**
- * Dhan NIFTY options auto-trader (live).
+ * Dhan options auto-trader (live) — supports Option B (NIFTY, BANKNIFTY, SENSEX) and Option A (CRUDEOIL, NG).
  * Dr Dev ladder: Super Order (structural SL + ~3R TP) → at 1:1 bank ~50% → runner SL to BE → trail.
  * Need DHAN_NIFTY_LOTS >= 2 for a true 50% bank (lot size won't split a single lot).
  *
@@ -15,6 +15,59 @@ const { createDhanClient, isDhanConfigured } = require('./dhan_client.js');
 const NIFTY_UNDERLYING = 13;
 const NIFTY_SEG = 'IDX_I';
 const OPT_SEG = 'NSE_FNO';
+
+const DHAN_INSTRUMENT_SPECS = {
+  NIFTY: {
+    id: 'NIFTY',
+    underlyingScrip: 13,
+    underlyingSeg: 'IDX_I',
+    optSeg: 'NSE_FNO',
+    lotSize: 65,
+    strikeStep: 50,
+    tickSize: 0.05,
+    minSlPts: 14,
+  },
+  BANKNIFTY: {
+    id: 'BANKNIFTY',
+    underlyingScrip: 25,
+    underlyingSeg: 'IDX_I',
+    optSeg: 'NSE_FNO',
+    lotSize: 30,
+    strikeStep: 100,
+    tickSize: 0.05,
+    minSlPts: 30,
+  },
+  SENSEX: {
+    id: 'SENSEX',
+    underlyingScrip: 51,
+    underlyingSeg: 'IDX_I',
+    optSeg: 'BSE_FNO',
+    lotSize: 20,
+    strikeStep: 100,
+    tickSize: 0.05,
+    minSlPts: 35,
+  },
+  CRUDEOIL: {
+    id: 'CRUDEOIL',
+    underlyingScrip: 573422,
+    underlyingSeg: 'MCX_COMM',
+    optSeg: 'MCX_COMM',
+    lotSize: 1,
+    strikeStep: 50,
+    tickSize: 0.10,
+    minSlPts: 15,
+  },
+  NG: {
+    id: 'NG',
+    underlyingScrip: 574319,
+    underlyingSeg: 'MCX_COMM',
+    optSeg: 'MCX_COMM',
+    lotSize: 1,
+    strikeStep: 5,
+    tickSize: 0.05,
+    minSlPts: 3,
+  },
+};
 
 function envNum(key, fallback) {
   const n = Number(process.env[key]);
@@ -30,19 +83,29 @@ function createDhanNiftyTrade(opts = {}) {
     throw Object.assign(new Error('DHAN_CLIENT_ID / DHAN_ACCESS_TOKEN missing'), { code: 'NO_DHAN_KEYS' });
   }
   const dhan = opts.client || createDhanClient();
-  const lotSize = envNum('NIFTY_LOT_SIZE', 65);
-  const lots = Math.max(1, Math.min(5, envNum('DHAN_NIFTY_LOTS', 1)));
+  const instKey = String(opts.instrumentId || 'NIFTY').toUpperCase();
+  const spec = { ...(DHAN_INSTRUMENT_SPECS[instKey] || DHAN_INSTRUMENT_SPECS.NIFTY), ...(opts.spec || {}) };
+  const underlyingScrip = Number(opts.underlyingScrip || spec.underlyingScrip || NIFTY_UNDERLYING);
+  const underlyingSeg = String(opts.underlyingSeg || spec.underlyingSeg || NIFTY_SEG);
+  const optSeg = String(opts.optSeg || spec.optSeg || OPT_SEG);
+  const strikeStep = Number(opts.strikeStep || spec.strikeStep || 50);
+  const tickSize = Number(opts.tickSize || spec.tickSize || 0.05);
+  const minSlPts = Number(opts.minSlPts || spec.minSlPts || 14);
+  const lotSize = instKey === 'NIFTY'
+    ? envNum('NIFTY_LOT_SIZE', spec.lotSize)
+    : envNum(`${instKey}_LOT_SIZE`, spec.lotSize);
+  const lots = Math.max(1, Math.min(5, envNum(`DHAN_${instKey}_LOTS`, envNum('DHAN_NIFTY_LOTS', 1))));
   const qty = lotSize * lots;
   const deltaGuess = envNum('NIFTY_OPT_DELTA', 0.55);
   const productType = process.env.DHAN_PRODUCT_TYPE || 'INTRADAY';
 
   async function nearestWeeklyExpiry() {
     const res = await dhan.getOptionExpiryList({
-      underlyingScrip: NIFTY_UNDERLYING,
-      underlyingSeg: NIFTY_SEG,
+      underlyingScrip,
+      underlyingSeg,
     });
     const dates = Array.isArray(res?.data) ? res.data : Array.isArray(res) ? res : [];
-    if (!dates.length) throw new Error('No NIFTY option expiries from Dhan');
+    if (!dates.length) throw new Error(`No ${instKey} option expiries from Dhan`);
     const today = new Date();
     const ist = new Date(today.toLocaleString('en-US', { timeZone: 'Asia/Kolkata' }));
     const y = ist.getFullYear();
@@ -59,8 +122,8 @@ function createDhanNiftyTrade(opts = {}) {
   async function pickOptionContract({ side, spot }) {
     const expiry = await nearestWeeklyExpiry();
     const chain = await dhan.getOptionChain({
-      underlyingScrip: NIFTY_UNDERLYING,
-      underlyingSeg: NIFTY_SEG,
+      underlyingScrip,
+      underlyingSeg,
       expiry,
     });
     const data = chain?.data || chain;
@@ -74,11 +137,11 @@ function createDhanNiftyTrade(opts = {}) {
     // Never pick an OTM strike when buying options:
     // LONG (CE) → at or below spot (slight ITM / ATM); SHORT (PE) → at or above spot (slight ITM / ATM)
     let want = side === 'LONG'
-      ? Math.floor(Number(spotPx) / 50) * 50
-      : Math.ceil(Number(spotPx) / 50) * 50;
+      ? Math.floor(Number(spotPx) / strikeStep) * strikeStep
+      : Math.ceil(Number(spotPx) / strikeStep) * strikeStep;
     if (mode === 'itm') {
       // Deeper 1-step ITM override if explicitly requested
-      want = side === 'LONG' ? want - 50 : want + 50;
+      want = side === 'LONG' ? want - strikeStep : want + strikeStep;
     }
     let best = strikes[0];
     let bestDist = Math.abs(best - want);
@@ -107,7 +170,7 @@ function createDhanNiftyTrade(opts = {}) {
       ltp,
       ask,
       delta,
-      symbolHint: `NIFTY ${best} ${side === 'LONG' ? 'CE' : 'PE'} ${expiry}`,
+      symbolHint: `${instKey} ${best} ${side === 'LONG' ? 'CE' : 'PE'} ${expiry}`,
     };
   }
 
@@ -117,7 +180,7 @@ function createDhanNiftyTrade(opts = {}) {
    * rule targetPrice > price > stopLossPrice holds for BUY options.
    */
   function tickPrem(n) {
-    return +(Math.round(Number(n) / 0.05) * 0.05).toFixed(2);
+    return +(Math.round(Number(n) / tickSize) * tickSize).toFixed(2);
   }
 
   function mapPremiumLevels({ entryPremium, indexEntry, indexStop, indexTp1, delta }) {
@@ -126,15 +189,15 @@ function createDhanNiftyTrade(opts = {}) {
     const indexReward = Math.abs(Number(indexTp1) - Number(indexEntry));
     const fixedSl = envNum('DHAN_OPT_SL_PTS', 0);
     const fixedTp = envNum('DHAN_OPT_TP_PTS', 0);
-    // Dr Dev: structural SL (minimum 14 option pts ≈ 25 NIFTY index pts at ~0.55 delta); runner stretch target ~3R.
+    // Dr Dev: structural SL (minimum minSlPts option pts); runner stretch target ~3R.
     const tpMult = Math.max(1, envNum('DHAN_TP_R_MULT', 3));
-    const slPts = fixedSl > 0 ? fixedSl : Math.max(14, Math.round(indexRisk * d));
-    const oneRFromIndex = fixedTp > 0 ? fixedTp : Math.max(14, Math.round(indexReward * d));
+    const slPts = fixedSl > 0 ? fixedSl : Math.max(minSlPts, Math.round(indexRisk * d));
+    const oneRFromIndex = fixedTp > 0 ? fixedTp : Math.max(minSlPts, Math.round(indexReward * d));
     // Prefer premium 1R from SL width; fall back to mapped index 1R.
     const ep = Number(entryPremium);
     const price = tickPrem(ep);
-    let stopLossPrice = tickPrem(Math.max(0.05, price - slPts));
-    if (!(stopLossPrice < price)) stopLossPrice = tickPrem(Math.max(0.05, price - Math.max(slPts, 5)));
+    let stopLossPrice = tickPrem(Math.max(tickSize, price - slPts));
+    if (!(stopLossPrice < price)) stopLossPrice = tickPrem(Math.max(tickSize, price - Math.max(slPts, 5)));
     const oneR = Math.max(oneRFromIndex, +(price - stopLossPrice).toFixed(2));
     let targetPrice = tickPrem(price + oneR * tpMult);
     if (!(targetPrice > price)) targetPrice = tickPrem(price + Math.max(oneR * tpMult, 5));
@@ -234,7 +297,7 @@ function createDhanNiftyTrade(opts = {}) {
       out.bankOrder = await dhan.placeOrder({
         correlationId: `bank1r-${Date.now()}`.slice(0, 30),
         transactionType: 'SELL',
-        exchangeSegment: OPT_SEG,
+        exchangeSegment: optSeg,
         productType,
         orderType: 'MARKET',
         validity: 'DAY',
@@ -313,7 +376,7 @@ function createDhanNiftyTrade(opts = {}) {
     const body = {
       correlationId: String(correlationId || `rb-${Date.now()}`).slice(0, 30),
       transactionType: 'BUY',
-      exchangeSegment: OPT_SEG,
+      exchangeSegment: optSeg,
       productType,
       orderType: 'LIMIT',
       securityId: contract.securityId,
@@ -393,7 +456,7 @@ function createDhanNiftyTrade(opts = {}) {
 
   /** Move Super Order STOP_LOSS_LEG to breakeven (entry premium). */
   async function moveStopToBreakeven(orderId, entryPremium, padPts = 0.5) {
-    const be = Math.max(0.05, +(Number(entryPremium) + Number(padPts)).toFixed(2));
+    const be = Math.max(tickSize, +(Number(entryPremium) + Number(padPts)).toFixed(2));
     return dhan.modifySuperOrder(orderId, {
       legName: 'STOP_LOSS_LEG',
       stopLossPrice: be,
@@ -434,7 +497,7 @@ function createDhanNiftyTrade(opts = {}) {
         out.exit = await dhan.placeOrder({
           correlationId: `flat-${Date.now()}`.slice(0, 30),
           transactionType: 'SELL',
-          exchangeSegment: OPT_SEG,
+          exchangeSegment: optSeg,
           productType,
           orderType: 'MARKET',
           validity: 'DAY',
@@ -450,7 +513,7 @@ function createDhanNiftyTrade(opts = {}) {
     return out;
   }
 
-  /** True if any NIFTY / F&O option is open (entry gate — one auto position at a time). */
+  /** True if any NIFTY / F&O / MCX option is open (entry gate — one auto position at a time). */
   async function hasOpenNiftyOptionPosition() {
     const pos = await dhan.getPositions();
     const rows = Array.isArray(pos) ? pos : (pos?.data || []);
@@ -458,7 +521,7 @@ function createDhanNiftyTrade(opts = {}) {
       const net = Number(p.netQty ?? p.quantity ?? p.netQuantity ?? 0);
       const seg = String(p.exchangeSegment || p.segment || '');
       const sym = String(p.tradingSymbol || p.symbol || '');
-      return net !== 0 && (/FNO|OPT/i.test(seg) || /NIFTY/i.test(sym));
+      return net !== 0 && (/FNO|OPT|MCX/i.test(seg) || /NIFTY|BANKNIFTY|SENSEX|CRUDEOIL|NATURALGAS/i.test(sym));
     });
   }
 
@@ -482,6 +545,11 @@ function createDhanNiftyTrade(opts = {}) {
 
   return {
     dhan,
+    spec,
+    instKey,
+    underlyingScrip,
+    underlyingSeg,
+    optSeg,
     lotSize,
     lots,
     qty,
@@ -504,6 +572,7 @@ function createDhanNiftyTrade(opts = {}) {
 
 module.exports = {
   createDhanNiftyTrade,
+  DHAN_INSTRUMENT_SPECS,
   NIFTY_UNDERLYING,
   NIFTY_SEG,
 };

@@ -203,16 +203,19 @@ const FibMagnet = {
     const price = lastBar.c;
 
     const instUpper = String(instrumentId || '').toUpperCase();
-    if (instUpper === 'NIFTY') {
+    const isIndianIdx = ['NIFTY', 'BANKNIFTY', 'SENSEX'].includes(instUpper);
+    const isMcxComm = ['NG', 'CRUDEOIL'].includes(instUpper);
+    const exchTag = instUpper === 'SENSEX' ? 'BSE' : 'NSE';
+    if (isIndianIdx) {
       if (mins >= 555 && mins < 735) {
         return {
           id: 'nifty_prime_pob',
-          badge: '🇮🇳 NSE PRIME WINDOW',
-          session: 'NSE Open · POB & Trade 1 (09:15–12:15 IST)',
-          predictedDir: 'WATCH 09:15 5m X-CANDLE POB 44–56 OR 1H FIRST RED LEAVE',
+          badge: `🇮🇳 ${exchTag} PRIME WINDOW`,
+          session: `${exchTag} Open · POB & Trade 1 (09:15–12:15 IST)`,
+          predictedDir: 'WATCH 09:15 5m X-CANDLE POB 44–56 OR 5m FIRST RED LEAVE',
           confidence: '94.9% 2Y POB Win Rate',
-          headline: '🇮🇳 Dr. Dev 09:15 5m X-Candle POB & 1H Trade 1 Active',
-          detail: 'First 5m red candle at 09:15 IST = X-Candle. Wait for retest of POB 0.44–0.56 and 5m close < 0.44 for SHORT (SL @ 0.56, TP1 @ Anchor Low), or Trade 1 departure of 1H First Red.',
+          headline: `🇮🇳 Dr. Dev 09:15 5m X-Candle POB & First Red Trade 1 Active (${instUpper})`,
+          detail: 'First 5m red candle at 09:15 IST = X-Candle. Wait for retest of POB 0.44–0.56 and 5m close < 0.44 for SHORT (SL @ 0.56, TP1 @ Anchor Low), or Trade 1 departure of First Red.',
           candleTime: lastBar.t,
           type: 'neutral',
         };
@@ -234,11 +237,11 @@ const FibMagnet = {
         return {
           id: 'nifty_close_mark',
           badge: '📐 15:15–15:45 MARK WINDOW',
-          session: 'NSE Closing Range Mark Window (15:15–15:45 IST)',
+          session: `${exchTag} Closing Range Mark Window (15:15–15:45 IST)`,
           predictedDir: 'LOCKING NEXT SESSION FIB 0 / POB 44–56 / FIB 1',
           confidence: 'Closing Anchor Window',
-          headline: '📐 NSE 15:15–15:45 IST Closing Fib Box Forming',
-          detail: 'High and Low wicks of 15:15–15:45 IST lock the Fib 0, POB 44–56, and Fib 1 levels for the next NSE session.',
+          headline: `📐 ${exchTag} 15:15–15:45 IST Closing Fib Box Forming`,
+          detail: 'High and Low wicks of 15:15–15:45 IST lock the Fib 0, POB 44–56, and Fib 1 levels for the next session.',
           candleTime: lastBar.t,
           type: 'neutral',
         };
@@ -246,39 +249,40 @@ const FibMagnet = {
       if (mins < 555 || mins > 945) {
         return {
           id: 'nifty_closed',
-          badge: '⏸️ NSE CLOSED',
-          session: 'NSE Cash Hours: 09:15–15:30 IST',
-          predictedDir: 'WAIT FOR 09:15 IST NSE OPEN BELL',
+          badge: `⏸️ ${exchTag} CLOSED`,
+          session: `${exchTag} Cash Hours: 09:15–15:30 IST`,
+          predictedDir: `WAIT FOR 09:15 IST ${exchTag} OPEN BELL`,
           confidence: '94.9% 2Y POB Win Rate',
-          headline: '🇮🇳 NSE Closed — Next Prime POB X-Candle at 09:15 IST',
-          detail: 'Prior day 15:15–15:45 IST Mark Fibs and 1H First Red levels are locked on chart. Next live X-Candle forms at 09:15 IST.',
+          headline: `🇮🇳 ${exchTag} Closed — Next Prime POB X-Candle at 09:15 IST`,
+          detail: 'Prior day 15:15–15:45 IST Mark Fibs and First Red levels are locked on chart. Next live X-Candle forms at 09:15 IST.',
           candleTime: lastBar.t,
           type: 'neutral',
         };
       }
       return {
         id: 'nifty_afternoon',
-        badge: '🇮🇳 NSE AFTERNOON',
-        session: 'NSE Afternoon Session (13:15–15:15 IST)',
-        predictedDir: 'TRADE 1 DEPARTURE OR SETUP 3 RUBBER BAND',
+        badge: `🇮🇳 ${exchTag} AFTERNOON`,
+        session: `${exchTag} Afternoon Session (13:15–15:15 IST)`,
+        predictedDir: '12:45 TRIKAL BREAKOUT / REVERSAL OR SETUP 3 RUBBER BAND',
         confidence: 'Post-12:45 Trend Window',
         headline: '🇮🇳 Post-12:45 PM Afternoon Continuation / Mean Reversion',
-        detail: 'Morning POB window closed (12:15 cutoff). Watch 1H First Red Trade 1 leave or 30m 5 EMA Rubber Band (Setup 3).',
+        detail: 'Morning POB window closed (12:15 cutoff). Watch 12:45 Afternoon Trikal box breakout/reversal or 30m 5 EMA Rubber Band (Setup 3).',
         candleTime: lastBar.t,
         type: 'neutral',
       };
     }
 
-    if (instUpper === 'NG') {
+    if (isMcxComm) {
+      const commName = instUpper === 'CRUDEOIL' ? 'Crude Oil' : 'Natural Gas';
       if (mins >= 540 && mins < 720) {
         return {
           id: 'ng_mcx_open',
           badge: '🔥 MCX MORNING OPEN',
-          session: 'MCX Morning Session · POB & 30m First Red (09:00–12:00 IST)',
-          predictedDir: 'WATCH 09:00 5m X-CANDLE POB 44–56 OR 30m FIRST RED LEAVE',
+          session: 'MCX Morning Session · POB & Mark Fib Leave (09:00–12:00 IST)',
+          predictedDir: 'WATCH 09:00 5m X-CANDLE POB 44–56 OR MARK FIB LEAVE',
           confidence: 'Dr. Dev Trikal Commodity Window',
-          headline: '🔥 MCX 09:00 IST 5m X-Candle POB & 30m First Red Active',
-          detail: 'First 5m red candle at 09:00 IST = X-Candle (POB 0.44–0.56 retest SHORT). Also marks today’s 30m First Red anchor after the 09:00–09:30 open bar.',
+          headline: `🔥 MCX 09:00 IST 5m X-Candle POB & Mark Fib Active (${commName})`,
+          detail: 'First 5m red candle at 09:00 IST = X-Candle (POB 0.44–0.56 retest SHORT), plus departure/retest of the 23:00–23:30 IST Mark Fib box.',
           candleTime: lastBar.t,
           type: 'neutral',
         };
@@ -301,10 +305,10 @@ const FibMagnet = {
           id: 'ng_nymex_open',
           badge: '🇺🇸 US NYMEX PIT OPEN',
           session: 'US NYMEX Energy Session (18:30/19:30–23:00 IST)',
-          predictedDir: 'PEAK NATGAS VOLATILITY · NYMEX POB & 30m TRADE 2 / SETUP 3',
+          predictedDir: `PEAK ${instUpper} VOLATILITY · NYMEX POB & TRADE 2 / SETUP 3`,
           confidence: 'Highest Daily Volume Window',
-          headline: '🇺🇸 US NYMEX Open — Peak Natural Gas Liquidity Injection',
-          detail: 'NYMEX 09:00 ET pit open drives the largest daily Natural Gas trend. Watch NYMEX 5m X-Candle POB 44–56, 30m First Red Trade 2 sweep, or 30m 5 EMA Rubber Band.',
+          headline: `🇺🇸 US NYMEX Open — Peak ${commName} Liquidity Injection`,
+          detail: `NYMEX 09:00 ET pit open drives the largest daily ${commName} trend. Watch NYMEX 5m X-Candle POB 44–56, Mark Fib Trade 2 sweep, or 30m 5 EMA Rubber Band.`,
           candleTime: lastBar.t,
           type: 'neutral',
         };
@@ -317,25 +321,11 @@ const FibMagnet = {
           predictedDir: 'LOCKING NEXT SESSION FIB 0 / POB 44–56 / FIB 1',
           confidence: 'Closing Anchor Window',
           headline: '📐 MCX 23:00–23:30 IST Closing Fib Box Forming',
-          detail: 'High and Low wicks of 23:00–23:30 IST lock the Fib 0, POB 44–56, and Fib 1 levels for the next Natural Gas session.',
+          detail: `High and Low wicks of 23:00–23:30 IST lock the Fib 0, POB 44–56, and Fib 1 levels for the next ${commName} session.`,
           candleTime: lastBar.t,
           type: 'neutral',
         };
       }
-    }
-
-    if (instUpper === 'XAU' && mins >= 90 && mins < 150) {
-      return {
-        id: 'xau_mark_window',
-        badge: '📐 01:30–02:30 GOLD MARK WINDOW',
-        session: 'Gold Daily Mark Window (01:30–02:30 IST)',
-        predictedDir: 'LOCKING TODAY’S GOLD FIB 0 / POB 44–56 / FIB 1',
-        confidence: 'Brahmastra Session Fib Anchor',
-        headline: '📐 XAU 01:30–02:30 IST Mark Window Forming',
-        detail: 'High and Low wicks of 01:30–02:30 IST lock today’s Gold Fib 0, POB 44–56, and Fib 1 levels. Today’s 30m First Red anchors after 02:30 IST.',
-        candleTime: lastBar.t,
-        type: 'neutral',
-      };
     }
 
     // Dynamic conversion tracking US & European Daylight Saving Time (DST)

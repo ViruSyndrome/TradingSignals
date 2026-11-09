@@ -585,9 +585,10 @@ const API = {
         return this._set(key, rows, CONFIG.refresh.cacheMs);
       } catch (e) {
         console.warn(`[API] Dhan OHLC failed (${sid} ${interval}):`, e.message);
-        if (instrument?.symbol) {
-          console.warn('[API] Falling back to Yahoo for', instrument.symbol);
-          return this.getYahooOHLC(instrument.symbol, interval, limit);
+        const fbSym = instrument?.fallbackSymbol || instrument?.symbol;
+        if (fbSym && !/\sFUT$/i.test(fbSym)) {
+          console.warn('[API] Falling back to Yahoo for', fbSym);
+          return this.getYahooOHLC(fbSym, interval, limit);
         }
         throw e;
       }
@@ -634,28 +635,8 @@ const API = {
     }
   },
 
-  /** On weekends (Sat/Sun IST), MCX is closed — switch NG to Binance Futures NATGASUSDT. */
-  resolveInstrumentForSession(instrument, ts = Date.now()) {
-    if (!instrument) return instrument;
-    const id = String(instrument.id || '').toUpperCase();
-    if (id === 'NG' && this.isIstWeekend(ts)) {
-      return {
-        ...instrument,
-        symbol: 'NATGASUSDT',
-        currency: 'USD',
-        feed: 'binanceFutures',
-        dayMode: 'ny',
-        markWindow: {
-          timeZone: 'America/New_York',
-          startHour: 16, startMinute: 0,
-          endHour: 17, endMinute: 0,
-        },
-        markLabel: '16:00–17:00 ET (NYMEX Settle)',
-        firstRedTf: null,
-        priceDecimals: 3,
-        tradeHint: 'Binance Futures (Weekend) · NATGASUSDT · Fib 16:00–17:00 ET (Mon–Fri: Dhan MCX ₹)',
-      };
-    }
+  /** Native session instrument resolver — no weekend Binance NATGASUSDT override. */
+  resolveInstrumentForSession(instrument) {
     return instrument;
   },
 
@@ -669,10 +650,9 @@ const API = {
     let feed = instrument.feed || 'binanceFutures';
     const sym = String(instrument.symbol || '').toUpperCase();
     const id = String(instrument.id || '').toUpperCase();
-    // Hard guard: BTC/XAU desk + bot must never silently fall back to spot OHLC
-    // (spot vs USD-M mark Fibs / first-red diverged every day in Oct 2026 audit).
+    // Hard guard: BTC desk + bot must never silently fall back to spot OHLC
     if (
-      (id === 'BTC' || id === 'XAU' || sym === 'BTCUSDT' || sym === 'XAUUSDT' || sym === 'PAXGUSDT')
+      (id === 'BTC' || sym === 'BTCUSDT')
       && feed === 'binanceSpot'
     ) {
       console.warn(`[API] ${id || sym} feed was binanceSpot — forcing binanceFutures (spot Fibs are wrong for USD-M)`);
@@ -685,18 +665,20 @@ const API = {
         if (instrument.fallbackFeed === 'yahoo' && instrument.fallbackSymbol) {
           console.warn(`[API] Dhan ${id || sym} failed (${e.message}) — falling back to Yahoo ${instrument.fallbackSymbol}`);
           const bars = await this.getYahooOHLC(instrument.fallbackSymbol, interval, limitOverride);
-          // Yahoo NG=F is USD Henry Hub — never paint as MCX ₹. Stamp meta for the desk.
+          // Yahoo NG=F / CL=F are USD NYMEX — never paint as MCX ₹. Indian indices (^NSEI, ^NSEBANK, ^BSESN) stay INR.
           if (Array.isArray(bars)) {
+            const isIndianIndexFallback = String(instrument.fallbackSymbol || '').startsWith('^');
             const wantInr = String(instrument.currency || '').toUpperCase() === 'INR';
+            const fbCur = isIndianIndexFallback ? 'INR' : (wantInr ? 'USD' : (instrument.currency || 'USD'));
             bars.__deskMeta = {
               feedSource: 'yahoo',
               fallbackFrom: 'dhan',
               fallbackSymbol: instrument.fallbackSymbol,
-              currency: wantInr ? 'USD' : (instrument.currency || 'USD'),
-              priceDecimals: wantInr ? 2 : (instrument.priceDecimals ?? 2),
-              warning: wantInr
+              currency: fbCur,
+              priceDecimals: isIndianIndexFallback ? (instrument.priceDecimals ?? 2) : (wantInr ? 2 : (instrument.priceDecimals ?? 2)),
+              warning: (!isIndianIndexFallback && wantInr)
                 ? `Dhan MCX offline — Yahoo ${instrument.fallbackSymbol} in USD (not MCX ₹). Fibs/levels are US contract scale.`
-                : `Dhan offline — Yahoo ${instrument.fallbackSymbol} fallback.`,
+                : null,
             };
           }
           return bars;
