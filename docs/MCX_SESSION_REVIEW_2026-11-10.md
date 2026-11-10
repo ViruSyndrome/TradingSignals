@@ -165,7 +165,7 @@ flowchart TD
    - Added `getMarketLtp(segment, securityId)` utilizing Dhan's `/marketfeed/ltp` for live MCX option quotes.
 4. **Environment & Daemon State**:
    - `DHAN_AUTO_INSTRUMENTS=NIFTY` (MCX commodities set to alert-only; auto-execution paused).
-   - `DHAN_NIFTY_LOTS=3` (executes `floor(3/2) = 1` lot booked at 1:1, 2 lots running to target at Breakeven).
+   - `DHAN_NIFTY_LOTS=2` (exact Dr Dev half: `floor(2/2) = 1` lot booked at 1:1, 1 lot runner at Breakeven). Scale to 4 lots later for a clean 2+2 split when the wallet grows.
 
 ---
 
@@ -173,8 +173,8 @@ flowchart TD
 
 1. **Do Not Add Capital for Multi-Lot Commodities**:
    - Multi-lot trading on Crude and NG requires ₹60,000–₹90,000 margin per position. Adding capital to a system undergoing active calibration is high-risk.
-2. **Run NIFTY (3 Lots) Tomorrow**:
-   - 3 lots of NIFTY requires only **~₹7,500 – ₹9,000** total margin, preserving >80% of your account capital.
-   - NIFTY has verified `/optionchain` support, ₹0.05 bid-ask spreads, and supports clean 2-leg execution (bank 1 lot at 1:1 via `floor(3/2)`, trail 2 runners at Breakeven).
+2. **Run NIFTY (2 Lots) for now**:
+   - 2 lots ≈ premium × 65 × 2 (+ RMS buffer); keeps exact 50/50 bank/runner until the wallet supports 4 lots (2 banked + 2 runners).
+   - NIFTY has verified `/optionchain` support, ₹0.05 bid-ask spreads, and clean 2-leg execution (bank 1 at 1:1, trail 1 runner at Breakeven).
 3. **Commodity Options Timing Rule**:
    - Hard entry cutoff enforced at **21:30 IST** in code. No new commodity positions will be opened within 2 hours of MCX close.
