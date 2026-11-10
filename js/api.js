@@ -8,11 +8,17 @@
  */
 const API = {
 
-  // ─── Cache helpers (localStorage-backed) ───────────────────────────────────
-  _forceNetwork: false, // when true, skip localStorage reads (resume / manual refresh)
+  // ─── Cache helpers (localStorage-backed in browser, Map-backed in Node.js) ─
+  _forceNetwork: false, // when true, skip cache reads (resume / manual refresh)
+  _memCache: new Map(),
 
   _get(key) {
     if (this._forceNetwork) return null;
+    if (typeof localStorage === 'undefined') {
+      const entry = this._memCache.get(key);
+      if (entry && (Date.now() - entry.ts < Math.min(entry.ttl, 40000))) return entry.data;
+      return null;
+    }
     try {
       const stored = localStorage.getItem(`trading_cache_${key}`);
       if (!stored) return null;
@@ -21,7 +27,11 @@ const API = {
       return null;
     } catch(e) { return null; }
   },
-  _set(key, data, ttl = CONFIG.refresh.cacheMs) {
+  _set(key, data, ttl = (typeof CONFIG !== 'undefined' ? CONFIG.refresh?.cacheMs : 20000)) {
+    if (typeof localStorage === 'undefined') {
+      this._memCache.set(key, { data, ts: Date.now(), ttl });
+      return data;
+    }
     try {
       localStorage.setItem(`trading_cache_${key}`, JSON.stringify({ data, ts: Date.now(), ttl }));
     } catch(e) {}

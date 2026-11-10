@@ -890,6 +890,10 @@ async function _maybeAutoDhanNifty({ inst, side, readout, alertKey, dayKey, setu
     console.log(`[RedBarBot] ${instKey}: Dhan day cap ${dayCount}/${maxPerDay} — skip ${alertKey}`);
     return;
   }
+  const softFailTs = Number(lastAlerted[`DHAN_SOFT_FAIL_${instKey}_TS`]) || 0;
+  if (softFailTs > 0 && (Date.now() - softFailTs) < 3 * 60 * 1000) {
+    return;
+  }
   const lastTs = Number(lastAlerted[`DHAN_TRADE_${instKey}_LAST_TS`]) || 0;
   const allManagedDhan = loadManagedDhanTrades();
   const todayManagedDhan = allManagedDhan.filter(
@@ -1112,14 +1116,17 @@ async function _maybeAutoDhanNifty({ inst, side, readout, alertKey, dayKey, setu
     if (!softFail) {
       lastAlerted[`DHAN_TRADE_${instKey}_LAST_TS`] = Date.now();
     } else {
-      console.log(`[RedBarBot] ${instKey}: soft fail — cooldown NOT stamped (${errMsg.slice(0, 80)})`);
+      lastAlerted[`DHAN_SOFT_FAIL_${instKey}_TS`] = Date.now();
+      console.log(`[RedBarBot] ${instKey}: soft fail — backing off for 3m (${errMsg.slice(0, 80)})`);
     }
-    saveAlertState(lastAlerted);
-    if (bot && chatId) {
+    const lastTgTs = Number(lastAlerted[`DHAN_FAIL_TG_${instKey}_TS`]) || 0;
+    if (bot && chatId && (Date.now() - lastTgTs > 10 * 60 * 1000)) {
+      lastAlerted[`DHAN_FAIL_TG_${instKey}_TS`] = Date.now();
       await bot.sendMessage(chatId, `❌ Dhan AUTO failed ${instKey} ${side}: ${e.message}`, {
         disable_web_page_preview: true,
       }).catch(() => {});
     }
+    saveAlertState(lastAlerted);
   }
 }
 
