@@ -87,12 +87,32 @@ BTC on TrendRunner uses **two different reference boxes** — do not conflate th
 - In a **selling** market, piercing a London high can be a **liquidity sweep**, not a fresh long breakout.
 - Optional HTF: **22h / 23h “shadow candle”** structure for crypto — context filter, not a replacement for Red Bar.
 
+### MCX Commodities clocks (CRUDEOIL & NATURALGAS)
+
+Commodities trade across global energy sessions (Asia, London, and New York NYMEX):
+
+| Session Phase | Normal Days (IST) | Holiday Split Session (IST) | What it is | Role |
+| :--- | :--- | :--- | :--- | :--- |
+| **Morning Open** | **09:00–09:30** | *CLOSED* | 15m/30m Asian Open candle | Primary anchor Fib box (`0 / 0.44 / 0.50 / 0.56 / 1.0`) |
+| **Europe Transition / 5:30 Formula** | **17:00–17:30** | **17:00–17:30** (Day Open) | Europe/London energy open | **Dr. Dev 5:30 Formula candle (17:30 IST)**; on daytime equity holidays, the 17:00 candle is the opening X-candle |
+| **US NYMEX Pit Open** | **18:30 / 19:30–22:00** | **18:30 / 19:30–22:00** | US energy floor open & EIA inventory data | Maximum intraday volume & 3R runner expansion |
+| **Session Flatten** | **23:15** | **23:15** | Pre-close risk clear | EOD auto-flatten closes open option risk before 23:30 MCX settle |
+
+- **Dual-Window Automation**: The engine uses a primary `09:00–09:30` window and an automatic `17:00–17:30` fallback window. On holiday days with no morning session, it falls back to 17:00; on normal days, it automatically anchors to 09:00 with zero manual reconfiguration.
+- **Timeframe Split**: Structure reading on **15m / 30m**; entry execution on **5m / 1m**.
+- **Market Temperament**: Crude Oil behaves like a smooth institutional index; Natural Gas is "The Widow Maker" with erratic inventory/weather wicks. Keep their loss circuit breakers independent.
+
 ---
 
-## 5. Setup 3 — Rubber Band (overlay)
+## 5. Setup 3 — Rubber Band & Mean Reversion Range
 
-- 30m chart, **5 EMA**: price detaches (≥4 bars) then “barricade” break → mean-reversion snap.
-- On TrendRunner this is often **WATCH / overlay** until policy allows ENTER — not core Red Bar DNA.
+- **Dr. Dev 30m 5 EMA Rubber Band**: 30m chart, 5 EMA. Price detaches (≥4 bars) then "barricade" break → mean-reversion snap.
+- **Dr. Dev 5.30 Setup**: An "alert candle" whose body and wicks never touch the 5 EMA. A break of its extreme triggers an aggressive snapback to touch the 5 EMA.
+- **Mean Reversion Range (Standard Error Bands — Himanshu Arora `EcxayQ9JWSc`)**:
+  - **Setup (5m)**: Standard Error Bands (**50 period, multiplier 2 or 3**). Wait for a full 5m candle to close entirely outside the upper or lower band (statistical exhaustion).
+  - **Execution (1m)**: 5, 15, and 50 EMAs. Enter when the 1m price and fast EMAs curl back toward the 50 EMA mean.
+  - **Target**: 20–25 points on Nifty, or exit when 1m 5 EMA crosses 50 EMA. Stop loss at extreme wick.
+  - **Role in Red Bar System**: Additive overlay. Acts as an **overextension filter** (prevents buying at statistical highs) and a **lunch chop filter** (11:30–12:30 IST).
 
 ---
 
@@ -120,6 +140,24 @@ BTC on TrendRunner uses **two different reference boxes** — do not conflate th
 
 ---
 
+### Commodity Risk Doctrine (MCX CRUDEOIL & NG)
+- **Crude Oil Stop & Target**:
+  - Stop Loss: **15 points** option SL (~15 MCX pts) floor.
+  - Target: **36 points** (~2.4 R:R). Matches Dr. Dev's live Dhan order ticket (f_0035.jpg / f_0050.jpg).
+  - Contract size: 1 lot = 100 barrels. Margin needed: ~₹6,500–₹7,500 premium. Max risk at SL floor = **₹1,500**.
+- **Natural Gas Stop**:
+  - Stop Loss: **2.5 points** option SL (~2.5 MCX pts) floor.
+  - Contract size: 1 lot = 1,250 mmBtu. Margin needed: ~₹10,000–₹12,000 premium. Max risk at SL floor = **₹3,125**.
+- **Independent 1-Loss Circuit Breakers**:
+  - Crude loss pauses Crude only for the day.
+  - NG loss pauses NG only for the day.
+  - A win allows the instrument to continue trading.
+- **Mini Contracts Reality**:
+  - CRUDEOILM and NATURALGASM exist only as **Futures** on MCX; there are no liquid mini options chains.
+  - Standard options buying (1 lot) requires less margin (~₹7,000) and provides defined risk (capped at ₹1,500 SL) compared to uncapped futures margin (~₹15,000).
+
+---
+
 ## 8. What TrendRunner automates (map)
 
 | Idea | Role |
@@ -129,19 +167,27 @@ BTC on TrendRunner uses **two different reference boxes** — do not conflate th
 | Trikal 12:45 (NIFTY) | Afternoon engine |
 | Asia 05:30 Trikal breakout (BTC) | Crypto session expansion (desk adaptation) |
 | CME / 02:30–03:30 IST Fib box (BTC) | Macro equilibrium magnets / stretch context — not ENTER |
+| MCX 09:00 / 17:00 dual-window anchor | Dynamic morning & holiday split-session commodity open |
+| MCX 17:30 5:30 Formula | London/Europe energy transition shelf |
+| MCX NYMEX 18:30/19:30 pit open | High-volatility commodity expansion window |
 | Session sweep | Liquidity hunt continuation |
-| Setup 3 | Overlay |
+| Setup 3 / Mean Reversion | Overlay & overextension / chop filter |
 | Equinox | NIFTY macro gate |
 | Renko brick ruler | Noise / overextension **filter**, not entry DNA |
-| Dhan NIFTY auto | Super Order + full 1:1 bank→BE (trail floor +1R after 1:2) + 15:10 flatten + **Rule 6** re-entry after a real SL only (NIFTY only). Same Red Bar gates as the desk — no extra Dhan-only time/bounce filters. |
+| Dhan NIFTY auto | Super Order + full 1:1 bank→BE (trail floor +1R after 1:2) + 15:10 flatten + **Rule 6** re-entry after a real SL only (NIFTY only). |
+| Dhan MCX auto (CRUDEOIL, NG) | 1 lot option Super Order + 1:1 BE-only move + runner to 3R + 23:15 flatten + independent 1-loss pause per instrument |
 | Binance BTC auto | Futures manage with same Red Bar ladder; **1:1→BE**; no Rule 6 |
 
 ---
 
-## 9. How to study further (channel map)
+## 9. How to study further (channel map & research evidence)
 
-- **Trade With Dr Devendra** — main course / Trikal lives / Fix Your Trading shorts.
-- **Dr Devendra : The Renko King** — mostly **Renko** pedagogy; also hosts the short **05:30 Trikal for BTC/Gold/Crude**. Useful for Renko depth; **not** required to trade Red Bar on TrendRunner.
+- **Trade With Dr Devendra** — main course / Trikal lives / Fix Your Trading shorts:
+  - V7LoTuCZR9g: *Advanced Crude oil and Natural gas Trading strategy* — 15m MCX chart, opening X-candle Fib (0, 0.44, 0.50, 0.56, 1.0), POB bias, 2nd Red Bar shelf retest.
+  - Y8NILq4BITA: *Crude Oil Trading Strategy | 5:30 Formula & MCX Research* — 17:30 IST anchor candle, 15m/30m structure reading, 5m/1m execution, 15 pt stop / 36 pt target (2.4 R:R) on Dhan option buying modal (f_0035.jpg, f_0050.jpg).
+  - x9ihDIW4qXw: *Trikal Trading for Commodities - Crude Oil Expiry Special* — 8:00 PM US pit open trap zones, session transition mechanics.
+  - ZUdGLvVdwkE: *Nifty & Sensex 12:45 Trikal* — 30m chart for reading London box, 5m for trade execution.
+- **Himanshu Arora** (EcxayQ9JWSc): *Mean Reversion Scalping Strategy* — 5m Standard Error Bands (50, 2/3) + 1m EMA (5/15/50) snapback.
 
 ---
 
@@ -151,14 +197,15 @@ BTC on TrendRunner uses **two different reference boxes** — do not conflate th
 |------|------------|
 | NIFTY Red Bar T1/T2 + structural stops | High — production desk |
 | NIFTY POB 09:15 + 12:45 Trikal | High |
+| CRUDEOIL Red Bar T1/T2 + 5:30 Formula | High — video & chart frame verified |
+| CRUDEOIL Dhan options (15 pt SL / 36 pt TP) | High — verified on live Dhan API |
+| NG (MCX) Red Bar + POB primes | Medium-High (independent 1-loss gate active) |
+| MCX Dual-Window (09:00/17:00) dynamic anchor | High — fully automated |
 | BTC Red Bar T1/T2 + 1:1 BE | High (same DNA) |
-| BTC session clocks (Asia/London/NY) + no dead-hour chasing | High directionally |
-| BTC 05:30 30m Trikal breakout encoding | Medium — adapted from teaching; watch live / refine |
-| 23h shadow candle automation | Low — researched, not core bot yet |
+| BTC session clocks (Asia/London/NY) | High directionally |
+| Mean Reversion Range (Standard Error Bands) | Researched — ready for additive integration |
 | Renko / AI Supertrend as entry DNA | Out of scope by choice |
-
-**100%?** No. Good enough to trade NIFTY Red Bar carefully and to stop treating BTC like NIFTY 12:45. Keep learning from charts + live sessions; change code only when the rule is clear.
 
 ---
 
-*Last updated: 2026-11-06 — TrendRunner desk notes (added: BTC dual boxes, Trade 2 closed-candle rule, 1:1 ladder, Rule 6 NIFTY-only).*
+*Last updated: 2026-11-10 — Morning research & MCX commodity deployment pass (dual-window anchor, independent 1-loss pause, 15 pt Crude SL, Mean Reversion Range analysis).*
