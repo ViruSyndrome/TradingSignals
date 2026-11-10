@@ -435,7 +435,7 @@ function createDhanNiftyTrade(opts = {}) {
       const avail = Number(funds?.availabelBalance ?? funds?.availableBalance ?? funds?.withdrawableBalance ?? 0);
       if (avail > 0 && avail < need) {
         throw new Error(
-          `Insufficient funds: need ~Rs ${need} for ${qty}×${levels.entryPrice} (have Rs ${avail.toFixed(0)}). Add ~Rs ${(need - avail).toFixed(0)} or lower DHAN_NIFTY_LOTS.`
+          `Insufficient funds: need ~Rs ${need} for ${qty}×${levels.entryPrice} (have Rs ${avail.toFixed(0)}). Add ~Rs ${(need - avail).toFixed(0)} or lower DHAN_${instKey}_LOTS / pick cheaper strike.`
         );
       }
     } catch (e) {

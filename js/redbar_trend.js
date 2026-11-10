@@ -3913,8 +3913,10 @@ const RedBarTrend = {
     // 6. Fib break bias / pullback
     let trend = 'neutral';
     let setupKind = 'wait';
-    // Europe 5:30 Formula window (17:30–22:45 IST): triggered Formula setups beat morning/open Trade 1
-    // so a still-fresh holiday 17:00 leave cannot steal the 18:00+ Europe breakout.
+    // Europe 5:30 Formula window (17:30–22:45 IST):
+    // - While the 17:30–18:00 candle is still forming (mcx_530_watch), do NOT fire Trade 1 /
+    //   POB leave of the holiday 17:00 box — wait for the 18:00 Formula lock.
+    // - After 18:00, a triggered Formula setup beats any still-fresh Trade 1 leave.
     const evalIst = this.zonedHms(evalTs, 'Asia/Kolkata');
     const evalIstMins = evalIst.hour * 60 + evalIst.minute;
     const inMcx530Window = isMcx && evalIstMins >= 17 * 60 + 30 && evalIstMins < 22 * 60 + 45;
@@ -3924,6 +3926,9 @@ const RedBarTrend = {
     } else if (inMcx530Window && mcx530 && mcx530.triggered && mcx530.side) {
       trend = mcx530.side;
       setupKind = mcx530.setupKind;
+    } else if (inMcx530Window && mcx530 && mcx530.setupKind === 'mcx_530_watch') {
+      trend = 'neutral';
+      setupKind = 'mcx_530_watch';
     } else if (
       redSetup.trade1Fresh && (redSetup.leftAbove || redSetup.leftBelow)
       && !(redSetup.revisitSide && redSetup.revisitStrong

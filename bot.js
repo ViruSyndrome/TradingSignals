@@ -1104,9 +1104,16 @@ async function _maybeAutoDhanNifty({ inst, side, readout, alertKey, dayKey, setu
     }
   } catch (e) {
     console.error('[RedBarBot] DHAN_AUTO failed:', e.message);
-    // Don't spam the same ENTER every 30s — cooldown even on failure.
-    lastAlerted[`DHAN_TRADE_${instKey}_LAST_TS`] = Date.now();
-    lastAlerted[`DHAN_TRADE_${instKey}_LAST_ERR`] = String(e.message || e).slice(0, 180);
+    const errMsg = String(e.message || e);
+    lastAlerted[`DHAN_TRADE_${instKey}_LAST_ERR`] = errMsg.slice(0, 180);
+    // Funds / invalid levels are not fills — do not burn the 30m instrument cooldown
+    // (otherwise a short-by-₹500 Trade 1 miss blocks the later 5:30 Formula).
+    const softFail = /Insufficient funds|Invalid Super Order levels|incomplete index/i.test(errMsg);
+    if (!softFail) {
+      lastAlerted[`DHAN_TRADE_${instKey}_LAST_TS`] = Date.now();
+    } else {
+      console.log(`[RedBarBot] ${instKey}: soft fail — cooldown NOT stamped (${errMsg.slice(0, 80)})`);
+    }
     saveAlertState(lastAlerted);
     if (bot && chatId) {
       await bot.sendMessage(chatId, `❌ Dhan AUTO failed ${instKey} ${side}: ${e.message}`, {
