@@ -894,6 +894,22 @@ async function _maybeAutoDhanNifty({ inst, side, readout, alertKey, dayKey, setu
       && String(t.alertKey || '').includes(`|${dayKey}|`),
   );
 
+  // User MCX Test Rule (CRUDEOIL & NG):
+  // "If that one trade each on Crude and NG gives us profit we can continue,
+  //  if that trade ends up in loss we pause the bot for both."
+  const isMcxInst = ['CRUDEOIL', 'NG'].includes(instKey);
+  if (isMcxInst) {
+    const todayAllManaged = allManagedDhan.filter((t) => String(t.alertKey || '').includes(`|${dayKey}|`));
+    const mcxLoss = todayAllManaged.find((t) => {
+      const sym = String(t.instrumentId || '').toUpperCase();
+      return ['CRUDEOIL', 'NG'].includes(sym) && t.status === 'closed_sl' && !t.legABooked;
+    });
+    if (mcxLoss) {
+      console.log(`[RedBarBot] ${instKey}: MCX 1-loss test rule active — prior trade (${mcxLoss.symbolHint || mcxLoss.instrumentId || mcxLoss.orderId}) ended in SL loss. Standing down both CRUDEOIL & NG for today.`);
+      return;
+    }
+  }
+
   // Dr. Dev Day 1 Rulebook ("दो लॉस लगातार") + Morning vs 12:45 Afternoon Trikal separation:
   // Morning (pre-12:45) and Afternoon (12:45+ Trikal) are distinct Dr. Dev sessions.
   // If the current session (AM or PM) hits 2 consecutive SL losses, stand down for that session
@@ -1393,10 +1409,12 @@ async function pollManagedDhanStops() {
               t.status = t.legABooked ? 'closed_be' : 'closed_sl';
               t.closedAt = Date.now();
               console.log(`[RedBarBot] 🛑 Dhan SL hit · ${t.symbolHint}`);
+              const isMcxStop = ['CRUDEOIL', 'NG'].includes(tInst);
+              const mcxNote = isMcxStop && !t.legABooked ? '\n⚠️ <b>MCX Rule: Pausing both CRUDEOIL & NG for today.</b>' : '';
               if (bot && chatId) {
                 await bot.sendMessage(
                   chatId,
-                  `🛑 <b>Dhan SL Hit · ${t.symbolHint}</b>\nEntry: ${t.entryPremium} · SL: ${t.stopLossPrice}`,
+                  `🛑 <b>Dhan SL Hit · ${t.symbolHint}</b>\nEntry: ${t.entryPremium} · SL: ${t.stopLossPrice}${mcxNote}`,
                   { parse_mode: 'HTML', disable_web_page_preview: true },
                 ).catch(() => {});
               }
