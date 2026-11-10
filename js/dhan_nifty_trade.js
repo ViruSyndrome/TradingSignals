@@ -517,15 +517,20 @@ function createDhanNiftyTrade(opts = {}) {
     return out;
   }
 
-  /** True if any NIFTY / F&O / MCX option is open (entry gate — one auto position at a time). */
+  /** True if an option position for THIS specific instrument is currently open. */
   async function hasOpenNiftyOptionPosition() {
     const pos = await dhan.getPositions();
     const rows = Array.isArray(pos) ? pos : (pos?.data || []);
+    const pat = instKey === 'NIFTY' ? /^NIFTY/i
+      : instKey === 'BANKNIFTY' ? /^BANKNIFTY/i
+      : instKey === 'SENSEX' ? /^SENSEX/i
+      : instKey === 'CRUDEOIL' ? /^CRUDEOIL/i
+      : instKey === 'NG' ? /^NATURALGAS|^NG/i
+      : new RegExp(instKey, 'i');
     return rows.some((p) => {
       const net = Number(p.netQty ?? p.quantity ?? p.netQuantity ?? 0);
-      const seg = String(p.exchangeSegment || p.segment || '');
       const sym = String(p.tradingSymbol || p.symbol || '');
-      return net !== 0 && (/FNO|OPT|MCX/i.test(seg) || /NIFTY|BANKNIFTY|SENSEX|CRUDEOIL|NATURALGAS/i.test(sym));
+      return net !== 0 && pat.test(sym);
     });
   }
 
