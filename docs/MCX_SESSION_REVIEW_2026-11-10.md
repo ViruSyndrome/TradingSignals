@@ -140,7 +140,7 @@ The underlying market directional models were **substantially accurate**:
 
 ## 4. Codebase Enhancements Deployed
 
-All updates have been committed to GitHub (`57c8e8e`) and deployed to Oracle VM (`trendrunner` process 0):
+All updates have been committed to GitHub (`57c8e8e` & `d3ddd6c`) and deployed to Oracle VM (`trendrunner` process 0):
 
 ```mermaid
 flowchart TD
@@ -153,16 +153,19 @@ flowchart TD
     F -- No --> G["Hold Initial Protective Stop"]
 ```
 
-1. **`js/dhan_client.js`**:
+1. **`js/redbar_trend.js` (Commit `d3ddd6c`)**:
+   - **Box-Anchored Target Geometry**: Formula targets are anchored to the 30m Box geometry (`xLow - xRange` / `xHigh + xRange` for breakout/retest; opposite box edge `xHigh` / `xLow` for trap reversal), eliminating fill-offset errors.
+   - **Crude 10pt Wick Buffer**: Added a 10pt structural buffer beyond the box high/low on `mcx_530_breakout` to protect against false stop-hunts.
+2. **`bot.js` (Commits `57c8e8e` & `d3ddd6c`)**:
+   - **Decoupled 1:1 Breakeven**: `bankHalfAtOneR` is decoupled from `ltp != null`. If the underlying commodity/index hits 1:1 (`hitOneR`), the Dhan stop loss moves to Breakeven immediately using `entryPremium`, even if the option quote feed lags.
+   - **21:30 IST MCX Hard Stop**: Hard cutoff (`DHAN_MCX_ENTRY_CUTOFF_MINS`, default 21:30 IST) blocks late-session commodity entries.
+   - **Exit-Anchored Cooldown**: Cooldown timestamping anchors to `closedAt` / SL execution.
+   - **20-Minute Freshness Guard**: Prevents chasing aged signals.
+3. **`js/dhan_client.js` (Commit `57c8e8e`)**:
    - Added `getMarketLtp(segment, securityId)` utilizing Dhan's `/marketfeed/ltp` for live MCX option quotes.
-2. **`bot.js`**:
-   - Implemented dual-condition 1:1 check (Underlying commodity index level + Option premium LTP).
-   - Dynamic Super Order modification: when 1:1 is touched, the hard stop loss leg is amended to `entryPremium` (Breakeven).
-   - Cooldown timer now anchors to `closedAt` / SL execution.
-   - Enforced 20-minute freshness guard to prevent chasing aged signals.
-3. **Environment & Daemon State**:
+4. **Environment & Daemon State**:
    - `DHAN_AUTO_INSTRUMENTS=NIFTY` (MCX commodities set to alert-only; auto-execution paused).
-   - `DHAN_NIFTY_LOTS=3` (ready for multi-lot 50% partial profit banking).
+   - `DHAN_NIFTY_LOTS=3` (executes `floor(3/2) = 1` lot booked at 1:1, 2 lots running to target at Breakeven).
 
 ---
 
@@ -172,6 +175,6 @@ flowchart TD
    - Multi-lot trading on Crude and NG requires ₹60,000–₹90,000 margin per position. Adding capital to a system undergoing active calibration is high-risk.
 2. **Run NIFTY (3 Lots) Tomorrow**:
    - 3 lots of NIFTY requires only **~₹7,500 – ₹9,000** total margin, preserving >80% of your account capital.
-   - NIFTY has verified `/optionchain` support, ₹0.05 bid-ask spreads, and supports clean 2-leg execution (bank 1–2 lots at 1:1, trail runner at Breakeven).
+   - NIFTY has verified `/optionchain` support, ₹0.05 bid-ask spreads, and supports clean 2-leg execution (bank 1 lot at 1:1 via `floor(3/2)`, trail 2 runners at Breakeven).
 3. **Commodity Options Timing Rule**:
-   - When commodities are re-enabled in the future, enforce a hard entry cutoff at **21:30 IST**. No new positions should be opened within 2 hours of MCX close.
+   - Hard entry cutoff enforced at **21:30 IST** in code. No new commodity positions will be opened within 2 hours of MCX close.
