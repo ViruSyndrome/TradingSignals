@@ -27,6 +27,7 @@ const DHAN_INSTRUMENT_SPECS = {
     strikeStep: 50,
     tickSize: 0.05,
     minSlPts: 14,
+    tpMult: 3.0,
   },
   BANKNIFTY: {
     id: 'BANKNIFTY',
@@ -37,6 +38,7 @@ const DHAN_INSTRUMENT_SPECS = {
     strikeStep: 100,
     tickSize: 0.05,
     minSlPts: 30,
+    tpMult: 3.0,
   },
   SENSEX: {
     id: 'SENSEX',
@@ -47,10 +49,12 @@ const DHAN_INSTRUMENT_SPECS = {
     strikeStep: 100,
     tickSize: 0.05,
     minSlPts: 35,
+    tpMult: 3.0,
   },
   CRUDEOIL: {
     id: 'CRUDEOIL',
-    underlyingScrip: 573422,
+    underlyingScrip: envNum('DHAN_CRUDEOIL_SCRIP', 573422),
+    underlyingExpiry: '2026-11-17',
     underlyingSeg: 'MCX_COMM',
     optSeg: 'MCX_COMM',
     lotSize: 1,
@@ -58,10 +62,12 @@ const DHAN_INSTRUMENT_SPECS = {
     strikeStep: 50,
     tickSize: 0.10,
     minSlPts: 15,
+    tpMult: 2.4, // Dr. Dev Dhan option modal verified: 15 pt SL * 2.4 = 36 pt TP
   },
   NG: {
     id: 'NG',
-    underlyingScrip: 574319,
+    underlyingScrip: envNum('DHAN_NG_SCRIP', 574319),
+    underlyingExpiry: '2026-11-20',
     underlyingSeg: 'MCX_COMM',
     optSeg: 'MCX_COMM',
     lotSize: 1,
@@ -69,8 +75,25 @@ const DHAN_INSTRUMENT_SPECS = {
     strikeStep: 5,
     tickSize: 0.05,
     minSlPts: 2.5,
+    tpMult: 2.5, // 2.5 pt SL * 2.5 = 6.25 pt TP
   },
 };
+
+function checkContractFreshness(spec) {
+  if (!spec || !spec.underlyingExpiry) return { ok: true };
+  const expiryTs = new Date(`${spec.underlyingExpiry}T23:59:59+05:30`).getTime();
+  const now = Date.now();
+  const daysRemaining = (expiryTs - now) / (24 * 3600 * 1000);
+  if (daysRemaining < 0) {
+    const msg = `Underlying contract ${spec.id} (${spec.underlyingScrip}) EXPIRED on ${spec.underlyingExpiry}. Update securityId/contractExpiry in config/env.`;
+    console.error(`[DhanTrade] 🛑 ${msg}`);
+    return { ok: false, expired: true, message: msg };
+  }
+  if (daysRemaining <= 3) {
+    console.warn(`[DhanTrade] ⚠️ ROLLOVER WARNING: ${spec.id} contract (${spec.underlyingScrip}) expires in ${Math.ceil(daysRemaining)} day(s) on ${spec.underlyingExpiry}. Plan rollover.`);
+  }
+  return { ok: true, expired: false, daysRemaining };
+}
 
 function envNum(key, fallback) {
   const n = Number(process.env[key]);
@@ -101,6 +124,7 @@ function createDhanNiftyTrade(opts = {}) {
   const qty = lotSize * lots;
   const deltaGuess = envNum('NIFTY_OPT_DELTA', 0.55);
   const productType = process.env.DHAN_PRODUCT_TYPE || 'INTRADAY';
+  const freshness = checkContractFreshness(spec);
 
   async function nearestWeeklyExpiry() {
     const res = await dhan.getOptionExpiryList({
@@ -192,8 +216,9 @@ function createDhanNiftyTrade(opts = {}) {
     const indexReward = Math.abs(Number(indexTp1) - Number(indexEntry));
     const fixedSl = envNum('DHAN_OPT_SL_PTS', 0);
     const fixedTp = envNum('DHAN_OPT_TP_PTS', 0);
-    // Dr Dev: structural SL (minimum minSlPts option pts); runner stretch target ~3R.
-    const tpMult = Math.max(1, envNum('DHAN_TP_R_MULT', 3));
+    // Dr Dev: structural SL (minimum minSlPts option pts); runner target (spec.tpMult or DHAN_TP_R_MULT).
+    const defaultTpMult = spec.tpMult != null ? spec.tpMult : 3;
+    const tpMult = Math.max(1, envNum('DHAN_TP_R_MULT', defaultTpMult));
     const slPts = fixedSl > 0 ? fixedSl : Math.max(minSlPts, Math.round(indexRisk * d));
     const oneRFromIndex = fixedTp > 0 ? fixedTp : Math.max(minSlPts, Math.round(indexReward * d));
     // Prefer premium 1R from SL width; fall back to mapped index 1R.
@@ -261,7 +286,9 @@ function createDhanNiftyTrade(opts = {}) {
     const oneR = Math.max(1, entry - sl0);
     const split = splitBankRunnerQty(quantity);
     const be = tickPrem(entry + Math.max(0.5, envNum('DHAN_BE_PAD', 0.5)));
-    const tp3 = tickPrem(Math.max(Number(targetPrice) || 0, entry + oneR * envNum('DHAN_TP_R_MULT', 3)));
+    const defaultTpMult = spec.tpMult != null ? spec.tpMult : 3;
+    const tpMult = Math.max(1, envNum('DHAN_TP_R_MULT', defaultTpMult));
+    const tp3 = tickPrem(Math.max(Number(targetPrice) || 0, entry + oneR * tpMult));
     const out = {
       ...split,
       oneR,
@@ -363,6 +390,7 @@ function createDhanNiftyTrade(opts = {}) {
     indexTp1,
     correlationId,
   }) {
+    if (!freshness.ok) throw new Error(freshness.message);
     const contract = await pickOptionContract({ side, spot: indexEntry });
     // Prefer ask for BUY so LIMIT is marketable; fall back to LTP.
     const premium = Number(contract.ask) > 0 ? Number(contract.ask) : Number(contract.ltp);

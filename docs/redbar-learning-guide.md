@@ -87,20 +87,34 @@ BTC on TrendRunner uses **two different reference boxes** — do not conflate th
 - In a **selling** market, piercing a London high can be a **liquidity sweep**, not a fresh long breakout.
 - Optional HTF: **22h / 23h “shadow candle”** structure for crypto — context filter, not a replacement for Red Bar.
 
-### MCX Commodities clocks (CRUDEOIL & NATURALGAS)
+### MCX Commodities clocks & 5:30 Formula (CRUDEOIL & NATURALGAS)
 
 Commodities trade across global energy sessions (Asia, London, and New York NYMEX):
 
 | Session Phase | Normal Days (IST) | Holiday Split Session (IST) | What it is | Role |
 | :--- | :--- | :--- | :--- | :--- |
 | **Morning Open** | **09:00–09:30** | *CLOSED* | 15m/30m Asian Open candle | Primary anchor Fib box (`0 / 0.44 / 0.50 / 0.56 / 1.0`) |
-| **Europe Transition / 5:30 Formula** | **17:00–17:30** | **17:00–17:30** (Day Open) | Europe/London energy open | **Dr. Dev 5:30 Formula candle (17:30 IST)**; on daytime equity holidays, the 17:00 candle is the opening X-candle |
-| **US NYMEX Pit Open** | **18:30 / 19:30–22:00** | **18:30 / 19:30–22:00** | US energy floor open & EIA inventory data | Maximum intraday volume & 3R runner expansion |
+| **Holiday Open Fallback** | — | **17:00–17:30** (Day Open) | Opening session mark on equity holidays | Opening X-candle Fib box when 09:00 session is closed |
+| **5:30 Formula Trikal Engine** | **17:30–18:00** (30m) | **17:30–18:00** (30m) | Europe/London energy open anchor | **Everyday 5:30 Formula candle (17:30 IST)**; dedicated Trikal engine evaluates 18:00–22:30 IST |
+| **US NYMEX Pit Open** | **18:30 / 19:30–22:00** | **18:30 / 19:30–22:00** | US energy floor open & EIA inventory data | High-volatility commodity expansion window |
 | **Session Flatten** | **23:15** | **23:15** | Pre-close risk clear | EOD auto-flatten closes open option risk before 23:30 MCX settle |
 
-- **Dual-Window Automation**: The engine uses a primary `09:00–09:30` window and an automatic `17:00–17:30` fallback window. On holiday days with no morning session, it falls back to 17:00; on normal days, it automatically anchors to 09:00 with zero manual reconfiguration.
-- **Timeframe Split**: Structure reading on **15m / 30m**; entry execution on **5m / 1m**.
-- **Market Temperament**: Crude Oil behaves like a smooth institutional index; Natural Gas is "The Widow Maker" with erratic inventory/weather wicks. Keep their loss circuit breakers independent.
+- **5:30 Formula Engine (Everyday Architecture)**:
+  - At **17:30 IST** everyday, London/Europe energy markets open with massive institutional liquidity.
+  - The engine tracks the **17:30–18:00 IST 30m candle**. When it closes at 18:00 IST, High, Low, and Midpoint (0.50) are locked.
+  - From **18:00 to 22:30 IST**, the engine detects:
+    1. **`mcx_530_breakout`**: First 5m candle closing cleanly outside the 17:30 High/Low.
+    2. **`mcx_530_retest`**: Retest of the broken 17:30 shelf with a 5m bounce candle.
+    3. **`mcx_530_reversal`**: Failed breakout that traps wicks and reclaims back inside across the 50% midpoint.
+  - Stop loss: structural opposite extreme or 5m shelf, floored at 15 pts (Crude) / 2.5 pts (NG).
+  - Target: **2.4R (36 pts)** on Crude Oil; **2.5R** on NG.
+- **Decoupled from Holiday Fallback**: The 5:30 Formula is a dedicated everyday engine. On normal days, it activates at 17:30 after the morning session; on equity holidays (like today), the 17:00–17:30 opening mark seamlessly precedes the 17:30 Europe formula.
+- **Complete Decoupling from Crypto Gates (`isBtcGate` Leak Fixed)**:
+  - MCX commodities are explicitly decoupled from BTC gates.
+  - **No pre-Asia dead hours block**: MCX operates on its own session clocks.
+  - **No Mark-Fib inside box block**: MCX does not inherit BTC CME accumulation blocking.
+  - **No BTC Course Confluence**: MCX is free of crypto 200 MA chop bands and SuperTrend (10, 4.1).
+  - **No 1% stopPct cap**: MCX uses structural points floored at 15 pts (Crude) / 2.5 pts (NG) with a 20m freshness window.
 
 ---
 
@@ -141,13 +155,19 @@ Commodities trade across global energy sessions (Asia, London, and New York NYME
 ---
 
 ### Commodity Risk Doctrine (MCX CRUDEOIL & NG)
-- **Crude Oil Stop & Target**:
+- **Crude Oil Stop & Target (Code & Modal Reconciled)**:
   - Stop Loss: **15 points** option SL (~15 MCX pts) floor.
-  - Target: **36 points** (~2.4 R:R). Matches Dr. Dev's live Dhan order ticket (f_0035.jpg / f_0050.jpg).
+  - Target: **36 points** (**2.4 R:R**). Exactly matches Dr. Dev's verified live Dhan order ticket (f_0035.jpg / f_0050.jpg). Reconciled in code via `tpMult: 2.4` in `DHAN_INSTRUMENT_SPECS.CRUDEOIL` (15 pt SL * 2.4 = 36 pt TP).
   - Contract size: 1 lot = 100 barrels. Margin needed: ~₹6,500–₹7,500 premium. Max risk at SL floor = **₹1,500**.
-- **Natural Gas Stop**:
+- **Natural Gas Stop & Target**:
   - Stop Loss: **2.5 points** option SL (~2.5 MCX pts) floor.
+  - Target: **2.5 R:R** (~6.25 pts). Reconciled in code via `tpMult: 2.5` in `DHAN_INSTRUMENT_SPECS.NG`.
   - Contract size: 1 lot = 1,250 mmBtu. Margin needed: ~₹10,000–₹12,000 premium. Max risk at SL floor = **₹3,125**.
+- **Contract Freshness & Rollover Guard**:
+  - `CRUDEOIL NOV FUT` (573422) expires **2026-11-17** (active & liquid today).
+  - `NATURALGAS NOV FUT` (574319) expires **2026-11-20** (active & liquid today).
+  - `dhan_nifty_trade.js` includes an automated contract expiry guard that logs rollover warnings 3 days prior to expiry and rejects orders on expired contracts.
+  - Environment overrides `DHAN_CRUDEOIL_SCRIP` and `DHAN_NG_SCRIP` allow zero-code rollover on expiration.
 - **Independent 1-Loss Circuit Breakers**:
   - Crude loss pauses Crude only for the day.
   - NG loss pauses NG only for the day.

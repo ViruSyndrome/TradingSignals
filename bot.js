@@ -629,6 +629,9 @@ async function _scanOneRedBarInstrument(rawInst, rbCfg) {
     setupKind === 'btc_asia_0530_breakout'
     || setupKind === 'pob_reject'
     || setupKind === 'trade1_departure'
+    || setupKind === 'mcx_530_breakout'
+    || setupKind === 'mcx_530_retest'
+    || setupKind === 'mcx_530_reversal'
   );
   const bucketMs = isNiftyInst ? (20 * 60 * 1000) : (60 * 60 * 1000);
   const trigBucket = isOneShotMorningSetup ? 'session' : Math.floor(triggerTs / bucketMs);
@@ -756,7 +759,7 @@ ${_escHtml(planLine)}${btcConfLine}${alertOnlyNote}
 /** DNA / researched setups eligible for auto (Binance + Dhan). Trade 3 = setup3_rubber_band. Dr. Dev Trikal 12:45 = afternoon_1245_reversal / afternoon_1245_breakout. */
 function _autoSetupAllowed(setupKind) {
   const raw = envTrim('REDBAR_AUTO_SETUPS')
-    || 'trade1_departure,trade2_confirmed,session_sweep,pob_reject,setup3_rubber_band,afternoon_1245_reversal,afternoon_1245_breakout,afternoon_1245_retest,btc_asia_0530_breakout';
+    || 'trade1_departure,trade2_confirmed,session_sweep,pob_reject,setup3_rubber_band,afternoon_1245_reversal,afternoon_1245_breakout,afternoon_1245_retest,btc_asia_0530_breakout,mcx_530_breakout,mcx_530_retest,mcx_530_reversal';
   const allow = raw.split(',').map((s) => s.trim()).filter(Boolean);
   return allow.includes(String(setupKind || ''));
 }
@@ -911,7 +914,7 @@ async function _maybeAutoDhanNifty({ inst, side, readout, alertKey, dayKey, setu
   // Morning (pre-12:45) and Afternoon (12:45+ Trikal) are distinct Dr. Dev sessions.
   // If the current session (AM or PM) hits 2 consecutive SL losses, stand down for that session
   // (so 2 morning SL hits pauses the rest of the morning and waits cleanly for the 12:45 Afternoon Trikal).
-  const isAfternoonSession = mins >= (12 * 60 + 45) || String(setupKind || '').startsWith('afternoon_1245');
+  const isAfternoonSession = mins >= (12 * 60 + 45) || String(setupKind || '').startsWith('afternoon_1245') || String(setupKind || '').startsWith('mcx_530');
   const sessBucket = isAfternoonSession ? 'PM' : 'AM';
   const consecLossKey = instKey === 'NIFTY'
     ? `DHAN_CONSEC_LOSSES_${sessBucket}_${dayKey || 'noday'}`
@@ -919,7 +922,7 @@ async function _maybeAutoDhanNifty({ inst, side, readout, alertKey, dayKey, setu
   const closedSessChron = [...todayManagedDhan]
     .filter((t) => {
       if (!t.status || t.status === 'open') return false;
-      const isPmTrade = String(t.setupKind || '').startsWith('afternoon_1245');
+      const isPmTrade = String(t.setupKind || '').startsWith('afternoon_1245') || String(t.setupKind || '').startsWith('mcx_530');
       return isAfternoonSession ? isPmTrade : !isPmTrade;
     })
     .sort((a, b) => Number(a.closedAt || 0) - Number(b.closedAt || 0));
@@ -1248,7 +1251,7 @@ async function pollManagedDhanStops() {
               t.legABooked = true;
               t.legABookedAt = Date.now();
               const tDayKey = t.dayKey || (String(t.alertKey || '').split('|')[2] || '');
-              const tSess = String(t.setupKind || '').startsWith('afternoon_1245') ? 'PM' : 'AM';
+              const tSess = (String(t.setupKind || '').startsWith('afternoon_1245') || String(t.setupKind || '').startsWith('mcx_530')) ? 'PM' : 'AM';
               if (tDayKey) {
                 const cKey = tInst === 'NIFTY' ? `DHAN_CONSEC_LOSSES_${tSess}_${tDayKey}` : `DHAN_CONSEC_LOSSES_${tInst}_${tSess}_${tDayKey}`;
                 const wKey = tInst === 'NIFTY' ? `DHAN_T1_WON_${tDayKey}` : `DHAN_T1_WON_${tInst}_${tDayKey}`;
@@ -1428,7 +1431,7 @@ async function pollManagedDhanStops() {
 
       if (t.status !== 'open') {
         const tDayKey = t.dayKey || (String(t.alertKey || '').split('|')[2] || '');
-        const tSess = String(t.setupKind || '').startsWith('afternoon_1245') ? 'PM' : 'AM';
+        const tSess = (String(t.setupKind || '').startsWith('afternoon_1245') || String(t.setupKind || '').startsWith('mcx_530')) ? 'PM' : 'AM';
         if (tDayKey) {
           const cKey = tInst === 'NIFTY' ? `DHAN_CONSEC_LOSSES_${tSess}_${tDayKey}` : `DHAN_CONSEC_LOSSES_${tInst}_${tSess}_${tDayKey}`;
           const wKey = tInst === 'NIFTY' ? `DHAN_T1_WON_${tDayKey}` : `DHAN_T1_WON_${tInst}_${tDayKey}`;

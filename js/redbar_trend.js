@@ -664,7 +664,8 @@ const RedBarTrend = {
   },
 
   isMcxCommodity(instId) {
-    return ['NG', 'CRUDEOIL'].includes(String(instId || '').toUpperCase());
+    const s = String(instId || '').toUpperCase();
+    return ['NG', 'NATURALGAS', 'CRUDEOIL', 'CRUDE'].some((k) => s === k || s.startsWith(k));
   },
 
   /**
@@ -2708,6 +2709,225 @@ const RedBarTrend = {
   },
 
   /**
+   * Dr. Devendra Pratap Singh: 5:30 Formula & MCX Trikal Anchor (CRUDEOIL & NATURALGAS).
+   * - At 17:30 IST (London/Europe energy open), a pivotal 30m candle forms (17:30–18:00 IST).
+   * - Closes at 18:00 IST, locking the 30m range High, Low, Midpoint (0.50), and direction.
+   * - Execution Window: 18:00 to 22:30 IST (Europe session + US NYMEX floor open).
+   * - Setups:
+   *   1. Breakout (mcx_530_breakout): First 5m candle closing cleanly outside 30m range.
+   *      - Stop Loss: opposite extreme of 30m candle or 5m breakout swing, floored at structural min (15 pts Crude, 2.5 pts NG).
+   *      - Target: 2.4R (36 pts) on Crude Oil; 2.5R on NG.
+   *   2. Retest (mcx_530_retest): Breakout followed by test of broken level and 5m bounce candle.
+   *   3. Trap Reversal (mcx_530_reversal): Failed breakout that closes back inside the range across midpoint.
+   */
+  detectMcx530FormulaTrikal(bars5m, evalTs, tz = 'Asia/Kolkata') {
+    if (!Array.isArray(bars5m) || !bars5m.length) return null;
+    const evalHms = this.zonedHms(evalTs, tz);
+    const evalMins = evalHms.hour * 60 + evalHms.minute;
+    const targetDay = evalHms.day;
+
+    // Active from 17:30 IST until pre-close (22:45 IST)
+    if (evalMins < 17 * 60 + 30) return null;
+    if (evalMins >= 22 * 60 + 45) return null;
+
+    const barMs5 = 5 * 60 * 1000;
+    const isClosed5 = (b) => b.t + barMs5 - 1500 <= evalTs;
+
+    // Filter 5m bars that make up the 17:30–18:00 IST 30m candle
+    const xBars = bars5m.filter((b) => {
+      if (b.t > evalTs) return false;
+      const h = this.zonedHms(b.t, tz);
+      if (h.day !== targetDay) return false;
+      const mins = h.hour * 60 + h.minute;
+      return mins >= 17 * 60 + 30 && mins < 18 * 60;
+    });
+
+    if (!xBars.length) return null;
+
+    const xOpen = xBars[0].o;
+    let xHigh = -Infinity;
+    let xLow = Infinity;
+    for (const b of xBars) {
+      if (b.h > xHigh) xHigh = b.h;
+      if (b.l < xLow) xLow = b.l;
+    }
+    const xLast = xBars[xBars.length - 1];
+    const xClose = xLast.c;
+    const xMid = (xHigh + xLow) / 2;
+    const xColor = xClose >= xOpen ? 'green' : 'red';
+    const xRange = xHigh - xLow;
+    if (!(xRange > 0)) return null;
+
+    // 17:30 to 18:00 IST: 30m candle is still forming
+    if (evalMins < 18 * 60) {
+      return {
+        status: 'forming',
+        setupKind: 'mcx_530_watch',
+        side: null,
+        triggered: false,
+        xCandle: { high: xHigh, low: xLow, mid: xMid, color: xColor, open: xOpen, close: xClose },
+        label: `MCX 5:30 Formula candle forming (17:30–18:00 IST) · Range ${xLow.toFixed(1)}–${xHigh.toFixed(1)} · Wait for 18:00 close`,
+      };
+    }
+
+    // Closed 5m bars after 18:00 IST
+    const afterBars = bars5m.filter((b) => {
+      if (!isClosed5(b)) return false;
+      const h = this.zonedHms(b.t, tz);
+      if (h.day !== targetDay) return false;
+      const mins = h.hour * 60 + h.minute;
+      return mins >= 18 * 60 && mins <= evalMins;
+    });
+
+    if (!afterBars.length) {
+      return {
+        status: 'awaiting_breakout',
+        setupKind: 'mcx_530_watch',
+        side: null,
+        triggered: false,
+        xCandle: { high: xHigh, low: xLow, mid: xMid, color: xColor, open: xOpen, close: xClose },
+        label: `MCX 5:30 Formula candle marked (${xColor.toUpperCase()}) · Range: ${xLow.toFixed(1)}–${xHigh.toFixed(1)} · Awaiting breakout`,
+      };
+    }
+
+    const lastBar = afterBars[afterBars.length - 1];
+    const price = lastBar.c;
+
+    // Detect first bullish breakout close above xHigh
+    let bullCross = null;
+    let bullCrossIdx = -1;
+    for (let i = 0; i < afterBars.length; i++) {
+      const b = afterBars[i];
+      const prev = i > 0 ? afterBars[i - 1] : null;
+      if (!bullCross && b.c > xHigh && (!prev || prev.c <= xHigh)) {
+        bullCross = b;
+        bullCrossIdx = i;
+      }
+    }
+    let bullFailedBackInside = false;
+    if (bullCross && bullCrossIdx >= 0) {
+      for (let j = bullCrossIdx + 1; j < afterBars.length; j++) {
+        if (afterBars[j].c < xMid) {
+          bullFailedBackInside = true;
+          break;
+        }
+      }
+    }
+
+    // Detect first bearish breakout close below xLow
+    let bearCross = null;
+    let bearCrossIdx = -1;
+    for (let i = 0; i < afterBars.length; i++) {
+      const b = afterBars[i];
+      const prev = i > 0 ? afterBars[i - 1] : null;
+      if (!bearCross && b.c < xLow && (!prev || prev.c >= xLow)) {
+        bearCross = b;
+        bearCrossIdx = i;
+      }
+    }
+    let bearFailedBackInside = false;
+    if (bearCross && bearCrossIdx >= 0) {
+      for (let j = bearCrossIdx + 1; j < afterBars.length; j++) {
+        if (afterBars[j].c > xMid) {
+          bearFailedBackInside = true;
+          break;
+        }
+      }
+    }
+
+    // Trap Reversal: price pierced one side then closed back inside past midpoint
+    if (bullCross && bullFailedBackInside && price < xMid) {
+      const triggerPrice = price;
+      const triggerTs = lastBar.t;
+      const stopLoss = xHigh;
+      const risk = Math.abs(stopLoss - triggerPrice);
+      return {
+        setupKind: 'mcx_530_reversal',
+        side: 'bearish',
+        triggered: risk > 0,
+        stopStructural: true,
+        triggerPrice,
+        triggerTs,
+        stopLoss,
+        xCandle: { high: xHigh, low: xLow, mid: xMid, color: xColor, open: xOpen, close: xClose },
+        label: `MCX 5:30 Formula · Trap Reversal SHORT below mid ${xMid.toFixed(1)} · Target ${xLow.toFixed(1)}`,
+      };
+    }
+
+    if (bearCross && bearFailedBackInside && price > xMid) {
+      const triggerPrice = price;
+      const triggerTs = lastBar.t;
+      const stopLoss = xLow;
+      const risk = Math.abs(triggerPrice - stopLoss);
+      return {
+        setupKind: 'mcx_530_reversal',
+        side: 'bullish',
+        triggered: risk > 0,
+        stopStructural: true,
+        triggerPrice,
+        triggerTs,
+        stopLoss,
+        xCandle: { high: xHigh, low: xLow, mid: xMid, color: xColor, open: xOpen, close: xClose },
+        label: `MCX 5:30 Formula · Trap Reversal LONG above mid ${xMid.toFixed(1)} · Target ${xHigh.toFixed(1)}`,
+      };
+    }
+
+    // Bullish Breakout
+    if (bullCross && !bullFailedBackInside && price >= xHigh) {
+      const triggerPrice = bullCross.c;
+      const triggerTs = bullCross.t;
+      const stopLoss = Math.min(xLow, bullCross.l);
+      const risk = triggerPrice - stopLoss;
+      // Retest check: if price pulled back near xHigh and bounced
+      const isRetest = afterBars.length > bullCrossIdx + 1 && Math.abs(price - xHigh) <= (xRange * 0.25) && price > xHigh;
+      return {
+        setupKind: isRetest ? 'mcx_530_retest' : 'mcx_530_breakout',
+        side: 'bullish',
+        triggered: risk > 0,
+        stopStructural: true,
+        triggerPrice,
+        triggerTs,
+        stopLoss,
+        xCandle: { high: xHigh, low: xLow, mid: xMid, color: xColor, open: xOpen, close: xClose },
+        label: isRetest
+          ? `MCX 5:30 Formula · Retest shelf bounce above ${xHigh.toFixed(1)}`
+          : `MCX 5:30 Formula · Bullish breakout above ${xHigh.toFixed(1)} · Europe open momentum`,
+      };
+    }
+
+    // Bearish Breakout
+    if (bearCross && !bearFailedBackInside && price <= xLow) {
+      const triggerPrice = bearCross.c;
+      const triggerTs = bearCross.t;
+      const stopLoss = Math.max(xHigh, bearCross.h);
+      const risk = stopLoss - triggerPrice;
+      const isRetest = afterBars.length > bearCrossIdx + 1 && Math.abs(price - xLow) <= (xRange * 0.25) && price < xLow;
+      return {
+        setupKind: isRetest ? 'mcx_530_retest' : 'mcx_530_breakout',
+        side: 'bearish',
+        triggered: risk > 0,
+        stopStructural: true,
+        triggerPrice,
+        triggerTs,
+        stopLoss,
+        xCandle: { high: xHigh, low: xLow, mid: xMid, color: xColor, open: xOpen, close: xClose },
+        label: isRetest
+          ? `MCX 5:30 Formula · Retest shelf reject below ${xLow.toFixed(1)}`
+          : `MCX 5:30 Formula · Bearish breakdown below ${xLow.toFixed(1)} · Europe open momentum`,
+      };
+    }
+
+    return {
+      status: 'watching',
+      setupKind: 'mcx_530_watch',
+      side: null,
+      triggered: false,
+      xCandle: { high: xHigh, low: xLow, mid: xMid, color: xColor, open: xOpen, close: xClose },
+      label: `MCX 5:30 Formula candle marked (${xColor.toUpperCase()}) · Inside ${xLow.toFixed(1)}–${xHigh.toFixed(1)} · Stand aside`,
+    };
+  },
+
+  /**
    * Dr. Devendra Pratap Singh: Equinox Macro Territory Engine
    * Locks Vernal (March 20-21) and Autumnal (Sept 22-23) mean baseline levels.
    * - Above baseline: POSITIVE TERRITORY -> Calls only, Puts forbidden.
@@ -2806,6 +3026,7 @@ const RedBarTrend = {
     pobReject = null,
     afternoon1245 = null,
     btcAsia0530 = null,
+    mcx530 = null,
     instId = '',
   }) {
     if (trend !== 'bullish' && trend !== 'bearish') {
@@ -2925,6 +3146,52 @@ const RedBarTrend = {
         stopPct,
         targetPct,
         rr: 3.0,
+        rrLadder: true,
+        prevSwingLow: trend === 'bullish' ? sp : null,
+        prevSwingHigh: trend === 'bearish' ? sp : null,
+      };
+    }
+
+    // Dr. Dev MCX 5:30 Formula (17:30 IST 30m Europe energy candle breakout / retest / reversal)
+    if (
+      (setupKind === 'mcx_530_breakout' || setupKind === 'mcx_530_retest' || setupKind === 'mcx_530_reversal')
+      && mcx530 && mcx530.triggered
+    ) {
+      const isRetest = setupKind === 'mcx_530_retest';
+      const isReversal = setupKind === 'mcx_530_reversal';
+      const triggerP = mcx530.triggerPrice ?? price;
+      const isCrude = String(instId || '').toUpperCase().includes('CRUDE');
+      const minStopPts = isCrude ? 15 : 2.5; // Dr Dev structural floor: 15 pts on Crude, 2.5 pts on NG
+      const rMult = isCrude ? 2.4 : 2.5; // Dr Dev 2.4R on Crude (15 pt SL -> 36 pt TP), 2.5R on NG
+      let sp = mcx530.stopLoss;
+      let rawRisk = Math.abs(triggerP - sp);
+      if (rawRisk < minStopPts) {
+        sp = trend === 'bullish' ? triggerP - minStopPts : triggerP + minStopPts;
+        rawRisk = minStopPts;
+      }
+      const riskDist = rawRisk;
+      const tp1 = trend === 'bullish' ? triggerP + riskDist : triggerP - riskDist;
+      const tp2 = trend === 'bullish' ? triggerP + riskDist * 2 : triggerP - riskDist * 2;
+      const tp3 = trend === 'bullish' ? triggerP + riskDist * rMult : triggerP - riskDist * rMult;
+      const stopPct = triggerP > 0 ? (riskDist / triggerP) * 100 : null;
+      return {
+        invalidation: sp,
+        invalidationReason: isRetest
+          ? '5:30 Formula retest 5m bounce shelf stop'
+          : (isReversal ? '5:30 Formula trap reversal swing stop' : '5:30 Formula 30m Europe X stop'),
+        stopStructural: true,
+        tp1,
+        tp2,
+        tp3,
+        bookZone: tp3,
+        firstMagnet: { price: tp1, label: '1:1 R' },
+        bookReason: isRetest
+          ? 'MCX 5:30 Retest Shelf Bounce'
+          : (isReversal ? 'MCX 5:30 Trap Reversal' : 'MCX 5:30 Europe Breakout'),
+        bookIsMagnet: true,
+        stopPct,
+        targetPct: triggerP > 0 ? (Math.abs(tp3 - triggerP) / triggerP) * 100 : null,
+        rr: rMult,
         rrLadder: true,
         prevSwingLow: trend === 'bullish' ? sp : null,
         prevSwingHigh: trend === 'bearish' ? sp : null,
@@ -3563,6 +3830,10 @@ const RedBarTrend = {
     const btcAsia0530 = (bars5m && isBtc)
       ? this.detectBtcAsia0530Trikal(bars5m, evalTs)
       : null;
+    // Dr. Dev MCX 5:30 Formula (17:30 IST 30m Europe energy candle anchor)
+    const mcx530 = (bars5m && isMcx)
+      ? this.detectMcx530FormulaTrikal(bars5m, evalTs)
+      : null;
 
     // Composite trend & setup classification (Sagar DNA + Dr. Dev):
     // 1. Mark window still forming -> WAIT
@@ -3591,6 +3862,9 @@ const RedBarTrend = {
     } else if (btcAsia0530 && btcAsia0530.triggered && btcAsia0530.side) {
       trend = btcAsia0530.side;
       setupKind = btcAsia0530.setupKind;
+    } else if (mcx530 && mcx530.triggered && mcx530.side) {
+      trend = mcx530.side;
+      setupKind = mcx530.setupKind;
     } else if (pobReject && pobReject.triggered && pobReject.side) {
       trend = pobReject.side;
       setupKind = 'pob_reject';
@@ -3610,6 +3884,9 @@ const RedBarTrend = {
     } else if (setup3 && setup3.triggered) {
       trend = setup3.direction;
       setupKind = 'setup3_rubber_band';
+    } else if (mcx530 && mcx530.setupKind === 'mcx_530_watch') {
+      trend = 'neutral';
+      setupKind = 'mcx_530_watch';
     } else if (phase === 'inside_or') {
       trend = 'neutral';
       setupKind = 'wait';
@@ -3683,13 +3960,17 @@ const RedBarTrend = {
       || setupKind === 'afternoon_1245_breakout'
       || setupKind === 'afternoon_1245_retest';
     const isBtc0530 = setupKind === 'btc_asia_0530_breakout';
+    const isMcx530 = setupKind === 'mcx_530_breakout'
+      || setupKind === 'mcx_530_retest'
+      || setupKind === 'mcx_530_reversal';
     const preferSwingStop = isTrade2
       || setupKind === 'trade1_departure'
       || setupKind === 'session_sweep'
       || setupKind === 'pob_reject'
       || setupKind === 'setup3_rubber_band'
       || is1245
-      || isBtc0530;
+      || isBtc0530
+      || isMcx530;
 
     // Event candle first — levels / R:R / auto fill must anchor on the trigger, not a chase print.
     const setupTriggerTs0 = (setupKind === 'session_sweep' && sweep?.triggerTs != null)
@@ -3700,9 +3981,11 @@ const RedBarTrend = {
           ? setup3.triggerTs
           : (setupKind === 'btc_asia_0530_breakout')
             ? btcAsia0530?.triggerTs
-            : (setupKind === 'afternoon_1245_reversal' || setupKind === 'afternoon_1245_breakout' || setupKind === 'afternoon_1245_retest')
-              ? afternoon1245?.triggerTs
-              : (redSetup.triggerTs || null);
+            : (isMcx530 && mcx530?.triggerTs != null)
+              ? mcx530.triggerTs
+              : (setupKind === 'afternoon_1245_reversal' || setupKind === 'afternoon_1245_breakout' || setupKind === 'afternoon_1245_retest')
+                ? afternoon1245?.triggerTs
+                : (redSetup.triggerTs || null);
     const t2Stale = setupKind === 'trade2_confirmed' && redSetup.trade1Fresh && redSetup.trade2TriggerTs != null
       && redSetup.triggerTs != null && (evalTs - Number(redSetup.triggerTs)) > 20 * 60000;
     const setupTriggerTs = t2Stale ? redSetup.trade2TriggerTs : setupTriggerTs0;
@@ -3714,8 +3997,10 @@ const RedBarTrend = {
           ? setup3.triggerPrice
           : (setupKind === 'btc_asia_0530_breakout' && btcAsia0530?.triggerPrice != null)
             ? btcAsia0530.triggerPrice
-            : (t2Stale && redSetup.trade2TriggerPrice != null ? redSetup.trade2TriggerPrice
-              : (redSetup.triggerPrice != null ? redSetup.triggerPrice : price));
+            : (isMcx530 && mcx530?.triggerPrice != null)
+              ? mcx530.triggerPrice
+              : (t2Stale && redSetup.trade2TriggerPrice != null ? redSetup.trade2TriggerPrice
+                : (redSetup.triggerPrice != null ? redSetup.triggerPrice : price));
     // Levels from live price: auto fills at market, so stop/1:1 must be measured from where we actually get in.
     // Chase is still blocked by entryGate (≤0.5R past the trigger candle).
     const levels = this._resolveStopAndBook({
@@ -3736,9 +4021,9 @@ const RedBarTrend = {
       red,
       sweep,
       cpr,
-      minRR: isTrade2 || setupKind === 'pob_reject' || is1245 || isBtc0530 ? 1.0 : 1.5,
+      minRR: isTrade2 || setupKind === 'pob_reject' || is1245 || isBtc0530 || isMcx530 ? 1.0 : 1.5,
       preferSwingStop,
-      rrLadder: isTrade2 || is1245 || isBtc0530,
+      rrLadder: isTrade2 || is1245 || isBtc0530 || isMcx530,
       bars5m,
       sweepExtreme: redSetup.sweepExtreme ?? null,
       setupKind,
@@ -3746,13 +4031,14 @@ const RedBarTrend = {
       pobReject,
       afternoon1245,
       btcAsia0530,
+      mcx530,
       instId,
     });
 
     const invalidation = levels.invalidation;
     const bookZone = levels.bookZone;
 
-    const btcConfluence = (!isIndIdx)
+    const btcConfluence = (isBtc)
       ? this.computeBtcCourseConfluence({
         bars: slice,
         bars5m,
@@ -3789,6 +4075,7 @@ const RedBarTrend = {
       openingRange: or,
       btcConfluence,
       btcAsia0530,
+      mcx530,
     });
 
     const sizingEntry = (setupKind === 'pob_reject' && setupTriggerPrice != null) ? setupTriggerPrice : price;
@@ -3813,6 +4100,7 @@ const RedBarTrend = {
       equinox,
       afternoon1245,
       btcAsia0530,
+      mcx530,
       btcConfluence,
       squeeze5m,
       triggerTs: setupTriggerTs,
@@ -3859,6 +4147,7 @@ const RedBarTrend = {
       equinox: equinox || null,
       afternoon1245: afternoon1245 || null,
       btcAsia0530: btcAsia0530 || null,
+      mcx530: mcx530 || null,
       btcConfluence: btcConfluence || null,
       squeeze5m: squeeze5m || null,
       openingRange: or,
@@ -3965,6 +4254,9 @@ const RedBarTrend = {
     'afternoon_1245_breakout',
     'afternoon_1245_retest',
     'btc_asia_0530_breakout',
+    'mcx_530_breakout',
+    'mcx_530_retest',
+    'mcx_530_reversal',
   ],
 
   /** True in the first `quietMins` of London (12:30 IST) or US (16:30 IST). */
@@ -4007,7 +4299,7 @@ const RedBarTrend = {
     trend, setupKind, rr, stopStructural, invalidationReason, stopPct, renko, clock,
     asOfTs, instrumentId, season, setupTriggerTs, entryPrice, stopPrice, livePrice,
     revisitRead, tpHint, equinox = null, phase = null, openingRange = null,
-    btcConfluence = null, btcAsia0530 = null,
+    btcConfluence = null, btcAsia0530 = null, mcx530 = null,
   }) {
     if (trend !== 'bullish' && trend !== 'bearish') {
       return { state: 'wait', reason: 'No directional setup.' };
@@ -4047,6 +4339,7 @@ const RedBarTrend = {
         setup3_primed: 'Setup 3 Primed (overlay): ≥4× 30m candles detached from 5 EMA. Watch LTF Barricade — not ENTER until walk-forward PASS.',
         setup3_rubber_band: 'Setup 3 Barricade broken (overlay): rubber-band snapback visible — chart guide only.',
         btc_asia_0530_watch: 'Asia open: 30m range marked or forming — wait breakout close beyond X high/low (06:00–08:30 IST).',
+        mcx_530_watch: 'MCX 5:30 Formula: 17:30 IST 30m candle forming or marked — wait breakout close beyond High/Low (18:00–22:30 IST).',
       }[setupKind] || 'Wait for leave / shelf retest / sweep / mid-zone reject.';
       return { state: 'watch', reason: why };
     }
@@ -4086,6 +4379,14 @@ const RedBarTrend = {
           reason: `Asia 05:30 breakout needs SL @ X opposite extreme (got: ${invalidationReason || '—'}).`,
         };
       }
+    } else if (setupKind === 'mcx_530_breakout' || setupKind === 'mcx_530_retest' || setupKind === 'mcx_530_reversal') {
+      // Dr Dev MCX 5:30 Formula: SL is 30m Europe X opposite extreme / shelf stop
+      if (!/5:30 Formula|30m Europe|shelf|swing|extreme/i.test(stopTag) && !stopStructural) {
+        return {
+          state: 'watch',
+          reason: `MCX 5:30 Formula needs structural SL (got: ${invalidationReason || '—'}).`,
+        };
+      }
     } else {
       // Keep "5m swing" accepted — NIFTY morning T1/T2 still tags stops that way (do not break NIFTY).
       const realStructureStop = (/15m swing|5m swing|shelf|1H red|session sweep|extreme drop wick|extreme rally wick|12:45 reversal|12:45 breakout/i.test(stopTag))
@@ -4101,7 +4402,8 @@ const RedBarTrend = {
     // Pre-Asia: no fresh T1/T2/sweep ENTER (dead hours) — wait Asia Trikal / real first red after mark.
     const inst = String(instrumentId || '').toUpperCase();
     const isNifty = this.isIndianIndex(inst);
-    const isBtcGate = !isNifty;
+    const isMcx = this.isMcxCommodity(inst);
+    const isBtcGate = !isNifty && !isMcx;
     if (
       isBtcGate
       && clock
@@ -4120,7 +4422,7 @@ const RedBarTrend = {
       if (Math.abs(n) < 500) return n.toFixed(2);
       return String(Math.round(n));
     };
-    // BTC / MCX: do not enter while price is trapped inside today's Mark Fib (0..1) accumulation box.
+    // BTC: do not enter while price is trapped inside today's Mark Fib (0..1) accumulation box.
     const isInsideMarkFib = phase === 'inside_or' || (
       openingRange && openingRange.locked
       && Number.isFinite(Number(livePrice))
@@ -4152,7 +4454,7 @@ const RedBarTrend = {
         reason: `Price is inside today's 05:30–06:00 Asia X range (${fmtGatePx(asiaBox.low)}–${fmtGatePx(asiaBox.high)}) — stand aside until a clean break outside the range.`,
       };
     }
-    // BTC / MCX: Dr. Dev Course Filter — 200 MA (High/Low/Close) chop band & SuperTrend (10, 4.1) alignment
+    // BTC: Dr. Dev Course Filter — 200 MA (High/Low/Close) chop band & SuperTrend (10, 4.1) alignment
     if (isBtcGate && btcConfluence) {
       if (btcConfluence.ma200 && btcConfluence.ma200.insideChop) {
         return {
@@ -4173,7 +4475,7 @@ const RedBarTrend = {
         };
       }
     }
-    // BTC / MCX: Trade 2 LONG on 1H low sweep is WATCH-only unless backed by full 4/4 (A+) Course Confluence
+    // BTC: Trade 2 LONG on 1H low sweep is WATCH-only unless backed by full 4/4 (A+) Course Confluence
     if (
       isBtcGate
       && setupKind === 'trade2_confirmed'
@@ -4186,7 +4488,7 @@ const RedBarTrend = {
         reason: 'DNA Filter: Trade 2 LONG after low sweep is WATCH-only unless 4/4 (A+) Course Confluence aligns.',
       };
     }
-    if (stopPct != null && Number.isFinite(stopPct) && stopPct > 1.0) {
+    if (isBtcGate && stopPct != null && Number.isFinite(stopPct) && stopPct > 1.0) {
       return {
         state: 'watch',
         reason: `Setup present but stop is ${stopPct.toFixed(2)}% (>1%) — stand aside until a tighter structure fits.`,
@@ -4194,10 +4496,11 @@ const RedBarTrend = {
     }
     // Trade 2 confirm window is ~20m; T1/sweep stay wider on BTC; POB = scalp 20m
     const isTrade2Gate = setupKind === 'trade2_confirmed';
-    const freshMins = isPob || isTrade2Gate ? 20 : (isNifty ? 20 : 90);
+    const isMcx530 = setupKind === 'mcx_530_breakout' || setupKind === 'mcx_530_retest' || setupKind === 'mcx_530_reversal';
+    const freshMins = isPob || isTrade2Gate || isMcx530 ? 20 : ((isNifty || isMcx) ? 20 : 90);
     const ENTER_FRESH_MS = freshMins * 60 * 1000;
     // Dr Dev: prefer event candle — do not chase mid-air (POB fill@0.44 is not a chase).
-    const maxFavR = isPob ? 99 : ((isNifty || isBtcGate) ? 0.5 : 1.5);
+    const maxFavR = isPob ? 99 : 0.5;
     const asOf = asOfTs != null ? Number(asOfTs) : Date.now();
     const trigTs = setupTriggerTs != null ? Number(setupTriggerTs) : null;
     if (trigTs == null || !Number.isFinite(trigTs)) {
