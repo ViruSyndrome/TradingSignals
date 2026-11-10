@@ -104,4 +104,32 @@ const gateTest530 = RedBarTrend.entryGate({
 assert.strictEqual(gateTest530.state, 'enter', `5:30 Formula must ENTER: got ${gateTest530.state} (${gateTest530.reason})`);
 console.log('Test 7 PASSED: entryGate allows mcx_530_breakout to ENTER.');
 
+// Test 8: True shelf retest requires touch + later bounce close (not proximity alone)
+const barsRetest = [
+  { t: t1730, o: 8200, h: 8220, l: 8190, c: 8210, v: 100 },
+  { t: t1730 + 5 * 60000, o: 8210, h: 8230, l: 8205, c: 8225, v: 100 },
+  { t: t1730 + 10 * 60000, o: 8225, h: 8240, l: 8220, c: 8235, v: 100 },
+  { t: t1730 + 15 * 60000, o: 8235, h: 8245, l: 8225, c: 8240, v: 100 },
+  { t: t1730 + 20 * 60000, o: 8240, h: 8250, l: 8230, c: 8245, v: 100 },
+  { t: t1730 + 25 * 60000, o: 8245, h: 8250, l: 8235, c: 8248, v: 100 }, // X high 8250 / low 8190
+  { t: t1730 + 30 * 60000, o: 8248, h: 8270, l: 8245, c: 8265, v: 150 }, // breakout
+  { t: t1730 + 35 * 60000, o: 8265, h: 8268, l: 8248, c: 8252, v: 120 }, // touch shelf ~8250
+  { t: t1730 + 40 * 60000, o: 8252, h: 8275, l: 8250, c: 8272, v: 140 }, // bounce close above shelf
+];
+const evalRetest = t1730 + 46 * 60000; // 18:16 IST
+const retestRes = RedBarTrend.detectMcx530FormulaTrikal(barsRetest, evalRetest);
+assert(retestRes, 'retest path must return a setup');
+assert.strictEqual(retestRes.setupKind, 'mcx_530_retest', `expected mcx_530_retest, got ${retestRes.setupKind}`);
+assert.strictEqual(retestRes.side, 'bullish', 'retest side bullish');
+assert.strictEqual(retestRes.triggered, true, 'retest triggered');
+console.log('Test 8 PASSED: mcx_530_retest requires shelf touch + 5m bounce confirm.');
+
+// Test 9: proximity-only after breakout is breakout, not fake retest
+const barsProx = bars5m.concat([
+  { t: t1730 + 35 * 60000, o: 8265, h: 8280, l: 8260, c: 8275, v: 100 }, // continues higher — no shelf touch
+]);
+const proxRes = RedBarTrend.detectMcx530FormulaTrikal(barsProx, t1730 + 40 * 60000);
+assert.strictEqual(proxRes.setupKind, 'mcx_530_breakout', `proximity chase must stay breakout, got ${proxRes && proxRes.setupKind}`);
+console.log('Test 9 PASSED: near-high continuation without shelf touch stays breakout.');
+
 console.log('\n=== ALL TESTS PASSED SUCCESSFULLY! ===');

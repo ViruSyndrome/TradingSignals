@@ -2717,7 +2717,9 @@ const RedBarTrend = {
    *   1. Breakout (mcx_530_breakout): First 5m candle closing cleanly outside 30m range.
    *      - Stop Loss: opposite extreme of 30m candle or 5m breakout swing, floored at structural min (15 pts Crude, 2.5 pts NG).
    *      - Target: 2.4R (36 pts) on Crude Oil; 2.5R on NG.
-   *   2. Retest (mcx_530_retest): Breakout followed by test of broken level and 5m bounce candle.
+   *   2. Retest (mcx_530_retest): After breakout, price must touch the broken High/Low shelf,
+   *      then a later green/red 5m must close back through that shelf (bounce/reject confirm).
+   *      Proximity alone is NOT a retest.
    *   3. Trap Reversal (mcx_530_reversal): Failed breakout that closes back inside the range across midpoint.
    */
   detectMcx530FormulaTrikal(bars5m, evalTs, tz = 'Asia/Kolkata') {
@@ -2872,49 +2874,110 @@ const RedBarTrend = {
       };
     }
 
-    // Bullish Breakout
-    if (bullCross && !bullFailedBackInside && price >= xHigh) {
-      const triggerPrice = bullCross.c;
-      const triggerTs = bullCross.t;
-      const stopLoss = Math.min(xLow, bullCross.l);
-      const risk = triggerPrice - stopLoss;
-      // Retest check: if price pulled back near xHigh and bounced
-      const isRetest = afterBars.length > bullCrossIdx + 1 && Math.abs(price - xHigh) <= (xRange * 0.25) && price > xHigh;
-      return {
-        setupKind: isRetest ? 'mcx_530_retest' : 'mcx_530_breakout',
-        side: 'bullish',
-        triggered: risk > 0,
-        stopStructural: true,
-        triggerPrice,
-        triggerTs,
-        stopLoss,
-        xCandle: { high: xHigh, low: xLow, mid: xMid, color: xColor, open: xOpen, close: xClose },
-        label: isRetest
-          ? `MCX 5:30 Formula · Retest shelf bounce above ${xHigh.toFixed(1)}`
-          : `MCX 5:30 Formula · Bullish breakout above ${xHigh.toFixed(1)} · Europe open momentum`,
-      };
+    // Bullish: prefer true shelf retest (touch broken high → later 5m bounce close back above)
+    // over plain proximity after breakout. Matches Dr Dev / afternoon Trikal shelf DNA.
+    if (bullCross && !bullFailedBackInside) {
+      const shelfPad = Math.max(xRange * 0.08, Math.abs(xHigh) * 0.0004);
+      let retestBar = null;
+      if (bullCrossIdx >= 0 && bullCrossIdx < afterBars.length - 1) {
+        let testedShelf = false;
+        for (let i = bullCrossIdx + 1; i < afterBars.length; i++) {
+          const b = afterBars[i];
+          const prev = afterBars[i - 1];
+          if (b.l <= xHigh + shelfPad && b.l >= xHigh - shelfPad * 1.5) testedShelf = true;
+          // Bounce confirm: green 5m that closes above shelf after the touch
+          if (testedShelf && b.c > xHigh && b.c > b.o && b.c >= prev.h) {
+            retestBar = b;
+            break;
+          }
+        }
+      }
+      if (retestBar) {
+        const triggerPrice = retestBar.c;
+        const triggerTs = retestBar.t;
+        const stopLoss = Math.min(xLow, retestBar.l);
+        const risk = triggerPrice - stopLoss;
+        return {
+          setupKind: 'mcx_530_retest',
+          side: 'bullish',
+          triggered: risk > 0,
+          stopStructural: true,
+          triggerPrice,
+          triggerTs,
+          stopLoss,
+          xCandle: { high: xHigh, low: xLow, mid: xMid, color: xColor, open: xOpen, close: xClose },
+          label: `MCX 5:30 Formula · Retest shelf bounce confirmed above ${xHigh.toFixed(1)}`,
+        };
+      }
+      if (price >= xHigh) {
+        const triggerPrice = bullCross.c;
+        const triggerTs = bullCross.t;
+        const stopLoss = Math.min(xLow, bullCross.l);
+        const risk = triggerPrice - stopLoss;
+        return {
+          setupKind: 'mcx_530_breakout',
+          side: 'bullish',
+          triggered: risk > 0,
+          stopStructural: true,
+          triggerPrice,
+          triggerTs,
+          stopLoss,
+          xCandle: { high: xHigh, low: xLow, mid: xMid, color: xColor, open: xOpen, close: xClose },
+          label: `MCX 5:30 Formula · Bullish breakout above ${xHigh.toFixed(1)} · Europe open momentum`,
+        };
+      }
     }
 
-    // Bearish Breakout
-    if (bearCross && !bearFailedBackInside && price <= xLow) {
-      const triggerPrice = bearCross.c;
-      const triggerTs = bearCross.t;
-      const stopLoss = Math.max(xHigh, bearCross.h);
-      const risk = stopLoss - triggerPrice;
-      const isRetest = afterBars.length > bearCrossIdx + 1 && Math.abs(price - xLow) <= (xRange * 0.25) && price < xLow;
-      return {
-        setupKind: isRetest ? 'mcx_530_retest' : 'mcx_530_breakout',
-        side: 'bearish',
-        triggered: risk > 0,
-        stopStructural: true,
-        triggerPrice,
-        triggerTs,
-        stopLoss,
-        xCandle: { high: xHigh, low: xLow, mid: xMid, color: xColor, open: xOpen, close: xClose },
-        label: isRetest
-          ? `MCX 5:30 Formula · Retest shelf reject below ${xLow.toFixed(1)}`
-          : `MCX 5:30 Formula · Bearish breakdown below ${xLow.toFixed(1)} · Europe open momentum`,
-      };
+    // Bearish: shelf retest = touch broken low → later 5m reject close back below
+    if (bearCross && !bearFailedBackInside) {
+      const shelfPad = Math.max(xRange * 0.08, Math.abs(xLow) * 0.0004);
+      let retestBar = null;
+      if (bearCrossIdx >= 0 && bearCrossIdx < afterBars.length - 1) {
+        let testedShelf = false;
+        for (let i = bearCrossIdx + 1; i < afterBars.length; i++) {
+          const b = afterBars[i];
+          const prev = afterBars[i - 1];
+          if (b.h >= xLow - shelfPad && b.h <= xLow + shelfPad * 1.5) testedShelf = true;
+          if (testedShelf && b.c < xLow && b.c < b.o && b.c <= prev.l) {
+            retestBar = b;
+            break;
+          }
+        }
+      }
+      if (retestBar) {
+        const triggerPrice = retestBar.c;
+        const triggerTs = retestBar.t;
+        const stopLoss = Math.max(xHigh, retestBar.h);
+        const risk = stopLoss - triggerPrice;
+        return {
+          setupKind: 'mcx_530_retest',
+          side: 'bearish',
+          triggered: risk > 0,
+          stopStructural: true,
+          triggerPrice,
+          triggerTs,
+          stopLoss,
+          xCandle: { high: xHigh, low: xLow, mid: xMid, color: xColor, open: xOpen, close: xClose },
+          label: `MCX 5:30 Formula · Retest shelf reject confirmed below ${xLow.toFixed(1)}`,
+        };
+      }
+      if (price <= xLow) {
+        const triggerPrice = bearCross.c;
+        const triggerTs = bearCross.t;
+        const stopLoss = Math.max(xHigh, bearCross.h);
+        const risk = stopLoss - triggerPrice;
+        return {
+          setupKind: 'mcx_530_breakout',
+          side: 'bearish',
+          triggered: risk > 0,
+          stopStructural: true,
+          triggerPrice,
+          triggerTs,
+          stopLoss,
+          xCandle: { high: xHigh, low: xLow, mid: xMid, color: xColor, open: xOpen, close: xClose },
+          label: `MCX 5:30 Formula · Bearish breakdown below ${xLow.toFixed(1)} · Europe open momentum`,
+        };
+      }
     }
 
     return {
@@ -3268,8 +3331,10 @@ const RedBarTrend = {
     }
     const prevSwingLow = localLow;
     const prevSwingHigh = localHigh;
+    const isMcxInstr = this.isMcxCommodity(instId);
     const minStopDist = price * 0.0006; // 6 bps minimum (wick pad only — never overwrite real shelf/Red Bar structure with a fake 0.28% floor)
-    const maxStopDist = price * 0.015;  // 1.50% maximum stop cap on 30m futures
+    // BTC/crypto may clamp wide swings to 1.5%. MCX uses structural points only (15 / 2.5 floors elsewhere) — no synthetic % cap.
+    const maxStopDist = isMcxInstr ? Infinity : price * 0.015;
     const pad = price * 0.0006;         // 6 bps buffer beyond structure wick
     const dnaSwingRe = /15m swing|structure swing/i;
     // Dr Dev: Trade 2 / sweep / T1 stop = shelf / wick / box edge FIRST — 15m swing is fallback only.
@@ -3282,16 +3347,19 @@ const RedBarTrend = {
     );
 
     // Each candidate carries its structural source so the UI can say *why* the stop is there,
-    // and flag when no real structure fits the 0.28%–1.50% window (stop = % cap, not a swing).
+    // and flag when no real structure fits the window (BTC % cap / MCX keeps real structure).
     let invalidation = null;
     let invalidationReason = null;
     let stopStructural = false;
-    const capReason = (rawDist, tag) => (rawDist > maxStopDist
-      ? `1.5% cap — real ${tag} is ${((rawDist / price) * 100).toFixed(2)}% away`
-      : `0.28% floor — ${tag} too close`);
+    const capReason = (rawDist, tag) => {
+      if (isMcxInstr) return tag;
+      return rawDist > maxStopDist
+        ? `1.5% cap — real ${tag} is ${((rawDist / price) * 100).toFixed(2)}% away`
+        : `0.28% floor — ${tag} too close`;
+    };
     const pickStructuralStop = (candidates, isLong) => {
       const dist = (x) => (isLong ? price - x.v : x.v - price);
-      const inWindow = (x) => dist(x) >= minStopDist && dist(x) <= maxStopDist;
+      const inWindow = (x) => dist(x) >= minStopDist && (isMcxInstr || dist(x) <= maxStopDist);
       const sortTight = (a, b) => (isLong ? b.v - a.v : a.v - b.v);
       const take = (pool, allowClamp) => {
         if (!pool.length) return false;
@@ -3845,9 +3913,17 @@ const RedBarTrend = {
     // 6. Fib break bias / pullback
     let trend = 'neutral';
     let setupKind = 'wait';
+    // Europe 5:30 Formula window (17:30–22:45 IST): triggered Formula setups beat morning/open Trade 1
+    // so a still-fresh holiday 17:00 leave cannot steal the 18:00+ Europe breakout.
+    const evalIst = this.zonedHms(evalTs, 'Asia/Kolkata');
+    const evalIstMins = evalIst.hour * 60 + evalIst.minute;
+    const inMcx530Window = isMcx && evalIstMins >= 17 * 60 + 30 && evalIstMins < 22 * 60 + 45;
     if (phase === 'first_candle') {
       trend = 'neutral';
       setupKind = 'wait';
+    } else if (inMcx530Window && mcx530 && mcx530.triggered && mcx530.side) {
+      trend = mcx530.side;
+      setupKind = mcx530.setupKind;
     } else if (
       redSetup.trade1Fresh && (redSetup.leftAbove || redSetup.leftBelow)
       && !(redSetup.revisitSide && redSetup.revisitStrong

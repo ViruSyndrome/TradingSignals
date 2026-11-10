@@ -104,17 +104,16 @@ Commodities trade across global energy sessions (Asia, London, and New York NYME
   - The engine tracks the **17:30–18:00 IST 30m candle**. When it closes at 18:00 IST, High, Low, and Midpoint (0.50) are locked.
   - From **18:00 to 22:30 IST**, the engine detects:
     1. **`mcx_530_breakout`**: First 5m candle closing cleanly outside the 17:30 High/Low.
-    2. **`mcx_530_retest`**: Retest of the broken 17:30 shelf with a 5m bounce candle.
+    2. **`mcx_530_retest`**: After breakout, price **touches** the broken shelf, then a later 5m **bounce/reject candle** closes back through that shelf (same DNA as NIFTY afternoon shelf retest). Near-shelf proximity alone is **not** enough.
     3. **`mcx_530_reversal`**: Failed breakout that traps wicks and reclaims back inside across the 50% midpoint.
-  - Stop loss: structural opposite extreme or 5m shelf, floored at 15 pts (Crude) / 2.5 pts (NG).
+  - Stop loss: structural opposite extreme or bounce-candle extreme, floored at 15 pts (Crude) / 2.5 pts (NG).
   - Target: **2.4R (36 pts)** on Crude Oil; **2.5R** on NG.
-- **Decoupled from Holiday Fallback**: The 5:30 Formula is a dedicated everyday engine. On normal days, it activates at 17:30 after the morning session; on equity holidays (like today), the 17:00–17:30 opening mark seamlessly precedes the 17:30 Europe formula.
-- **Complete Decoupling from Crypto Gates (`isBtcGate` Leak Fixed)**:
-  - MCX commodities are explicitly decoupled from BTC gates.
-  - **No pre-Asia dead hours block**: MCX operates on its own session clocks.
-  - **No Mark-Fib inside box block**: MCX does not inherit BTC CME accumulation blocking.
-  - **No BTC Course Confluence**: MCX is free of crypto 200 MA chop bands and SuperTrend (10, 4.1).
-  - **No 1% stopPct cap**: MCX uses structural points floored at 15 pts (Crude) / 2.5 pts (NG) with a 20m freshness window.
+  - **Priority**: Inside the 17:30–22:45 IST Formula window, a **triggered** Formula setup beats a still-fresh morning/holiday Trade 1 leave so Europe cannot be stolen by the open leave.
+- **Decoupled from Holiday Fallback**: The 5:30 Formula is a dedicated everyday engine. On normal days, it activates at 17:30 after the morning session; on equity holidays, the 17:00–17:30 opening mark precedes the 17:30 Europe formula.
+- **Decoupling from Crypto Gates**:
+  - `isBtcGate = !isIndianIndex && !isMcxCommodity` — MCX does not inherit pre-Asia, CME Mark-Fib inside-box, Asia X box, or Course Confluence (200 MA / SuperTrend 10,4.1).
+  - EntryGate **1% stopPct** block is BTC-only.
+  - Stop resolver: MCX **does not** invent a **1.5% synthetic stop cap** on T1/T2/sweep either — structural stops only (with Crude 15 / NG 2.5 floors on Formula path).
 
 ---
 
@@ -195,7 +194,7 @@ Commodities trade across global energy sessions (Asia, London, and New York NYME
 | Equinox | NIFTY macro gate |
 | Renko brick ruler | Noise / overextension **filter**, not entry DNA |
 | Dhan NIFTY auto | Super Order + full 1:1 bank→BE (trail floor +1R after 1:2) + 15:10 flatten + **Rule 6** re-entry after a real SL only (NIFTY only). |
-| Dhan MCX auto (CRUDEOIL, NG) | 1 lot option Super Order + 1:1 BE-only move + runner to 3R + 23:15 flatten + independent 1-loss pause per instrument |
+| Dhan MCX auto (CRUDEOIL, NG) | 1 lot option Super Order + 1:1 BE-only runner + Crude **2.4R** / NG **2.5R** stretch + 23:15 flatten + independent 1-loss pause per instrument |
 | Binance BTC auto | Futures manage with same Red Bar ladder; **1:1→BE**; no Rule 6 |
 
 ---
@@ -217,15 +216,16 @@ Commodities trade across global energy sessions (Asia, London, and New York NYME
 |------|------------|
 | NIFTY Red Bar T1/T2 + structural stops | High — production desk |
 | NIFTY POB 09:15 + 12:45 Trikal | High |
-| CRUDEOIL Red Bar T1/T2 + 5:30 Formula | High — video & chart frame verified |
-| CRUDEOIL Dhan options (15 pt SL / 36 pt TP) | High — verified on live Dhan API |
-| NG (MCX) Red Bar + POB primes | Medium-High (independent 1-loss gate active) |
-| MCX Dual-Window (09:00/17:00) dynamic anchor | High — fully automated |
+| CRUDEOIL Red Bar T1/T2 + 5:30 Formula | High on clocks/TP; live Formula fills still proving out |
+| CRUDEOIL Dhan options (15 pt SL / 36 pt TP) | High — modal + code `tpMult: 2.4` reconciled |
+| NG (MCX) Red Bar + POB primes + Formula | Medium-High — same engine as Crude; 1-loss gate active |
+| MCX Dual-Window (09:00/17:00) + everyday Formula priority | High — automated; Formula beats Trade 1 after 17:30 |
+| MCX stop doctrine (no BTC 1.5% invent) | High — structural only after residual-cap fix |
 | BTC Red Bar T1/T2 + 1:1 BE | High (same DNA) |
 | BTC session clocks (Asia/London/NY) | High directionally |
-| Mean Reversion Range (Standard Error Bands) | Researched — ready for additive integration |
+| Mean Reversion Range (Standard Error Bands) | Research-only — **not** in execution pipeline |
 | Renko / AI Supertrend as entry DNA | Out of scope by choice |
 
 ---
 
-*Last updated: 2026-11-10 — Morning research & MCX commodity deployment pass (dual-window anchor, independent 1-loss pause, 15 pt Crude SL, Mean Reversion Range analysis).*
+*Last updated: 2026-11-10 afternoon — residual gap closure: MCX no 1.5% stop invent, true shelf+5m bounce retest, Formula priority over Trade 1 in Europe window.*
