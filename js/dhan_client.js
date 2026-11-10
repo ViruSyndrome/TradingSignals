@@ -330,6 +330,24 @@ function createDhanClient(opts = {}) {
     });
   }
 
+  /**
+   * Live LTP across all segments including MCX_COMM, NSE_FNO, IDX_I.
+   */
+  async function getMarketLtp(segment, securityId) {
+    try {
+      const segKey = String(segment || 'NSE_FNO').toUpperCase();
+      const secNum = Number(securityId);
+      if (!secNum) return null;
+      const res = await _request('POST', '/marketfeed/ltp', {
+        body: { [segKey]: [secNum] },
+      });
+      const node = res?.data?.[segKey]?.[String(secNum)] || res?.data?.[segKey]?.[secNum];
+      return Number(node?.last_price) || null;
+    } catch (_) {
+      return null;
+    }
+  }
+
   return {
     clientId,
     getProfile,
@@ -352,6 +370,7 @@ function createDhanClient(opts = {}) {
     exitAll,
     getOptionExpiryList,
     getOptionChain,
+    getMarketLtp,
     _request,
   };
 }

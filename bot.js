@@ -1069,7 +1069,7 @@ async function _maybeAutoDhanNifty({ inst, side, readout, alertKey, dayKey, setu
         lastAlerted[rule6CountKey] = (Number(lastAlerted[rule6CountKey]) || 0) + 1;
       }
       saveAlertState(lastAlerted);
-      const managed = loadManagedDhanTrades().filter((t) => t.status !== 'open').slice(-30);
+      const managed = loadManagedDhanTrades().filter((t) => t.status !== 'open' || String(t.instrumentId || 'NIFTY').toUpperCase() !== instKey).slice(-30);
       if (rule6SlRow && rule6SlRow.orderId) {
         for (const row of managed) {
           if (String(row.orderId) === String(rule6SlRow.orderId) && row.status === 'closed_sl') {
@@ -1263,12 +1263,35 @@ async function pollManagedDhanStops() {
           } catch (_) { /* ignore */ }
         }
 
+        if (ltp == null && t.securityId) {
+          try {
+            ltp = await trader.dhan.getMarketLtp(t.optSeg || 'MCX_COMM', t.securityId);
+          } catch (_) { /* ignore */ }
+        }
+
+        let hitOneR = false;
+        if (ltp != null && oneR > 0) {
+          const openR = (ltp - t.entryPremium) / oneR;
+          if (openR >= 1.0) hitOneR = true;
+        }
+
+        // Also check underlying index/commodity 1:1 level (crucial for MCX commodities or fast index moves)
+        if (!hitOneR && t.indexTp1 && t.indexEntry) {
+          const curIndexPx = Number(_instTrendState.get(tInst)?.price);
+          if (curIndexPx > 0) {
+            const isLong = String(t.side).toUpperCase() === 'LONG';
+            const tpTarget = Number(t.indexTp1);
+            if (isLong && curIndexPx >= tpTarget) hitOneR = true;
+            if (!isLong && curIndexPx <= tpTarget) hitOneR = true;
+          }
+        }
+
         if (ltp != null && oneR > 0) {
           const openR = (ltp - t.entryPremium) / oneR;
 
           // Step 1 — 1:1 hit
           // Dr Dev: bank + breakeven only when 1:1 is actually reached (no early BE).
-          if (!t.legABooked && openR >= 1.0) {
+          if (!t.legABooked && hitOneR) {
             try {
               const res = await trader.bankHalfAtOneR({
                 orderId: t.orderId,
@@ -1438,6 +1461,8 @@ async function pollManagedDhanStops() {
             } else if (slLeg && String(slLeg.orderStatus) === 'TRADED') {
               t.status = t.legABooked ? 'closed_be' : 'closed_sl';
               t.closedAt = Date.now();
+              lastAlerted[`DHAN_TRADE_${tInst}_LAST_TS`] = Date.now();
+              saveAlertState(lastAlerted);
               console.log(`[RedBarBot] 🛑 Dhan SL hit · ${t.symbolHint}`);
               const isMcxStop = ['CRUDEOIL', 'NG'].includes(tInst);
               const mcxMaxLosses = Number(process.env.DHAN_MCX_MAX_LOSSES || 2);
@@ -1460,6 +1485,8 @@ async function pollManagedDhanStops() {
           if (t.status === 'open' && ['CLOSED', 'CANCELLED', 'REJECTED'].includes(parentStatus)) {
             t.status = parentStatus === 'REJECTED' ? 'rejected' : parentStatus === 'CANCELLED' ? 'cancelled' : 'closed';
             t.closedAt = Date.now();
+            lastAlerted[`DHAN_TRADE_${tInst}_LAST_TS`] = Date.now();
+            saveAlertState(lastAlerted);
             console.log(`[RedBarBot] Dhan SuperOrder ${parentStatus} · ${t.symbolHint || t.orderId} — marking ${t.status}`);
           }
         }
