@@ -3237,15 +3237,37 @@ const RedBarTrend = {
       const minStopPts = isCrude ? 15 : 2.5; // Dr Dev structural floor: 15 pts on Crude, 2.5 pts on NG
       const rMult = isCrude ? 2.4 : 2.5; // Dr Dev 2.4R on Crude (15 pt SL -> 36 pt TP), 2.5R on NG
       let sp = mcx530.stopLoss;
+      // Structural wick buffer on Crude (10 pts) to protect against stop hunts past exact box edge
+      if (isCrude && setupKind === 'mcx_530_breakout') {
+        const wickPad = 10;
+        sp = trend === 'bullish' ? sp - wickPad : sp + wickPad;
+      }
       let rawRisk = Math.abs(triggerP - sp);
       if (rawRisk < minStopPts) {
         sp = trend === 'bullish' ? triggerP - minStopPts : triggerP + minStopPts;
         rawRisk = minStopPts;
       }
       const riskDist = rawRisk;
-      const tp1 = trend === 'bullish' ? triggerP + riskDist : triggerP - riskDist;
-      const tp2 = trend === 'bullish' ? triggerP + riskDist * 2 : triggerP - riskDist * 2;
-      const tp3 = trend === 'bullish' ? triggerP + riskDist * rMult : triggerP - riskDist * rMult;
+
+      // Authentic Dr. Dev 5:30 Box Geometry Target:
+      // - Breakout / Retest: 1:1 expansion of the 30m box (xLow - xRange for bearish; xHigh + xRange for bullish)
+      // - Trap Reversal: opposite edge of the box (xLow for bearish reversal; xHigh for bullish reversal)
+      const xC = mcx530.xCandle;
+      const xRange = xC ? Math.abs(xC.high - xC.low) : riskDist;
+      let tp1, tp2, tp3;
+      if (isReversal && xC) {
+        tp1 = trend === 'bullish' ? xC.high : xC.low;
+        tp2 = trend === 'bullish' ? xC.high + xRange : xC.low - xRange;
+        tp3 = trend === 'bullish' ? xC.high + xRange * rMult : xC.low - xRange * rMult;
+      } else if (xC && xRange > 0) {
+        tp1 = trend === 'bullish' ? xC.high + xRange : xC.low - xRange;
+        tp2 = trend === 'bullish' ? xC.high + xRange * 2 : xC.low - xRange * 2;
+        tp3 = trend === 'bullish' ? xC.high + xRange * rMult : xC.low - xRange * rMult;
+      } else {
+        tp1 = trend === 'bullish' ? triggerP + riskDist : triggerP - riskDist;
+        tp2 = trend === 'bullish' ? triggerP + riskDist * 2 : triggerP - riskDist * 2;
+        tp3 = trend === 'bullish' ? triggerP + riskDist * rMult : triggerP - riskDist * rMult;
+      }
       const stopPct = triggerP > 0 ? (riskDist / triggerP) * 100 : null;
       return {
         invalidation: sp,

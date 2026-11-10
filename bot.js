@@ -874,6 +874,12 @@ async function _maybeAutoDhanNifty({ inst, side, readout, alertKey, dayKey, setu
   // Operational only: EOD flatten ~15:10 (NSE/BSE) or ~23:15 (MCX) still closes open option risk before session end.
   // Optional override: DHAN_ENTRY_CUTOFF_MINS (IST mins) if you ever want a hard cutoff again.
   const mins = _istMinsNow();
+  const isMcxInst = ['CRUDEOIL', 'NG'].includes(instKey);
+  const mcxEntryCutoff = Number(process.env.DHAN_MCX_ENTRY_CUTOFF_MINS) || (21 * 60 + 30); // 21:30 IST hard stop
+  if (isMcxInst && mins >= mcxEntryCutoff) {
+    console.log(`[RedBarBot] ${instKey}: past 21:30 IST (${Math.floor(mcxEntryCutoff / 60)}:${String(mcxEntryCutoff % 60).padStart(2, '0')}) — MCX late-session cutoff`);
+    return;
+  }
   const entryCutoffRaw = process.env.DHAN_ENTRY_CUTOFF_MINS;
   const entryCutoff = entryCutoffRaw === '' || entryCutoffRaw == null ? 0 : Number(entryCutoffRaw);
   if (entryCutoff > 0 && mins >= entryCutoff) {
@@ -910,7 +916,6 @@ async function _maybeAutoDhanNifty({ inst, side, readout, alertKey, dayKey, setu
   // Configurable via DHAN_MCX_MAX_LOSSES (defaults to 2 losses per MCX instrument).
   // If an instrument hits max losses for the day, pause THIS instrument for today.
   // If it won (1:1 banked or target), it can continue taking setups.
-  const isMcxInst = ['CRUDEOIL', 'NG'].includes(instKey);
   if (isMcxInst) {
     const mcxMaxLosses = Number(process.env.DHAN_MCX_MAX_LOSSES || 2);
     const instLossesToday = todayManagedDhan.filter((t) => t.status === 'closed_sl' && !t.legABooked);
@@ -1286,60 +1291,61 @@ async function pollManagedDhanStops() {
           }
         }
 
+        // Step 1 — 1:1 hit (triggered via Option 1R OR Underlying Commodity/Index 1:1)
+        // Does NOT depend on option LTP being available — moves SL to Breakeven on Dhan immediately.
+        if (!t.legABooked && hitOneR) {
+          try {
+            const res = await trader.bankHalfAtOneR({
+              orderId: t.orderId,
+              securityId: t.securityId,
+              entryPremium: t.entryPremium,
+              stopLossPrice: t.stopLossPrice,
+              targetPrice: t.targetPrice,
+              quantity: t.qty,
+            });
+            t.legABooked = true;
+            t.legABookedAt = Date.now();
+            const tDayKey = t.dayKey || (String(t.alertKey || '').split('|')[2] || '');
+            const tSess = (String(t.setupKind || '').startsWith('afternoon_1245') || String(t.setupKind || '').startsWith('mcx_530')) ? 'PM' : 'AM';
+            if (tDayKey) {
+              const cKey = tInst === 'NIFTY' ? `DHAN_CONSEC_LOSSES_${tSess}_${tDayKey}` : `DHAN_CONSEC_LOSSES_${tInst}_${tSess}_${tDayKey}`;
+              const wKey = tInst === 'NIFTY' ? `DHAN_T1_WON_${tDayKey}` : `DHAN_T1_WON_${tInst}_${tDayKey}`;
+              lastAlerted[cKey] = 0;
+              if (t.setupKind === 'trade1_departure') {
+                lastAlerted[wKey] = true;
+              }
+              saveAlertState(lastAlerted);
+            }
+            t.legAMode = res.mode;
+            t.bankQty = res.bankQty || 0;
+            t.qty = res.runnerQty != null ? res.runnerQty : t.qty;
+            t.beMoved = true;
+            t.beMovedAt = Date.now();
+            t.lockedSl = res.be;
+            t.stopLossPrice = res.be;
+            t.targetPrice = res.tp3 || t.targetPrice;
+            t.runnerSlOrderId = res.runnerSlOrderId || null;
+            t.runnerTpOrderId = res.runnerTpOrderId || null;
+            t.oneRPts = res.oneR || oneR;
+            if (res.mode === 'partial') t.superActive = false;
+            const ltpDisplay = ltp != null ? `LTP ${ltp}` : 'index 1:1 touched';
+            const msg = res.mode === 'partial'
+              ? `📒 Dhan 1:1 bank ${res.bankQty} · runner ${res.runnerQty} SL→BE ${res.be} · TP ${res.tp3}\n${t.symbolHint} · ${ltpDisplay}`
+              : `🔒 Dhan 1:1 · 1-lot BE-only (need 2+ lots for 50% bank)\nSL→BE ${res.be} · TP ${res.tp3} · ${t.symbolHint} · (${ltpDisplay})`;
+            console.log(`[RedBarBot] ${msg.replace(/\n/g, ' | ')}`);
+            if (res.bankError || res.runnerSlError) {
+              console.warn('[RedBarBot] Dhan 1:1 ladder warnings:', res.bankError || '', res.runnerSlError || '');
+            }
+            if (bot && chatId) {
+              await bot.sendMessage(chatId, msg, { disable_web_page_preview: true }).catch(() => {});
+            }
+          } catch (e) {
+            console.warn(`[RedBarBot] Dhan 1:1 bank failed: ${e.message}`);
+          }
+        }
+
         if (ltp != null && oneR > 0) {
           const openR = (ltp - t.entryPremium) / oneR;
-
-          // Step 1 — 1:1 hit
-          // Dr Dev: bank + breakeven only when 1:1 is actually reached (no early BE).
-          if (!t.legABooked && hitOneR) {
-            try {
-              const res = await trader.bankHalfAtOneR({
-                orderId: t.orderId,
-                securityId: t.securityId,
-                entryPremium: t.entryPremium,
-                stopLossPrice: t.stopLossPrice,
-                targetPrice: t.targetPrice,
-                quantity: t.qty,
-              });
-              t.legABooked = true;
-              t.legABookedAt = Date.now();
-              const tDayKey = t.dayKey || (String(t.alertKey || '').split('|')[2] || '');
-              const tSess = (String(t.setupKind || '').startsWith('afternoon_1245') || String(t.setupKind || '').startsWith('mcx_530')) ? 'PM' : 'AM';
-              if (tDayKey) {
-                const cKey = tInst === 'NIFTY' ? `DHAN_CONSEC_LOSSES_${tSess}_${tDayKey}` : `DHAN_CONSEC_LOSSES_${tInst}_${tSess}_${tDayKey}`;
-                const wKey = tInst === 'NIFTY' ? `DHAN_T1_WON_${tDayKey}` : `DHAN_T1_WON_${tInst}_${tDayKey}`;
-                lastAlerted[cKey] = 0;
-                if (t.setupKind === 'trade1_departure') {
-                  lastAlerted[wKey] = true;
-                }
-                saveAlertState(lastAlerted);
-              }
-              t.legAMode = res.mode;
-              t.bankQty = res.bankQty || 0;
-              t.qty = res.runnerQty != null ? res.runnerQty : t.qty;
-              t.beMoved = true;
-              t.beMovedAt = Date.now();
-              t.lockedSl = res.be;
-              t.stopLossPrice = res.be;
-              t.targetPrice = res.tp3 || t.targetPrice;
-              t.runnerSlOrderId = res.runnerSlOrderId || null;
-              t.runnerTpOrderId = res.runnerTpOrderId || null;
-              t.oneRPts = res.oneR || oneR;
-              if (res.mode === 'partial') t.superActive = false;
-              const msg = res.mode === 'partial'
-                ? `📒 Dhan 1:1 bank ${res.bankQty} · runner ${res.runnerQty} SL→BE ${res.be} · TP ${res.tp3}\n${t.symbolHint} · LTP ${ltp}`
-                : `🔒 Dhan 1:1 · 1-lot BE-only (need 2+ lots for 50% bank)\nSL→BE ${res.be} · TP ${res.tp3} · ${t.symbolHint}`;
-              console.log(`[RedBarBot] ${msg.replace(/\n/g, ' | ')}`);
-              if (res.bankError || res.runnerSlError) {
-                console.warn('[RedBarBot] Dhan 1:1 ladder warnings:', res.bankError || '', res.runnerSlError || '');
-              }
-              if (bot && chatId) {
-                await bot.sendMessage(chatId, msg, { disable_web_page_preview: true }).catch(() => {});
-              }
-            } catch (e) {
-              console.warn(`[RedBarBot] Dhan 1:1 bank failed: ${e.message}`);
-            }
-          }
 
           // Step 2 — ~2R: raise soft-stop floor to ~1R (broker exit-SL often RMS-rejects on Dhan options)
           if (t.legABooked && !t.lock2Moved && openR >= 2.0) {
