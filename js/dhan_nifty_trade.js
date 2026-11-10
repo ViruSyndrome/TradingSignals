@@ -1,10 +1,11 @@
 'use strict';
 
 /**
- * Dhan options auto-trader (live) — NIFTY is the verified path.
- * BANKNIFTY / SENSEX / CRUDEOIL / NG share the same Super Order ladder but stay off auto until verified.
- * Dr Dev ladder: Super Order (structural SL + ~3R TP) → at 1:1 bank ~50% → runner SL to BE → trail.
- * Need DHAN_NIFTY_LOTS >= 2 for a true 50% bank (lot size won't split a single lot).
+ * Dhan options auto-trader (live) — NIFTY + CRUDEOIL + NG (1-lot MCX test).
+ * BANKNIFTY / SENSEX share the same Super Order ladder but stay desk-only until verified.
+ * Ladder: Super Order (structural SL + per-instrument tpMult) → at 1:1 bank ~50% (2+ lots)
+ * → runner SL to BE. Single lot = BE-only move (no exchange split).
+ * Specs: NIFTY ~3R · Crude 2.4R (36 pt) · NG 2.5R.
  *
  * Requires:
  *   DHAN_CLIENT_ID, DHAN_ACCESS_TOKEN
@@ -270,8 +271,8 @@ function createDhanNiftyTrade(opts = {}) {
   }
 
   /**
-   * Dr Dev 1:1: bank ~50% (if 2+ lots), move runner SL → BE, keep/raise TP toward ~3R.
-   * Single lot: cannot exchange-split — SL → BE only, stretch TP to 3R.
+   * Dr Dev 1:1: bank ~50% (if 2+ lots), move runner SL → BE, keep/raise TP toward spec.tpMult.
+   * Single lot: cannot exchange-split — SL → BE only, stretch TP via tpMult (NIFTY ~3 · Crude 2.4 · NG 2.5).
    */
   async function bankHalfAtOneR({
     orderId,

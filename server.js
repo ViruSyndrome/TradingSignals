@@ -204,6 +204,10 @@ const ACTIONABLE = new Set([
   'afternoon_1245_reversal',
   'afternoon_1245_breakout',
   'afternoon_1245_retest',
+  'btc_asia_0530_breakout',
+  'mcx_530_breakout',
+  'mcx_530_retest',
+  'mcx_530_reversal',
 ]);
 const recentRelay = new Map(); // alertKey -> ts
 const RELAY_TTL_MS = 4 * 60 * 60 * 1000;
