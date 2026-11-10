@@ -300,11 +300,21 @@ const RedBarTrend = {
     }
 
     const bands = [];
+    const fbWin = cfg.fallbackWindow && cfg.fallbackWindow.timeZone ? cfg.fallbackWindow : null;
     for (const day of [...days].sort()) {
       let hit = this.findMarkWindowRange(bars, day, window);
       let fromHtf = false;
+      let activeWin = window;
+      if (!hit && fbWin) {
+        hit = this.findMarkWindowRange(bars, day, fbWin);
+        if (hit) activeWin = fbWin;
+      }
       if (!hit && htfBars) {
-        const hHit = this.findMarkWindowRange(htfBars, day, window);
+        let hHit = this.findMarkWindowRange(htfBars, day, window);
+        if (!hHit && fbWin) {
+          hHit = this.findMarkWindowRange(htfBars, day, fbWin);
+          if (hHit) activeWin = fbWin;
+        }
         // Only use htfBars when its bar width fits within the mark window (e.g. 1h for 60m BTC/XAU window)
         if (hHit && htfBarMs <= (hHit.t1 - hHit.t0) + 1000) {
           hit = { ...hHit, i0: -1, i1: -1 };
@@ -317,7 +327,7 @@ const RedBarTrend = {
       // Check completeness when working bars start mid-window (e.g. oldest 5m bar is 02:50 IST):
       // prefer full 1H candle H/L from htfBars if working bars missed the start of [t0, t1).
       if (!fromHtf && htfBars && openT > hit.t0 + 1000) {
-        const hHit = this.findMarkWindowRange(htfBars, day, window);
+        const hHit = this.findMarkWindowRange(htfBars, day, activeWin);
         if (hHit && htfBarMs <= (hHit.t1 - hHit.t0) + 1000) {
           high = hHit.high;
           low = hHit.low;
@@ -326,7 +336,7 @@ const RedBarTrend = {
       // When viewing a coarse TF (e.g. 1h = 60m) whose bar is wider than a 30m mark window
       // (Nifty 15:15–15:45 / NG 23:00–23:30 IST), refine H/L from finer bars.
       if (fineBars && barMs > (hit.t1 - hit.t0) + 1000) {
-        const fineHit = this.findMarkWindowRange(fineBars, day, window);
+        const fineHit = this.findMarkWindowRange(fineBars, day, activeWin);
         if (fineHit) {
           high = fineHit.high;
           low = fineHit.low;

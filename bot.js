@@ -894,18 +894,15 @@ async function _maybeAutoDhanNifty({ inst, side, readout, alertKey, dayKey, setu
       && String(t.alertKey || '').includes(`|${dayKey}|`),
   );
 
-  // User MCX Test Rule (CRUDEOIL & NG):
-  // "If that one trade each on Crude and NG gives us profit we can continue,
-  //  if that trade ends up in loss we pause the bot for both."
+  // User MCX Test Rule (Independent 1-Loss Pause per instrument):
+  // "Stop NG if NG trade was loss. Stop Crude if Crude trade was loss."
+  // If this specific instrument took a trade today that ended in SL loss, pause THIS instrument for today.
+  // If it won (1:1 banked or target), it can continue taking setups.
   const isMcxInst = ['CRUDEOIL', 'NG'].includes(instKey);
   if (isMcxInst) {
-    const todayAllManaged = allManagedDhan.filter((t) => String(t.alertKey || '').includes(`|${dayKey}|`));
-    const mcxLoss = todayAllManaged.find((t) => {
-      const sym = String(t.instrumentId || '').toUpperCase();
-      return ['CRUDEOIL', 'NG'].includes(sym) && t.status === 'closed_sl' && !t.legABooked;
-    });
-    if (mcxLoss) {
-      console.log(`[RedBarBot] ${instKey}: MCX 1-loss test rule active — prior trade (${mcxLoss.symbolHint || mcxLoss.instrumentId || mcxLoss.orderId}) ended in SL loss. Standing down both CRUDEOIL & NG for today.`);
+    const instLossToday = todayManagedDhan.find((t) => t.status === 'closed_sl' && !t.legABooked);
+    if (instLossToday) {
+      console.log(`[RedBarBot] ${instKey}: MCX 1-loss rule active — prior ${instKey} trade (${instLossToday.symbolHint || instLossToday.orderId}) ended in SL loss. Standing down ${instKey} for today.`);
       return;
     }
   }
@@ -1410,7 +1407,7 @@ async function pollManagedDhanStops() {
               t.closedAt = Date.now();
               console.log(`[RedBarBot] 🛑 Dhan SL hit · ${t.symbolHint}`);
               const isMcxStop = ['CRUDEOIL', 'NG'].includes(tInst);
-              const mcxNote = isMcxStop && !t.legABooked ? '\n⚠️ <b>MCX Rule: Pausing both CRUDEOIL & NG for today.</b>' : '';
+              const mcxNote = isMcxStop && !t.legABooked ? `\n⚠️ <b>MCX Rule: Pausing ${tInst} auto-trading for today.</b>` : '';
               if (bot && chatId) {
                 await bot.sendMessage(
                   chatId,

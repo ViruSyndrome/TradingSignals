@@ -244,19 +244,24 @@ const CONFIG = {
         fallbackSymbol: 'CL=F',
         dayMode: 'ist',
         bandStyle: 'sessionFib',
-        // CRUDEOIL: Dr. Dev 15m/30m session anchor + 5:30 Formula (17:00–17:30 IST evening open on holidays / 17:30 formula)
+        // CRUDEOIL: Dr. Dev 15m/30m session anchor (09:00 normal morning / 17:00 holiday evening fallback + 5:30 Formula)
         firstRedTf: '15m',
         markWindow: {
+          timeZone: 'Asia/Kolkata',
+          startHour: 9, startMinute: 0,
+          endHour: 9, endMinute: 30,
+        },
+        fallbackWindow: {
           timeZone: 'Asia/Kolkata',
           startHour: 17, startMinute: 0,
           endHour: 17, endMinute: 30,
         },
-        markLabel: '17:00–17:30 IST (MCX Eve / 5:30 Formula)',
+        markLabel: '09:00 / 17:00 IST (MCX Open)',
         fibLevels: [0, 0.44, 0.5, 0.56, 1],
         priceDecimals: 0,
         timeframes: ['5m', '15m', '30m', '1h'],
         ohlcLimit: { '5m': 360, '15m': 500, '30m': 500, '1h': 400 },
-        tradeHint: 'Dhan MCX · CRUDEOIL NOV FUT (573422) · 5 PM Open & 5:30 Formula · NYMEX 18:30/19:30',
+        tradeHint: 'Dhan MCX · CRUDEOIL NOV FUT (573422) · 09:00 / 17:00 Open & 5:30 Formula · NYMEX 18:30/19:30',
         showSessionMarkers: true,
         sessions: [
           { id: 'mcx_day', label: 'MCX day', timeZone: 'Asia/Kolkata', open: [9, 0], close: [17, 0], color: '#818cf8' },
@@ -281,19 +286,24 @@ const CONFIG = {
         fallbackSymbol: 'NG=F',
         dayMode: 'ist',
         bandStyle: 'sessionFib',
-        // NG: Dr. Dev 15m/30m session anchor (17:00–17:30 IST evening open / 5:30 energy transition)
+        // NG: Dr. Dev 15m/30m session anchor (09:00 normal morning / 17:00 holiday evening fallback)
         firstRedTf: '15m',
         markWindow: {
+          timeZone: 'Asia/Kolkata',
+          startHour: 9, startMinute: 0,
+          endHour: 9, endMinute: 30,
+        },
+        fallbackWindow: {
           timeZone: 'Asia/Kolkata',
           startHour: 17, startMinute: 0,
           endHour: 17, endMinute: 30,
         },
-        markLabel: '17:00–17:30 IST (MCX Eve Open)',
+        markLabel: '09:00 / 17:00 IST (MCX Open)',
         fibLevels: [0, 0.44, 0.5, 0.56, 1],
         priceDecimals: 1,
         timeframes: ['5m', '15m', '30m', '1h'],
         ohlcLimit: { '5m': 360, '15m': 500, '30m': 500, '1h': 400 },
-        tradeHint: 'Dhan MCX · NATURALGAS NOV FUT (574319) · 5 PM Open & NYMEX 18:30/19:30',
+        tradeHint: 'Dhan MCX · NATURALGAS NOV FUT (574319) · 09:00 / 17:00 Open & NYMEX 18:30/19:30',
         showSessionMarkers: true,
         sessions: [
           { id: 'mcx_day', label: 'MCX day', timeZone: 'Asia/Kolkata', open: [9, 0], close: [17, 0], color: '#818cf8' },
