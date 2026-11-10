@@ -906,15 +906,16 @@ async function _maybeAutoDhanNifty({ inst, side, readout, alertKey, dayKey, setu
       && String(t.alertKey || '').includes(`|${dayKey}|`),
   );
 
-  // User MCX Test Rule (Independent 1-Loss Pause per instrument):
-  // "Stop NG if NG trade was loss. Stop Crude if Crude trade was loss."
-  // If this specific instrument took a trade today that ended in SL loss, pause THIS instrument for today.
+  // User MCX Risk Gate (Independent loss limit per instrument):
+  // Configurable via DHAN_MCX_MAX_LOSSES (defaults to 2 losses per MCX instrument).
+  // If an instrument hits max losses for the day, pause THIS instrument for today.
   // If it won (1:1 banked or target), it can continue taking setups.
   const isMcxInst = ['CRUDEOIL', 'NG'].includes(instKey);
   if (isMcxInst) {
-    const instLossToday = todayManagedDhan.find((t) => t.status === 'closed_sl' && !t.legABooked);
-    if (instLossToday) {
-      console.log(`[RedBarBot] ${instKey}: MCX 1-loss rule active — prior ${instKey} trade (${instLossToday.symbolHint || instLossToday.orderId}) ended in SL loss. Standing down ${instKey} for today.`);
+    const mcxMaxLosses = Number(process.env.DHAN_MCX_MAX_LOSSES || 2);
+    const instLossesToday = todayManagedDhan.filter((t) => t.status === 'closed_sl' && !t.legABooked);
+    if (instLossesToday.length >= mcxMaxLosses) {
+      console.log(`[RedBarBot] ${instKey}: MCX max losses reached (${instLossesToday.length}/${mcxMaxLosses}) — prior ${instKey} trades ended in SL loss. Standing down ${instKey} for today.`);
       return;
     }
   }
@@ -1025,6 +1026,13 @@ async function _maybeAutoDhanNifty({ inst, side, readout, alertKey, dayKey, setu
   const indexTp1 = Number(readout.tp1);
   if (!(indexEntry > 0 && indexStop > 0 && indexTp1 > 0)) {
     console.warn('[RedBarBot] Dhan AUTO skip — incomplete index levels');
+    return;
+  }
+
+  // Trigger freshness: never enter an option trade mid-air if the trigger bar is older than 20 minutes
+  const triggerTs = Number(readout.triggerTs) || Number(readout.playbook?.redSetup?.triggerTs) || 0;
+  if (triggerTs > 0 && (Date.now() - triggerTs) > 20 * 60 * 1000) {
+    console.log(`[RedBarBot] ${instKey}: triggerTs is ${Math.round((Date.now() - triggerTs) / 60000)}m old (>20m) — stale trigger, skip Dhan entry`);
     return;
   }
 
@@ -1432,7 +1440,13 @@ async function pollManagedDhanStops() {
               t.closedAt = Date.now();
               console.log(`[RedBarBot] 🛑 Dhan SL hit · ${t.symbolHint}`);
               const isMcxStop = ['CRUDEOIL', 'NG'].includes(tInst);
-              const mcxNote = isMcxStop && !t.legABooked ? `\n⚠️ <b>MCX Rule: Pausing ${tInst} auto-trading for today.</b>` : '';
+              const mcxMaxLosses = Number(process.env.DHAN_MCX_MAX_LOSSES || 2);
+              const allM = loadManagedDhanTrades();
+              const priorLosses = allM.filter((m) => String(m.instrumentId || 'NIFTY').toUpperCase() === tInst && m.status === 'closed_sl' && !m.legABooked && String(m.alertKey || '').includes(`|${dayKey}|`)).length;
+              const isMcxPaused = priorLosses >= mcxMaxLosses;
+              const mcxNote = isMcxStop && !t.legABooked
+                ? (isMcxPaused ? `\n⚠️ <b>MCX Rule: Pausing ${tInst} auto-trading for today (${priorLosses}/${mcxMaxLosses} losses hit).</b>` : `\n⚠️ <b>MCX Rule: ${tInst} loss count ${priorLosses}/${mcxMaxLosses}.</b>`)
+                : '';
               if (bot && chatId) {
                 await bot.sendMessage(
                   chatId,

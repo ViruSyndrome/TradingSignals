@@ -2807,10 +2807,12 @@ const RedBarTrend = {
       }
     }
     let bullFailedBackInside = false;
+    let bullReversalBar = null;
     if (bullCross && bullCrossIdx >= 0) {
       for (let j = bullCrossIdx + 1; j < afterBars.length; j++) {
         if (afterBars[j].c < xMid) {
           bullFailedBackInside = true;
+          if (!bullReversalBar) bullReversalBar = afterBars[j];
           break;
         }
       }
@@ -2828,50 +2830,58 @@ const RedBarTrend = {
       }
     }
     let bearFailedBackInside = false;
+    let bearReversalBar = null;
     if (bearCross && bearCrossIdx >= 0) {
       for (let j = bearCrossIdx + 1; j < afterBars.length; j++) {
         if (afterBars[j].c > xMid) {
           bearFailedBackInside = true;
+          if (!bearReversalBar) bearReversalBar = afterBars[j];
           break;
         }
       }
     }
 
     // Trap Reversal: price pierced one side then closed back inside past midpoint
-    if (bullCross && bullFailedBackInside && price < xMid) {
-      const triggerPrice = price;
-      const triggerTs = lastBar.t;
-      const stopLoss = xHigh;
-      const risk = Math.abs(stopLoss - triggerPrice);
-      return {
-        setupKind: 'mcx_530_reversal',
-        side: 'bearish',
-        triggered: risk > 0,
-        stopStructural: true,
-        triggerPrice,
-        triggerTs,
-        stopLoss,
-        xCandle: { high: xHigh, low: xLow, mid: xMid, color: xColor, open: xOpen, close: xClose },
-        label: `MCX 5:30 Formula · Trap Reversal SHORT below mid ${xMid.toFixed(1)} · Target ${xLow.toFixed(1)}`,
-      };
+    if (bullCross && bullFailedBackInside && bullReversalBar && price < xMid) {
+      const targetAchieved = price <= xLow;
+      if (!targetAchieved) {
+        const triggerPrice = bullReversalBar.c;
+        const triggerTs = bullReversalBar.t;
+        const stopLoss = xHigh;
+        const risk = Math.abs(stopLoss - triggerPrice);
+        return {
+          setupKind: 'mcx_530_reversal',
+          side: 'bearish',
+          triggered: risk > 0,
+          stopStructural: true,
+          triggerPrice,
+          triggerTs,
+          stopLoss,
+          xCandle: { high: xHigh, low: xLow, mid: xMid, color: xColor, open: xOpen, close: xClose },
+          label: `MCX 5:30 Formula · Trap Reversal SHORT below mid ${xMid.toFixed(1)} · Target ${xLow.toFixed(1)}`,
+        };
+      }
     }
 
-    if (bearCross && bearFailedBackInside && price > xMid) {
-      const triggerPrice = price;
-      const triggerTs = lastBar.t;
-      const stopLoss = xLow;
-      const risk = Math.abs(triggerPrice - stopLoss);
-      return {
-        setupKind: 'mcx_530_reversal',
-        side: 'bullish',
-        triggered: risk > 0,
-        stopStructural: true,
-        triggerPrice,
-        triggerTs,
-        stopLoss,
-        xCandle: { high: xHigh, low: xLow, mid: xMid, color: xColor, open: xOpen, close: xClose },
-        label: `MCX 5:30 Formula · Trap Reversal LONG above mid ${xMid.toFixed(1)} · Target ${xHigh.toFixed(1)}`,
-      };
+    if (bearCross && bearFailedBackInside && bearReversalBar && price > xMid) {
+      const targetAchieved = price >= xHigh;
+      if (!targetAchieved) {
+        const triggerPrice = bearReversalBar.c;
+        const triggerTs = bearReversalBar.t;
+        const stopLoss = xLow;
+        const risk = Math.abs(triggerPrice - stopLoss);
+        return {
+          setupKind: 'mcx_530_reversal',
+          side: 'bullish',
+          triggered: risk > 0,
+          stopStructural: true,
+          triggerPrice,
+          triggerTs,
+          stopLoss,
+          xCandle: { high: xHigh, low: xLow, mid: xMid, color: xColor, open: xOpen, close: xClose },
+          label: `MCX 5:30 Formula · Trap Reversal LONG above mid ${xMid.toFixed(1)} · Target ${xHigh.toFixed(1)}`,
+        };
+      }
     }
 
     // Bullish: prefer true shelf retest (touch broken high → later 5m bounce close back above)
