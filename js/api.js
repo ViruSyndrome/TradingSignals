@@ -596,6 +596,10 @@ const API = {
       } catch (e) {
         console.warn(`[API] Dhan OHLC failed (${sid} ${interval}):`, e.message);
         const fbSym = instrument?.fallbackSymbol || instrument?.symbol;
+        // MCX in the live bot: Yahoo CL=F / NG=F are USD NYMEX — wrong scale for ₹ Fibs / stops. Skip the scan instead.
+        if (instrument?.dhanExchangeSegment === 'MCX_COMM') {
+          throw new Error(`Dhan MCX OHLC unavailable (${e.message}) — no USD Yahoo fallback for MCX`);
+        }
         if (fbSym && !/\sFUT$/i.test(fbSym)) {
           console.warn('[API] Falling back to Yahoo for', fbSym);
           return this.getYahooOHLC(fbSym, interval, limit);
@@ -672,6 +676,7 @@ const API = {
       try {
         return await this.getDhanOHLC(instrument, interval, limitOverride);
       } catch (e) {
+        if (this._isNode() && instrument.dhanExchangeSegment === 'MCX_COMM') throw e;
         if (instrument.fallbackFeed === 'yahoo' && instrument.fallbackSymbol) {
           console.warn(`[API] Dhan ${id || sym} failed (${e.message}) — falling back to Yahoo ${instrument.fallbackSymbol}`);
           const bars = await this.getYahooOHLC(instrument.fallbackSymbol, interval, limitOverride);

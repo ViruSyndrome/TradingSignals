@@ -679,6 +679,11 @@ async function _scanOneRedBarInstrument(rawInst, rbCfg) {
         const mult = Number(inst.contractMultiplier) || 1;
         const unitCount = lot * mult;
         const delta = Number(process.env.NIFTY_OPT_DELTA) || 0.7; // observed ~0.7 on ITM/ATM
+        if (['CRUDEOIL', 'NG'].includes(String(inst.id).toUpperCase())) {
+          // MCX option SL/TP come from the live contract delta + minSlPts + tpMult at order time.
+          // Do not print a guessed premium SL/TP here (it contradicted the real order) — exact levels are in the order confirmation.
+          return `\nIndex stop ${fmt(s)} · 1:1 ${fmt(t)} (index levels)\nDHAN (1 lot · ${unitCount} units): exact option SL/TP shown in the order confirmation below`;
+        }
         const riskPts = Math.abs(e - s), tgtPts = Math.abs(t - e);
         const optSl = (riskPts * delta).toFixed(1), optTp = (tgtPts * delta).toFixed(1);
         const rsSl = Math.round(riskPts * delta * unitCount), rsTp = Math.round(tgtPts * delta * unitCount);
@@ -1100,7 +1105,7 @@ async function _maybeAutoDhanNifty({ inst, side, readout, alertKey, dayKey, setu
     }
 
     const summary = result.ok
-      ? `✅ Dhan AUTO ${side} ${result.contract.symbolHint}\nQty ${result.qty} · prem≈${result.contract.ltp} · SL ${result.levels.stopLossPrice} · TP ${result.levels.targetPrice}\nSuperOrder ${result.orderId} · status ${result.orderStatus || 'PENDING'} · (${setupKind})`
+      ? `✅ Dhan AUTO ${side} ${result.contract.symbolHint}\nQty ${result.qty} · prem≈${result.contract.ltp} · SL ${result.levels.stopLossPrice} · TP ${result.levels.targetPrice}\nRisk ~Rs ${Math.round((result.levels.entryPrice - result.levels.stopLossPrice) * result.qty * (Number(inst.contractMultiplier) || 1))} · Reward ~Rs ${Math.round((result.levels.targetPrice - result.levels.entryPrice) * result.qty * (Number(inst.contractMultiplier) || 1))}\nSuperOrder ${result.orderId} · status ${result.orderStatus || 'PENDING'} · (${setupKind})`
       : `⚠️ Dhan AUTO failed / no fill · status=${result.orderStatus || 'n/a'} ${result.omsError || JSON.stringify(result).slice(0, 180)}`;
     console.log('[RedBarBot]', summary.replace(/\n/g, ' | '));
     if (bot && chatId) {
@@ -1120,8 +1125,11 @@ async function _maybeAutoDhanNifty({ inst, side, readout, alertKey, dayKey, setu
       console.log(`[RedBarBot] ${instKey}: soft fail — backing off for 3m (${errMsg.slice(0, 80)})`);
     }
     const lastTgTs = Number(lastAlerted[`DHAN_FAIL_TG_${instKey}_TS`]) || 0;
-    if (bot && chatId && (Date.now() - lastTgTs > 10 * 60 * 1000)) {
+    // Funds failures: tell once per setup (premium ticks change the text every scan), not every 10m.
+    const sameSetupFunds = softFail && lastAlerted[`DHAN_FAIL_TG_${instKey}_KEY`] === alertKey;
+    if (bot && chatId && !sameSetupFunds && (Date.now() - lastTgTs > 10 * 60 * 1000)) {
       lastAlerted[`DHAN_FAIL_TG_${instKey}_TS`] = Date.now();
+      lastAlerted[`DHAN_FAIL_TG_${instKey}_KEY`] = alertKey;
       await bot.sendMessage(chatId, `❌ Dhan AUTO failed ${instKey} ${side}: ${e.message}`, {
         disable_web_page_preview: true,
       }).catch(() => {});
