@@ -1,5 +1,11 @@
 # Red Bar Theory — Learning Guide (TrendRunner / Dr. Dev)
 
+> [!IMPORTANT]
+> ### 🔒 Rule 0: The NIFTY Execution Lock (No Tampering Rule)
+> 1. **Zero Code Tampering During Live Trading**: The NIFTY execution engine (`bot.js`, `js/dhan_nifty_trade.js`, `js/redbar_trend.js`) is strictly frozen and protected.
+> 2. **Complete Asset Isolation**: NIFTY runs completely decoupled from MCX Commodities and Crypto. No MCX or Binance code changes are ever permitted to touch the NIFTY execution path.
+> 3. **Research Stays in Sandbox**: All research, backtests (like HA+EMA+CCI), or indicator experiments must remain in standalone offline scripts (`scripts/`). They are never merged into live execution files without explicit, multi-day isolated review.
+
 **Purpose:** Shareable notes so someone new can learn the **Red Bar** playbook we run on TrendRunner — not Renko, not AI Supertrend.
 
 **Honesty:** This is a working desk adaptation of Dr. Devendra Pratap Singh’s teaching (YouTube / course family), plus how TrendRunner encodes it. It is **not** a claim of 100% mastery. NIFTY Red Bar + session Trikal is the strongest fit; BTC uses the **same Red Bar DNA** with **different clocks**. Renko / AI Renko Supertrend are separate products — we keep them out of this bot’s DNA.
