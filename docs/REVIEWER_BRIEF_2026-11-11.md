@@ -8,11 +8,12 @@ This document reflects the exact code running in `bot.js` and supporting modules
 
 NIFTY 50 options only. Default order size is 2 lots (130 units), auto-downscaling to 1 lot if available cash is insufficient. All stops, breakeven triggers, and targets are evaluated strictly on the underlying NIFTY 50 index (from Dhan feed). BANKNIFTY, Sensex, MCX Crude, MCX NG, and Binance Crypto auto-trading and Telegram alerts are disabled.
 
-### The 4 Daily Median Lines:
+### The Daily Median Lines:
 1. **09:15 Open Bar Median**: Median band (0.44 to 0.56) of the 09:15 candle.
 2. **First Red Bar Median**: The first red candle *after* 09:15. If 09:15 itself is red, it serves only as the Open Bar — the code skips 09:15 and waits for the first subsequent closed red candle.
 3. **Gap Median**: Drawn only if the gap between yesterday's close and today's open is $\ge 40$ points.
 4. **Prior Session Median**: Yesterday's closing session median (15:15–15:45 mark).
+5. **Highway 50% Median (Wide Highway Rule)**: Drawn only when the span between the 09:15 Open Median and First Red Bar Median is $\ge 120$ index points (like Nov 4). Subdivides wide canyons into a 44%–56% Point of Balance shelf for structured targets and bounces.
 
 ### Tradable Zone:
 * The space between the 09:15 median and the First Red Bar median is fully tradable.
@@ -54,7 +55,7 @@ The following distinctions clarify differences between manual chart observations
 | Feature | Prose / Chart Observation | Code Reality in `bot.js` |
 |---|---|---|
 | **Sideways Deadlock** | Stood aside manually when trapped inside a band | No explicit filter; bot simply requires a 5m wick rejection into a band to fire |
-| **50% Intermediate Scalp** | Taken manually on moves > 120 pts (Nov 4 chart) | Not in code; bot targets the next median band directly |
+| **50% Intermediate Scalp** | Taken manually on moves > 120 pts (Nov 4 chart) | Coded Wide Highway rule: when span between medians $\ge 120$ pts, bot generates Highway 50% Median shelf |
 | **Anchor Candle Extremes** | Targeted anchor high/low wick on retests | Not in code; bot targets only median bands |
 | **Rolling Target on Close-Through** | Aims at near edge of next median | Originally aimed at midpoint (`m.price`); now updated to near edge (`m.lo`/`m.hi`) |
 | **Limit Order Fill Guarantee** | Stated 100% fill guarantee | 1.0 pt pad improves fill probability; does not guarantee against >1 pt slippage |

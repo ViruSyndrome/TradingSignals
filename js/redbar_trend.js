@@ -1419,6 +1419,7 @@ const RedBarTrend = {
     firstRed1h,
     priorSessionBand = null,
     gapMinPts = 40,
+    wideHighwayPts = 120,
     dayMode = 'ist',
   } = {}) {
     if (!asOfDay || !Array.isArray(bars5m) || !bars5m.length) return null;
@@ -1501,6 +1502,38 @@ const RedBarTrend = {
         fibs: null,
         t: priorSessionBand.openT ?? priorSessionBand.t0 ?? null,
       });
+    }
+
+    // Wide highway 50% midpoint shelf: when the span between firstBar and firstRed >= wideHighwayPts (default 120 pts)
+    const widePts = Number(wideHighwayPts) || 120;
+    if (firstBarFibs?.median != null && firstRedFibs?.median != null) {
+      const dist = Math.abs(firstRedFibs.median - firstBarFibs.median);
+      if (dist >= widePts) {
+        const loBound = Math.min(firstBarFibs.median, firstRedFibs.median);
+        const f44 = +(loBound + 0.44 * dist).toFixed(2);
+        const f50 = +(loBound + 0.50 * dist).toFixed(2);
+        const f56 = +(loBound + 0.56 * dist).toFixed(2);
+        medians.push({
+          id: 'highway_halfway',
+          label: 'Highway 50% median',
+          price: f50,
+          high: f56,
+          low: f44,
+          fibs: {
+            high: f56,
+            low: f44,
+            f0: loBound,
+            f44,
+            f50,
+            f56,
+            f1: loBound + dist,
+            median: f50,
+            pob: { high: f56, low: f44, mid: f50, label: 'Highway POB (44–56)' },
+          },
+          t: firstRed1h?.t ?? null,
+          isHalfway: true,
+        });
+      }
     }
     medians.sort((a, b) => a.price - b.price);
 
@@ -4192,6 +4225,7 @@ const RedBarTrend = {
         firstRed1h,
         priorSessionBand: priorBand,
         gapMinPts: Number(c.advancedFibGapPts) || 40,
+        wideHighwayPts: Number(c.wideHighwayPts) || 120,
         dayMode,
       });
       if (advancedFibs) {

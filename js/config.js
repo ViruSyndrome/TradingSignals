@@ -155,6 +155,7 @@ const CONFIG = {
         // Strat 1 Advanced Red Bar: first-bar + red + gap medians. The band between them is the trade. Stop = signal wick. Target = next median.
         advancedFibs: true,
         advancedFibGapPts: 40,
+        wideHighwayPts: 120,
         priceDecimals: 2,
         timeframes: ['5m', '15m', '30m', '1h'],
         ohlcLimit: { '5m': 360, '15m': 500, '30m': 500, '1h': 400 },
