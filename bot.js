@@ -1314,12 +1314,18 @@ async function pollManagedDhanStops() {
           }
           if (decision === 'roll') {
             const meds = Array.isArray(st.medians) ? st.medians : [];
-            const prices = meds.map((m) => Number(m.price)).filter((p) => Number.isFinite(p)).sort((a, b) => a - b);
+            const targets = meds
+              .map((m) => {
+                const nearEdge = long ? (Number(m.lo) || Number(m.price)) : (Number(m.hi) || Number(m.price));
+                return Number.isFinite(nearEdge) ? nearEdge : null;
+              })
+              .filter((p) => p != null)
+              .sort((a, b) => a - b);
             const nxt = long
-              ? prices.find((p) => p > bar.c + 2)
-              : [...prices].reverse().find((p) => p < bar.c - 2);
+              ? targets.find((p) => p > bar.c + 2)
+              : [...targets].reverse().find((p) => p < bar.c - 2);
             t.indexTp1 = nxt || null;
-            console.log(`[RedBarBot] ${tInst} median close-through · next target ${t.indexTp1 || 'none — hold'}`);
+            console.log(`[RedBarBot] ${tInst} median close-through · next near-edge target ${t.indexTp1 || 'none — hold'}`);
           } else if (decision === 'done' || decision === 'flip' || decision === 'back') {
             const openQty = t.securityId
               ? await trader.getOpenQtyForSecurity(t.securityId).catch(() => null)
