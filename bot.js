@@ -1295,7 +1295,6 @@ async function pollManagedDhanStops() {
         const bar = st.lastClosed5m;
         const long = String(t.side).toUpperCase() === 'LONG';
         if (bar && Number.isFinite(bar.t) && bar.t !== t.lastManagedBarT && bar.t >= (Number(t.openedAt) || 0) - 5 * 60 * 1000) {
-          t.lastManagedBarT = bar.t;
           const target = Number(t.indexTp1);
           const hasTarget = Number.isFinite(target) && target > 0;
           const tagged = hasTarget && (long ? bar.h >= target : bar.l <= target);
@@ -1316,7 +1315,13 @@ async function pollManagedDhanStops() {
             const meds = Array.isArray(st.medians) ? st.medians : [];
             const targets = meds
               .map((m) => {
-                const nearEdge = long ? (Number(m.lo) || Number(m.price)) : (Number(m.hi) || Number(m.price));
+                let nearEdge = long ? Number(m.lo) : Number(m.hi);
+                if (!Number.isFinite(nearEdge) && m.fibs && Number.isFinite(Number(m.fibs.f44)) && Number.isFinite(Number(m.fibs.f56))) {
+                  const lo = Math.min(Number(m.fibs.f44), Number(m.fibs.f56));
+                  const hi = Math.max(Number(m.fibs.f44), Number(m.fibs.f56));
+                  nearEdge = long ? lo : hi;
+                }
+                if (!Number.isFinite(nearEdge)) nearEdge = Number(m.price);
                 return Number.isFinite(nearEdge) ? nearEdge : null;
               })
               .filter((p) => p != null)
@@ -1325,6 +1330,7 @@ async function pollManagedDhanStops() {
               ? targets.find((p) => p > bar.c + 2)
               : [...targets].reverse().find((p) => p < bar.c - 2);
             t.indexTp1 = nxt || null;
+            t.lastManagedBarT = bar.t;
             console.log(`[RedBarBot] ${tInst} median close-through · next near-edge target ${t.indexTp1 || 'none — hold'}`);
           } else if (decision === 'done' || decision === 'flip' || decision === 'back') {
             const openQty = t.securityId
@@ -1345,6 +1351,7 @@ async function pollManagedDhanStops() {
               next.push(t);
               continue;
             }
+            t.lastManagedBarT = bar.t;
             t.status = decision === 'back' ? 'closed_sl' : 'closed_target';
             t.closedAt = Date.now();
             t.medianExit = decision;
@@ -1362,13 +1369,21 @@ async function pollManagedDhanStops() {
             }
             next.push(t);
             continue;
+          } else {
+            t.lastManagedBarT = bar.t;
           }
         }
 
         // Move SL to Breakeven once 1:1 risk distance is achieved on the underlying index
         if (!t.beMoved && Number(t.indexEntry) > 0 && Number(t.indexStop) > 0 && t.orderId) {
           const risk = Math.abs(Number(t.indexEntry) - Number(t.indexStop));
-          const curPx = Number(st.price || _instTrendState.get(tInst)?.price);
+          const bar5 = st.lastClosed5m;
+          const curPx = long
+            ? Math.max(Number(st.price) || 0, Number(bar5?.h) || 0)
+            : Math.min(
+              Number(st.price) > 0 ? Number(st.price) : Infinity,
+              Number(bar5?.l) > 0 ? Number(bar5.l) : Infinity,
+            );
           if (curPx > 0 && risk > 0) {
             const hit1R = long
               ? (curPx >= Number(t.indexEntry) + risk)

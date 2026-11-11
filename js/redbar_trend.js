@@ -1535,6 +1535,15 @@ const RedBarTrend = {
         });
       }
     }
+    for (const m of medians) {
+      if (m.fibs && Number.isFinite(m.fibs.f44) && Number.isFinite(m.fibs.f56)) {
+        m.lo = Math.min(m.fibs.f44, m.fibs.f56);
+        m.hi = Math.max(m.fibs.f44, m.fibs.f56);
+      } else {
+        m.lo = m.price;
+        m.hi = m.price;
+      }
+    }
     medians.sort((a, b) => a.price - b.price);
 
     const redMed = firstRedFibs?.median ?? null;

@@ -101,6 +101,7 @@ ok('firstBar fibs median', adv.firstBar?.fibs?.median != null);
 ok('firstRed fibs median', adv.firstRed?.fibs?.median != null);
 ok('medians include gap + prior', adv.medians.some((m) => m.id === 'gap') && adv.medians.some((m) => m.id === 'prior_session'));
 ok('normal highway has no halfway median', !adv.medians.some((m) => m.id === 'highway_halfway'));
+ok('median bands store the near and far edge', adv.medians.filter((m) => m.fibs).every((m) => m.lo === Math.min(m.fibs.f44, m.fibs.f56) && m.hi === Math.max(m.fibs.f44, m.fibs.f56)));
 
 // Wide highway check (>= 120 pts span)
 const advWide = RedBarTrend.buildAdvancedNiftyFibs({
@@ -116,6 +117,7 @@ const advWide = RedBarTrend.buildAdvancedNiftyFibs({
 ok('wide highway (>=120 pts) generates halfway median', advWide.medians.some((m) => m.id === 'highway_halfway'));
 const hwMed = advWide.medians.find((m) => m.id === 'highway_halfway');
 ok('halfway median has 44-56 POB band', hwMed && hwMed.fibs?.pob?.mid === hwMed.price);
+ok('halfway near edge is the 0.44 line and far edge is 0.56', hwMed && hwMed.lo === hwMed.fibs.f44 && hwMed.hi === hwMed.fibs.f56);
 
 console.log('\n[3] Sandwich');
 const midPrice = (adv.sandwich.lo + adv.sandwich.hi) / 2;
