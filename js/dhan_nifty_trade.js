@@ -394,8 +394,12 @@ function createDhanNiftyTrade(opts = {}) {
     if (!freshness.ok) throw new Error(freshness.message);
     const contract = await pickOptionContract({ side, spot: indexEntry });
     // Prefer ask for BUY so LIMIT is marketable; fall back to LTP.
-    const premium = Number(contract.ask) > 0 ? Number(contract.ask) : Number(contract.ltp);
-    if (!(premium > 0)) throw new Error(`No LTP/ask for ${contract.symbolHint}`);
+    const rawPremium = Number(contract.ask) > 0 ? Number(contract.ask) : Number(contract.ltp);
+    if (!(rawPremium > 0)) throw new Error(`No LTP/ask for ${contract.symbolHint}`);
+    // Marketable limit pad prevents partial fills during fast momentum moves (e.g. Nov 11 14:45)
+    const defaultLimitPad = instKey === 'NIFTY' ? 1.0 : (instKey === 'CRUDEOIL' ? 2.0 : 0.5);
+    const limitPad = Math.max(0, envNum('DHAN_ENTRY_LIMIT_PAD', defaultLimitPad));
+    const premium = tickPrem(rawPremium + limitPad);
     const levels = mapPremiumLevels({
       entryPremium: premium,
       indexEntry,

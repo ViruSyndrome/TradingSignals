@@ -616,7 +616,17 @@ async function _scanOneRedBarInstrument(rawInst, rbCfg) {
   if (!readout) return;
   const livePrice = Number(readout.price) || barsWork[barsWork.length - 1].c;
   const curTrend = _instTrendState.get(String(inst.id).toUpperCase()) || {};
-  _instTrendState.set(String(inst.id).toUpperCase(), { ...curTrend, price: livePrice, updatedAt: Date.now() });
+  const closed5m = Array.isArray(bars5m)
+    ? bars5m.filter((b) => b && Number.isFinite(b.t) && b.t + 5 * 60 * 1000 <= nowTs)
+    : [];
+  const lastClosed5m = closed5m.length ? closed5m[closed5m.length - 1] : null;
+  _instTrendState.set(String(inst.id).toUpperCase(), {
+    ...curTrend,
+    price: livePrice,
+    updatedAt: Date.now(),
+    lastClosed5m,
+    medians: Array.isArray(readout.advancedFibs?.medians) ? readout.advancedFibs.medians : [],
+  });
   const side = readout.trend === 'bullish' ? 'LONG' : readout.trend === 'bearish' ? 'SHORT' : 'WAIT';
   const setupKind = readout.setupKind || 'wait';
   const actionState = readout.actionState || 'wait';
@@ -642,6 +652,12 @@ async function _scanOneRedBarInstrument(rawInst, rbCfg) {
   const alertKey = `${side}|${setupKind}|${dayKey}|${trigBucket}`;
   const alreadyAlerted = _rbAlertSeen(inst.id, alertKey);
 
+  if (setupKind === 'fib_sandwich_wait' && readout.advancedFibs?.sandwich) {
+    const s = readout.advancedFibs.sandwich;
+    console.log(
+      `[RedBarBot] ${inst.id}: FIB SANDWICH no-trade · price=${readout.price} between ${s.lo}–${s.hi} (first-bar mid / red mid)`
+    );
+  }
   console.log(
     `[RedBarBot] ${inst.id} (${inst.symbol}): state=${actionState.toUpperCase()} (${side}) | setup=${setupKind} | price=${readout.price} | stop=${readout.invalidation} (${readout.invalidationReason || '—'}) | book=${readout.bookZone} | RR=${readout.rr != null ? readout.rr.toFixed(2) : '—'}`
   );
@@ -701,20 +717,28 @@ async function _scanOneRedBarInstrument(rawInst, rbCfg) {
           : dhanNote + '\n⚠️ Alert only — place manually on Dhan')
         : '';
       const subject = `${side}: ${inst.label} · ${setupLabel}`;
-      const planLine = 'Plan: bank ~50% at 1:1 → move stop to cost · trail the rest';
+      const medianAlert = setupKind === 'fib_bounce';
+      const planLine = medianAlert
+        ? (Number(readout.tp1) > 0
+          ? 'Plan: stop is the signal wick. Target is the next median. The whole trade exits there. No half-off at 1:1.'
+          : 'Plan: stop is the signal wick. No median left in front. Hold until price closes back through the entry median, or the session ends.')
+        : 'Plan: bank ~50% at 1:1 → move stop to cost · trail the rest';
+      const targetLabel = medianAlert
+        ? (Number(readout.tp1) > 0 ? `next median <b>${pxPrefix}${fmt(readout.tp1)}</b>` : 'no median left — hold')
+        : `1:1 bank <b>${pxPrefix}${fmt(readout.tp1)}</b>`;
       const btcConfLine = (!isIndianIdx && readout.btcConfluence?.summaryText)
         ? `\n🎯 Confluence: <b>${_escHtml(readout.btcConfluence.summaryText)}</b>`
         : '';
       const htmlMsg = `${emoji} <b>${_escHtml(TrendRunnerCopy.enterHeadline(inst.label, side))}</b>
 <b>${_escHtml(setupLabel)}</b>
-${setupTip ? `${_escHtml(setupTip)}\n` : ''}Entry <b>${pxPrefix}${fmt(readout.price)}</b> · Stop <b>${pxPrefix}${fmt(readout.invalidation)}</b> (${_escHtml(readout.invalidationReason || 'structure')}) · 1:1 bank <b>${pxPrefix}${fmt(readout.tp1)}</b>${isBinance && sz ? ` · ${sz.recLeverage}×` : ''}
+${setupTip ? `${_escHtml(setupTip)}\n` : ''}Entry <b>${pxPrefix}${fmt(readout.price)}</b> · Stop <b>${pxPrefix}${fmt(readout.invalidation)}</b> (${_escHtml(readout.invalidationReason || 'structure')}) · ${targetLabel}${isBinance && sz ? ` · ${sz.recLeverage}×` : ''}
 ${_escHtml(planLine)}${btcConfLine}${alertOnlyNote}
 <a href="${deskUrl}">Open TrendRunner Desk</a>${futLink ? ` · <a href="${futLink}">Futures</a>` : ''}`;
       const plainMsg = [
         TrendRunnerCopy.enterHeadline(inst.label, side),
         setupLabel,
         setupTip || null,
-        `Entry ${pxPrefix}${fmt(readout.price)} · Stop ${pxPrefix}${fmt(readout.invalidation)} · 1:1 ${pxPrefix}${fmt(readout.tp1)}`,
+        `Entry ${pxPrefix}${fmt(readout.price)} · Stop ${pxPrefix}${fmt(readout.invalidation)} · ${medianAlert ? (Number(readout.tp1) > 0 ? `next median ${pxPrefix}${fmt(readout.tp1)}` : 'no median left — hold') : `1:1 ${pxPrefix}${fmt(readout.tp1)}`}`,
         planLine,
         !isBinance ? (dhanAutoOn ? 'Dhan AUTO placing option order' : 'Alert only — place manually on Dhan') : null,
         deskUrl,
@@ -768,7 +792,7 @@ ${_escHtml(planLine)}${btcConfLine}${alertOnlyNote}
 /** DNA / researched setups eligible for auto (Binance + Dhan). Trade 3 = setup3_rubber_band. Dr. Dev Trikal 12:45 = afternoon_1245_reversal / afternoon_1245_breakout. */
 function _autoSetupAllowed(setupKind) {
   const raw = envTrim('REDBAR_AUTO_SETUPS')
-    || 'trade1_departure,trade2_confirmed,session_sweep,pob_reject,setup3_rubber_band,afternoon_1245_reversal,afternoon_1245_breakout,afternoon_1245_retest,btc_asia_0530_breakout,mcx_530_breakout,mcx_530_retest,mcx_530_reversal';
+    || 'trade1_departure,trade2_confirmed,fib_bounce,session_sweep,pob_reject,setup3_rubber_band,afternoon_1245_reversal,afternoon_1245_breakout,afternoon_1245_retest,btc_asia_0530_breakout,mcx_530_breakout,mcx_530_retest,mcx_530_reversal';
   const allow = raw.split(',').map((s) => s.trim()).filter(Boolean);
   return allow.includes(String(setupKind || ''));
 }
@@ -910,6 +934,12 @@ async function _maybeAutoDhanNifty({ inst, side, readout, alertKey, dayKey, setu
     return;
   }
   const lastTs = Number(lastAlerted[`DHAN_TRADE_${instKey}_LAST_TS`]) || 0;
+  const flipBar = Number(lastAlerted[`DHAN_MEDIAN_FLIP_${instKey}_BAR`]) || 0;
+  const triggerForFlip = Number(readout.triggerTs) || 0;
+  const medianFlipReentry = setupKind === 'fib_bounce'
+    && flipBar > 0
+    && triggerForFlip > 0
+    && Math.abs(triggerForFlip - flipBar) < 6 * 60 * 1000;
   const allManagedDhan = loadManagedDhanTrades();
   const todayManagedDhan = allManagedDhan.filter(
     (t) => String(t.instrumentId || 'NIFTY').toUpperCase() === instKey
@@ -1018,7 +1048,7 @@ async function _maybeAutoDhanNifty({ inst, side, readout, alertKey, dayKey, setu
   );
   const effectiveCooldownMs = lastWonAndNewSetup ? (5 * 60 * 1000) : cooldownMs;
 
-  if (lastTs && Date.now() - lastTs < effectiveCooldownMs) {
+  if (lastTs && Date.now() - lastTs < effectiveCooldownMs && !medianFlipReentry) {
     if (rule6SlRow) {
       console.log(
         `[RedBarBot] ${instKey}: Rule 6 SL-reentry (1/1 today) — waive cooldown (prior ${rule6SlRow.indexEntry} → now ${readout.price})`,
@@ -1032,7 +1062,17 @@ async function _maybeAutoDhanNifty({ inst, side, readout, alertKey, dayKey, setu
 
   const indexEntry = Number(readout.price);
   const indexStop = Number(readout.invalidation);
-  const indexTp1 = Number(readout.tp1);
+  const realMedianTp = Number(readout.tp1);
+  const medianTrade = setupKind === 'fib_bounce';
+  const indexRisk = Math.abs(indexEntry - indexStop);
+  // Median trades: the option target stays a stretch. A wick through the median must not fill it.
+  // The closed 5m candle decides: tag and close back = out, close through = next median, color flip = reverse.
+  let indexTp1 = realMedianTp;
+  if (medianTrade && !(indexTp1 > 0)) {
+    indexTp1 = side === 'LONG'
+      ? indexEntry + Math.max(indexRisk * 3, 30)
+      : indexEntry - Math.max(indexRisk * 3, 30);
+  }
   if (!(indexEntry > 0 && indexStop > 0 && indexTp1 > 0)) {
     console.warn('[RedBarBot] Dhan AUTO skip — incomplete index levels');
     return;
@@ -1111,7 +1151,12 @@ async function _maybeAutoDhanNifty({ inst, side, readout, alertKey, dayKey, setu
         qty: result.qty,
         indexEntry,
         indexStop,
-        indexTp1,
+        indexTp1: medianTrade ? (realMedianTp > 0 ? realMedianTp : null) : indexTp1,
+        medianTrade,
+        entryMedian: readout.fibBounce?.median ?? null,
+        entryBandLo: readout.fibBounce?.entryLo ?? null,
+        entryBandHi: readout.fibBounce?.entryHi ?? null,
+        lastManagedBarT: Number(readout.triggerTs) || null,
         beMoved: false,
         legABooked: false,
         superActive: true,
@@ -1235,6 +1280,79 @@ async function pollManagedDhanStops() {
           await bot.sendMessage(chatId, `🕔 Dhan EOD flat · ${t.symbolHint || t.orderId}`, {
             disable_web_page_preview: true,
           }).catch(() => {});
+        }
+        next.push(t);
+        continue;
+      }
+
+      // NIFTY median wick: do not bank half at 1:1. The closed 5m candle owns the exit.
+      if (t.medianTrade && t.status === 'open') {
+        const st = _instTrendState.get(tInst) || {};
+        const bar = st.lastClosed5m;
+        const long = String(t.side).toUpperCase() === 'LONG';
+        if (bar && Number.isFinite(bar.t) && bar.t !== t.lastManagedBarT && bar.t >= (Number(t.openedAt) || 0) - 5 * 60 * 1000) {
+          t.lastManagedBarT = bar.t;
+          const target = Number(t.indexTp1);
+          const hasTarget = Number.isFinite(target) && target > 0;
+          const tagged = hasTarget && (long ? bar.h >= target : bar.l <= target);
+          const through = hasTarget && (long ? bar.c > target : bar.c < target);
+          const back = hasTarget && (long ? bar.c < target : bar.c > target);
+          const flipped = long ? bar.c < bar.o : bar.c > bar.o;
+          let decision = 'hold';
+          if (hasTarget && tagged && through && flipped) decision = 'flip';
+          else if (hasTarget && tagged && through) decision = 'roll';
+          else if (hasTarget && tagged && back) decision = 'done';
+          else if (!hasTarget) {
+            const lo = Number(t.entryBandLo);
+            const hi = Number(t.entryBandHi);
+            if (long && Number.isFinite(lo) && bar.c < lo) decision = 'back';
+            if (!long && Number.isFinite(hi) && bar.c > hi) decision = 'back';
+          }
+          if (decision === 'roll') {
+            const meds = Array.isArray(st.medians) ? st.medians : [];
+            const prices = meds.map((m) => Number(m.price)).filter((p) => Number.isFinite(p)).sort((a, b) => a - b);
+            const nxt = long
+              ? prices.find((p) => p > bar.c + 2)
+              : [...prices].reverse().find((p) => p < bar.c - 2);
+            t.indexTp1 = nxt || null;
+            console.log(`[RedBarBot] ${tInst} median close-through · next target ${t.indexTp1 || 'none — hold'}`);
+          } else if (decision === 'done' || decision === 'flip' || decision === 'back') {
+            const openQty = t.securityId
+              ? await trader.getOpenQtyForSecurity(t.securityId).catch(() => null)
+              : null;
+            const flatQty = openQty != null && Math.abs(openQty) > 0 ? Math.abs(openQty) : t.qty;
+            const why = decision === 'flip' ? 'color flip' : decision === 'back' ? 'back through entry median' : 'median tagged';
+            console.log(`[RedBarBot] ${tInst} median exit (${why}) · ${t.symbolHint} qty=${flatQty}`);
+            const flatRes = await trader.flattenTrade({
+              orderId: t.orderId,
+              securityId: t.securityId,
+              quantity: flatQty,
+              runnerSlOrderId: t.runnerSlOrderId,
+              runnerTpOrderId: t.runnerTpOrderId,
+            });
+            if (flatRes && flatRes.exitError) {
+              console.error(`[RedBarBot] median exit FAILED: ${flatRes.exitError}`);
+              next.push(t);
+              continue;
+            }
+            t.status = decision === 'back' ? 'closed_sl' : 'closed_target';
+            t.closedAt = Date.now();
+            t.medianExit = decision;
+            if (decision === 'flip') {
+              lastAlerted[`DHAN_MEDIAN_FLIP_${tInst}_BAR`] = bar.t;
+              lastAlerted[`DHAN_TRADE_${tInst}_LAST_TS`] = 0;
+              saveAlertState(lastAlerted);
+            }
+            if (bot && chatId) {
+              await bot.sendMessage(
+                chatId,
+                `Median ${why} · ${t.symbolHint || t.orderId}`,
+                { disable_web_page_preview: true },
+              ).catch(() => {});
+            }
+            next.push(t);
+            continue;
+          }
         }
         next.push(t);
         continue;

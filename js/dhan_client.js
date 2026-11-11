@@ -42,7 +42,7 @@ function createDhanClient(opts = {}) {
     throw err;
   }
 
-  async function _request(method, path, { body, query, extraHeaders } = {}) {
+  async function _request(method, path, { body, query, extraHeaders, retryCount = 0 } = {}) {
     const q = new URLSearchParams();
     if (query) {
       for (const [k, v] of Object.entries(query)) {
@@ -73,6 +73,11 @@ function createDhanClient(opts = {}) {
       throw err;
     }
     if (!r.ok) {
+      if (r.status === 429 && retryCount < 2) {
+        console.warn(`[DhanClient] HTTP 429 rate limit on ${path} — backing off ${1500 * (retryCount + 1)}ms (retry ${retryCount + 1}/2)...`);
+        await new Promise((resolve) => setTimeout(resolve, 1500 * (retryCount + 1)));
+        return _request(method, path, { body, query, extraHeaders, retryCount: retryCount + 1 });
+      }
       const msg = data.message || data.errorMessage || data.error || `Dhan HTTP ${r.status}`;
       const err = new Error(typeof msg === 'string' ? msg : JSON.stringify(msg));
       err.status = r.status;

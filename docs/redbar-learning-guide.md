@@ -224,8 +224,16 @@ Commodities trade across global energy sessions (Asia, London, and New York NYME
 | BTC Red Bar T1/T2 + 1:1 BE | High (same DNA) |
 | BTC session clocks (Asia/London/NY) | High directionally |
 | Mean Reversion Range (Standard Error Bands) | Research-only — **not** in execution pipeline |
+| HA + EMA20/50/200 + CCI(200) close, quiet step (15m futures) | Research only. NIFTY year +2,216 pts / 54 trades; Crude ~flat. Not live. See `STRATEGY_LEARNING_2026-11-11.md` §C |
+| NIFTY median wick | **On the NIFTY bot.** Stop is the signal wick. Target is the next median. The space between the two morning medians is the trade. Backtests to review: `docs/REVIEWER_BRIEF_2026-11-11.md` |
 | Renko / AI Supertrend as entry DNA | Out of scope by choice |
 
 ---
 
-*Last updated: 2026-11-10 afternoon — residual gap closure: MCX no 1.5% stop invent, true shelf+5m bounce retest, Formula priority over Trade 1 in Europe window.*
+## 12. Nov 11 learning pointer
+
+Hand a reviewer **`docs/REVIEWER_BRIEF_2026-11-11.md`** first. Lab notes: **`docs/STRATEGY_LEARNING_2026-11-11.md`**. Live option day: **`docs/SESSION_REVIEW_2026-11-11.md`**. Do not mash the research into live Red Bar auto until approved.
+
+---
+
+*Last updated: 2026-11-11 — reviewer brief added. Yahoo forbidden for reviews and backtests.*

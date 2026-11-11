@@ -2939,6 +2939,90 @@ const RangeEmaUI = {
   },
 
   /**
+   * Advanced NIFTY Strat 1: first-bar / red / gap medians + sandwich no-trade band.
+   */
+  _advancedFibPlugin() {
+    return {
+      id: 'rbAdvancedFibs',
+      afterDatasetsDraw(chart) {
+        const adv = chart.$rbAdvancedFibs;
+        if (!adv || !adv.enabled) return;
+        const yScale = chart.scales.y;
+        const area = chart.chartArea;
+        if (!yScale || !area) return;
+        const ctx = chart.ctx;
+        const compact = !!chart.$rbCompact;
+        const d = chart.$rbDecimals ?? 2;
+        const fmt = (v) => Number(v).toFixed(d === 0 ? 0 : (v % 1 === 0 ? 0 : d));
+        ctx.save();
+
+        // Sandwich fill between first-bar median and red-bar median
+        if (adv.sandwich && adv.sandwich.lo != null && adv.sandwich.hi != null) {
+          const yHi = yScale.getPixelForValue(adv.sandwich.hi);
+          const yLo = yScale.getPixelForValue(adv.sandwich.lo);
+          if ([yHi, yLo].every(Number.isFinite)) {
+            const top = Math.min(yHi, yLo);
+            const h = Math.max(2, Math.abs(yLo - yHi));
+            ctx.fillStyle = 'rgba(56, 189, 248, 0.06)';
+            ctx.fillRect(area.left, top, area.right - area.left, h);
+          }
+        }
+
+        const lines = [];
+        if (adv.firstBar?.fibs?.median != null) {
+          lines.push({
+            v: adv.firstBar.fibs.median,
+            c: 'rgba(56, 189, 248, 0.95)',
+            label: `First-bar mid ${fmt(adv.firstBar.fibs.median)}`,
+          });
+        }
+        if (adv.firstRed?.fibs?.median != null) {
+          lines.push({
+            v: adv.firstRed.fibs.median,
+            c: 'rgba(244, 63, 94, 0.9)',
+            label: `Red mid ${fmt(adv.firstRed.fibs.median)}`,
+          });
+        }
+        if (adv.gap?.fibs?.median != null) {
+          lines.push({
+            v: adv.gap.fibs.median,
+            c: 'rgba(234, 179, 8, 0.95)',
+            label: `Gap mid ${fmt(adv.gap.fibs.median)} (${Math.round(adv.gap.gapPts)}pt)`,
+          });
+        }
+        if (adv.priorSession?.median != null) {
+          lines.push({
+            v: adv.priorSession.median,
+            c: 'rgba(167, 139, 250, 0.85)',
+            label: `Prior mid ${fmt(adv.priorSession.median)}`,
+          });
+        }
+
+        ctx.font = compact
+          ? 'bold 8px Outfit, system-ui, sans-serif'
+          : 'bold 9px Outfit, system-ui, sans-serif';
+        for (const ln of lines) {
+          const y = yScale.getPixelForValue(ln.v);
+          if (!Number.isFinite(y) || y < area.top || y > area.bottom) continue;
+          ctx.strokeStyle = ln.c;
+          ctx.lineWidth = 1.25;
+          ctx.setLineDash([4, 3]);
+          ctx.beginPath();
+          ctx.moveTo(area.left, y);
+          ctx.lineTo(area.right, y);
+          ctx.stroke();
+          ctx.setLineDash([]);
+          ctx.fillStyle = ln.c;
+          ctx.textAlign = 'right';
+          ctx.textBaseline = 'bottom';
+          ctx.fillText(ln.label, area.right - 6, y - 2);
+        }
+        ctx.restore();
+      },
+    };
+  },
+
+  /**
    * Dr. Devendra Pratap Singh Setup 1: 5m Session X-Candle POB (0.44–0.56) corridor & Anchor Low (0.0) overlay.
    */
   _pobPlugin() {
@@ -4088,6 +4172,7 @@ const RangeEmaUI = {
         this._bandZonesPlugin(),
         this._priorFibPlugin(),
         this._firstRed1hPlugin(),
+        this._advancedFibPlugin(),
         this._pobPlugin(),
         this._setup3Plugin(),
         this._candlePlugin(),
@@ -4709,6 +4794,7 @@ const RangeEmaUI = {
     this._chart.$rbFirstRedLabel = o.firstRedLabel || '1H';
     this._chart.$rbFirstRedFibs = o.firstRedFibs || o.playbook?.redSetup?.fibs || null;
     this._chart.$rbShowFirstRed = showPivot;
+    this._chart.$rbAdvancedFibs = o.advancedFibs || null;
     // Paint Mid-top / Mid-edge / Open-low when a live POB X exists.
     // BTC = Asia 05:30 Trikal only (Dr Dev crypto mid-zone).
     {

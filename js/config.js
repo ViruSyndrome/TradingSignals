@@ -152,10 +152,13 @@ const CONFIG = {
         },
         markLabel: '15:15–15:45 IST',
         fibLevels: [0, 0.44, 0.5, 0.56, 1],
+        // Strat 1 Advanced Red Bar: first-bar + red + gap medians. The band between them is the trade. Stop = signal wick. Target = next median.
+        advancedFibs: true,
+        advancedFibGapPts: 40,
         priceDecimals: 2,
         timeframes: ['5m', '15m', '30m', '1h'],
         ohlcLimit: { '5m': 360, '15m': 500, '30m': 500, '1h': 400 },
-        tradeHint: 'Dhan NSE · NIFTY 50 (Lot 65) · 09:15 POB & 12:45 Trikal · Fib 15:15–15:45 IST',
+        tradeHint: 'Dhan NSE · NIFTY · Advanced fib medians + POB/Trikal · Fib 15:15–15:45 IST',
         showSessionMarkers: true,
         sessions: [
           { id: 'nse', label: 'NSE', timeZone: 'Asia/Kolkata', open: [9, 15], close: [15, 30], color: '#38bdf8' },

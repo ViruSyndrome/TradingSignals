@@ -1,0 +1,15 @@
+{
+  "generatedAt": "2026-11-11T11:02:49.680Z",
+  "exitMode": "cci",
+  "soft2": false,
+  "results": [
+    {
+      "symbol": "NIFTY",
+      "error": "approxInr1Lot is not defined"
+    },
+    {
+      "symbol": "CRUDEOIL",
+      "error": "approxInr1Lot is not defined"
+    }
+  ]
+}

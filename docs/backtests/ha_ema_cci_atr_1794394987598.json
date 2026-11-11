@@ -1,0 +1,205 @@
+{
+  "generatedAt": "2026-11-11T11:03:07.598Z",
+  "exitMode": "atr",
+  "soft2": false,
+  "results": [
+    {
+      "symbol": "NIFTY",
+      "source": ".cache_desk/NIFTY_15m.json (Dhan)",
+      "exitMode": "atr",
+      "soft2": false,
+      "meaning": {
+        "sumR": "Total reward in multiples of entry risk (ATR). +26R ≈ twenty-six wins of size=risk if every loss were -1R.",
+        "sumPts": "Sum of index/commodity points (HA close). Not rupees.",
+        "approxInr1Lot": "Illustrative ₹ if 1 lot futures @ ₹65/pt — fees/slippage NOT included",
+        "capturePct": "How much of the peak move (MFE) we kept at CCI exit. 100% = exited at absolute peak.",
+        "givebackPts": "Points left on the table (MFE − realized when realized>0)"
+      },
+      "from": "2025-11-11T03:45:00.000Z",
+      "to": "2026-11-11T10:45:00.000Z",
+      "bars": 6252,
+      "trades": 166,
+      "wins": 62,
+      "losses": 104,
+      "winRate": 37.3,
+      "sumR": 20,
+      "avgR": 0.12,
+      "sumPts": 1050.58,
+      "approxInr1Lot": 68288,
+      "sumMfePts": 14037.51,
+      "sumGivebackPts": 7866.49,
+      "avgCapturePct": 29.1,
+      "peakLeftOnTablePct": 56,
+      "byReason": {
+        "tp": 62,
+        "sl": 104
+      },
+      "sample": [
+        {
+          "side": "LONG",
+          "mode": "strict",
+          "entry": 26202.57,
+          "exit": 26285.57,
+          "pnl": 83,
+          "R": 2,
+          "mfe": 92.98,
+          "capturePct": 89.3,
+          "reason": "tp",
+          "day": "2025-11-26",
+          "barsHeld": 3
+        },
+        {
+          "side": "LONG",
+          "mode": "strict",
+          "entry": 26254.83,
+          "exit": 26211.83,
+          "pnl": -43,
+          "R": -1,
+          "mfe": 25.92,
+          "capturePct": 0,
+          "reason": "sl",
+          "day": "2025-11-28",
+          "barsHeld": 9
+        },
+        {
+          "side": "LONG",
+          "mode": "strict",
+          "entry": 26301.5,
+          "exit": 26269.53,
+          "pnl": -31.97,
+          "R": -1,
+          "mfe": 13.2,
+          "capturePct": 0,
+          "reason": "sl",
+          "day": "2025-12-01",
+          "barsHeld": 1
+        },
+        {
+          "side": "SHORT",
+          "mode": "strict",
+          "entry": 25997.19,
+          "exit": 25922.3,
+          "pnl": 74.88,
+          "R": 2,
+          "mfe": 75.34,
+          "capturePct": 99.4,
+          "reason": "tp",
+          "day": "2025-12-03",
+          "barsHeld": 1
+        },
+        {
+          "side": "SHORT",
+          "mode": "strict",
+          "entry": 25975.89,
+          "exit": 26012.42,
+          "pnl": -36.53,
+          "R": -1,
+          "mfe": 5.39,
+          "capturePct": 0,
+          "reason": "sl",
+          "day": "2025-12-04",
+          "barsHeld": 1
+        }
+      ]
+    },
+    {
+      "symbol": "CRUDEOIL",
+      "source": ".cache_desk/CRUDEOIL_15m.json (Dhan)",
+      "exitMode": "atr",
+      "soft2": false,
+      "meaning": {
+        "sumR": "Total reward in multiples of entry risk (ATR). +26R ≈ twenty-six wins of size=risk if every loss were -1R.",
+        "sumPts": "Sum of index/commodity points (HA close). Not rupees.",
+        "approxInr1Lot": "Illustrative ₹ if 1 lot futures @ ₹100/pt — fees/slippage NOT included",
+        "capturePct": "How much of the peak move (MFE) we kept at CCI exit. 100% = exited at absolute peak.",
+        "givebackPts": "Points left on the table (MFE − realized when realized>0)"
+      },
+      "from": "2026-07-20T06:15:00.000Z",
+      "to": "2026-11-11T10:45:00.000Z",
+      "bars": 4574,
+      "trades": 120,
+      "wins": 50,
+      "losses": 70,
+      "winRate": 41.7,
+      "sumR": 30,
+      "avgR": 0.25,
+      "sumPts": 893.79,
+      "approxInr1Lot": 89379,
+      "sumMfePts": 6777.5,
+      "sumGivebackPts": 3279.08,
+      "avgCapturePct": 35.7,
+      "peakLeftOnTablePct": 48.4,
+      "byReason": {
+        "sl": 70,
+        "tp": 50
+      },
+      "sample": [
+        {
+          "side": "SHORT",
+          "mode": "strict",
+          "entry": 7775.5,
+          "exit": 7784.54,
+          "pnl": -9.04,
+          "R": -1,
+          "mfe": 25.5,
+          "capturePct": 0,
+          "reason": "sl",
+          "day": "2026-07-24",
+          "barsHeld": 1
+        },
+        {
+          "side": "SHORT",
+          "mode": "strict",
+          "entry": 7639,
+          "exit": 7664.88,
+          "pnl": -25.88,
+          "R": -1,
+          "mfe": 21,
+          "capturePct": 0,
+          "reason": "sl",
+          "day": "2026-07-27",
+          "barsHeld": 1
+        },
+        {
+          "side": "SHORT",
+          "mode": "strict",
+          "entry": 7550,
+          "exit": 7574.21,
+          "pnl": -24.21,
+          "R": -1,
+          "mfe": 0,
+          "capturePct": 0,
+          "reason": "sl",
+          "day": "2026-07-27",
+          "barsHeld": 1
+        },
+        {
+          "side": "SHORT",
+          "mode": "strict",
+          "entry": 7505,
+          "exit": 7495,
+          "pnl": 10,
+          "R": 2,
+          "mfe": 30,
+          "capturePct": 33.3,
+          "reason": "tp",
+          "day": "2026-07-27",
+          "barsHeld": 5
+        },
+        {
+          "side": "SHORT",
+          "mode": "strict",
+          "entry": 7430.5,
+          "exit": 7449.52,
+          "pnl": -19.02,
+          "R": -1,
+          "mfe": 54.5,
+          "capturePct": 0,
+          "reason": "sl",
+          "day": "2026-07-28",
+          "barsHeld": 1
+        }
+      ]
+    }
+  ]
+}

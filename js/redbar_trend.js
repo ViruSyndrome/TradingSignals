@@ -1368,6 +1368,288 @@ const RedBarTrend = {
   },
 
   /**
+   * First closed bar of the NSE calendar day (09:15 5m open candle).
+   * Unlike first-red, this IS the open bar — used for Advanced NIFTY first-bar fib.
+   */
+  firstBarOfSession(bars, asOfDay, cfg = {}) {
+    if (!bars || !bars.length || !asOfDay) return null;
+    const dayMode = cfg.dayMode || 'ist';
+    const now = cfg.asOfTs != null ? Number(cfg.asOfTs) : Date.now();
+    const barMs = cfg.barMs != null ? cfg.barMs : 5 * 60 * 1000;
+    for (let i = 0; i < bars.length; i++) {
+      if (this.dayKey(bars[i].t, dayMode) !== asOfDay) continue;
+      if (bars[i].t + barMs > now) continue; // still forming
+      const b = bars[i];
+      return {
+        high: b.h,
+        low: b.l,
+        open: b.o,
+        close: b.c,
+        t: b.t,
+        barMs,
+        index: i,
+        asOfDay,
+      };
+    }
+    return null;
+  },
+
+  /** Last closed bar of a calendar day (for gap = prev close → today open). */
+  lastBarOfDay(bars, day, dayMode = 'ist') {
+    if (!bars || !day) return null;
+    let last = null;
+    for (const b of bars) {
+      if (this.dayKey(b.t, dayMode) === day) last = b;
+    }
+    return last;
+  },
+
+  /**
+   * Advanced NIFTY Red Bar fib families (Strat 1):
+   *  - firstBar fib (09:15 5m)
+   *  - firstRed fib (existing first-red box)
+   *  - gap fib when |todayOpen − prevClose| ≥ gapMinPts
+   *  - prior session mark median (15:15–15:45 band)
+   * Sandwich = price strictly between firstBar median and firstRed median → NO TRADE.
+   */
+  buildAdvancedNiftyFibs({
+    bars5m,
+    asOfDay,
+    evalTs,
+    firstRed1h,
+    priorSessionBand = null,
+    gapMinPts = 40,
+    dayMode = 'ist',
+  } = {}) {
+    if (!asOfDay || !Array.isArray(bars5m) || !bars5m.length) return null;
+    const firstBar = this.firstBarOfSession(bars5m, asOfDay, {
+      dayMode,
+      asOfTs: evalTs,
+      barMs: 5 * 60 * 1000,
+    });
+    const firstBarFibs = this.firstRedFibs(firstBar);
+    const firstRedFibs = this.firstRedFibs(firstRed1h);
+
+    let gap = null;
+    const priorDay = this.shiftDay(asOfDay, -1);
+    const prevBar = this.lastBarOfDay(bars5m, priorDay, dayMode);
+    if (firstBar && prevBar && Number.isFinite(prevBar.c) && Number.isFinite(firstBar.open)) {
+      const prevClose = prevBar.c;
+      const todayOpen = firstBar.open;
+      const gapPts = Math.abs(todayOpen - prevClose);
+      if (gapPts >= gapMinPts) {
+        const high = Math.max(prevClose, todayOpen);
+        const low = Math.min(prevClose, todayOpen);
+        const fibs = this.firstRedFibs({ high, low });
+        if (fibs) {
+          gap = {
+            high,
+            low,
+            prevClose,
+            todayOpen,
+            gapPts,
+            direction: todayOpen > prevClose ? 'up' : 'down',
+            fibs,
+            t: firstBar.t,
+          };
+        }
+      }
+    }
+
+    const medians = [];
+    if (firstBarFibs?.median != null) {
+      medians.push({
+        id: 'first_bar',
+        label: 'First-bar median',
+        price: firstBarFibs.median,
+        high: firstBarFibs.high,
+        low: firstBarFibs.low,
+        fibs: firstBarFibs,
+        t: firstBar?.t ?? null,
+      });
+    }
+    if (firstRedFibs?.median != null) {
+      medians.push({
+        id: 'first_red',
+        label: 'Red-bar median',
+        price: firstRedFibs.median,
+        high: firstRedFibs.high,
+        low: firstRedFibs.low,
+        fibs: firstRedFibs,
+        t: firstRed1h?.t ?? null,
+      });
+    }
+    if (gap?.fibs?.median != null) {
+      medians.push({
+        id: 'gap',
+        label: 'Gap median',
+        price: gap.fibs.median,
+        high: gap.fibs.high,
+        low: gap.fibs.low,
+        fibs: gap.fibs,
+        t: gap.t,
+      });
+    }
+    const priorMed = priorSessionBand?.f50 ?? priorSessionBand?.mid ?? null;
+    if (priorMed != null && Number.isFinite(Number(priorMed))) {
+      medians.push({
+        id: 'prior_session',
+        label: 'Prior session median',
+        price: Number(priorMed),
+        high: priorSessionBand.high ?? priorSessionBand.f1 ?? null,
+        low: priorSessionBand.low ?? priorSessionBand.f0 ?? null,
+        fibs: null,
+        t: priorSessionBand.openT ?? priorSessionBand.t0 ?? null,
+      });
+    }
+    medians.sort((a, b) => a.price - b.price);
+
+    const redMed = firstRedFibs?.median ?? null;
+    const barMed = firstBarFibs?.median ?? null;
+    let sandwich = null;
+    let inSandwich = false;
+    if (redMed != null && barMed != null && redMed !== barMed) {
+      const lo = Math.min(redMed, barMed);
+      const hi = Math.max(redMed, barMed);
+      sandwich = { lo, hi, redMedian: redMed, firstBarMedian: barMed };
+    }
+
+    return {
+      enabled: true,
+      firstBar: firstBar && firstBarFibs ? { ...firstBar, fibs: firstBarFibs } : null,
+      firstRed: firstRed1h && firstRedFibs ? {
+        high: firstRed1h.high,
+        low: firstRed1h.low,
+        t: firstRed1h.t,
+        fibs: firstRedFibs,
+      } : null,
+      gap,
+      priorSession: priorMed != null ? {
+        median: Number(priorMed),
+        high: priorSessionBand?.high ?? null,
+        low: priorSessionBand?.low ?? null,
+        day: priorSessionBand?.day ?? null,
+      } : null,
+      medians,
+      sandwich,
+      inSandwich: false, // filled by caller with live price
+      gapMinPts,
+    };
+  },
+
+  /** True when price sits strictly between first-bar median and red-bar median. */
+  isAdvancedFibSandwich(advanced, price) {
+    if (!advanced?.sandwich || price == null || !Number.isFinite(Number(price))) return false;
+    const p = Number(price);
+    return p > advanced.sandwich.lo && p < advanced.sandwich.hi;
+  },
+
+  /**
+   * NIFTY median wick (Advanced Red Bar).
+   * The band between the 09:15 median and the first-red median is the trade.
+   * A 5m wick meets a median band (0.44–0.56) and closes back, or cuts it and flips color.
+   * Stop is that candle's wick. Target is the next median, even when it is closer than the stop.
+   * No median left: the caller holds to a close back through this band, or the session end.
+   */
+  detectFibBounceSetup({
+    bars5m,
+    advanced,
+    evalTs,
+  } = {}) {
+    if (!advanced?.enabled || !Array.isArray(bars5m) || !bars5m.length) {
+      return { triggered: false, blocked: false };
+    }
+    const medians = (Array.isArray(advanced.medians) ? advanced.medians : [])
+      .filter((m) => Number.isFinite(m.price))
+      .map((m) => {
+        const lo = m.fibs && Number.isFinite(m.fibs.f44) && Number.isFinite(m.fibs.f56)
+          ? Math.min(m.fibs.f44, m.fibs.f56)
+          : m.price;
+        const hi = m.fibs && Number.isFinite(m.fibs.f44) && Number.isFinite(m.fibs.f56)
+          ? Math.max(m.fibs.f44, m.fibs.f56)
+          : m.price;
+        return { ...m, lo, hi };
+      })
+      .sort((a, b) => a.price - b.price);
+    if (!medians.length) return { triggered: false, blocked: false };
+
+    const now = evalTs != null ? Number(evalTs) : Date.now();
+    const barMs = 5 * 60 * 1000;
+    const freshMs = 20 * 60 * 1000;
+    const tol = 8;
+    let best = null;
+
+    for (let i = bars5m.length - 1; i >= 0; i--) {
+      const b = bars5m[i];
+      if (b.t + barMs > now) continue;
+      if (now - (b.t + barMs) > freshMs) break;
+      const prev = i > 0 ? bars5m[i - 1] : null;
+      const prevRed = !!(prev && prev.c < prev.o);
+      const prevGreen = !!(prev && prev.c > prev.o);
+      const green = b.c > b.o;
+      const red = b.c < b.o;
+
+      for (const m of medians) {
+        const meets = b.l <= m.hi + tol && b.h >= m.lo - tol;
+        if (!meets) continue;
+        const reclaimLong = b.l <= m.hi + tol && b.c > m.hi;
+        const rejectShort = b.h >= m.lo - tol && b.c < m.lo;
+        const flipLong = prevRed && green && b.l <= m.lo + tol;
+        const flipShort = prevGreen && red && b.h >= m.hi - tol;
+        let side = null;
+        if (flipLong || reclaimLong) side = 'bullish';
+        else if (flipShort || rejectShort) side = 'bearish';
+        if (!side) continue;
+
+        const stop = side === 'bullish' ? b.l : b.h;
+        const entry = b.c;
+        if (side === 'bullish' && !(stop < entry)) continue;
+        if (side === 'bearish' && !(stop > entry)) continue;
+
+        let tp = null;
+        let tpLabel = null;
+        let tpId = null;
+        if (side === 'bullish') {
+          const above = medians.find((x) => x.id !== m.id && x.price > entry + tol);
+          if (above) { tp = above.price; tpLabel = above.label; tpId = above.id; }
+        } else {
+          const below = [...medians].reverse().find((x) => x.id !== m.id && x.price < entry - tol);
+          if (below) { tp = below.price; tpLabel = below.label; tpId = below.id; }
+        }
+
+        const cand = {
+          triggered: true,
+          blocked: false,
+          side,
+          setupKind: 'fib_bounce',
+          medianId: m.id,
+          medianLabel: m.label,
+          median: m.price,
+          entryLo: m.lo,
+          entryHi: m.hi,
+          triggerTs: b.t,
+          triggerPrice: entry,
+          stopHint: stop,
+          stopReason: 'signal wick',
+          tpHint: tp,
+          tpLabel,
+          tpId,
+          medianHold: tp == null,
+          bar: b,
+          dist: Math.abs(entry - m.price),
+        };
+        if (!best || cand.triggerTs > best.triggerTs
+          || (cand.triggerTs === best.triggerTs && cand.dist < best.dist)) {
+          best = cand;
+        }
+      }
+      if (best && best.triggerTs === b.t) break;
+    }
+
+    return best || { triggered: false, blocked: false };
+  },
+
+  /**
    * Trade 2 on 5m (HTF→LTF ladder: 1H structure → 5m entry).
    * Reel + Sagar:
    *  - Sweep 1H HIGH (liquidity) then 5m CLOSE BELOW high → SHORT (sells only)
@@ -3100,6 +3382,7 @@ const RedBarTrend = {
     afternoon1245 = null,
     btcAsia0530 = null,
     mcx530 = null,
+    fibBounce = null,
     instId = '',
   }) {
     if (trend !== 'bullish' && trend !== 'bearish') {
@@ -3117,6 +3400,41 @@ const RedBarTrend = {
         stopPct: null,
         targetPct: null,
         rr: null,
+      };
+    }
+
+    // NIFTY median wick: stop is the signal wick. Target is the next median, even if closer than the stop.
+    // No median left: no invented 1:1. The position is held to a close back through the entry band, or the session.
+    if (setupKind === 'fib_bounce' && fibBounce && fibBounce.triggered) {
+      const triggerP = fibBounce.triggerPrice ?? price;
+      const sp = fibBounce.stopHint;
+      const riskDist = Math.abs(triggerP - sp);
+      let tp1 = fibBounce.tpHint;
+      const hasMedianTarget = Number.isFinite(tp1)
+        && (trend === 'bullish' ? tp1 > triggerP : tp1 < triggerP);
+      if (!hasMedianTarget) tp1 = null;
+      const rr = hasMedianTarget && riskDist > 0 ? Math.abs(tp1 - triggerP) / riskDist : null;
+      return {
+        invalidation: sp,
+        invalidationReason: fibBounce.stopReason || 'signal wick',
+        stopStructural: Number.isFinite(sp),
+        tp1,
+        tp2: null,
+        tp3: null,
+        bookZone: tp1,
+        firstMagnet: hasMedianTarget ? { price: tp1, label: fibBounce.tpLabel || 'next median' } : null,
+        bookReason: hasMedianTarget
+          ? `Median wick @ ${fibBounce.medianLabel || 'median'} · stop the signal wick · target ${fibBounce.tpLabel || 'next median'}`
+          : `Median wick @ ${fibBounce.medianLabel || 'median'} · stop the signal wick · no median left, hold to the close`,
+        bookIsMagnet: hasMedianTarget,
+        stopPct: triggerP > 0 ? (riskDist / triggerP) * 100 : null,
+        targetPct: hasMedianTarget && triggerP > 0 ? (Math.abs(tp1 - triggerP) / triggerP) * 100 : null,
+        rr,
+        rrLadder: false,
+        medianHold: !hasMedianTarget,
+        medianFullExit: true,
+        prevSwingLow: trend === 'bullish' ? sp : null,
+        prevSwingHigh: trend === 'bearish' ? sp : null,
       };
     }
 
@@ -3850,6 +4168,34 @@ const RedBarTrend = {
       price, firstRed1h, evalTs, c.touchPct ?? 0.15, slice, bars5m,
     );
 
+    // Advanced NIFTY Red Bar: first-bar / red / gap medians. The band between them is the trade.
+    const instIdEarly = String(c.id || c.instrumentId || '').toUpperCase();
+    const advancedFibsEnabled = !!(c.advancedFibs && this.isIndianIndex(instIdEarly) && instIdEarly === 'NIFTY');
+    let advancedFibs = null;
+    let fibBounce = null;
+    if (advancedFibsEnabled && bars5m) {
+      const priorBand = prior.length ? prior[prior.length - 1] : null;
+      advancedFibs = this.buildAdvancedNiftyFibs({
+        bars5m,
+        asOfDay: istDay,
+        evalTs,
+        firstRed1h,
+        priorSessionBand: priorBand,
+        gapMinPts: Number(c.advancedFibGapPts) || 40,
+        dayMode,
+      });
+      if (advancedFibs) {
+        advancedFibs.inSandwich = this.isAdvancedFibSandwich(advancedFibs, price);
+        fibBounce = this.detectFibBounceSetup({
+          bars5m,
+          advanced: advancedFibs,
+          evalTs,
+          price,
+          touchPct: c.touchPct ?? 0.15,
+        });
+      }
+    }
+
     const sessions = Array.isArray(c.sessions) ? c.sessions : [];
     const asiaSess = sessions.find((s) => ['asia', 'mcx_day'].includes((s.id || '').toLowerCase()))
       || sessions.find((s) => /asia|mcx\s*day/i.test(s.label || ''));
@@ -3955,6 +4301,10 @@ const RedBarTrend = {
     if (phase === 'first_candle') {
       trend = 'neutral';
       setupKind = 'wait';
+    } else if (fibBounce && fibBounce.triggered && fibBounce.side) {
+      // NIFTY: a fresh wick on a median is the trade, including between the two morning medians.
+      trend = fibBounce.side;
+      setupKind = 'fib_bounce';
     } else if (inMcx530Window && mcx530 && mcx530.triggered && mcx530.side) {
       trend = mcx530.side;
       setupKind = mcx530.setupKind;
@@ -4068,6 +4418,7 @@ const RedBarTrend = {
     };
 
     const isTrade2 = setupKind === 'trade2_confirmed' || setupKind === 'trade2_watch';
+    const isFibBounce = setupKind === 'fib_bounce';
     // Dev DNA: structural stop on 15m swing / shelf. Confirm still uses 5m close.
     const is1245 = setupKind === 'afternoon_1245_reversal'
       || setupKind === 'afternoon_1245_breakout'
@@ -4081,6 +4432,7 @@ const RedBarTrend = {
       || setupKind === 'session_sweep'
       || setupKind === 'pob_reject'
       || setupKind === 'setup3_rubber_band'
+      || isFibBounce
       || is1245
       || isBtc0530
       || isMcx530;
@@ -4098,7 +4450,9 @@ const RedBarTrend = {
               ? mcx530.triggerTs
               : (setupKind === 'afternoon_1245_reversal' || setupKind === 'afternoon_1245_breakout' || setupKind === 'afternoon_1245_retest')
                 ? afternoon1245?.triggerTs
-                : (redSetup.triggerTs || null);
+                : (isFibBounce && fibBounce?.triggerTs != null)
+                  ? fibBounce.triggerTs
+                  : (redSetup.triggerTs || null);
     const t2Stale = setupKind === 'trade2_confirmed' && redSetup.trade1Fresh && redSetup.trade2TriggerTs != null
       && redSetup.triggerTs != null && (evalTs - Number(redSetup.triggerTs)) > 20 * 60000;
     const setupTriggerTs = t2Stale ? redSetup.trade2TriggerTs : setupTriggerTs0;
@@ -4112,8 +4466,10 @@ const RedBarTrend = {
             ? btcAsia0530.triggerPrice
             : (isMcx530 && mcx530?.triggerPrice != null)
               ? mcx530.triggerPrice
-              : (t2Stale && redSetup.trade2TriggerPrice != null ? redSetup.trade2TriggerPrice
-                : (redSetup.triggerPrice != null ? redSetup.triggerPrice : price));
+              : (isFibBounce && fibBounce?.triggerPrice != null)
+                ? fibBounce.triggerPrice
+                : (t2Stale && redSetup.trade2TriggerPrice != null ? redSetup.trade2TriggerPrice
+                  : (redSetup.triggerPrice != null ? redSetup.triggerPrice : price));
     // Levels from live price: auto fills at market, so stop/1:1 must be measured from where we actually get in.
     // Chase is still blocked by entryGate (≤0.5R past the trigger candle).
     const levels = this._resolveStopAndBook({
@@ -4134,9 +4490,9 @@ const RedBarTrend = {
       red,
       sweep,
       cpr,
-      minRR: isTrade2 || setupKind === 'pob_reject' || is1245 || isBtc0530 || isMcx530 ? 1.0 : 1.5,
+      minRR: isTrade2 || isFibBounce || setupKind === 'pob_reject' || is1245 || isBtc0530 || isMcx530 ? 1.0 : 1.5,
       preferSwingStop,
-      rrLadder: isTrade2 || is1245 || isBtc0530 || isMcx530,
+      rrLadder: isTrade2 || isFibBounce || is1245 || isBtc0530 || isMcx530,
       bars5m,
       sweepExtreme: redSetup.sweepExtreme ?? null,
       setupKind,
@@ -4145,6 +4501,7 @@ const RedBarTrend = {
       afternoon1245,
       btcAsia0530,
       mcx530,
+      fibBounce,
       instId,
     });
 
@@ -4189,6 +4546,7 @@ const RedBarTrend = {
       btcConfluence,
       btcAsia0530,
       mcx530,
+      medianHold: !!levels.medianHold,
     });
 
     const sizingEntry = (setupKind === 'pob_reject' && setupTriggerPrice != null) ? setupTriggerPrice : price;
@@ -4267,6 +4625,8 @@ const RedBarTrend = {
       lastRedBar: red,
       firstRed1h,
       firstRedFibs,
+      advancedFibs: advancedFibs || null,
+      fibBounce: fibBounce || null,
       xCandle5m: xCandle5m || null,
       pob: pobReject?.fibs?.pob || firstRedFibs?.pob || null,
       pobStatus: pobReject?.status || redSetup?.pobStatus || null,
@@ -4361,6 +4721,7 @@ const RedBarTrend = {
   ACTIONABLE_SETUPS: [
     'trade1_departure',
     'trade2_confirmed',
+    'fib_bounce',
     'session_sweep',
     'pob_reject',
     'afternoon_1245_reversal',
@@ -4413,6 +4774,7 @@ const RedBarTrend = {
     asOfTs, instrumentId, season, setupTriggerTs, entryPrice, stopPrice, livePrice,
     revisitRead, tpHint, equinox = null, phase = null, openingRange = null,
     btcConfluence = null, btcAsia0530 = null, mcx530 = null,
+    medianHold = false,
   }) {
     if (trend !== 'bullish' && trend !== 'bearish') {
       return { state: 'wait', reason: 'No directional setup.' };
@@ -4448,6 +4810,7 @@ const RedBarTrend = {
         magnet_bounce_watch: 'Fib bounce is chart context — not an ENTER.',
         pivot_reversal: 'Price crossed the 1H red against Fib bias — conflicting, wait.',
         trade2_watch: 'H1→M5 Trade 2: wait for 1H high/low liquidity sweep, then 5m close back through that level (median confluence).',
+        fib_sandwich_wait: 'Price is between the 09:15 median and the red-bar median. That band is the trade when a wick meets one of the lines.',
         pob_reject_watch: 'Mid-zone (5m): open candle marked — wait retest of 44–56 then SHORT reject. NSE 09:15 or BTC Asia 05:30.',
         setup3_primed: 'Setup 3 Primed (overlay): ≥4× 30m candles detached from 5 EMA. Watch LTF Barricade — not ENTER until walk-forward PASS.',
         setup3_rubber_band: 'Setup 3 Barricade broken (overlay): rubber-band snapback visible — chart guide only.',
@@ -4459,8 +4822,11 @@ const RedBarTrend = {
 
     // Renko brick ruler = chart noise context only (not Red Bar DNA). Do not block ENTER on it.
     // (Was a desk mash-in; Dev Red Bar uses structure stops, not Renko overextension gates.)
-    if (!(rr >= 1.0)) {
+    if (setupKind !== 'fib_bounce' && !(rr >= 1.0)) {
       return { state: 'watch', reason: `Setup present but R:R ${rr != null ? rr.toFixed(2) : '—'} < 1.0.` };
+    }
+    if (setupKind === 'fib_bounce' && !medianHold && !(Number.isFinite(rr) && rr > 0)) {
+      return { state: 'watch', reason: 'Median wick has no next median and no hold flag.' };
     }
     if (!stopStructural) {
       return { state: 'watch', reason: `Setup present but no real swing fits the stop window (${invalidationReason}).` };
@@ -4500,9 +4866,16 @@ const RedBarTrend = {
           reason: `MCX 5:30 Formula needs structural SL (got: ${invalidationReason || '—'}).`,
         };
       }
+    } else if (setupKind === 'fib_bounce') {
+      if (!/fib median|reject wick|First-bar|Red-bar|Gap|Prior session|5m/i.test(stopTag) && !stopStructural) {
+        return {
+          state: 'watch',
+          reason: `Fib bounce needs index 5m structural SL (got: ${invalidationReason || '—'}).`,
+        };
+      }
     } else {
       // Keep "5m swing" accepted — NIFTY morning T1/T2 still tags stops that way (do not break NIFTY).
-      const realStructureStop = (/15m swing|5m swing|shelf|1H red|session sweep|extreme drop wick|extreme rally wick|12:45 reversal|12:45 breakout/i.test(stopTag))
+      const realStructureStop = (/15m swing|5m swing|shelf|1H red|session sweep|extreme drop wick|extreme rally wick|12:45 reversal|12:45 breakout|fib median|reject wick/i.test(stopTag))
         && !/too close|floor|default|0\.28%|0\.5%/i.test(stopTag);
       if (!realStructureStop) {
         return {
@@ -4607,10 +4980,11 @@ const RedBarTrend = {
         reason: `Setup present but stop is ${stopPct.toFixed(2)}% (>1%) — stand aside until a tighter structure fits.`,
       };
     }
-    // Trade 2 confirm window is ~20m; T1/sweep stay wider on BTC; POB = scalp 20m
+    // Trade 2 / fib bounce confirm window is ~20m; T1/sweep stay wider on BTC; POB = scalp 20m
     const isTrade2Gate = setupKind === 'trade2_confirmed';
+    const isFibBounceGate = setupKind === 'fib_bounce';
     const isMcx530 = setupKind === 'mcx_530_breakout' || setupKind === 'mcx_530_retest' || setupKind === 'mcx_530_reversal';
-    const freshMins = isPob || isTrade2Gate || isMcx530 ? 20 : ((isNifty || isMcx) ? 20 : 90);
+    const freshMins = isPob || isTrade2Gate || isFibBounceGate || isMcx530 ? 20 : ((isNifty || isMcx) ? 20 : 90);
     const ENTER_FRESH_MS = freshMins * 60 * 1000;
     // Dr Dev: prefer event candle — do not chase mid-air (POB fill@0.44 is not a chase).
     const maxFavR = isPob ? 99 : 0.5;
@@ -4655,8 +5029,8 @@ const RedBarTrend = {
       }
     }
 
-    // Dr Dev Trikal: lunch decay 11:30–12:30 IST — no fresh Indian Index (NIFTY, BANKNIFTY, SENSEX) entries. Wait for 12:45 London box.
-    if (isNifty) {
+    // Lunch decay blocks Trade 1 / Trikal. A median turn (4 Nov 12:15) is allowed.
+    if (isNifty && !isFibBounceGate) {
       const lz = this.zonedHms(asOf, 'Asia/Kolkata');
       const lm = lz.hour * 60 + lz.minute;
       if (lm >= 11 * 60 + 30 && lm < 12 * 60 + 30) {
@@ -4675,6 +5049,10 @@ const RedBarTrend = {
 
     const trailBit = isPob
       ? 'Mid-zone SHORT · fill near mid · stop mid top · bank at anchor / 2R · no overnight'
+      : setupKind === 'fib_bounce'
+        ? (medianHold
+          ? 'Median wick · stop is the signal wick · no median left, hold until price closes back through it or the session ends'
+          : 'Median wick · stop is the signal wick · target is the next median · full exit there, no 1:1 bank')
       : setupKind === 'trade2_confirmed'
         ? 'H1→M5 confirm · SL shelf / 15m · 50% @ 1:1 → BE → trail after 1:2 → TP 1:3'
         : setupKind === 'btc_asia_0530_breakout'

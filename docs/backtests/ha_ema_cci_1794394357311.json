@@ -1,0 +1,140 @@
+{
+  "generatedAt": "2026-11-11T10:52:37.312Z",
+  "soft2": false,
+  "results": [
+    {
+      "symbol": "NIFTY",
+      "source": ".cache_desk/NIFTY_15m.json (Dhan)",
+      "from": "2025-11-11T03:45:00.000Z",
+      "to": "2026-11-11T10:45:00.000Z",
+      "bars": 6252,
+      "trades": 166,
+      "wins": 66,
+      "losses": 100,
+      "winRate": 39.8,
+      "sumR": 26.39,
+      "avgR": 0.16,
+      "sumPts": 1356.84,
+      "byReason": {
+        "session_end": 10,
+        "sl": 97,
+        "tp": 59
+      },
+      "soft2": false,
+      "sample": [
+        {
+          "side": "LONG",
+          "mode": "strict",
+          "entry": 26202.57,
+          "exit": 26203.5,
+          "R": 0.02,
+          "reason": "session_end",
+          "day": "2025-11-26"
+        },
+        {
+          "side": "LONG",
+          "mode": "strict",
+          "entry": 26254.83,
+          "exit": 26211.83,
+          "R": -1,
+          "reason": "sl",
+          "day": "2025-11-28"
+        },
+        {
+          "side": "LONG",
+          "mode": "strict",
+          "entry": 26301.5,
+          "exit": 26269.53,
+          "R": -1,
+          "reason": "sl",
+          "day": "2025-12-01"
+        },
+        {
+          "side": "SHORT",
+          "mode": "strict",
+          "entry": 25997.19,
+          "exit": 25922.3,
+          "R": 2,
+          "reason": "tp",
+          "day": "2025-12-03"
+        },
+        {
+          "side": "SHORT",
+          "mode": "strict",
+          "entry": 25975.89,
+          "exit": 26012.42,
+          "R": -1,
+          "reason": "sl",
+          "day": "2025-12-04"
+        }
+      ]
+    },
+    {
+      "symbol": "CRUDEOIL",
+      "source": ".cache_desk/CRUDEOIL_15m.json (Dhan)",
+      "from": "2026-07-20T06:15:00.000Z",
+      "to": "2026-11-11T10:45:00.000Z",
+      "bars": 4574,
+      "trades": 120,
+      "wins": 53,
+      "losses": 67,
+      "winRate": 44.2,
+      "sumR": 35.4,
+      "avgR": 0.3,
+      "sumPts": 1125.5,
+      "byReason": {
+        "sl": 66,
+        "tp": 50,
+        "session_end": 4
+      },
+      "soft2": false,
+      "sample": [
+        {
+          "side": "SHORT",
+          "mode": "strict",
+          "entry": 7775.5,
+          "exit": 7784.54,
+          "R": -1,
+          "reason": "sl",
+          "day": "2026-07-24"
+        },
+        {
+          "side": "SHORT",
+          "mode": "strict",
+          "entry": 7639,
+          "exit": 7664.88,
+          "R": -1,
+          "reason": "sl",
+          "day": "2026-07-27"
+        },
+        {
+          "side": "SHORT",
+          "mode": "strict",
+          "entry": 7550,
+          "exit": 7574.21,
+          "R": -1,
+          "reason": "sl",
+          "day": "2026-07-27"
+        },
+        {
+          "side": "SHORT",
+          "mode": "strict",
+          "entry": 7505,
+          "exit": 7495,
+          "R": 2,
+          "reason": "tp",
+          "day": "2026-07-27"
+        },
+        {
+          "side": "SHORT",
+          "mode": "strict",
+          "entry": 7430.5,
+          "exit": 7449.52,
+          "R": -1,
+          "reason": "sl",
+          "day": "2026-07-28"
+        }
+      ]
+    }
+  ]
+}

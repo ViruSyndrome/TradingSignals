@@ -1,0 +1,233 @@
+{
+  "generatedAt": "2026-11-11T11:40:41.820Z",
+  "exitMode": "cci",
+  "soft2": false,
+  "results": [
+    {
+      "symbol": "NIFTY",
+      "source": ".cache_desk/NIFTY_5m.json (Dhan)",
+      "tf": "5m",
+      "cci": "CCI(20) source=hlc3",
+      "candles": "Regular 5m/15m Dhan candles (matches the chart CCI)",
+      "exitMode": "cci",
+      "entry": "EMA stack already true, then first CCI cross of that stack only",
+      "skippedCciNoStack": 904,
+      "skippedRepeatCrossSameStack": 317,
+      "soft2": false,
+      "meaning": {
+        "sumR": "Total reward in multiples of entry risk (ATR). +26R ≈ twenty-six wins of size=risk if every loss were -1R.",
+        "sumPts": "Sum of index/commodity points (HA close). Not rupees.",
+        "approxInr1Lot": "Illustrative ₹ if 1 lot futures @ ₹65/pt — fees/slippage NOT included",
+        "capturePct": "How much of the peak move (MFE) we kept at CCI exit. 100% = exited at absolute peak.",
+        "givebackPts": "Points left on the table (MFE − realized when realized>0)"
+      },
+      "from": "2025-11-11T03:45:00.000Z",
+      "to": "2026-11-11T10:50:00.000Z",
+      "bars": 18665,
+      "trades": 377,
+      "wins": 132,
+      "winRate": 35,
+      "sumR": 0.52,
+      "avgR": 0,
+      "sumPts": 213.95,
+      "approxInr1Lot": 13907,
+      "sumMfePts": 10612.45,
+      "sumGivebackPts": 6300.5,
+      "avgCapturePct": 16.1,
+      "peakLeftOnTablePct": 59.4,
+      "byReason": {
+        "cci_fade": 377
+      },
+      "heldLe4": {
+        "n": 225,
+        "wins": 23,
+        "sumPts": -2955.4
+      },
+      "heldGe8": {
+        "n": 69,
+        "wins": 65,
+        "sumPts": 3653.2
+      },
+      "sample": [
+        {
+          "side": "LONG",
+          "mode": "stackThenCci",
+          "entry": 25993.65,
+          "exit": 25986,
+          "pnl": -7.65,
+          "R": -0.51,
+          "mfe": 17.05,
+          "capturePct": 0,
+          "reason": "cci_fade",
+          "day": "2025-11-13",
+          "barsHeld": 2
+        },
+        {
+          "side": "LONG",
+          "mode": "stackThenCci",
+          "entry": 25965.3,
+          "exit": 25987.1,
+          "pnl": 21.8,
+          "R": 1.41,
+          "mfe": 31.6,
+          "capturePct": 69,
+          "reason": "cci_fade",
+          "day": "2025-11-17",
+          "barsHeld": 13
+        },
+        {
+          "side": "LONG",
+          "mode": "stackThenCci",
+          "entry": 25995.45,
+          "exit": 25983,
+          "pnl": -12.45,
+          "R": -0.83,
+          "mfe": 27.8,
+          "capturePct": 0,
+          "reason": "cci_fade",
+          "day": "2025-11-17",
+          "barsHeld": 6
+        },
+        {
+          "side": "LONG",
+          "mode": "stackThenCci",
+          "entry": 26012.7,
+          "exit": 26014.3,
+          "pnl": 1.6,
+          "R": 0.107,
+          "mfe": 11.5,
+          "capturePct": 13.9,
+          "reason": "cci_fade",
+          "day": "2025-11-17",
+          "barsHeld": 4
+        },
+        {
+          "side": "LONG",
+          "mode": "stackThenCci",
+          "entry": 25974.65,
+          "exit": 25974.35,
+          "pnl": -0.3,
+          "R": -0.02,
+          "mfe": 13.15,
+          "capturePct": 0,
+          "reason": "cci_fade",
+          "day": "2025-11-18",
+          "barsHeld": 3
+        }
+      ]
+    },
+    {
+      "symbol": "CRUDEOIL",
+      "source": ".cache_desk/CRUDEOIL_5m.json (Dhan)",
+      "tf": "5m",
+      "cci": "CCI(20) source=hlc3",
+      "candles": "Regular 5m/15m Dhan candles (matches the chart CCI)",
+      "exitMode": "cci",
+      "entry": "EMA stack already true, then first CCI cross of that stack only",
+      "skippedCciNoStack": 618,
+      "skippedRepeatCrossSameStack": 170,
+      "soft2": false,
+      "meaning": {
+        "sumR": "Total reward in multiples of entry risk (ATR). +26R ≈ twenty-six wins of size=risk if every loss were -1R.",
+        "sumPts": "Sum of index/commodity points (HA close). Not rupees.",
+        "approxInr1Lot": "Illustrative ₹ if 1 lot futures @ ₹100/pt — fees/slippage NOT included",
+        "capturePct": "How much of the peak move (MFE) we kept at CCI exit. 100% = exited at absolute peak.",
+        "givebackPts": "Points left on the table (MFE − realized when realized>0)"
+      },
+      "from": "2026-07-20T06:28:00.000Z",
+      "to": "2026-11-11T10:50:00.000Z",
+      "bars": 13673,
+      "trades": 248,
+      "wins": 74,
+      "winRate": 29.8,
+      "sumR": -54.95,
+      "avgR": -0.22,
+      "sumPts": -658,
+      "approxInr1Lot": -65800,
+      "sumMfePts": 5230,
+      "sumGivebackPts": 3071,
+      "avgCapturePct": 23.8,
+      "peakLeftOnTablePct": 58.7,
+      "byReason": {
+        "cci_fade": 248
+      },
+      "heldLe4": {
+        "n": 144,
+        "wins": 13,
+        "sumPts": -2082
+      },
+      "heldGe8": {
+        "n": 34,
+        "wins": 31,
+        "sumPts": 1485
+      },
+      "sample": [
+        {
+          "side": "SHORT",
+          "mode": "stackThenCci",
+          "entry": 7760,
+          "exit": 7791,
+          "pnl": -31,
+          "R": -6.2,
+          "mfe": 0,
+          "capturePct": 0,
+          "reason": "cci_fade",
+          "day": "2026-07-22",
+          "barsHeld": 5
+        },
+        {
+          "side": "SHORT",
+          "mode": "stackThenCci",
+          "entry": 7744,
+          "exit": 7744,
+          "pnl": 0,
+          "R": 0,
+          "mfe": 0,
+          "capturePct": 0,
+          "reason": "cci_fade",
+          "day": "2026-07-22",
+          "barsHeld": 5
+        },
+        {
+          "side": "LONG",
+          "mode": "stackThenCci",
+          "entry": 7876,
+          "exit": 7876,
+          "pnl": 0,
+          "R": 0,
+          "mfe": 0,
+          "capturePct": 0,
+          "reason": "cci_fade",
+          "day": "2026-07-23",
+          "barsHeld": 7
+        },
+        {
+          "side": "SHORT",
+          "mode": "stackThenCci",
+          "entry": 7750,
+          "exit": 7750,
+          "pnl": 0,
+          "R": 0,
+          "mfe": 0,
+          "capturePct": 0,
+          "reason": "cci_fade",
+          "day": "2026-07-24",
+          "barsHeld": 7
+        },
+        {
+          "side": "SHORT",
+          "mode": "stackThenCci",
+          "entry": 7550,
+          "exit": 7550,
+          "pnl": 0,
+          "R": 0,
+          "mfe": 0,
+          "capturePct": 0,
+          "reason": "cci_fade",
+          "day": "2026-07-27",
+          "barsHeld": 7
+        }
+      ]
+    }
+  ]
+}

@@ -23,6 +23,14 @@ const TrendRunnerCopy = {
       name: 'Waiting for retest',
       tip: 'Bias is set. Wait for a pullback to the shelf and a confirmed 5-minute close — do not enter on a wick alone.',
     },
+    fib_bounce: {
+      name: 'Median wick',
+      tip: 'A 5-minute wick met a median and closed back, or cut it and flipped color. Stop is that wick. Target is the next median. The whole trade exits there.',
+    },
+    fib_sandwich_wait: {
+      name: 'Between the medians',
+      tip: 'Price is between the 09:15 median and the red-bar median. That space is the trade when a wick meets one of the lines.',
+    },
     session_sweep: {
       name: 'Liquidity sweep',
       tip: 'Session highs/lows were hunted, then price closed back through. Follow the confirmed direction.',
