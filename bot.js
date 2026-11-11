@@ -586,7 +586,8 @@ async function _scanOneRedBarInstrument(rawInst, rbCfg) {
     const closes = barsWork.map((b) => b.c);
     const ema10 = calcEma(closes, 10);
     const ema30 = calcEma(closes, 30);
-    _instTrendState.set(String(inst.id).toUpperCase(), { ema10, ema30, updatedAt: Date.now() });
+    const latestClose = closes[closes.length - 1];
+    _instTrendState.set(String(inst.id).toUpperCase(), { price: latestClose, ema10, ema30, updatedAt: Date.now() });
   }
   const lastT = barsWork[barsWork.length - 1].t;
   const nowTs = Date.now();
@@ -613,6 +614,9 @@ async function _scanOneRedBarInstrument(rawInst, rbCfg) {
     bars5m: bars5m && bars5m.length ? bars5m : null,
   });
   if (!readout) return;
+  const livePrice = Number(readout.price) || barsWork[barsWork.length - 1].c;
+  const curTrend = _instTrendState.get(String(inst.id).toUpperCase()) || {};
+  _instTrendState.set(String(inst.id).toUpperCase(), { ...curTrend, price: livePrice, updatedAt: Date.now() });
   const side = readout.trend === 'bullish' ? 'LONG' : readout.trend === 'bearish' ? 'SHORT' : 'WAIT';
   const setupKind = readout.setupKind || 'wait';
   const actionState = readout.actionState || 'wait';
@@ -1286,8 +1290,14 @@ async function pollManagedDhanStops() {
           if (curIndexPx > 0) {
             const isLong = String(t.side).toUpperCase() === 'LONG';
             const tpTarget = Number(t.indexTp1);
-            if (isLong && curIndexPx >= tpTarget) hitOneR = true;
-            if (!isLong && curIndexPx <= tpTarget) hitOneR = true;
+            if (isLong && curIndexPx >= tpTarget) {
+              hitOneR = true;
+              console.log(`[RedBarBot] 🎯 ${tInst} 1:1 reached on underlying: price=${curIndexPx} >= tpTarget=${tpTarget}`);
+            }
+            if (!isLong && curIndexPx <= tpTarget) {
+              hitOneR = true;
+              console.log(`[RedBarBot] 🎯 ${tInst} 1:1 reached on underlying: price=${curIndexPx} <= tpTarget=${tpTarget}`);
+            }
           }
         }
 
