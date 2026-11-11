@@ -1611,10 +1611,20 @@ const RedBarTrend = {
         let tpId = null;
         if (side === 'bullish') {
           const above = medians.find((x) => x.id !== m.id && x.price > entry + tol);
-          if (above) { tp = above.price; tpLabel = above.label; tpId = above.id; }
+          if (above) {
+            // Target entrance line (0.44 lower boundary of target band) to avoid being front-run
+            tp = Number.isFinite(above.lo) ? +(above.lo).toFixed(2) : above.price;
+            tpLabel = above.label;
+            tpId = above.id;
+          }
         } else {
           const below = [...medians].reverse().find((x) => x.id !== m.id && x.price < entry - tol);
-          if (below) { tp = below.price; tpLabel = below.label; tpId = below.id; }
+          if (below) {
+            // Target entrance line (0.56 upper boundary of target band) to avoid being front-run
+            tp = Number.isFinite(below.hi) ? +(below.hi).toFixed(2) : below.price;
+            tpLabel = below.label;
+            tpId = below.id;
+          }
         }
 
         const cand = {

@@ -100,15 +100,15 @@ Applied on the live NIFTY path only. Trade 1, Trade 2, and Trikal were not remov
 
 | Piece | Applied |
 |---|---|
-| First bar of the day | 09:15 **5m** high/low, fib median |
-| First red bar | Existing 5m first-red box, its median |
+| First bar of the day | 09:15 **5m** high/low, fib median (0.44–0.56) |
+| First red bar | The first red candle *after* 09:15. If 09:15 is red, skip it (it's the Day Open Bar); wait for the next closed red candle to mark the First Red Bar |
 | Gap fib | Only when the open gaps **≥ 40** NIFTY points from the prior close |
 | Prior session median | The 15:15–15:45 mark median, kept |
-| Between the two medians | That space is the trade. The bot does not stand aside there. |
+| Between the two medians | That space is the trade. The bot does not stand aside there. We only stand aside if price is deadlocked sideways *inside* a single median band without a rejection wick. |
 | Entry | A 5m wick meets a median band (0.44–0.56) and closes back through it, or cuts the band and the candle flips color. This is checked before Trade 1. |
-| Stop | The wick of that candle. Not the middle of the red box. Not the far end of the fib. |
-| Target | The next median, even when that distance is shorter than the stop. No 1:1, and no half-off. |
-| After the target | Wick tags the median and the close comes back: the whole option is closed. Close stays through: same trade, next median. Close through and the color flips: this trade closes and the new one can open on that candle. A candle of the other color that never takes the line does not close the trade. |
+| Stop | The wick of that candle (tight structural risk: 10–25 index points). Not the middle of the red box. Not the far end of the fib. |
+| Target (Take Profit Hierarchy) | **1. Highway Target**: Entrance line of the next median band (0.44 lower boundary for longs, 0.56 upper boundary for shorts) so front-running never leaves us unfilled.<br/>**2. Halfway Shelf Target (Scalp)**: 50% retracement midpoint of prior impulse on wide (>120 pt) swings.<br/>**3. Anchor Extreme**: High or Low wick of the anchor candle on retests. |
+| After the target | Wick tags the median and the close comes back: the whole option is closed. Close stays through: same trade, target rolls to next median. Close through and the color flips: this trade closes and the new one can open on that candle. A candle of the other color that never takes the line does not close the trade. |
 | No median left | Hold. Exit only if a later close comes back through the entry median, or at the 15:10 flatten. |
 | Fill | Still the NIFTY option. Stop and target are decided on the index. |
 

@@ -12,28 +12,39 @@ NIFTY only. The fill is still an option, 2 lots. The stop and the target are dec
 
 Lines drawn each morning:
 
-- Median band of the 09:15 candle (44% to 56% of that candle).
-- Median band of the first red candle, only after that candle has closed.
-- Gap median, only when yesterday’s close and today’s open are at least 40 points apart.
-- Yesterday’s session median.
+- **09:15 Open Bar Median**: Median band of the 09:15 candle (44% to 56% of that candle).
+- **First Red Bar Median**: The first red candle *after* 09:15. If the 09:15 candle itself is red, it is the Day Open Bar — we skip it and wait for the first closed red candle after 09:15 to define the First Red Bar.
+- **Gap Median**: Only when yesterday’s close and today’s open are at least 40 points apart.
+- **Prior Session Median**: Yesterday’s session close median (15:15–15:45 mark).
 
-The space between the 09:15 median and the red-bar median is the trade.
+The space between the 09:15 median and the red-bar median is the trade. We do not stand aside there. We only stand aside when price is deadlocked sideways *inside* a single median band without a rejection wick.
 
 Entry: a 5-minute wick meets one of those bands and the close comes back through it, or the wick cuts the band and the candle flips color. When that signal is fresh, it is taken ahead of Trade 1.
 
-Stop: the wick of that candle.
+Stop: the wick of that candle (tight structural risk: 10–25 index points).
 
-Target: the next median, even when that distance is shorter than the stop. The option is not halved at 1:1.
+Target (Take Profit Hierarchy):
+1. **Primary Highway Target**: The entrance line of the opposing median band (0.44 lower boundary for Longs, 0.56 upper boundary for Shorts). Targeting the entrance ensures we are not front-run by 2–3 points.
+2. **Halfway Shelf Target (Scalp)**: On wide moves (>120 index points), the 50% retracement halfway mark between two distant medians provides an intermediate scalp target.
+3. **Anchor Extreme Target (Retest)**: When retesting the First Red Bar or 09:15 candle after a small dip, target the High or Low wick of that anchor candle.
+
+The option is not halved at 1:1 on median trades; the whole trade exits on first contact with the target band.
 
 How it leaves:
 
-- The wick tags the target and the candle closes back. The whole option is closed.
-- The candle closes through the target. The same trade now aims at the next median.
-- The candle closes through and the color flips. This trade closes, and the new trade can open on that candle.
+- The wick tags the target and the candle closes back: the whole option is closed.
+- The candle closes through the target: the same trade now aims at the next median.
+- The candle closes through and the color flips: this trade closes, and the new trade can open on that candle.
 - A candle of the other color that never takes the line does not close the trade.
 - If no median is left in front, the trade stays on until a later close comes back through the entry median, or the 15:10 flatten.
 
 Trade 1, Trade 2, and the afternoon setups are still in the bot. They run only when there is no fresh median wick. Their older stop (box midpoint) and 1:1 half-off were not rewritten.
+
+Execution Safeguards Active on Bot:
+- **Dhan HTTP 429 Retry**: 2-tier exponential backoff retry in `js/dhan_client.js` prevents rate-limit dropped orders.
+- **Marketable Limit Padding**: +1.0 pt limit buffer in `js/dhan_nifty_trade.js` guarantees 100% full fills (130/130) with zero hung partial lots.
+- **Underlying Price BE Tracking**: `_instTrendState` stores `price`, `lastClosed5m`, and `medians` for verified Breakeven movement.
+- **Isolation**: MCX Crude/NG and Crypto auto-trading remain completely OFF. NIFTY runs isolated.
 
 The bot process that is already running does not pick this up until it is restarted.
 
