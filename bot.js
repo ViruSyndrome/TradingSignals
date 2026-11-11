@@ -1036,7 +1036,8 @@ async function _maybeAutoDhanNifty({ inst, side, readout, alertKey, dayKey, setu
   }
 
   // Cooldown check:
-  // - If last trade won (1:1 banked / target) and a NEW setup (e.g. Trade 2 after Trade 1) triggers, only require 5m breathing room so we don't miss the 2nd/3rd morning setup.
+  // - If last trade won (1:1 banked / target) and a NEW setup triggers, require only 5m breathing room.
+  // - For median bounces (fib_bounce): opposite bounce (e.g. Short after Long) requires only 3m breathing room after prior closes.
   // - Otherwise enforce full cooldownMs unless waived once today by Rule 6.
   const lastClosed = [...todayManagedDhan]
     .filter((t) => t.status && t.status !== 'open')
@@ -1044,9 +1045,12 @@ async function _maybeAutoDhanNifty({ inst, side, readout, alertKey, dayKey, setu
   const lastWonAndNewSetup = Boolean(
     lastClosed
     && (lastClosed.legABooked || lastClosed.status === 'closed_target' || lastClosed.status === 'closed_be')
-    && lastClosed.setupKind !== setupKind,
+    && (lastClosed.setupKind !== setupKind || (setupKind === 'fib_bounce' && lastClosed.side !== side)),
   );
-  const effectiveCooldownMs = lastWonAndNewSetup ? (5 * 60 * 1000) : cooldownMs;
+  const isMedianOpposite = setupKind === 'fib_bounce' && lastClosed && lastClosed.side !== side;
+  const effectiveCooldownMs = isMedianOpposite
+    ? (3 * 60 * 1000)
+    : (lastWonAndNewSetup ? (5 * 60 * 1000) : cooldownMs);
 
   if (lastTs && Date.now() - lastTs < effectiveCooldownMs && !medianFlipReentry) {
     if (rule6SlRow) {
@@ -1354,6 +1358,37 @@ async function pollManagedDhanStops() {
             continue;
           }
         }
+
+        // Move SL to Breakeven once 1:1 risk distance is achieved on the underlying index
+        if (!t.beMoved && Number(t.indexEntry) > 0 && Number(t.indexStop) > 0 && t.orderId) {
+          const risk = Math.abs(Number(t.indexEntry) - Number(t.indexStop));
+          const curPx = Number(st.price || _instTrendState.get(tInst)?.price);
+          if (curPx > 0 && risk > 0) {
+            const hit1R = long
+              ? (curPx >= Number(t.indexEntry) + risk)
+              : (curPx <= Number(t.indexEntry) - risk);
+            if (hit1R) {
+              console.log(`[RedBarBot] 🎯 [BE] ${tInst} 1:1 reached on underlying median trade: price=${curPx} vs entry=${t.indexEntry} (risk=${risk.toFixed(1)}pts). Moving SL to cost!`);
+              try {
+                const moved = await trader.moveStopToBreakeven(t.orderId, t.entryPremium, 0.5);
+                if (moved && !moved.error) {
+                  t.beMoved = true;
+                  t.beMovedAt = Date.now();
+                  if (bot && chatId) {
+                    await bot.sendMessage(
+                      chatId,
+                      `🎯 <b>1:1 reached on underlying</b> (${curPx.toFixed(1)})\n${t.symbolHint || t.orderId}: SL moved to Breakeven (${(Number(t.entryPremium) + 0.5).toFixed(1)}). Letting full trade run to target median!`,
+                      { parse_mode: 'HTML', disable_web_page_preview: true },
+                    ).catch(() => {});
+                  }
+                }
+              } catch (e) {
+                console.warn('[RedBarBot] median moveStopToBreakeven error:', e.message);
+              }
+            }
+          }
+        }
+
         next.push(t);
         continue;
       }

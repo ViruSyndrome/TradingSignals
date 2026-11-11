@@ -438,9 +438,18 @@ function createDhanNiftyTrade(opts = {}) {
       const funds = await dhan.getFundLimits();
       const avail = Number(funds?.availabelBalance ?? funds?.availableBalance ?? funds?.withdrawableBalance ?? 0);
       if (avail > 0 && avail < need) {
-        throw new Error(
-          `Insufficient funds: need ~Rs ${need} for ${qty}×${levels.entryPrice} (have Rs ${avail.toFixed(0)}). Add ~Rs ${(need - avail).toFixed(0)} or lower DHAN_${instKey}_LOTS / pick cheaper strike.`
-        );
+        // If 2 lots requested but funds only cover 1 lot, scale down to 1 lot instead of throwing error!
+        const oneLotQty = Number(spec.lotSize) || 65;
+        const oneLotNeed = Math.ceil(levels.entryPrice * oneLotQty * contractMultiplier * bufferPct);
+        if (qty > oneLotQty && avail >= oneLotNeed) {
+          console.warn(`[DhanNifty] Wallet (Rs ${avail.toFixed(0)}) cannot cover ${qty} units (needs Rs ${need}) — auto-downscaling to 1 lot (${oneLotQty} units) to avoid missing trade!`);
+          qty = oneLotQty;
+          body.quantity = qty;
+        } else {
+          throw new Error(
+            `Insufficient funds: need ~Rs ${need} for ${qty}×${levels.entryPrice} (have Rs ${avail.toFixed(0)}). Add ~Rs ${(need - avail).toFixed(0)} or lower DHAN_${instKey}_LOTS / pick cheaper strike.`
+          );
+        }
       }
     } catch (e) {
       if (/Insufficient funds/i.test(String(e.message))) throw e;
