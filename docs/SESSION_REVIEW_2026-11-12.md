@@ -84,7 +84,69 @@ Those numbers (44, 65, 72, 33) are **Option Premium values**, not index points.
 
 ---
 
-## 5. Current Bot State
-* **VM (`144.24.135.68`) PM2 Process**: `trendrunner` is running with `DHAN_AUTO_TRADE=false`.
-* **Auto-Trade Freeze**: Safe and locked. No automated orders will be placed.
-* **All Positions**: Flat.
+## 5. Multi-Timeframe Architecture: Anchor → Filter → Confirmation
+
+The user confirmed the exact timeframe hierarchy used by professional scalpers:
+
+| Market / Instrument | Anchor Timeframe (Fibs & Medians) | Primary Confirmation (Entry & Filter) | Micro Confirmation (When in Doubt / Fine Tuning) |
+|---|---|---|---|
+| **NIFTY Weekly Options (CE / PE)** | **15-Minute Chart** (09:15–09:30 candle & first 15m red bar) | **5-Minute Chart** (1–2 confirmation candles, closing in trade direction) | **1-Minute Chart** (Double bottoms, rejection wicks, retest completion) |
+| **MCX Commodities (Crude & Natural Gas)** | **30-Minute Chart** (30m session anchor & first red 30m bar) | **15-Minute Chart** (15m trend & bounce filter) | **5-Minute Chart** (5m wick retest / structural confirmation) |
+
+---
+
+## 6. Deep Forensic Case Study: The 13:45 `25250 CE` Trade
+
+The user pointed out:
+> *"Drawing the fibs on the actual charts gave me the actual TP when compared to the other chart. For one of my trades, I was waiting for it to go higher and I missed the high once and took 2,424, when I could have taken 3,500. When I drew the fibs on the actual chart it was clear that TP already hit twice. SL and TP needs to be taken from correct chart."*
+
+Let us trace the raw 1-minute and 5-minute ticks from Dhan for `25250 CE` around that trade:
+
+### A. The 15-Minute Anchor Level:
+* The 15m Opening Candle (09:15–09:30) had:
+  * Open: 217.85 | High: 269.50 | **Low: 204.15** | Close: 257.00
+* When price broke below 204.15 during the mid-day sell-off, **₹204.15 became the primary structural ceiling / breakdown retest target (TP)** on the option chart!
+
+### B. The 1-Minute Micro Entry Sequence:
+* **13:44:00**: 1m candle closed red at 184.85.
+* **13:45:00**: 1m wick dipped to **180.00** (tested bottom support band), closed at 183.00.
+* **13:45:12**: User entered BUY @ **185.95**.
+* **13:46:00**: 1m dipped to 181.00 (higher low!), closed at 185.10.
+* **13:47:00**: 1m candle exploded bullish: O=185.85, H=193.95, C=193.45 (**1m confirmation**).
+
+### C. The Two Target Hits at 204.15:
+* **13:50:00 (Hit #1)**: 1m bar blasted up to **High = 204.85**! It kissed the 15m Open Bar Low (204.15) to within 0.70 pts! 
+* **13:50:33**: User exited at **204.60** (+₹2,424.50).
+* **13:52:00 (Hit #2)**: Price attempted to break out again, reaching **High = 203.70**, failing once more at that exact resistance.
+* **The Immediate Aftermath (The Collapse)**:
+  * 13:53: dropped to 189.55 (-14 pts in 60 seconds).
+  * 13:58: crashed to 178.55 (-26 pts from target).
+* **Key Takeaway**: If you were watching the NIFTY index spot, the index had not reached any obvious target. But on the **Option Chart**, the 15m structural resistance at 204.15 was tagged **twice**! Anyone failing to exit at the option chart level gave back the entire move within 3 minutes.
+
+---
+
+## 7. Forensic Case Study: The 14:38 `25300 CE` Trade
+
+* **Support Band on Option Chart**: 152.00–158.00 (tested repeatedly at 12:35, 13:20, and 14:30).
+* **Resistance Band on Option Chart**: 175.00–180.00.
+* **14:35:00**: 5m bar printed a bullish hammer: Low=152.55, Close=163.85.
+* **14:38:26**: User entered BUY @ **159.65**.
+* **15:10:00**: 5m bar reached **High = 178.30** right into the upper resistance band.
+* **15:11:01**: User exited @ **175.47** (+₹2,057.25).
+* **Key Takeaway**: Both trades show that **the option premium chart is not random noise**; it respects its own structural highs, lows, and 15m opening medians.
+
+---
+
+## 8. Current System State & Engineering Path Forward
+
+1. **Safety**:
+   * `DHAN_AUTO_TRADE=false` is locked in `.env` and PM2 on the VM (`144.24.135.68`).
+   * All positions are **100% Flat (`netQty: 0`)**, 0 pending orders on Dhan.
+2. **Architecture Upgrades Required**:
+   * **Multi-Timeframe Engine**: 
+     * NIFTY: 15m Anchor → 5m Filter/Confirmation → 1m Micro Confirmation.
+     * MCX (Crude/NG): 30m Anchor → 15m & 5m Confirmation.
+   * **Direct Option Chart Feed**: Ingest 15m and 5m OHLC of the active ATM Call and Put options directly via Dhan's `/charts/intraday` API (`OPTIDX`), and compute anchor levels on the option contracts.
+   * **Stop & Target Anchoring**: Compute SL from previous candle wicks on the option chart, and TP from option chart structural medians.
+   * **UI Fix Synced**: `js/range_ema_ui.js` updated to suppress legacy `sessionFib` when Advanced Fibs are active.
+
