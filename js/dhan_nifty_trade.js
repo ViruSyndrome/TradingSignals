@@ -608,18 +608,20 @@ function createDhanNiftyTrade(opts = {}) {
     return Math.abs(await getOpenQtyForSecurity(securityId)) > 0;
   }
 
-  async function fetchOptionIntradayBars(securityId, interval = '1') {
-    const today = new Date();
-    const ist = new Date(today.toLocaleString('en-US', { timeZone: 'Asia/Kolkata' }));
-    const pad2 = (n) => String(n).padStart(2, '0');
-    const todayStr = `${ist.getFullYear()}-${pad2(ist.getMonth() + 1)}-${pad2(ist.getDate())}`;
+  async function fetchOptionIntradayBars(securityId, interval = '1', lookbackDays = 3) {
+    // Dhan /v2/charts/intraday requires toDate strictly ahead of fromDate (same-day queries return empty).
+    // Fetch [today - lookbackDays .. tomorrow] in IST so today's live 1m & 15m option bars always return reliably.
+    const nowIstMs = Date.now() + 5.5 * 3600 * 1000;
+    const fmtIstDate = (ms) => new Date(ms).toISOString().slice(0, 10);
+    const fromStr = fmtIstDate(nowIstMs - Math.max(1, Number(lookbackDays) || 3) * 86400 * 1000);
+    const toStr = fmtIstDate(nowIstMs + 86400 * 1000);
     const payload = await dhan.getIntradayOhlc({
       securityId: String(securityId),
       exchangeSegment: optSeg,
       instrument: 'OPTIDX',
       interval: String(interval),
-      fromDate: `${todayStr} 09:15:00`,
-      toDate: `${todayStr} 15:30:00`,
+      fromDate: `${fromStr} 09:15:00`,
+      toDate: `${toStr} 15:35:00`,
     });
     const { parseDhanOhlc } = require('./nifty_option_engine');
     return parseDhanOhlc(payload?.data || payload);

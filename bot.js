@@ -671,6 +671,30 @@ async function _scanOneRedBarInstrument(rawInst, rbCfg) {
       return;
     }
 
+    // For NIFTY: run the Option Chart Engine (15m Canvas + 1m Micro-Confirmation + Bid/Ask spread)
+    // BEFORE firing Telegram ENTER or Dhan Auto so Telegram, Telemetry, and Execution stay 100% in sync.
+    let niftyOptEval = null;
+    if (
+      String(inst.id || '').toUpperCase() === 'NIFTY'
+      && _autoSetupAllowed(setupKind)
+      && envTrim('DHAN_ACCESS_TOKEN')
+      && envTrim('DHAN_CLIENT_ID')
+    ) {
+      niftyOptEval = await _evaluateNiftyOptionSetup({
+        instKey: 'NIFTY',
+        side,
+        indexEntry: Number(readout.price),
+        dayKey,
+        setupKind,
+      });
+      if (!alreadyAlerted && (niftyOptEval.status === 'PENDING_1M' || niftyOptEval.status === 'WIDE_SPREAD')) {
+        console.log(
+          `[RedBarBot] NIFTY: ${side} ${setupKind} index signal armed — holding Telegram ENTER & Auto (${niftyOptEval.status}: ${niftyOptEval.reason})`
+        );
+        return;
+      }
+    }
+
     let alertOk = alreadyAlerted;
     if (!alreadyAlerted) {
       const dec = inst.priceDecimals ?? 2;
@@ -693,12 +717,23 @@ async function _scanOneRedBarInstrument(rawInst, rbCfg) {
       const setupTip = TrendRunnerCopy.setupTip(setupKind);
       const dhanNote = (() => {
         if (isBinance) return '';
-        const e = Number(readout.price), s = Number(readout.invalidation), t = Number(readout.tp1);
-        if (!(e > 0 && s > 0 && t > 0)) return '';
         const lot = Number(inst.lotSize) || Number(process.env.NIFTY_LOT_SIZE) || 65;
         const mult = Number(inst.contractMultiplier) || 1;
         const unitCount = lot * mult;
-        const delta = Number(process.env.NIFTY_OPT_DELTA) || 0.7; // observed ~0.7 on ITM/ATM
+        const lotsCfg = Math.max(1, Number(process.env.DHAN_NIFTY_LOTS) || 2);
+        const totalUnits = unitCount * lotsCfg;
+        if (niftyOptEval?.directOptionLevels && niftyOptEval?.selectedContract) {
+          const lv = niftyOptEval.directOptionLevels;
+          const sc = niftyOptEval.selectedContract;
+          const rsLossTotal = Math.round(lv.riskPts * totalUnits);
+          const rsTgtTotal = Math.round(lv.rewardPts * totalUnits);
+          return `\nOption Chart Bracket (${_escHtml(sc.symbolHint)} · 1m ${niftyOptEval.micro?.triggerPattern || 'confirmed'}):`
+            + `\nAsk ₹${lv.entryPrice} · SL ₹${lv.stopLossPrice} (-${lv.riskPts} pts) · 1:1 Bank ₹${lv.tp1Banker} · 15m Target ₹${lv.tpTarget} (RR ${lv.rrRatio})`
+            + `\nDHAN (${lotsCfg} lots · ${totalUnits} units): Risk ~Rs ${rsLossTotal} · Target ~Rs ${rsTgtTotal}`;
+        }
+        const e = Number(readout.price), s = Number(readout.invalidation), t = Number(readout.tp1);
+        if (!(e > 0 && s > 0 && t > 0)) return '';
+        const delta = Number(process.env.NIFTY_OPT_DELTA) || 0.55;
         if (['CRUDEOIL', 'NG'].includes(String(inst.id).toUpperCase())) {
           // MCX option SL/TP come from the live contract delta + minSlPts + tpMult at order time.
           // Do not print a guessed premium SL/TP here (it contradicted the real order) — exact levels are in the order confirmation.
@@ -707,7 +742,7 @@ async function _scanOneRedBarInstrument(rawInst, rbCfg) {
         const riskPts = Math.abs(e - s), tgtPts = Math.abs(t - e);
         const optSl = (riskPts * delta).toFixed(1), optTp = (tgtPts * delta).toFixed(1);
         const rsSl = Math.round(riskPts * delta * unitCount), rsTp = Math.round(tgtPts * delta * unitCount);
-        return `\nDHAN (1 lot · ${unitCount} units): option SL = buy price − ${optSl} pts · TP = buy price + ${optTp} pts\nSuggested P&amp;L Exit: Max Loss ~Rs ${rsSl} · Max Profit ~Rs ${rsTp}\nExit manually if ${inst.label || inst.id} closes 5m beyond ${fmt(s)}`;
+        return `\nDHAN (1 lot · ${unitCount} units, Δ=${delta}): option SL = buy price − ${optSl} pts · TP = buy price + ${optTp} pts\nSuggested P&amp;L Exit: Max Loss ~Rs ${rsSl} · Max Profit ~Rs ${rsTp}\nExit manually if ${inst.label || inst.id} closes 5m beyond ${fmt(s)}`;
       })();
       const dhanAutoOn = String(process.env.DHAN_AUTO_TRADE || '').toLowerCase() === 'true'
         && _canAutoTradeDhanNifty(inst);
@@ -783,6 +818,7 @@ ${_escHtml(planLine)}${btcConfLine}${alertOnlyNote}
         setupKind,
         bars5m,
         barsWork,
+        precomputedOptEval: niftyOptEval,
       });
     }
   }
@@ -889,7 +925,145 @@ function _istMinsNow() {
   return z.getHours() * 60 + z.getMinutes();
 }
 
-async function _maybeAutoDhanNifty({ inst, side, readout, alertKey, dayKey, setupKind, bars5m, barsWork }) {
+function _logNiftyOptionTelemetry(row) {
+  try {
+    const dir = path.join(__dirname, 'logs');
+    if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true });
+    const fp = path.join(dir, 'option_engine_telemetry.jsonl');
+    if (fs.existsSync(fp) && fs.statSync(fp).size > 2 * 1024 * 1024) {
+      const bak = path.join(dir, 'option_engine_telemetry.prev.jsonl');
+      if (fs.existsSync(bak)) fs.unlinkSync(bak);
+      fs.renameSync(fp, bak);
+    }
+    const istIso = new Date(Date.now() + 5.5 * 3600 * 1000).toISOString().replace('Z', '+05:30');
+    fs.appendFileSync(fp, JSON.stringify({ tsIst: istIso, ...row }) + '\n');
+  } catch (_) {}
+}
+
+/**
+ * Shared NIFTY 15m Option Canvas + Closed-1m Micro-Confirmation ("Trader's Eye") Evaluator.
+ * Used identically before Telegram ENTER alert and before Dhan SuperOrder placement.
+ */
+async function _evaluateNiftyOptionSetup({ trader, instKey, side, indexEntry, dayKey, setupKind }) {
+  const t0 = Date.now();
+  const {
+    computeOptionCanvas,
+    check1mMicroConfirmation,
+    calculateOptionLevels,
+  } = require('./js/nifty_option_engine.js');
+  let activeTrader = trader;
+  if (!activeTrader) {
+    const { createDhanNiftyTrade } = require('./js/dhan_nifty_trade.js');
+    activeTrader = createDhanNiftyTrade({ instrumentId: instKey });
+  }
+  try {
+    const selectedContract = await activeTrader.pickOptionContract({ side, spot: indexEntry });
+    const rawAsk = Number(selectedContract.ask) || 0;
+    const rawBid = Number(selectedContract.bid) || Number(selectedContract.ltp) || 0;
+    const spread = (rawAsk > 0 && rawBid > 0) ? Number((rawAsk - rawBid).toFixed(2)) : 0;
+    if (spread > 2.5) {
+      const reason = `wide bid-ask spread (${spread.toFixed(2)} pts > 2.5)`;
+      _logNiftyOptionTelemetry({
+        instKey, side, setupKind, dayKey, status: 'WIDE_SPREAD',
+        symbol: selectedContract.symbolHint, bid: rawBid, ask: rawAsk, spread,
+        reason, latencyMs: Date.now() - t0,
+      });
+      return { status: 'WIDE_SPREAD', selectedContract, directOptionLevels: null, spread, reason };
+    }
+
+    let bars1m = [];
+    try {
+      bars1m = await activeTrader.fetchOptionIntradayBars(selectedContract.securityId, '1', 3);
+    } catch (e) {
+      _logNiftyOptionTelemetry({
+        instKey, side, setupKind, dayKey, status: 'FEED_UNAVAILABLE',
+        symbol: selectedContract.symbolHint, bid: rawBid, ask: rawAsk, spread,
+        reason: e.message, latencyMs: Date.now() - t0,
+      });
+      return { status: 'FEED_UNAVAILABLE', selectedContract, directOptionLevels: null, spread, reason: e.message };
+    }
+
+    const nowMs = Date.now();
+    const hasForming = Array.isArray(bars1m)
+      && bars1m.length >= 3
+      && bars1m[bars1m.length - 1].t <= nowMs
+      && (nowMs - bars1m[bars1m.length - 1].t) < 58_000;
+    const closedBars1m = hasForming ? bars1m.slice(0, -1) : (Array.isArray(bars1m) ? bars1m : []);
+
+    // Filter 1m micro check to active dayKey once >=2 today bars exist so prior close cannot masquerade as 09:16 open
+    const todayClosed1m = dayKey
+      ? closedBars1m.filter((b) => new Date(b.t + 5.5 * 3600 * 1000).toISOString().slice(0, 10) === dayKey)
+      : closedBars1m;
+    const microInput = todayClosed1m.length >= 2 ? todayClosed1m : closedBars1m;
+
+    if (!Array.isArray(microInput) || microInput.length < 2) {
+      const reason = `insufficient closed 1m option bars (${microInput.length})`;
+      _logNiftyOptionTelemetry({
+        instKey, side, setupKind, dayKey, status: 'FEED_UNAVAILABLE',
+        symbol: selectedContract.symbolHint, bid: rawBid, ask: rawAsk, spread,
+        bars1mCount: bars1m.length, droppedFormingBar: hasForming, reason, latencyMs: Date.now() - t0,
+      });
+      return { status: 'FEED_UNAVAILABLE', selectedContract, directOptionLevels: null, spread, reason };
+    }
+
+    const micro = check1mMicroConfirmation(microInput);
+    const canvas = computeOptionCanvas(closedBars1m, dayKey);
+    if (!micro.confirmed) {
+      _logNiftyOptionTelemetry({
+        instKey, side, setupKind, dayKey, status: 'PENDING_1M',
+        symbol: selectedContract.symbolHint, bid: rawBid, ask: rawAsk, spread,
+        bars1mCount: microInput.length, droppedFormingBar: hasForming,
+        openBarHigh: canvas.openBarHigh, openBarLow: canvas.openBarLow,
+        curWickRatio: micro.curWickRatio, lastClose: micro.lastClose,
+        reason: micro.reason, latencyMs: Date.now() - t0,
+      });
+      return {
+        status: 'PENDING_1M',
+        selectedContract,
+        directOptionLevels: null,
+        micro,
+        canvas,
+        spread,
+        reason: micro.reason,
+      };
+    }
+
+    const livePremium = rawAsk > 0 ? rawAsk : Number(selectedContract.ltp);
+    const directOptionLevels = calculateOptionLevels({
+      currentPremium: livePremium,
+      optionCanvas: canvas,
+      microAnalysis: micro,
+      bufferPts: 2.0,
+    });
+    _logNiftyOptionTelemetry({
+      instKey, side, setupKind, dayKey, status: 'CONFIRMED',
+      symbol: selectedContract.symbolHint, bid: rawBid, ask: rawAsk, spread,
+      bars1mCount: microInput.length, droppedFormingBar: hasForming,
+      openBarHigh: canvas.openBarHigh, openBarLow: canvas.openBarLow,
+      microPattern: micro.triggerPattern, curWickRatio: micro.curWickRatio, signalLow: micro.signalLow,
+      entryPrice: directOptionLevels.entryPrice, stopLossPrice: directOptionLevels.stopLossPrice,
+      tp1Banker: directOptionLevels.tp1Banker, tpTarget: directOptionLevels.tpTarget,
+      rrRatio: directOptionLevels.rrRatio, latencyMs: Date.now() - t0,
+    });
+    return {
+      status: 'CONFIRMED',
+      selectedContract,
+      directOptionLevels,
+      micro,
+      canvas,
+      spread,
+      reason: micro.reason,
+    };
+  } catch (err) {
+    _logNiftyOptionTelemetry({
+      instKey, side, setupKind, dayKey, status: 'ERROR',
+      reason: err.message, latencyMs: Date.now() - t0,
+    });
+    return { status: 'ERROR', selectedContract: null, directOptionLevels: null, reason: err.message };
+  }
+}
+
+async function _maybeAutoDhanNifty({ inst, side, readout, alertKey, dayKey, setupKind, bars5m, barsWork, precomputedOptEval = null }) {
   if (String(process.env.DHAN_AUTO_TRADE || '').toLowerCase() !== 'true') return;
   if (String(process.env.TRADE_ENABLED || '').toLowerCase() !== 'true') return;
   if (!_canAutoTradeDhanNifty(inst)) return;
@@ -1081,14 +1255,18 @@ async function _maybeAutoDhanNifty({ inst, side, readout, alertKey, dayKey, setu
     ? (3 * 60 * 1000)
     : (lastWonAndNewSetup ? (5 * 60 * 1000) : cooldownMs);
 
+  const cooldownLabel = (isMedianOpposite || isDifferentMedian)
+    ? '3m structural median switch'
+    : (lastWonAndNewSetup ? '5m won-setup rotation' : `${Math.round(cooldownMs / 60000)}m DHAN_AUTO_COOLDOWN_MS`);
+
   if (lastTs && Date.now() - lastTs < effectiveCooldownMs && !medianFlipReentry) {
     if (rule6SlRow) {
       console.log(
-        `[RedBarBot] ${instKey}: Rule 6 SL-reentry (1/1 today) — waive cooldown (prior ${rule6SlRow.indexEntry} → now ${readout.price})`,
+        `[RedBarBot] ${instKey}: Rule 6 SL-reentry (1/1 today) — waive ${cooldownLabel} cooldown (prior ${rule6SlRow.indexEntry} → now ${readout.price})`,
       );
     } else {
       const left = Math.ceil((effectiveCooldownMs - (Date.now() - lastTs)) / 60000);
-      console.log(`[RedBarBot] ${instKey}: Dhan cooldown ${left}m — skip ${alertKey}`);
+      console.log(`[RedBarBot] ${instKey}: Dhan cooldown ${left}m (${cooldownLabel}) — skip ${alertKey}`);
       return;
     }
   }
@@ -1139,73 +1317,34 @@ async function _maybeAutoDhanNifty({ inst, side, readout, alertKey, dayKey, setu
     let selectedContract = null;
 
     // Dr. Dev / Sagar NIFTY Multi-Timeframe Option Engine:
-    // 15m Canvas on Option + 1m Micro-Confirmation ("Trader's Eye") before execution
+    // Reuse same-tick evaluation from _scanOneRedBarInstrument when available, otherwise run _evaluateNiftyOptionSetup.
     if (instKey === 'NIFTY') {
-      const {
-        computeOptionCanvas,
-        check1mMicroConfirmation,
-        calculateOptionLevels,
-      } = require('./js/nifty_option_engine.js');
-
-      try {
-        selectedContract = await trader.pickOptionContract({ side, spot: indexEntry });
-        console.log(`[RedBarBot] NIFTY Option Engine selected ${selectedContract.symbolHint} (SecId: ${selectedContract.securityId})`);
-
-        // Check true bid-ask spread on selected ATM/ITM contract
-        const rawAsk = Number(selectedContract.ask) || 0;
-        const rawBid = Number(selectedContract.bid) || Number(selectedContract.ltp) || 0;
-        if (rawAsk > 0 && rawBid > 0 && (rawAsk - rawBid) > 2.5) {
-          console.log(`[RedBarBot] NIFTY: wide spread (${(rawAsk - rawBid).toFixed(2)} pts > 2.5) on ${selectedContract.symbolHint} — waiting for tighter book`);
-          return;
-        }
-
-        // Fetch 1-minute intraday bars of this option contract
-        let bars1m = [];
-        try {
-          bars1m = await trader.fetchOptionIntradayBars(selectedContract.securityId, '1');
-        } catch (e) {
-          console.warn(`[RedBarBot] NIFTY: could not fetch 1m option bars (${e.message}) — will check if 5m bars available`);
-        }
-
-        // Drop incomplete currently-forming 1m candle so micro-confirmation only evaluates closed 1m bars
-        const nowMs = Date.now();
-        const closedBars1m = (Array.isArray(bars1m) && bars1m.length >= 3 && bars1m[bars1m.length - 1].t <= nowMs && (nowMs - bars1m[bars1m.length - 1].t) < 58_000)
-          ? bars1m.slice(0, -1)
-          : bars1m;
-
-        if (Array.isArray(closedBars1m) && closedBars1m.length >= 2) {
-          const micro = check1mMicroConfirmation(closedBars1m);
-          if (!micro.confirmed) {
-            console.log(
-              `[RedBarBot] NIFTY: 1m Micro-Confirmation PENDING for ${selectedContract.symbolHint}: ${micro.reason} — standing aside until 1m rejection wick/green bar forms`
-            );
-            return;
-          }
-
-          console.log(
-            `[RedBarBot] NIFTY: 1m Micro-Confirmation CONFIRMED for ${selectedContract.symbolHint} via ${micro.triggerPattern} (wickRatio=${micro.curWickRatio}%, signalLow=${micro.signalLow})`
-          );
-
-          // Compute Option 15m Canvas
-          const canvas = computeOptionCanvas(closedBars1m, dayKey);
-
-          // Calculate exact structural option levels (eliminating synthetic delta guessing)
-          const livePremium = Number(selectedContract.ask) > 0 ? Number(selectedContract.ask) : Number(selectedContract.ltp);
-          directOptionLevels = calculateOptionLevels({
-            currentPremium: livePremium,
-            optionCanvas: canvas,
-            microAnalysis: micro,
-            bufferPts: 2.0,
-          });
-
-          console.log(
-            `[RedBarBot] NIFTY Structural Option Levels: Entry=${directOptionLevels.entryPrice} | SL=${directOptionLevels.stopLossPrice} (${directOptionLevels.riskPts} pts risk) | 1:1=${directOptionLevels.tp1Banker} | Target=${directOptionLevels.tpTarget} (RR ${directOptionLevels.rrRatio})`
-          );
-        } else {
-          console.log(`[RedBarBot] NIFTY: 1m bars not returned (offline/closed) — proceeding with mapped index delta levels`);
-        }
-      } catch (err) {
-        console.warn(`[RedBarBot] NIFTY Option Engine evaluation error: ${err.message}`);
+      const optEval = precomputedOptEval || await _evaluateNiftyOptionSetup({
+        trader,
+        instKey,
+        side,
+        indexEntry,
+        dayKey,
+        setupKind,
+      });
+      selectedContract = optEval.selectedContract || null;
+      if (optEval.status === 'WIDE_SPREAD') {
+        console.log(`[RedBarBot] NIFTY: ${optEval.reason} on ${selectedContract?.symbolHint || 'contract'} — waiting for tighter book`);
+        return;
+      }
+      if (optEval.status === 'PENDING_1M') {
+        console.log(
+          `[RedBarBot] NIFTY: 1m Micro-Confirmation PENDING for ${selectedContract?.symbolHint || 'contract'}: ${optEval.reason} — standing aside until 1m rejection wick/green bar forms`
+        );
+        return;
+      }
+      if (optEval.status === 'CONFIRMED' && optEval.directOptionLevels) {
+        directOptionLevels = optEval.directOptionLevels;
+        console.log(
+          `[RedBarBot] NIFTY: 1m Micro-Confirmation CONFIRMED for ${selectedContract.symbolHint} via ${optEval.micro?.triggerPattern} | Entry=${directOptionLevels.entryPrice} SL=${directOptionLevels.stopLossPrice} 1:1=${directOptionLevels.tp1Banker} Target=${directOptionLevels.tpTarget} (RR ${directOptionLevels.rrRatio})`
+        );
+      } else {
+        console.log(`[RedBarBot] NIFTY: option 1m feed note (${optEval.status}: ${optEval.reason}) — proceeding with mapped index delta levels`);
       }
     }
 
@@ -1258,6 +1397,7 @@ async function _maybeAutoDhanNifty({ inst, side, readout, alertKey, dayKey, setu
         stopLossPrice: result.levels.stopLossPrice,
         targetPrice: result.levels.targetPrice,
         oneRPts: result.levels.oneRPts || (result.contract.ltp - result.levels.stopLossPrice),
+        directOptionUsed: Boolean(directOptionLevels),
         qty: result.qty,
         indexEntry,
         indexStop,

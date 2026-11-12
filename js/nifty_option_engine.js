@@ -131,10 +131,12 @@ function check1mMicroConfirmation(bars1m) {
   const lookback = bars1m.slice(-5);
   const recentLow = Math.min(...lookback.map((b) => b.l));
 
-  // Condition 1: Rejection Wick (buyers absorbing sell orders)
-  const hasStrongWick = curWickRatio >= 0.30 || prevWickRatio >= 0.30;
+  // Condition 1: Rejection Wick (current bar absorbs sellers, or prior bar absorbed sellers and current holds/turns green)
+  const hasCurWick = curWickRatio >= 0.30;
+  const hasPrevWickHold = prevWickRatio >= 0.30 && (curIsGreen || cur.l >= prev.l);
+  const hasStrongWick = hasCurWick || hasPrevWickHold;
 
-  // Condition 2: Bullish Reversal Bar (green bar with lower wick >= 25%)
+  // Condition 2: Bullish Reversal Bar (green bar with lower wick >= 25% or >= 3 pts)
   const hasGreenReversal = curIsGreen && (curWickRatio >= 0.25 || curLowerWick >= 3.0);
 
   // Condition 3: Bullish Momentum Break (green candle closing above prior close/high)
@@ -147,7 +149,8 @@ function check1mMicroConfirmation(bars1m) {
   const confirmed = hasStrongWick || hasGreenReversal || hasMicroBreakout || hasHigherLow;
 
   let triggerPattern = 'none';
-  if (hasStrongWick) triggerPattern = `rejection_wick_${(curWickRatio * 100).toFixed(0)}pct`;
+  if (hasCurWick) triggerPattern = `rejection_wick_${(curWickRatio * 100).toFixed(0)}pct`;
+  else if (hasPrevWickHold) triggerPattern = `prev_rejection_wick_hold_${(prevWickRatio * 100).toFixed(0)}pct`;
   else if (hasGreenReversal) triggerPattern = `green_reversal_wick_${(curWickRatio * 100).toFixed(0)}pct`;
   else if (hasMicroBreakout) triggerPattern = 'micro_breakout_expansion';
   else if (hasHigherLow) triggerPattern = 'micro_higher_low_double_bottom';

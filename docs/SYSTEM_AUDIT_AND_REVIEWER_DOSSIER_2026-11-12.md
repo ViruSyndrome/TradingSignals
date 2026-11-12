@@ -4,7 +4,7 @@
 **Date of Audit**: November 13, 2026 (02:05 IST)  
 **Auditor / Engineering Lead**: Antigravity Quantitative Systems  
 **Git Branch**: `main` | **Included Commits**: `446a1ae` .. `d510957` + latest execution-safety & Futures research update  
-**Production Server**: Ubuntu 24.04 LTS (`144.24.135.68`) | PM2 App: `trendrunner` (PID `353891`, `online`)  
+**Production Server**: Ubuntu 24.04 LTS (`144.24.135.68`) | PM2 App: `trendrunner` (PID `354463`, `online`)  
 
 ---
 
@@ -13,8 +13,12 @@
 This dossier provides the complete, unfiltered technical audit, forensic remediation log, empirical backtests, and live deployment readiness assessment for the **NIFTY 50 Weekly Options** bot and its two supplementary **NIFTY Futures swing** research strategies.
 
 ### Is the Bot Configured Correctly & Ready to Go Live?
-* **Ready for Manual Trading Tomorrow (`DHAN_AUTO_TRADE=false`)**: **YES.** The Oracle VM is healthy, `DHAN_AUTO_TRADE=false` is strictly locked in `~/Trading/.env`, Dhan API connectivity is verified (`status: success`), PM2 `trendrunner` (`PID 353891`) is online scanning `NIFTY`, and all structural engine tests pass.
-* **Ready for Unattended Live Auto-Trading (`DHAN_AUTO_TRADE=true`)**: **NOT YET without 1 live market-hour verification day.** While all major logic bugs discovered during our audit have been patched and unit-tested against real saved `OPTIDX` exchange candles (`25250 CE`), the new **1m Micro-Confirmation + 15m Option Canvas** gate has **not yet been observed during live NSE market hours (`09:30–15:00 IST`)** with `interval='1'` Dhan option streaming. Also, as detailed in Section 4, 3 non-fatal workflow gaps remain before flipping `DHAN_AUTO_TRADE=true`.
+* **Ready for Manual Trading Tomorrow (`DHAN_AUTO_TRADE=false`)**: **YES.** The Oracle VM is healthy, `DHAN_AUTO_TRADE=false` is strictly locked in `~/Trading/.env`, Dhan API connectivity is verified (`status: success`), PM2 `trendrunner` is online scanning `NIFTY`, and all structural engine tests + live Dhan `OPTIDX` 1m probes pass.
+* **All 3 Pre-Live Execution Gaps Now Bridged in Code**:
+  1. **Gap 1 Closed (1m `OPTIDX` Date-Window Bug Fixed + Live Telemetry Built In)**: Live Dhan `/v2/charts/intraday` probing discovered that single-day queries (`fromDate === toDate`) returned `0` bars. Fixed `fetchOptionIntradayBars()` in `js/dhan_nifty_trade.js` to query a 3-day rolling IST window through `tomorrow` (verified live returning `770` 1m bars = `385` for `2026-11-12` on both `25250 CE` and `25300 PE`), added live JSONL telemetry (`logs/option_engine_telemetry.jsonl`) + `scripts/probe_live_option_engine.js`, and refined `check1mMicroConfirmation()` so a prior-bar rejection wick only confirms if the current bar holds (`prev_rejection_wick_hold`).
+  2. **Gap 2 Closed (Telegram `ENTER` & Option 1m Gate Synchronized)**: Extracted shared `_evaluateNiftyOptionSetup()` in `bot.js`. Telegram `ENTER` now holds when the Option 1m gate is `PENDING_1M` or `WIDE_SPREAD`, prints the actual structural Option Chart Bracket (`Ask`, `Wick SL`, `1:1 Bank`, `15m Ceiling`) instead of synthetic guesses (with fallback delta aligned to `0.55`), and passes `precomputedOptEval` into `_maybeAutoDhanNifty()` with zero duplicate API calls.
+  3. **Gap 3 Closed (Explicit Cooldown Distinction)**: Updated cooldown logs in `bot.js` to explicitly report `3m structural median switch` vs `5m won-setup rotation` vs `30m DHAN_AUTO_COOLDOWN_MS repeat/loss throttle`.
+* **Operational Gate Before Flipping `DHAN_AUTO_TRADE=true`**: While code + live `OPTIDX` endpoints are verified, still observe 1 live market-hour session (`DHAN_AUTO_TRADE=false`) reviewing `logs/option_engine_telemetry.jsonl` (or PM2 logs) before enabling real-money auto orders.
 
 ```
 +-----------------------------------------------------------------------------------+
@@ -26,7 +30,7 @@ This dossier provides the complete, unfiltered technical audit, forensic remedia
 | Dhan API Connectivity    | Active & Verified Live (status: success, token fresh)  |
 | Option Engine Unit Test  | scripts/test_nifty_option_engine.js — ALL PASS         |
 | Fib Anchor Unit Test     | scripts/test_advanced_nifty_fibs.js — ALL PASS         |
-| Production Deployment    | Verified on Oracle VM 144.24.135.68 (PM2 PID 353891)   |
+| Production Deployment    | Verified on Oracle VM 144.24.135.68 (PM2 PID 354463)   |
 +-----------------------------------------------------------------------------------+
 ```
 
@@ -56,10 +60,10 @@ This dossier provides the complete, unfiltered technical audit, forensic remedia
 3. **Fake Spread Check & Unclosed Live 1m Bar Vulnerability (Fixed Today)**:
    * `pickOptionContract()` in `js/dhan_nifty_trade.js` now returns `bid` (`top_bid_price`) so `bot.js` checks true `ask - bid > 2.5` (previously `ask - ltp`), and `bot.js` strips an incomplete `<58s` live 1m candle before running `check1mMicroConfirmation()`.
 
-### Remaining Gaps to Address Before Enabling `DHAN_AUTO_TRADE=true`
-1. **Zero Live-Session Telemetry on 1m `OPTIDX` Streaming**: `nifty_option_engine.js` is verified on saved real Dhan `25250 CE` bars (`today_option_candles.json`), NOT yet observed across a live NSE trading session (`09:30–15:00 IST`). Run 1 full session with `DHAN_AUTO_TRADE=false` (while scanning active) or dry-run logging to confirm Dhan returns closed 1m option bars fast enough inside the 30s scan interval.
-2. **Telegram Alert vs. 1m Gate Sequencing**: In `_scanOneRedBarInstrument()` (`bot.js`), Telegram sends the `ENTER` alert (showing synthetic `NIFTY_OPT_DELTA` estimate, defaulting to `0.7` if env unset vs `.env`'s `0.55`) *before* `_maybeAutoDhanNifty()` checks `1m Micro-Confirmation`. Thus, Telegram can notify `ENTER` while the option 1m gate is still waiting for confirmation.
-3. **Legacy 30-Minute Cooldown in `.env`**: `~/Trading/.env` still defines `DHAN_AUTO_COOLDOWN_MS=1800000` (30 min). When `DHAN_AUTO_TRADE=true`, this acts as a conservative throttle between auto entries across setups; decide intentionally whether to keep 30m or lower it.
+### Resolved Gaps + Operational Checklist Before Enabling `DHAN_AUTO_TRADE=true`
+1. **Live Telemetry & Same-Day API Fix (`probe_live_option_engine.js` & `logs/option_engine_telemetry.jsonl`) — BUILT & VERIFIED**: Live endpoint testing caught and fixed Dhan `/charts/intraday` returning `0` bars on same-calendar-day ranges; `fetchOptionIntradayBars()` now returns `770` live 1m bars reliably (`385` for latest session on both ATM CE & PE). Monitor 1 live market session via telemetry (`DHAN_AUTO_TRADE=false`) before switching auto live.
+2. **Telegram Alert vs. 1m Gate Sequencing — BUILT & VERIFIED**: `_scanOneRedBarInstrument()` now runs `_evaluateNiftyOptionSetup()` upfront and holds Telegram `ENTER` until 1m Option confirmation clears (and prints exact Option Strike / Ask / SL / 1:1 / 15m Target in Telegram instead of synthetic estimates; fallback delta aligned to `0.55`).
+3. **30-Minute Repeat Cooldown Clarity (`DHAN_AUTO_COOLDOWN_MS=1800000`) — CLARIFIED IN LOGS**: `bot.js` explicitly distinguishes `3m structural median switch` and `5m won-setup rotation` from the `30m` same-side repeat/loss throttle.
 4. **Capital / Profit Expectation Alignment**: Neither this 2-lot (130 qty) NIFTY intraday options system nor single-lot Futures strategies will generate ₹5,00,000/month consistently on ₹2L capital. At verified positive expectancy, ₹5L/month requires larger capital scaling (`₹8L–₹12L+` / 10–15 lots) plus diversified non-correlated sleeves.
 
 ---
@@ -166,4 +170,4 @@ Verified live on `144.24.135.68` (`~/Trading/.env`, `node --check`, `pm2 status`
 * `DHAN_EXIT_MODEL=B` — Active (50% 1:1 cash banker + Leg 2 Breakeven `+0.50`).
 * `DHAN_NIFTY_LOTS=2` (`NIFTY_LOT_SIZE=65` -> 130 qty) | `NIFTY_OPT_DELTA=0.55`.
 * `REDBAR_BOT_INSTRUMENTS=NIFTY` | `DHAN_AUTO_COOLDOWN_MS=1800000` (30m auto cooldown when later enabled).
-* `PM2 trendrunner` — Status **`online`**, PID **`353891`**, running today's patched `bot.js` & `js/dhan_nifty_trade.js`.
+* `PM2 trendrunner` — Status **`online`**, PID **`354463`**, running today's patched `bot.js`, `js/dhan_nifty_trade.js`, and `js/nifty_option_engine.js`.
