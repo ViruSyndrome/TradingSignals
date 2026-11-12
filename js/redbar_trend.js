@@ -1606,6 +1606,11 @@ const RedBarTrend = {
     if (!advanced.firstRed || !advanced.firstRed.t) {
       return { triggered: false, blocked: false };
     }
+
+    // Stand aside if price is strictly inside the sandwich zone (unless sandwich is wide >= 120 pts)
+    const hasSandwich = advanced.sandwich && Number.isFinite(advanced.sandwich.lo) && Number.isFinite(advanced.sandwich.hi);
+    const swSpan = hasSandwich ? (advanced.sandwich.hi - advanced.sandwich.lo) : 0;
+    const isWideSandwich = swSpan >= (advanced.wideHighwayPts || 120);
     const medians = (Array.isArray(advanced.medians) ? advanced.medians : [])
       .filter((m) => Number.isFinite(m.price))
       .map((m) => {
@@ -1633,6 +1638,8 @@ const RedBarTrend = {
       // Never trade the 09:15 opening candle itself or candles before firstRed
       if (advanced.firstBar?.t != null && b.t <= advanced.firstBar.t) continue;
       if (advanced.firstRed?.t != null && b.t < advanced.firstRed.t) continue;
+      // Stand aside inside sandwich unless wide highway (>= 120 pts)
+      if (hasSandwich && !isWideSandwich && b.c > advanced.sandwich.lo && b.c < advanced.sandwich.hi) continue;
       const prev = i > 0 ? bars5m[i - 1] : null;
       const prevRed = !!(prev && prev.c < prev.o);
       const prevGreen = !!(prev && prev.c > prev.o);
@@ -4805,13 +4812,15 @@ const RedBarTrend = {
     'mcx_530_reversal',
   ],
 
-  /** True in the first `quietMins` of London (12:30 IST) or US (16:30 IST). */
+  /** True in the first `quietMins` of London (dynamic BST/GMT) or US (dynamic DST). */
   _inSessionQuietWindow(asOfTs, quietMins = 45) {
     if (asOfTs == null) return false;
     const z = this.zonedHms(asOfTs, 'Asia/Kolkata');
     const mins = z.hour * 60 + z.minute;
-    if (mins >= 12 * 60 + 30 && mins < 12 * 60 + 30 + quietMins) return true; // London open
-    if (mins >= 16 * 60 + 30 && mins < 16 * 60 + 30 + quietMins) return true; // US open
+    const lonOpen = this.sessionOpenIstMins(asOfTs, 'Europe/London', 8, 0);
+    const nyOpen = this.sessionOpenIstMins(asOfTs, 'America/New_York', 9, 30);
+    if (mins >= lonOpen && mins < lonOpen + quietMins) return true; // London open (dynamic DST)
+    if (mins >= nyOpen && mins < nyOpen + quietMins) return true; // US open (dynamic DST)
     return false;
   },
 

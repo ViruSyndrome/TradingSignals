@@ -133,17 +133,17 @@ const bounceT = ist(2026, 11, 11, 10, 5);
 bars5m.push({
   t: bounceT,
   o: med - 5,
-  h: med + 20,
+  h: med + 30,
   l: med - 15,
-  c: med + 10,
+  c: med + 25,
   v: 1,
 });
 adv.inSandwich = false; // force outside for bounce test (price above sandwich)
 const bounce = RedBarTrend.detectFibBounceSetup({
   bars5m,
-  advanced: { ...adv, inSandwich: false },
+  advanced: { ...adv, inSandwich: false, sandwich: null },
   evalTs: bounceT + 5 * 60000 + 1000,
-  price: med + 10,
+  price: med + 25,
 });
 ok('fib bounce triggered', bounce.triggered === true, JSON.stringify({ side: bounce.side, medianId: bounce.medianId }));
 ok('stop uses previous test wick or structural extreme',

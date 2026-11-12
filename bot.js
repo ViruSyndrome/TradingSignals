@@ -948,6 +948,26 @@ async function _maybeAutoDhanNifty({ inst, side, readout, alertKey, dayKey, setu
     console.log(`[RedBarBot] ${instKey}: trade already open (${activeTrade.symbolHint || activeTrade.orderId}) — refuse concurrent order`);
     return;
   }
+
+  // Sagar / Dr. Dev Rules for NIFTY:
+  if (instKey === 'NIFTY') {
+    const adv = readout.advancedFibs;
+    // 1. First Red Bar Prerequisite: Never trade before the 15m first red bar has formed and closed
+    if (adv && (!adv.firstRed || !adv.firstRed.t)) {
+      console.log(`[RedBarBot] ${instKey}: First Red Bar has not yet closed — standing aside until 15m red anchor forms`);
+      return;
+    }
+    // 2. Sandwich Stand-Aside Rule: Stand aside if price is strictly between Day Open median & Red Bar median (unless span >= 120 pts)
+    if (adv?.sandwich && Number.isFinite(adv.sandwich.lo) && Number.isFinite(adv.sandwich.hi)) {
+      const swSpan = adv.sandwich.hi - adv.sandwich.lo;
+      const isWide = swSpan >= (adv.wideHighwayPts || 120);
+      const curP = Number(readout.price);
+      if (!isWide && curP > adv.sandwich.lo && curP < adv.sandwich.hi) {
+        console.log(`[RedBarBot] ${instKey}: price ${curP} is strictly inside Sandwich [${adv.sandwich.lo.toFixed(1)} - ${adv.sandwich.hi.toFixed(1)}] (span ${swSpan.toFixed(0)} < 120 pts) — stand aside per Sagar rule`);
+        return;
+      }
+    }
+  }
   const todayManagedDhan = allManagedDhan.filter(
     (t) => String(t.instrumentId || 'NIFTY').toUpperCase() === instKey
       && String(t.alertKey || '').includes(`|${dayKey}|`),
@@ -1055,7 +1075,9 @@ async function _maybeAutoDhanNifty({ inst, side, readout, alertKey, dayKey, setu
     && (lastClosed.setupKind !== setupKind || (setupKind === 'fib_bounce' && lastClosed.side !== side)),
   );
   const isMedianOpposite = setupKind === 'fib_bounce' && lastClosed && lastClosed.side !== side;
-  const effectiveCooldownMs = isMedianOpposite
+  const isDifferentMedian = setupKind === 'fib_bounce' && lastClosed && lastClosed.entryMedian
+    && readout.fibBounce?.median && Math.abs(readout.fibBounce.median - lastClosed.entryMedian) >= 15;
+  const effectiveCooldownMs = (isMedianOpposite || isDifferentMedian)
     ? (3 * 60 * 1000)
     : (lastWonAndNewSetup ? (5 * 60 * 1000) : cooldownMs);
 
@@ -1167,6 +1189,7 @@ async function _maybeAutoDhanNifty({ inst, side, readout, alertKey, dayKey, setu
         entryMedian: readout.fibBounce?.median ?? null,
         entryBandLo: readout.fibBounce?.entryLo ?? null,
         entryBandHi: readout.fibBounce?.entryHi ?? null,
+        medianId: readout.fibBounce?.medianId ?? null,
         lastManagedBarT: Number(readout.triggerTs) || null,
         beMoved: false,
         legABooked: false,
@@ -1470,18 +1493,23 @@ async function pollManagedDhanStops() {
         }
 
         // Also check underlying index/commodity 1:1 level (crucial for MCX commodities or fast index moves)
-        if (!hitOneR && t.indexTp1 && t.indexEntry) {
+        // Guard: Trade must be open for at least 45 seconds to prevent noise knockout at fill
+        const tradeAgeMs = Date.now() - Number(t.openedAt || t.createTime || 0);
+        if (!hitOneR && t.indexEntry && t.indexStop && tradeAgeMs >= 45000) {
           const curIndexPx = Number(_instTrendState.get(tInst)?.price);
-          if (curIndexPx > 0) {
+          const indexRisk = Math.abs(Number(t.indexEntry) - Number(t.indexStop));
+          if (curIndexPx > 0 && indexRisk > 0) {
             const isLong = String(t.side).toUpperCase() === 'LONG';
-            const tpTarget = Number(t.indexTp1);
-            if (isLong && curIndexPx >= tpTarget) {
+            const oneRLevel = isLong
+              ? (Number(t.indexEntry) + indexRisk)
+              : (Number(t.indexEntry) - indexRisk);
+            if (isLong && curIndexPx >= oneRLevel) {
               hitOneR = true;
-              console.log(`[RedBarBot] 🎯 ${tInst} 1:1 reached on underlying: price=${curIndexPx} >= tpTarget=${tpTarget}`);
+              console.log(`[RedBarBot] 🎯 ${tInst} 1:1 reached on underlying: price=${curIndexPx} >= oneR=${oneRLevel.toFixed(1)}`);
             }
-            if (!isLong && curIndexPx <= tpTarget) {
+            if (!isLong && curIndexPx <= oneRLevel) {
               hitOneR = true;
-              console.log(`[RedBarBot] 🎯 ${tInst} 1:1 reached on underlying: price=${curIndexPx} <= tpTarget=${tpTarget}`);
+              console.log(`[RedBarBot] 🎯 ${tInst} 1:1 reached on underlying: price=${curIndexPx} <= oneR=${oneRLevel.toFixed(1)}`);
             }
           }
         }
