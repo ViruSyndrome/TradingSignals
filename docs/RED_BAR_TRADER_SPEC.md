@@ -77,7 +77,105 @@
 
 ---
 
-## 3. Large Sample Size Statistical Findings (246 Trading Days)
+---
+
+## 4. Two-Lot Scaling Architecture (1:1 Sell Half + Runner)
+
+A single bracket order cannot partially exit on Indian exchanges. The professional institutional method is **Two-Order Coordinated Execution**:
+
+```mermaid
+flowchart LR
+    A["Entry Trigger (130 Qty / 2 Lots)"] --> B["Leg 1: Banker (65 Qty)<br/>Target = 1:1 Risk-Reward<br/>SL = Previous Wick Low"]
+    A --> C["Leg 2: Runner (65 Qty)<br/>Target = 15m Structural Ceiling<br/>SL = Previous Wick Low"]
+    B -- "Hits 1:1 TP" --> D["Bank +₹516.75 Profit<br/>INSTANT ACTION: Move Leg 2 SL to Breakeven"]
+    D --> E["Leg 2 is now 100% Risk-Free<br/>Rides to 15m Structural Target"]
+    E -- "Hits 204.15 TP" --> F["Bank +₹1,183.00 on Runner<br/>Total Profit = +₹1,699.75"]
+```
+
+### The Exact Mathematical Logic:
+* **Entry**: 130 qty @ **₹185.95**
+* **Initial SL**: **₹178.00** (anchored to previous wick low). Risk per unit = **7.95 pts**.
+* **Order 1 (Banker - 65 qty)**:
+  * Limit TP placed at `Entry + 1R = 185.95 + 7.95 = ₹193.90`.
+  * Triggered at 13:47 (1m candle reached 193.95).
+  * Profit banked: **+₹516.75**.
+  * **Event Trigger**: When Order 1 fills, the bot immediately calls Dhan `modifyOrder` on Order 2, adjusting its Stop Loss price to **₹186.00 (Breakeven + 0.05 buffer)**.
+* **Order 2 (Runner - 65 qty)**:
+  * Limit TP placed at **₹204.15** (15m Open Bar Low / structural target).
+  * Triggered at 13:50 (1m candle reached 204.85).
+  * Profit banked: **+₹1,183.00**.
+  * Total Net P&L: **+₹1,699.75** (Zero risk after minute 2).
+
+---
+
+## 5. Trade Transitions, Cooldowns & Structural Invalidation
+
+### Why the Old 30-Minute Cooldown is Obsolete
+* The old bot used an arbitrary 30-minute timer because it was blindly knife-catching and re-entering the same failing candle 5 times.
+* When executing with a **15m Anchor $\rightarrow$ 5m Confirmation $\rightarrow$ 1m Micro Structure**, an arbitrary timer is harmful: it blocks great valid setups while doing nothing to fix bad entries.
+
+### The Replacement: "Structural Level Consumption"
+1. **Level Consumption**: Once a median bounce is traded and reaches its target (or hits SL), that specific test is marked **CONSUMED**.
+2. **When Can the Next Trade Enter?**:
+   * **Immediately**, IF price moves to a **different structural median** (e.g. price broke through and is now retesting the next median).
+   * On the **same level**, ONLY IF price pulls away by $\ge 15$ points and returns with a **completely new confirmation cycle** (a new 5m closed candle + new 1m double bottom/higher low).
+   * This completely prevents rapid-fire overtrading while never missing a genuine setup on a different level.
+
+### What Happens When Stop Loss is Hit?
+1. The tested level is tagged **FAILED / BROKEN**.
+2. **No Immediate Revenge Flip**: The bot does not instantly buy puts or flip direction.
+3. The bot waits for:
+   * Price to travel to the **Next Structural Level** (e.g. the next lower median or prior day 15:15 close), OR
+   * A **Confirmed Breakdown Retest**: Price breaks below the level, pulls back to test it from underneath, and confirms rejection on 5m/1m for a high-probability PE scalp.
+
+---
+
+## 6. Time Windows, Timing Gates & Global Market Catalysts
+
+### A. Intraday Session Gates:
+* **09:15 – 09:30 IST**: **NO TRADES ALLOWED**. 
+  * The 15-minute opening candle is forming. Let high-frequency algorithms settle.
+* **09:30 – 10:00 IST**: **AWAIT FIRST RED BAR**.
+  * No directional trades until the First Closed 15m Red Bar is established.
+* **10:00 – 11:30 IST**: **Prime Morning Window**.
+  * Trend expansion outside the Sandwich. Highest momentum of the day.
+* **11:30 – 12:30 IST**: **Lunch Theta Zone**.
+  * High decay, low volume. Strict 1:1 quick scalp rule; reduce position size or hold times.
+* **14:45 IST**: **LAST TRADE GATE**.
+  * No new positions initiated after 14:45 IST.
+* **15:10 IST**: **HARD FLATTEN**.
+  * Close all remaining open intraday positions before broker auto-squareoff.
+
+### B. International Market Catalysts & Their Indian Impact:
+1. **Asian / Gift Nifty (06:30 – 07:30 IST)**:
+   * Sets morning index sentiment and dictates the 09:15 opening gap.
+   * Captured by our **Gap Fib Median** ($\ge 40$ pts).
+2. **Europe / UK Market Open (12:30 – 13:30 IST / London opens 13:00 IST)**:
+   * **The 12:30–13:15 London Liquidity Injection**:
+   * European cash markets open at 12:30–13:00 IST. Foreign institutional desks execute cross-asset rebalancing.
+   * **The "Lunch Turnaround"**: A morning trend in NIFTY often stalls or reverses during this exact window. Today, NIFTY bottomed at 12:15, and London's open fueled the afternoon consolidation and CE bounces.
+3. **US Cash Market Open (19:00 IST)**:
+   * The primary volume driver for **MCX Crude Oil and Natural Gas**. 
+   * Morning and afternoon MCX setups are pre-runs; the massive trending impulse on Crude/NG almost always ignites between 19:00 and 21:30 IST.
+
+---
+
+## 7. Theta Decay & Expiry Day Protocols
+
+### A. The Mid-Day Theta Rule:
+* If an option trade has been active for **> 20 minutes** without hitting 1:1, and the underlying index has moved sideways within a 5-point range:
+  * The bot treats theta as the primary risk.
+  * Adjusts target to Breakeven / small exit to protect capital.
+
+### B. Expiry Day Protocol (NIFTY Expiry):
+1. **Moneyness Shift**: On Expiry day, OTM strikes decay to zero rapidly and have erratic delta. **The bot strictly trades ITM or Deep ATM strikes** (Delta $\ge 0.55–0.65$).
+2. **Shorter Time Horizons**: Scalps are capped at 5–15 minutes maximum.
+3. **Hard Expiry Cut-off**: No 0-DTE (same day expiry) trades after **14:00 IST**. After 14:00, all new setups must be routed to the **Next Week's Expiry** contract to eliminate gamma wipeout risk.
+
+
+---
+
+## 8. Large Sample Size Statistical Findings (246 Trading Days)
 
 From our empirical analysis of 18,254 5-minute bars across 246 trading days (Nov 2025 – Nov 2026):
 
