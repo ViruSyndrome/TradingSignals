@@ -1514,9 +1514,22 @@ async function pollManagedDhanStops() {
           }
         }
 
-        // Step 1 — 1:1 hit (triggered via Option 1R OR Underlying Commodity/Index 1:1)
-        // Does NOT depend on option LTP being available — moves SL to Breakeven on Dhan immediately.
-        if (!t.legABooked && hitOneR) {
+        // Step 1 — Exit Model Handling: Model A (All-In/All-Out) vs Model B (1:1 Banker + Runner)
+        const exitModel = String(process.env.DHAN_EXIT_MODEL || 'A').toUpperCase();
+        if (exitModel === 'A') {
+          // Model A: Super Order remains full size to Target or SL on Dhan RMS.
+          if (hitOneR && String(process.env.DHAN_MOVE_BE_AT_1R || '').toLowerCase() === 'true' && !t.beMoved) {
+            try {
+              await trader.moveStopToBreakeven(t.orderId, t.entryPremium, 0.5);
+              t.beMoved = true;
+              t.beMovedAt = Date.now();
+              console.log(`[RedBarBot] 🔒 Model A full size SL moved to Breakeven (${t.entryPremium}) on ${t.symbolHint}`);
+            } catch (e) {
+              console.warn('[RedBarBot] Model A BE move failed:', e.message);
+            }
+          }
+        } else if (!t.legABooked && hitOneR) {
+          // Model B: 1:1 Bank ~50% (2+ lots) + Runner SL to Breakeven
           try {
             const res = await trader.bankHalfAtOneR({
               orderId: t.orderId,
