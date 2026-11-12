@@ -212,43 +212,33 @@ const gate = RedBarTrend.entryGate({
 });
 ok('entryGate allows a median hold when no target is left', gate.state === 'enter', gate.reason);
 
-console.log('\n[5] readAt does not stand aside between the medians');
-// Build minimal HTF bars for readAt (use 5m as work bars)
-const evalTs = ist(2026, 11, 11, 9, 50);
-const priceInSandwich = midPrice;
-// Need enough bars for readAt i>=1 — use bars5m as work
-const work = bars5m.filter((b) => b.t <= evalTs);
-// Ensure last close is in sandwich
-work.push({
-  t: evalTs - 60000,
-  o: priceInSandwich,
-  h: priceInSandwich + 5,
-  l: priceInSandwich - 5,
-  c: priceInSandwich,
-  v: 1,
+console.log('\n[5] Sandwich stand-aside rule on narrow (< 120 pt) vs wide (>= 120 pt) highways');
+// (a) Narrow sandwich (< 120 pts): adv.sandwich has ~17.5 pt span -> signal bar closing strictly inside [lo, hi] MUST be blocked
+const swMid = (adv.sandwich.lo + adv.sandwich.hi) / 2;
+const narrowSigT = ist(2026, 11, 11, 10, 30);
+const narrowBars = [
+  ...bars5m.slice(0, bars5m.length - 1),
+  { t: narrowSigT, o: adv.sandwich.lo - 2, h: swMid + 4, l: adv.sandwich.lo - 5, c: swMid, v: 1 },
+];
+const swBlocked = RedBarTrend.detectFibBounceSetup({
+  bars5m: narrowBars,
+  advanced: adv,
+  evalTs: narrowSigT + 5 * 60000,
 });
-const fr = RedBarTrend.firstRedBarOfSession(bars5m, day, {
-  dayMode: 'ist', asOfTs: evalTs, barMs: 5 * 60000, id: 'NIFTY',
+ok('narrow sandwich (< 120 pts) blocks detectFibBounceSetup inside [lo, hi]', swBlocked.triggered === false, JSON.stringify(swBlocked));
+
+// (b) Wide sandwich (>= 120 pts): advWide has span >= 120 pts -> bounce off halfway median strictly inside [lo, hi] IS allowed
+const hwBounceT = ist(2026, 11, 11, 10, 10);
+const hwBounceBars = [
+  ...bars5m.slice(0, bars5m.length - 1),
+  { t: hwBounceT, o: hwMed.hi + 2, h: hwMed.hi + 25, l: hwMed.lo - 8, c: hwMed.hi + 15, v: 1 },
+];
+const wideAllowed = RedBarTrend.detectFibBounceSetup({
+  bars5m: hwBounceBars,
+  advanced: advWide,
+  evalTs: hwBounceT + 5 * 60000,
 });
-const readout = RedBarTrend.readAt(work, work.length - 1, {
-  id: 'NIFTY',
-  dayMode: 'ist',
-  bandStyle: 'sessionFib',
-  advancedFibs: true,
-  advancedFibGapPts: 40,
-  firstRedTf: '5m',
-  firstRed1h: fr,
-  bars5m,
-  asOfTs: evalTs,
-  markWindow: nifty.markWindow,
-  fibLevels: [0, 0.44, 0.5, 0.56, 1],
-});
-ok('readAt returns advancedFibs', !!readout?.advancedFibs);
-if (readout?.advancedFibs?.inSandwich) {
-  ok('sandwich is not a no-trade block', readout.setupKind !== 'fib_sandwich_wait', readout.setupKind);
-} else {
-  console.log('  SKIP  sandwich readAt (price/geometry did not land in sandwich on synthetic) — unit sandwich checks above still PASS');
-}
+ok('wide sandwich (>= 120 pts) allows detectFibBounceSetup inside [lo, hi]', wideAllowed.triggered === true && wideAllowed.side === 'bullish', JSON.stringify(wideAllowed));
 
 console.log(failed ? `\nFAILED ${failed}` : '\nALL PASS');
 process.exit(failed ? 1 : 0);

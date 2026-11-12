@@ -319,14 +319,52 @@ function runPatrickSwing(bars, tf, mode) {
     return trades;
 }
 
+function calcMetrics(trades) {
+    const wins = trades.filter(t => t.pnl > 0);
+    const losses = trades.filter(t => t.pnl <= 0);
+    const gw = wins.reduce((s, t) => s + t.pnl, 0);
+    const gl = Math.abs(losses.reduce((s, t) => s + t.pnl, 0));
+    const net = gw - gl;
+    let eq = 0, pk = 0, dd = 0;
+    for (const t of trades) {
+        eq += t.pnl;
+        if (eq > pk) pk = eq;
+        if (pk - eq > dd) dd = pk - eq;
+    }
+    const pf = gl > 0 ? gw / gl : null;
+    const wr = trades.length ? (wins.length / trades.length) * 100 : 0;
+    const avgHold = trades.length ? trades.reduce((s, t) => s + t.holdDays, 0) / trades.length : 0;
+    return {
+        trades: trades.length,
+        wins: wins.length,
+        losses: losses.length,
+        winRatePct: +wr.toFixed(1),
+        netPts: +net.toFixed(1),
+        netRs1Lot: Math.round(net * 65),
+        profitFactor: pf == null ? null : +pf.toFixed(2),
+        maxDDPts: +dd.toFixed(1),
+        avgHoldDays: +avgHold.toFixed(1),
+    };
+}
+
+const patrickReport = { generatedAt: new Date().toISOString(), timeframes: {} };
+
 for (const tf of ['15m', '30m', '1h']) {
     const bars = loadBars(tf);
+    patrickReport.timeframes[tf] = {
+        bars: bars.length,
+        from: fmtDate(bars[0].t),
+        to: fmtDate(bars[bars.length - 1].t),
+        modes: {},
+        setupBreakdown: {},
+    };
     console.log(`\n========================================================================`);
     console.log(`PATRICK NILL FUTURES SWING (${tf}) | Bars: ${bars.length} | ${fmtDate(bars[0].t)} -> ${fmtDate(bars[bars.length - 1].t)} (-2 pts slippage included)`);
     console.log(`========================================================================`);
     for (const mode of ['ALL', 'FAILED_RECLAIM', 'CONFIRMED_BREAKOUT', 'WIDE_FADE']) {
         const trades = runPatrickSwing(bars, tf, mode);
         summarize(`Mode: ${mode}`, trades);
+        patrickReport.timeframes[tf].modes[mode] = calcMetrics(trades);
     }
     const allTrades = runPatrickSwing(bars, tf, 'ALL');
     const byKind = {};
@@ -335,5 +373,12 @@ for (const tf of ['15m', '30m', '1h']) {
         byKind[t.kind].push(t);
     }
     console.log('--- Setup Breakdown (ALL combined) ---');
-    for (const [k, list] of Object.entries(byKind)) summarize(`  ${k}`, list);
+    for (const [k, list] of Object.entries(byKind)) {
+        summarize(`  ${k}`, list);
+        patrickReport.timeframes[tf].setupBreakdown[k] = calcMetrics(list);
+    }
 }
+
+const patrickOutPath = path.join(__dirname, '..', 'docs', 'backtests', 'patrick_futures_swing_latest.json');
+fs.writeFileSync(patrickOutPath, JSON.stringify(patrickReport, null, 2));
+console.log(`\nSaved Patrick Futures Swing JSON -> ${patrickOutPath}`);

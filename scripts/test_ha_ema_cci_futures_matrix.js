@@ -148,11 +148,13 @@ function runBacktest(bars, opts) {
             }
 
             if ((enterLong || enterShort) && quietFilter) {
+                // Locked quietStep rule (matches scripts/backtest_ha_ema_cci.js:383-387):
+                // jump = |dCCI| < 25, thrust = distance past +-100 < 15, skip 09:15 & first bar of session
                 const hhmm = istHHMM(b.t);
-                const prevB = bars[i - 1];
-                const jump = Math.abs(b.o - prevB.c);
-                const thrust = Math.abs(cCurr - cPrev);
-                if (hhmm === '09:15' || jump >= 25 || thrust >= 15) {
+                const firstBarOfDay = fmtDate(b.t) !== fmtDate(bars[i - 1].t);
+                const jump = Math.abs(cCurr - cPrev);
+                const thrust = enterLong ? (cCurr - 100) : (-100 - cCurr);
+                if (firstBarOfDay || hhmm === '09:15' || jump >= 25 || thrust < 0 || thrust >= 15) {
                     enterLong = false;
                     enterShort = false;
                 }
@@ -198,8 +200,16 @@ function runBacktest(bars, opts) {
     };
 }
 
+const reportOut = { generatedAt: new Date().toISOString(), timeframes: {} };
+
 for (const tf of ['15m', '30m', '1h', '5m']) {
     const bars = loadBars(tf);
+    reportOut.timeframes[tf] = {
+        bars: bars.length,
+        from: fmtDate(bars[0].t),
+        to: fmtDate(bars[bars.length - 1].t),
+        rows: [],
+    };
     console.log(`\n========================================================================`);
     console.log(`TIMEFRAME: ${tf} | Bars: ${bars.length} | Span: ${fmtDate(bars[0].t)} -> ${fmtDate(bars[bars.length - 1].t)}`);
     console.log(`========================================================================`);
@@ -214,6 +224,21 @@ for (const tf of ['15m', '30m', '1h', '5m']) {
     ];
     for (const c of configs) {
         const r = runBacktest(bars, c);
+        reportOut.timeframes[tf].rows.push({
+            label: c.label,
+            trades: r.tradesCount,
+            wins: r.wins,
+            losses: r.losses,
+            winRatePct: +r.wr.toFixed(1),
+            netPts: +r.netPts.toFixed(1),
+            netRs1Lot: Math.round(r.netRs1Lot),
+            profitFactor: +r.pf.toFixed(2),
+            maxDDPts: +r.maxDD.toFixed(1),
+            avgHoldDays: +r.avgHoldDays.toFixed(1),
+            avgWinPts: +r.avgWin.toFixed(1),
+            avgLossPts: +r.avgLoss.toFixed(1),
+            top3: r.top3,
+        });
         console.log(
             `${c.label.padEnd(48)} | Tr=${String(r.tradesCount).padStart(3)} (${r.wins}W/${r.losses}L, ${r.wr.toFixed(1).padStart(4)}%) | Net=${r.netPts.toFixed(1).padStart(8)} pts (Rs ${Math.round(r.netRs1Lot).toLocaleString('en-IN').padStart(9)}) | PF=${r.pf.toFixed(2)} | MaxDD=${r.maxDD.toFixed(1).padStart(6)} pts | AvgHold=${r.avgHoldDays.toFixed(1)}d | AvgW/L=+${r.avgWin.toFixed(1)}/-${r.avgLoss.toFixed(1)}`
         );
@@ -229,3 +254,7 @@ for (const tf of ['15m', '30m', '1h', '5m']) {
         }
     }
 }
+
+const outPath = path.join(__dirname, '..', 'docs', 'backtests', 'ha_ema_cci_futures_matrix_latest.json');
+fs.writeFileSync(outPath, JSON.stringify(reportOut, null, 2));
+console.log(`\nSaved matrix JSON -> ${outPath}`);

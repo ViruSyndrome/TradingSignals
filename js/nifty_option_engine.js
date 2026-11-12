@@ -143,8 +143,9 @@ function check1mMicroConfirmation(bars1m) {
   const curBody = cur.c - cur.o;
   const hasMicroBreakout = curIsGreen && (cur.c > prev.h || (cur.c > prev.c && curBody > curRange * 0.4));
 
-  // Condition 4: Micro Double Bottom / Higher Low
-  const hasHigherLow = cur.l >= prev.l && (curIsGreen || curWickRatio >= 0.25);
+  // Condition 4: Micro Double Bottom / Higher Low (must still close with real buyer body >= 25% of range or >= 20% lower wick, preventing tiny red/green dojis from confirming)
+  const hasHigherLow = cur.l >= prev.l
+    && ((curIsGreen && (curBody >= curRange * 0.25 || curWickRatio >= 0.20)) || curWickRatio >= 0.25);
 
   const confirmed = hasStrongWick || hasGreenReversal || hasMicroBreakout || hasHigherLow;
 

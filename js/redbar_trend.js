@@ -1588,10 +1588,10 @@ const RedBarTrend = {
 
   /**
    * NIFTY median wick (Advanced Red Bar).
-   * The band between the 09:15 median and the first-red median is the trade.
-   * A 5m wick meets a median band (0.44–0.56) and closes back, or cuts it and flips color.
-   * Stop is that candle's wick. Target is the next median, even when it is closer than the stop.
-   * No median left: the caller holds to a close back through this band, or the session end.
+   * Stands aside when price closes strictly inside a narrow (< 120 pts) 09:15 vs first-red sandwich.
+   * On wide highways (>= 120 pts) or outside a narrow sandwich, a 5m wick meeting a median band (0.44–0.56)
+   * and closing back/reclaiming triggers entry. Stop uses the further of signal and prior candle wick extreme.
+   * Target is the next median's near edge, or hold until close-back / session end when no median remains.
    */
   detectFibBounceSetup({
     bars5m,
@@ -1708,7 +1708,7 @@ const RedBarTrend = {
           triggerTs: b.t,
           triggerPrice: entry,
           stopHint: stop,
-          stopReason: 'signal wick',
+          stopReason: 'signal/prior wick extreme',
           tpHint: tp,
           tpLabel,
           tpId,
@@ -4891,7 +4891,7 @@ const RedBarTrend = {
         magnet_bounce_watch: 'Fib bounce is chart context — not an ENTER.',
         pivot_reversal: 'Price crossed the 1H red against Fib bias — conflicting, wait.',
         trade2_watch: 'H1→M5 Trade 2: wait for 1H high/low liquidity sweep, then 5m close back through that level (median confluence).',
-        fib_sandwich_wait: 'Price is between the 09:15 median and the red-bar median. That band is the trade when a wick meets one of the lines.',
+        fib_sandwich_wait: 'Price is strictly inside the narrow (< 120 pts) 09:15 vs red-bar sandwich — stand aside until price leaves the band.',
         pob_reject_watch: 'Mid-zone (5m): open candle marked — wait retest of 44–56 then SHORT reject. NSE 09:15 or BTC Asia 05:30.',
         setup3_primed: 'Setup 3 Primed (overlay): ≥4× 30m candles detached from 5 EMA. Watch LTF Barricade — not ENTER until walk-forward PASS.',
         setup3_rubber_band: 'Setup 3 Barricade broken (overlay): rubber-band snapback visible — chart guide only.',

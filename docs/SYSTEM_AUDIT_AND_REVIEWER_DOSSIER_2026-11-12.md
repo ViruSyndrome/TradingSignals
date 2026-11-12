@@ -1,173 +1,131 @@
 # SYSTEM AUDIT & INDEPENDENT REVIEWER DOSSIER (UPDATED)
 **System**: Dr. Dev / Sagar Advanced Fib Median Options Scalper & Multi-TF Option Engine  
 **Target Market**: NSE NIFTY 50 Weekly Options (Dhan Brokerage API) + Futures Research Sleeves  
-**Date of Audit**: November 13, 2026 (02:05 IST)  
+**Date of Audit**: November 13, 2026 (02:40 IST)  
 **Auditor / Engineering Lead**: Antigravity Quantitative Systems  
-**Git Branch**: `main` | **Included Commits**: `446a1ae` .. `d510957` + latest execution-safety & Futures research update  
-**Production Server**: Ubuntu 24.04 LTS (`144.24.135.68`) | PM2 App: `trendrunner` (PID `354463`, `online`)  
+**Git Branch**: `main` | **Included Commits**: `446a1ae` .. `bbdaeeb` + reviewer-remediation patch  
+**Production Server**: Ubuntu 24.04 LTS (`144.24.135.68`) | PM2 App: `trendrunner` (`online`)  
 
 ---
 
 ## 1. Executive Summary & Honest Bot Readiness Verdict
 
-This dossier provides the complete, unfiltered technical audit, forensic remediation log, empirical backtests, and live deployment readiness assessment for the **NIFTY 50 Weekly Options** bot and its two supplementary **NIFTY Futures swing** research strategies.
+This dossier provides the transparent technical audit, reviewer-remediation log, empirical backtests (backed by saved JSON artifacts in `docs/backtests/`), and production deployment readiness assessment for the **NIFTY 50 Weekly Options** system.
 
-### Is the Bot Configured Correctly & Ready to Go Live?
-* **Ready for Manual Trading Tomorrow (`DHAN_AUTO_TRADE=false`)**: **YES.** The Oracle VM is healthy, `DHAN_AUTO_TRADE=false` is strictly locked in `~/Trading/.env`, Dhan API connectivity is verified (`status: success`), PM2 `trendrunner` is online scanning `NIFTY`, and all structural engine tests + live Dhan `OPTIDX` 1m probes pass.
-* **All 3 Pre-Live Execution Gaps Now Bridged in Code**:
-  1. **Gap 1 Closed (1m `OPTIDX` Date-Window Bug Fixed + Live Telemetry Built In)**: Live Dhan `/v2/charts/intraday` probing discovered that single-day queries (`fromDate === toDate`) returned `0` bars. Fixed `fetchOptionIntradayBars()` in `js/dhan_nifty_trade.js` to query a 3-day rolling IST window through `tomorrow` (verified live returning `770` 1m bars = `385` for `2026-11-12` on both `25250 CE` and `25300 PE`), added live JSONL telemetry (`logs/option_engine_telemetry.jsonl`) + `scripts/probe_live_option_engine.js`, and refined `check1mMicroConfirmation()` so a prior-bar rejection wick only confirms if the current bar holds (`prev_rejection_wick_hold`).
-  2. **Gap 2 Closed (Telegram `ENTER` & Option 1m Gate Synchronized)**: Extracted shared `_evaluateNiftyOptionSetup()` in `bot.js`. Telegram `ENTER` now holds when the Option 1m gate is `PENDING_1M` or `WIDE_SPREAD`, prints the actual structural Option Chart Bracket (`Ask`, `Wick SL`, `1:1 Bank`, `15m Ceiling`) instead of synthetic guesses (with fallback delta aligned to `0.55`), and passes `precomputedOptEval` into `_maybeAutoDhanNifty()` with zero duplicate API calls.
-  3. **Gap 3 Closed (Explicit Cooldown Distinction)**: Updated cooldown logs in `bot.js` to explicitly report `3m structural median switch` vs `5m won-setup rotation` vs `30m DHAN_AUTO_COOLDOWN_MS repeat/loss throttle`.
-* **Operational Gate Before Flipping `DHAN_AUTO_TRADE=true`**: While code + live `OPTIDX` endpoints are verified, still observe 1 live market-hour session (`DHAN_AUTO_TRADE=false`) reviewing `logs/option_engine_telemetry.jsonl` (or PM2 logs) before enabling real-money auto orders.
-
-```
-+-----------------------------------------------------------------------------------+
-|                        PRODUCTION SYSTEM STATUS OVERVIEW                          |
-+-----------------------------------------------------------------------------------+
-| Live Auto-Trading Flag   | DHAN_AUTO_TRADE=false (LOCKED OFF FOR MANUAL SESSION)  |
-| Execution Exit Model     | DHAN_EXIT_MODEL=B (50% Bank @ 1:1 + Runner BE +0.50)   |
-| Active Position Sizing   | DHAN_NIFTY_LOTS=2 (130 Units)                          |
-| Dhan API Connectivity    | Active & Verified Live (status: success, token fresh)  |
-| Option Engine Unit Test  | scripts/test_nifty_option_engine.js — ALL PASS         |
-| Fib Anchor Unit Test     | scripts/test_advanced_nifty_fibs.js — ALL PASS         |
-| Production Deployment    | Verified on Oracle VM 144.24.135.68 (PM2 PID 354463)   |
-+-----------------------------------------------------------------------------------+
-```
+### Is the Bot Configured Correctly & Ready?
+* **Ready for Manual Trading Tomorrow (`DHAN_AUTO_TRADE=false`)**: **YES.** `DHAN_AUTO_TRADE=false` is strictly locked in `~/Trading/.env` on `144.24.135.68` (and the code also fails safe when unset). Live Dhan market-data & option-chain tokens are verified active (`status: success`), PM2 `trendrunner` is online scanning `NIFTY`, and all offline + live API probes pass.
+* **3 Technical Pre-Live Gaps Bridged & Verified in Code**:
+  1. **Gap 1 — 1m `OPTIDX` Date-Window Bug Fixed + Live Telemetry**: Live Dhan `/v2/charts/intraday` testing proved single-day (`fromDate === toDate`) queries return `0` bars. Fixed `fetchOptionIntradayBars()` in [`js/dhan_nifty_trade.js`](file:///c:/Users/Vinod/Desktop/Trading/js/dhan_nifty_trade.js#L611-L625) to query a 3-day rolling IST window through tomorrow (`probe_live_option_engine.js` verified **770 live 1m bars / 385 latest session** on ATM CE & PE). Added bounded JSONL telemetry (`logs/option_engine_telemetry.jsonl`), tightened higher-low & stale-wick guards in `check1mMicroConfirmation()`, and added fail-closed `DHAN_ALLOW_DELTA_FALLBACK=false` in `bot.js`.
+  2. **Gap 2 — Synchronized Telegram Alert, Exit Plan Text & 1m Option Gate**: Extracted shared [`_evaluateNiftyOptionSetup()`](file:///c:/Users/Vinod/Desktop/Trading/bot.js#L936-L1059) in `bot.js`. Telegram `ENTER` now holds when `PENDING_1M` or `WIDE_SPREAD` (`> 2.5`), aligns fallback delta to `0.55`, prints the exact structural Option Chart bracket (`Ask`, `SL`, `1:1 Bank`, `15m Target`) when confirmed, and updates `planLine` to accurately describe Model B (`50% @ 1:1 + BE +0.50`) rather than contradicting it with `"No half-off at 1:1"`.
+  3. **Gap 3 — Explicit Cooldown Separation**: `bot.js` explicitly distinguishes `3m structural median switch`, `5m won-setup rotation`, and `30m DHAN_AUTO_COOLDOWN_MS` repeat/loss throttle.
+* **Operational Gate Before Flipping `DHAN_AUTO_TRADE=true`**: Still observe 1 full live market session (`09:15–15:30 IST`) with `DHAN_AUTO_TRADE=false` reviewing `logs/option_engine_telemetry.jsonl` (so real intraday latency & live 1m bar fills are confirmed in runtime telemetry before enabling automated real-money orders).
 
 ---
 
-## 2. Git Commit Audit Trail & Execution Fixes Applied
+## 2. Git Commit Audit Trail & Remediation History
 
-| Commit / Stage | Scope & Files Modified | Engineering Intent & Verified Fix |
+| Commit / Patch | Scope & Files Modified | Engineering Intent & Verified Impact |
 | :--- | :--- | :--- |
-| **Latest Audit Patch** | `js/dhan_nifty_trade.js`, `bot.js`, `scripts/test_ha_ema_cci_futures_matrix.js`, `scripts/test_patrick_futures_swing.js` | **3 Execution Fixes + Futures Matrices**: (1) Exposed `top_bid_price` as `bid` in `pickOptionContract()` so `bot.js` measures true `ask - bid` spread instead of `ask - ltp`; (2) Added `<58s` closed-candle guard on live 1m option bars in `bot.js` so mid-minute forming ticks do not falsely trigger `check1mMicroConfirmation()`; (3) Updated `t.medianTrade` 1:1 check in `pollManagedDhanStops()` to trigger Model B (`bankHalfAtOneR`) on **either** option premium `1:1` (`entryPremium + oneRPts`) OR underlying index `1:1`. |
-| **`ce5c73d`** | `scripts/compare_locked_ha_vs_normal.js`, `scripts/test_patrick_nill_strategy.js` | Initial HA vs Normal EMA stack check and 12-trade `15m` sweep study. |
-| **`d510957`** | `js/nifty_option_engine.js`, `js/dhan_nifty_trade.js`, `bot.js`, `scripts/test_nifty_option_engine.js` | **Live Option Chart Engine & Model B Fix**: Added live 1m/15m option candle analysis, 1m buyer-wick rejection gating ($\ge 30\%$ wick / green expansion), direct option wick SL (`signalLow - 2.0`), and fixed `bankHalfAtOneR` bypass on median trades. |
-| **`a8a4827`** | `bot.js` | Added configurable `DHAN_EXIT_MODEL` (`A` = All-In to Target vs `B` = 1:1 Banker + Runner BE). |
-| **`446a1ae`** | `bot.js`, `js/redbar_trend.js`, `scripts/` | Applied First Red Bar gate, Sandwich stand-aside, structural level cooldown, dynamic London DST, and expiry replay harness. |
+| **Reviewer Remediation** | `bot.js`, `js/nifty_option_engine.js`, `js/redbar_trend.js`, `scripts/test_nifty_option_engine.js`, `scripts/test_advanced_nifty_fibs.js`, `scripts/test_ha_ema_cci_futures_matrix.js`, `scripts/test_patrick_futures_swing.js` | Closed every discrepancy flagged in independent review: aligned Telegram `planLine` with Model B; added fail-closed `DHAN_ALLOW_DELTA_FALLBACK=false`; tightened `hasHigherLow`; added true 1m + `[4, 14]` SL clamp tests; added true narrow/wide sandwich unit tests & accurate `signal/prior wick extreme` reason; fixed HA matrix `jump`/`thrust` formula and saved JSON artifacts in `docs/backtests/`. |
+| **`bbdaeeb`** | `bot.js`, `js/dhan_nifty_trade.js`, `js/nifty_option_engine.js`, `scripts/probe_live_option_engine.js` | Fixed Dhan `/charts/intraday` same-day empty response; synchronized Telegram `ENTER` & 1m Option Engine; fixed stale prior-bar wick label (`prev_rejection_wick_hold`); added JSONL telemetry + live CE/PE 1m probe. |
+| **`eaebfdb`** | `bot.js`, `js/dhan_nifty_trade.js`, `scripts/test_ha_ema_cci_futures_matrix.js`, `scripts/test_patrick_futures_swing.js` | Exposed `top_bid_price` as `bid` for true `ask - bid` spread check; trimmed unfinished `<58s` forming 1m candle; enabled option-LTP + index 1:1 detection for Model B in `t.medianTrade`. |
+| **`d510957`** | `js/nifty_option_engine.js`, `js/dhan_nifty_trade.js`, `bot.js`, `scripts/test_nifty_option_engine.js` | Created 15m Canvas + 1m Micro-Confirmation Option Engine & closed Model B `bankHalfAtOneR` bypass on median trades. |
+| **`446a1ae` / `a8a4827`** | `bot.js`, `js/redbar_trend.js`, `scripts/` | Configurable `DHAN_EXIT_MODEL` (`A`/`B`), First Red Bar gate, Sandwich stand-aside `< 120 pts`, structural cooldown, dynamic IANA London DST. |
 
 ---
 
-## 3. Forensic Honesty Audit: Resolved Bugs vs. Remaining Gaps
+## 3. Forensic Honesty Audit: Exact Code Mechanics (No Overstatements)
 
-### Bugs Discovered & Closed
-1. **The Option Chart Disconnect (Fixed in `d510957`)**:
-   * *Prior Reality*: While Fib rules ran on the **NIFTY Spot Index**, Dhan orders estimated SL/TP by multiplying index risk by Delta ($\Delta = 0.55$). The bot never read the actual option chart's 15m Opening Bar Low (structural ceiling) or 1m buyer support wicks.
-   * *Fix Deployed*: [`js/nifty_option_engine.js`](file:///c:/Users/Vinod/Desktop/Trading/js/nifty_option_engine.js) fetches live `OPTIDX` bars from Dhan, identifies `openBarLow` (`09:15–09:30 IST`), requires a **closed 1m** rejection wick ($\ge 30\%$ lower wick + higher low) or green reversal bar, and anchors SL directly below `signalLow - 2.0` (`directOptionLevels`).
-2. **Model B `bankHalfAtOneR` Bypass on Median Trades (Fixed in `d510957` & Refined Today)**:
-   * *Prior Reality*: `fib_bounce` trades hit `continue;` inside `if (t.medianTrade)` after moving SL to breakeven, skipping `bankHalfAtOneR()`. Furthermore, checking only **underlying index 1:1** missed tighter **option-chart 1:1** targets when `directOptionLevels` anchored a 6–10 pt option SL.
-   * *Fix Deployed*: `pollManagedDhanStops()` in `bot.js` now checks **both** live `OPTIDX` LTP (`entryPremium + oneRPts`) and underlying index 1:1, banking 65 qty (1 lot) at 1:1 and locking Leg 2 at Cost `+0.50`.
-3. **Fake Spread Check & Unclosed Live 1m Bar Vulnerability (Fixed Today)**:
-   * `pickOptionContract()` in `js/dhan_nifty_trade.js` now returns `bid` (`top_bid_price`) so `bot.js` checks true `ask - bid > 2.5` (previously `ask - ltp`), and `bot.js` strips an incomplete `<58s` live 1m candle before running `check1mMicroConfirmation()`.
-
-### Resolved Gaps + Operational Checklist Before Enabling `DHAN_AUTO_TRADE=true`
-1. **Live Telemetry & Same-Day API Fix (`probe_live_option_engine.js` & `logs/option_engine_telemetry.jsonl`) — BUILT & VERIFIED**: Live endpoint testing caught and fixed Dhan `/charts/intraday` returning `0` bars on same-calendar-day ranges; `fetchOptionIntradayBars()` now returns `770` live 1m bars reliably (`385` for latest session on both ATM CE & PE). Monitor 1 live market session via telemetry (`DHAN_AUTO_TRADE=false`) before switching auto live.
-2. **Telegram Alert vs. 1m Gate Sequencing — BUILT & VERIFIED**: `_scanOneRedBarInstrument()` now runs `_evaluateNiftyOptionSetup()` upfront and holds Telegram `ENTER` until 1m Option confirmation clears (and prints exact Option Strike / Ask / SL / 1:1 / 15m Target in Telegram instead of synthetic estimates; fallback delta aligned to `0.55`).
-3. **30-Minute Repeat Cooldown Clarity (`DHAN_AUTO_COOLDOWN_MS=1800000`) — CLARIFIED IN LOGS**: `bot.js` explicitly distinguishes `3m structural median switch` and `5m won-setup rotation` from the `30m` same-side repeat/loss throttle.
-4. **Capital / Profit Expectation Alignment**: Neither this 2-lot (130 qty) NIFTY intraday options system nor single-lot Futures strategies will generate ₹5,00,000/month consistently on ₹2L capital. At verified positive expectancy, ₹5L/month requires larger capital scaling (`₹8L–₹12L+` / 10–15 lots) plus diversified non-correlated sleeves.
+An independent reviewer checking line-by-line should note the exact implemented behavior:
+1. **Strictness of `check1mMicroConfirmation()` (`js/nifty_option_engine.js`)**:
+   * Confirms on any **one** of four patterns on closed `1m` option candles:
+     1. Current `>= 30%` lower rejection wick (`rejection_wick_*pct`), or prior `>= 30%` wick when current holds (`curIsGreen || cur.l >= prev.l`, labeled `prev_rejection_wick_hold_*pct`).
+     2. Green reversal bar (`curIsGreen && (curWickRatio >= 0.25 || curLowerWick >= 3.0)`).
+     3. Green momentum break (`curIsGreen && (cur.c > prev.h || (cur.c > prev.c && curBody > curRange * 0.4))`).
+     4. Micro higher low with buyer confirmation (`cur.l >= prev.l && ((curIsGreen && (curBody >= curRange * 0.25 || curWickRatio >= 0.20)) || curWickRatio >= 0.25)`).
+   * If the `1m` fetch returns `< 2` closed bars or errors, `bot.js` now **holds the auto order by default** (`DHAN_ALLOW_DELTA_FALLBACK=false`). Only setting `DHAN_ALLOW_DELTA_FALLBACK=true` allows falling back to `Δ = 0.55` mapped index levels.
+2. **Option Stop Clamp (`calculateOptionLevels()` in `js/nifty_option_engine.js`)**:
+   * Raw structural stop is `signalLow - 2.0`, **clamped so final option risk lies within `[4.0, 14.0]` points** (`Math.max(4, Math.min(14, entry - rawStop))`). Example `186 -> 178` (`8.0` pts) sits inside the unclamped band.
+3. **Dual-Exit Architecture on NIFTY Median (`fib_bounce`) Trades (`bot.js`)**:
+   * **Broker SuperOrder (`openOptionSuperTrade`)**: When the 1m gate passes with `directOptionLevels`, Leg 1 (`65` qty in Model B) + runner hold Option SL `[4..14]` pts and Option Target = `openBarLow` (`15m` Opening Range Low if `> 1.5R`, otherwise `2.2R`).
+   * **Active Position Monitor (`pollManagedDhanStops`)**: Checks **Model B 1:1** (`bankHalfAtOneR()` sells 65 qty and moves runner SL to Cost `+0.50` when **either** live option LTP hits `entryPremium + oneRPts` **or** underlying index hits `1:1`) AND monitors the **closed 5m index candle** against `t.indexTp1` (`done` / `flip` / `back`) as a tactical exit if the index hits a median and reverses before option ceiling fills.
+4. **Sandwich Stand-Aside & Signal Wick Behavior (`js/redbar_trend.js`)**:
+   * `detectFibBounceSetup()` skips any closed 5m candle whose close sits strictly inside `[sandwich.lo, sandwich.hi]` when the span `< 120` pts (explicitly tested in `scripts/test_advanced_nifty_fibs.js` section `[5]`, which passes BOTH narrow block `< 120` and wide allowance `>= 120`).
+   * Stop uses the further of current signal candle wick and immediately preceding 5m candle wick (`Math.min(b.l, prev.l)` / `Math.max(b.h, prev.h)`), accurately reported as `'signal/prior wick extreme'`.
 
 ---
 
-## 4. Verification of the Live Option Chart Engine (`nifty_option_engine.js`)
+## 4. Verification of Option Chart Engine (Offline Fixtures + Live Dhan Probe)
 
-Validated against real Dhan exchange candles for **`NIFTY 25250 CE`** (Nov 12, 2026 — [`scripts/test_nifty_option_engine.js`](file:///c:/Users/Vinod/Desktop/Trading/scripts/test_nifty_option_engine.js)):
-
-```
---- 1. 15-Minute Option Canvas ---
-Opening Range High:         Rs 269.50
-Opening Range Low (Target): Rs 204.15  (Primary structural ceiling for afternoon bounce)
-
---- 2. Micro-Confirmation Gate (Option Tape) ---
-• 13:40 Bar (O:197.25 L:183.85 C:184.85, Red, Wick Ratio 5.4%):
-  -> Confirmed = FALSE ("1m awaiting confirmation" — prevents catching falling knife)
-
-• 13:45 Bar (O:185.15 L:180.00 C:196.15, Green, Wick Ratio 30.1%):
-  -> Confirmed = TRUE ("rejection_wick_30pct, signalLow=180.00")
-
---- 3. Structural Option Bracket Built ---
-Entry Price:        Rs 186.00 (Live Ask)
-Stop Loss:          Rs 178.00 (signalLow 180.00 - 2.00 buffer -> 8.00 pts Risk)
-Model B 1:1 Bank:   Rs 194.00 (Sell 65 qty, move Leg 2 SL to Rs 186.50)
-15m Target Ceiling: Rs 204.15 (Reward: +18.15 pts -> 1:2.27 Risk/Reward)
-```
-
-Also verified after today's final edits: `scripts/test_advanced_nifty_fibs.js` (**ALL PASS** — First Red Bar, Sandwich stand-aside `<120`, previous wick extreme SL, lunch median bounces, halfway POB median).
+1. **Offline Test Suite (`scripts/test_nifty_option_engine.js` — ALL PASS)**:
+   * **5m Replay (`today_option_candles.json`, `NIFTY 25250 CE`, `77` 5m bars)**:
+     * 15m Canvas Open High `269.50` / Open Low `204.15` / Open Median `236.80`.
+     * `13:40` red dump (`5.4%` wick) -> `confirmed: false`.
+     * `13:45` bounce (`L=180, C=196.15`, `30.1%` wick) -> `confirmed: true` (`Entry 186.00`, `SL 178.00`, `1:1 194.00`, `Target 204.15`, `RR 2.27`).
+   * **1m Strict Gating & Clamp Assertions (Test 5)**: Confirms weak `<25%`-body green higher-low doji (`false`), stale prior wick followed by red lower-low flush (`false`), true `1m` buyer rejection (`true`), and `[4.00, 14.00]` pt risk clamps.
+2. **Live Dhan `OPTIDX` 1m Endpoint Probe (`scripts/probe_live_option_engine.js` — PASSED LIVE)**:
+   * **`NIFTY 25250 CE 2026-11-17` (`SecId=45396`)**: Quote `LTP=203.2, Bid=202.15, Ask=203.35, Spread=1.20`; fetched **`770` live 1m bars** (`385` for `2026-11-12`, Open `162.8..269.5`); `Micro: confirmed=true (rejection_wick_38pct)`; `Entry=203.35 SL=197.45 (5.9 risk) 1:1=209.25 Target=216.35 RR=2.20`.
+   * **`NIFTY 25300 PE 2026-11-17` (`SecId=45403`)**: Quote `LTP=188.25, Bid=187.95, Ask=189.00, Spread=1.05`; fetched **`770` live 1m bars** (`385` for `2026-11-12`, Open `183.45..314.85`); `Micro: confirmed=true (prev_rejection_wick_hold_32pct)`; `Entry=189.00 SL=185.00 (4.0 clamped risk) 1:1=193.00 Target=197.80 RR=2.20`.
 
 ---
 
 ## 5. Official Red Bar / Fib Median Performance Audits
 
-### 5.1 Official 1-Year Production Engine Walk-Forward (`RedBarTrend.readAt()`)
-* **Period**: Nov 14, 2025 – Nov 11, 2026 (`scripts/backtest_advanced_nifty.js`)
-* **Total Trades**: 700 | **Win Rate**: 37.7% | **Net Index Points**: **+1,460.70 pts (+44.83 R)**
-* **Core Setup Breakdown**:
-  * `fib_bounce` (Sagar/Dev Medians): 592 trades, 210 wins, **+1,410.56 pts**
-  * `afternoon_1245_reversal`: 14 trades, 11 wins (**78.6% WR**), **+131.77 pts**
-  * `afternoon_1245_breakout`: 21 trades, 14 wins (**66.7% WR**), **+122.70 pts**
+### 5.1 Official 1-Year & Recent 14-Day Engine Walk-Forward (`docs/backtests/advanced_nifty_1794509192305.json`)
+Source: [`scripts/backtest_advanced_nifty.js`](file:///c:/Users/Vinod/Desktop/Trading/scripts/backtest_advanced_nifty.js) calling `RedBarTrend.readAt()` (Index points only; does NOT simulate the new 1m option gate or Model B scaling):
+* **Full 1-Year Window (`results[2]`)**: `700` trades | **Win Rate**: `37.7%` | **Net**: **+1,460.70 pts (+44.83 R)**
+  * `fib_bounce`: `592` trades, `210` wins, **+1,410.56 pts**
+  * `afternoon_1245_reversal`: `14` trades, `11` wins (`78.6%`), **+131.77 pts**
+  * `afternoon_1245_breakout`: `21` trades, `14` wins (`66.7%`), **+122.70 pts**
+  * `afternoon_1245_retest`: `45` trades, `16` wins, `-98.85 pts` | `trade1_departure`: `16` trades, `-119.23 pts`
+* **Recent 14-Day Window (`results[0]`, Oct 28 – Nov 11, 2026)**: `30` trades (`12W / 18L`, `40.0%` WR) | **Net**: **+6.64 pts (`-2.27 R`)**
+  * `fib_bounce`: `21` trades (`8W`), **`-19.26 pts`** | `afternoon_1245_breakout`: `4` trades, `+11.25 pts` | `afternoon_1245_retest`: `5` trades, `+14.65 pts`.
+  * *Takeaway*: Recent 2-week pre-election/trend chop dragged index-level `fib_bounce` flat/negative (`-19.26 pts`), reinforcing why live 1m Option Chart gating + Model B profit banking were required before live auto-trading.
 
-### 5.2 Expiry Days vs. Normal Days Regime Split (2 Lots = 130 Qty)
-* **10 Weekly Expiry Thursdays (26 Trades)**: Model A **+₹28,462** (57.7% WR) | Model B **+₹18,615**
-* **10 Normal Non-Expiry Days (25 Trades)**: Model A **-₹6,993** (24% WR) | Model B **-₹3,911** (52% profitable; banked +₹11,611 across 7 reversals before reversal, halving drag).
+### 5.2 Expiry vs. Normal Days Simplified Delta Replay (2 Lots = 130 Qty)
+Computed by standalone simplified Δ=0.55 option-replay harnesses (`scripts/replay_multi_expiry_days.js` and `scripts/replay_normal_days.js`, separate from `readAt()`):
+* **10 Weekly Expiry Thursdays (`scripts/replay_multi_expiry_days.js`, `26` Trades)**: Model A **+₹28,462** (`57.7%` WR) | Model B **+₹18,616**
+* **10 Normal Non-Expiry Days (`scripts/replay_normal_days.js`, `25` Trades)**: Model A **-₹6,993** (`6W / 7BE / 12L`, `24.0%` strict WR) | Model B **-₹3,911** (`7` trades hit 1:1 before reversing, halving normal-day drag).
 
 ---
 
-## 6. Research Appendix A: HA + EMA + CCI Swing on NIFTY Futures (Updated Matrix)
+## 6. Research Appendix A: HA + EMA + CCI Swing on NIFTY Futures (Non-Intraday)
+Saved JSON artifact: [`docs/backtests/ha_ema_cci_futures_matrix_latest.json`](file:///c:/Users/Vinod/Desktop/Trading/docs/backtests/ha_ema_cci_futures_matrix_latest.json) (`scripts/test_ha_ema_cci_futures_matrix.js`, overnight Futures holds @ `₹65/pt` per 1 lot). Quiet filter matches `scripts/backtest_ha_ema_cci.js` (`jump = |dCCI| < 25`, `0 <= thrust < 15`, skip session open / `09:15`):
 
-Tested across the exact non-intraday Futures swing rules specified by the user (`scripts/test_ha_ema_cci_futures_matrix.js`, holding overnight across days at 1 lot = ₹65/pt):
-* **Condition 1 (First)**: Trend stack aligned on **Heikin Ashi** candles (`HA Close > EMA20 > EMA50 > EMA200` for Long; reverse for Short).
-* **Condition 2 (Second)**: `CCI(200)` crosses `< 100 -> > 100` to enter Long (and `> 100 -> < 100` to exit); crosses `> -100 -> < -100` (e.g., `-98 -> -104`) to enter Short (and `-104 -> -98` to exit).
-
-| Timeframe & Variant | Bars / Span | Trades | Win Rate | Net Pts | 1-Lot Futures (₹65) | Profit Factor | Max DD (Pts) | Avg Hold |
+| Timeframe & Variant | Bars (Span) | Trades | Win Rate | Net Pts | 1-Lot Futures (₹65) | PF | Max DD | Avg Hold |
 | :--- | :---: | :---: | :---: | :---: | :---: | :---: | :---: | :---: |
 | **15m Exact User (HA + Close CCI, Unfiltered)** | 6,252 (1y) | 109 | 24.8% | **+1,751.7** | **+₹1,13,857** | 1.43 | 2,135.4 | 0.9d |
 | **15m Exact User (HA + HLC3 CCI, Unfiltered)** | 6,252 (1y) | 93 | 33.3% | **+1,981.2** | **+₹1,28,781** | 1.47 | 1,787.1 | 1.2d |
 | **15m Normal Candles (Raw + Close CCI, Unfiltered)** | 6,252 (1y) | 123 | 22.8% | +1,221.8 | +₹79,420 | 1.26 | 2,328.7 | 0.8d |
-| **15m Quiet-Filtered (`jump<25, thrust<15`)** | 6,252 (1y) | 53 | 17.0% | -220.9 | -₹14,362 | 0.86 | 764.0 | 0.5d |
+| **15m Quiet-Filtered (`HA Stack + Close CCI`)** | 6,252 (1y) | 63 | 19.0% | **+2,189.7** | **+₹1,42,331** | **2.30** | **808.1** | 0.8d |
 | **30m Exact User (HA + Close CCI, Unfiltered)** | 9,051 (2.8y) | 171 | 28.1% | +211.1 | +₹13,722 | 1.03 | 1,945.1 | 1.9d |
 | **1h Exact User (HA + Close CCI, Unfiltered)** | 4,877 (2.8y) | 104 | 28.8% | **+1,549.8** | **+₹1,00,737** | 1.26 | 1,318.9 | 3.4d |
-| **1h Normal Candles (Raw + Close CCI, Unfiltered)** | 4,877 (2.8y) | 120 | 29.2% | +944.5 | +₹61,389 | 1.14 | 1,494.0 | 3.2d |
 | **5m Exact User (HA + Close CCI, Unfiltered)** | 18,665 (1y) | 299 | 24.1% | +1,683.9 | +₹1,09,457 | 1.24 | 1,085.4 | 0.3d |
-| **5m Quiet-Filtered (`jump<25, thrust<15`)** | 18,665 (1y) | 133 | 24.8% | **+2,841.4** | **+₹1,84,691** | **2.92** | **520.0** | 0.2d |
+| **5m Quiet-Filtered (`HA Stack + Close CCI`)** | 18,665 (1y) | 193 | 24.9% | **+3,406.3** | **+₹2,21,409** | 2.06 | 617.7 | 0.3d |
 
-### Unfiltered Engineering Findings
-1. **Heikin Ashi vs. Normal Stack**: Keeping **HA for EMA 20/50/200 alignment** outperformed Normal candlestick stacks across `15m` (`+1,751.7 vs +1,221.8 pts`), `30m` (`+211.1 vs -296.4 pts`), and `1h` (`+1,549.8 vs +944.5 pts`), confirming HA smoothing preserves trend continuity better while `CCI(200)` triggers cleanly on raw prices.
-2. **Concentration Warning on `15m` Unfiltered**: Nearly **all** profit on `15m` (`+1,751.7 pts`) came from a single 13-day rally (`2026-10-29 -> 2026-11-11`: `+2,215.4 pts`); the remaining 108 trades combined for `-463.7 pts` and suffered a `2,135 pt` drawdown (`₹1.39L`/lot). That single rally also crossed a gap/thrust barrier, explaining why the 15m Quiet Filter missed it (`-220.9 pts`), whereas on `5m` the Quiet Filter cut average loss in half (`-14.8 vs -31.0 pts`) and boosted PF to **2.92**.
-3. **Verdict**: Strict **Futures trend-following sleeve** only (~24%–34% win rate); completely unsuitable for decaying weekly options.
+* **Key Engineering Caveats**: (1) HA smoothing outperforms Normal candlestick stacks on `15m`, `30m`, and `1h`. (2) On `15m`, almost all net gain came from a single 13-day trend (`2026-10-29 -> 2026-11-11`: `+2,215.4 pts`); the other `108` unfiltered trades netted `-463.7 pts`. Low ~20%–34% win rate makes it strictly a **Futures swing sleeve**, unsuitable for decaying weekly options.
 
 ---
 
-## 7. Research Appendix B: Patrick Nill (`2hyqdVF0JVk` Whiteboard Visuals + NIFTY Futures Swing)
+## 7. Research Appendix B: Patrick Nill (`2hyqdVF0JVk` Visual Audit + Futures Swing)
+Saved JSON artifact: [`docs/backtests/patrick_futures_swing_latest.json`](file:///c:/Users/Vinod/Desktop/Trading/docs/backtests/patrick_futures_swing_latest.json) (`scripts/test_patrick_futures_swing.js`, `-2 pts/trade` slippage deducted, multi-day holds scaling `1/3` @ `1.5R` + BE, `1/3` @ `3.0R`, `1/3` structure-trailed):
 
-Beyond transcripts (`kJyooWDFXyk`, `2hyqdVF0JVk`), key **visual whiteboard diagrams** from `2hyqdVF0JVk.mp4` (`wb_008`, `wb_030`, `wb_042`, `wb2_005`, `wb2_015`, `wb2_024`) clarified four exact structural rules:
-1. **Prior Impulse + 3-Touch Validation (`wb2_005`)**: Wait for an aggressive vertical move (`P` or `b`) into consolidation, then count at least **3 distinct top-to-bottom touches** on the horizontal boundary before trading (half-day to full-day maturation on `15m`).
-2. **Tight Box vs. Wide Box (`wb_008`, `wb_054`)**:
-   * **Tight Box**: After a strong directional impulse, trade **breakouts** (or **failed-breakdown reclaims**) in the impulse direction — never fade it.
-   * **Wide Box**: Only **fade extremes** after 3 touches toward the opposite boundary.
-3. **Red Fakeout Reclaim & Tight Structural Stop (`wb_030`)**: Price dips slightly *below* box support (trapping breakout shorts), snaps back inside with a strong candle, and rallies through the box high. SL goes strictly below the **red fakeout sweep wick** — never widened (`never move stop further away`).
-4. **Measured-Move ATH Projection & Multi-Day Holds (`wb2_024`)**: Copy the prior impulse height upward above the top range (or trail stops beneath newly stepped `P`/`b` boxes over 2–4+ day Futures holds), scaling out in multiples of 3 contracts.
-
-### Mechanical NIFTY Futures Swing Test (`scripts/test_patrick_futures_swing.js`, -2 pts/trade slippage included)
-Rules tested: 3-touch box identification, tight vs. wide classification, failed-breakout reclaim + confirmed `P`/`b` breakout, 3-lot scaling (`1/3` @ 1.5R + BE move, `1/3` @ 3.0R, `1/3` trailing 10-bar swing structure overnight):
-
-| Timeframe & Span | Mode / Setup | Trades | Win Rate | Net Pts | 1-Lot Futures (₹65) | Profit Factor | Max DD (Pts) | Avg Hold |
+| Timeframe & Span | Mode | Trades | Win Rate | Net Pts | 1-Lot Futures | PF | Max DD | Avg Hold |
 | :--- | :--- | :---: | :---: | :---: | :---: | :---: | :---: | :---: |
-| **15m (1 yr: Nov 25–Nov 26)** | **ALL Combined** | **31** | **58.1%** | **+2,489.7** | **+₹1,61,833** | **3.75** | **445.0** | **1.4d** |
-| **15m (1 yr)** | `CONFIRMED_BREAKOUT` | 12 | 58.3% | **+1,312.7** | +₹85,325 | 3.95 | 145.4 | 1.3d |
-| **15m (1 yr)** | `TIGHT_RECLAIM` | 19 | 52.6% | +885.1 | +₹57,532 | 2.46 | 431.2 | 1.4d |
-| **15m (1 yr)** | `B_BREAKDOWN` subset | 5 | 100.0% | +1,304.5 | +₹84,794 | ∞ | 0.0 | 1.8d |
-| **30m (2.8 yr: Jan 24–Oct 26)** | `ALL Combined` | 51 | 33.3% | -941.9 | -₹61,226 | 0.71 | 1,467.8 | 1.4d |
-| **1h (2.8 yr: Jan 24–Oct 26)** | `ALL Combined` | 50 | 34.0% | -604.6 | -₹39,301 | 0.85 | 1,914.7 | 2.2d |
-| **1h (2.8 yr)** | `CONFIRMED_BREAKOUT` (`B_BREAKDOWN`) | 18 (5) | 50.0% (60%) | **+704.6** (+436.5) | +₹45,797 | 1.48 (2.57) | 714.4 | 3.5d |
+| **15m (1y: Nov 25–Nov 26)** | **ALL Combined** | **31** | **58.1%** | **+2,489.7** | **+₹1,61,833** | **3.75** | **445.0** | **1.4d** |
+| **15m (1y)** | `CONFIRMED_BREAKOUT` | 12 | 58.3% | **+1,312.7** | +₹85,325 | 3.95 | 145.4 | 1.3d |
+| **15m (1y)** | `TIGHT_RECLAIM` | 19 | 52.6% | +885.1 | +₹57,532 | 2.46 | 431.2 | 1.4d |
+| **30m (2.8y: Jan 24–Oct 26)** | `ALL Combined` | 51 | 33.3% | -941.9 | -₹61,226 | 0.71 | 1,467.8 | 1.4d |
+| **1h (2.8y: Jan 24–Oct 26)** | `ALL Combined` | 50 | 34.0% | -604.6 | -₹39,301 | 0.85 | 1,914.7 | 2.2d |
+| **1h (2.8y)** | `CONFIRMED_BREAKOUT` | 18 | 50.0% | **+704.6** | +₹45,797 | 1.48 | 714.4 | 3.5d |
 
-* **Honest Assessment**: On **`15m`** (the exact chart Patrick Nill trades), the visual whiteboard rules produced strong swing expectancy (**+2,489.7 pts, 58.1% WR, PF 3.75, MaxDD 445 pts**). On coarser **`30m`/`1h`** candles over 2.8 years, fade/reclaim trades struggled against multi-day gap chop (`-604 to -942 pts`), though **confirmed `b` breakdowns** remained profitable across *all three* timeframes (`15m`, `30m`, `1h`). Furthermore, Patrick explicitly states his real-world 60–75% win rate relies on Weekly Market Profile (`VAH`/`VAL`), footprint confirmation, and proprietary zone-resizing discretion. Therefore, this remains a **high-priority Futures research candidate** pending multi-year `15m` + Weekly TPO validation, not yet wired into live NIFTY execution.
+*(Note: Individual `5`-trade sub-slices such as `15m B_BREAKDOWN` (`n=5`) are excluded from headline claims as statistically too small. Strategy remains research-only and is not wired to live orders.)*
 
 ---
 
-## 8. Verified Oracle VM Configuration (Locked Safe for Manual Session)
-
-Verified live on `144.24.135.68` (`~/Trading/.env`, `node --check`, `pm2 status`):
-* `DHAN_AUTO_TRADE=false` — **Strictly OFF** (zero automated orders will fire during manual trading).
-* `DHAN_EXIT_MODEL=B` — Active (50% 1:1 cash banker + Leg 2 Breakeven `+0.50`).
-* `DHAN_NIFTY_LOTS=2` (`NIFTY_LOT_SIZE=65` -> 130 qty) | `NIFTY_OPT_DELTA=0.55`.
-* `REDBAR_BOT_INSTRUMENTS=NIFTY` | `DHAN_AUTO_COOLDOWN_MS=1800000` (30m auto cooldown when later enabled).
-* `PM2 trendrunner` — Status **`online`**, PID **`354463`**, running today's patched `bot.js`, `js/dhan_nifty_trade.js`, and `js/nifty_option_engine.js`.
+## 8. Verified Oracle VM Deployment Checklist (External Server)
+Deployed and verified via SSH on `144.24.135.68` (`~/Trading/.env` & `pm2 status trendrunner` — `.env` is intentionally excluded from git):
+* `DHAN_AUTO_TRADE=false` — **Strictly OFF** for manual trading tomorrow.
+* `DHAN_ALLOW_DELTA_FALLBACK=false` (default in code) — Fail-closed protection against blind delta entries if 1m option feed fails.
+* `DHAN_EXIT_MODEL=B` | `DHAN_NIFTY_LOTS=2` (`130` units) | `NIFTY_OPT_DELTA=0.55` | `REDBAR_BOT_INSTRUMENTS=NIFTY`.
+* `PM2 trendrunner` — Running latest patched code cleanly online.

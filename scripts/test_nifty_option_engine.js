@@ -74,7 +74,52 @@ function runTest() {
   assert.strictEqual(levels.rewardPts, 18.15); // 204.15 - 186.00
   assert.strictEqual(levels.rrRatio, 2.27); // 18.15 / 8 = 2.27 RR
 
-  console.log('\n>>> ALL TESTS PASSED! Multi-timeframe option logic verified against real exchange data. <<<\n');
+  // Test 5: True 1-minute (1m) option candle tests + risk clamp boundaries [4, 14]
+  console.log('\n--- Test 5: 1-Minute Bars & [4, 14] SL Clamp Tests ---');
+  // 5a: Tiny green doji making higher low without >=25% body or >=20% wick must NOT confirm
+  const bars1mDoji = [
+    { t: 1794477900000, o: 192.0, h: 193.0, l: 190.0, c: 190.5, v: 5000 },
+    { t: 1794477960000, o: 190.5, h: 192.5, l: 190.2, c: 190.6, v: 4000 }, // body=0.10 (<25% of 2.3), wick=0.30 (13%)
+  ];
+  const microDoji = check1mMicroConfirmation(bars1mDoji);
+  assert.strictEqual(microDoji.confirmed, false, 'Weak 1m upper-wick green doji must NOT confirm');
+
+  // 5b: Red dump right after prior bar's 35% wick must NOT trigger stale prev wick alone
+  const bars1mFailedHold = [
+    { t: 1794477900000, o: 192.0, h: 193.0, l: 189.0, c: 190.5, v: 5000 }, // 37.5% lower wick
+    { t: 1794477960000, o: 190.4, h: 190.5, l: 187.0, c: 187.2, v: 9000 }, // Lower low red flush
+  ];
+  const microFail = check1mMicroConfirmation(bars1mFailedHold);
+  assert.strictEqual(microFail.confirmed, false, 'Red lower-low bar must invalidate prior wick');
+
+  // 5c: Real 1m buyer rejection wick confirms cleanly + risk clamps to min 4 pts and max 14 pts
+  const bars1mConfirm = [
+    { t: 1794477900000, o: 191.0, h: 192.0, l: 189.0, c: 189.5, v: 5000 },
+    { t: 1794477960000, o: 189.5, h: 192.0, l: 188.0, c: 191.8, v: 8500 }, // 1m rejection + green close above prev close
+  ];
+  const microOk = check1mMicroConfirmation(bars1mConfirm);
+  assert.strictEqual(microOk.confirmed, true, '1m bullish rejection bar must confirm');
+
+  const tightClamp = calculateOptionLevels({
+    currentPremium: 189.0,
+    optionCanvas: canvas,
+    microAnalysis: { signalLow: 188.5 }, // raw risk = 189 - (188.5 - 2) = 2.5 -> clamps to 4.0
+    bufferPts: 2.0,
+  });
+  assert.strictEqual(tightClamp.riskPts, 4.00, 'Minimum option risk clamp must be 4.00 pts');
+  assert.strictEqual(tightClamp.stopLossPrice, 185.00);
+
+  const wideClamp = calculateOptionLevels({
+    currentPremium: 190.0,
+    optionCanvas: canvas,
+    microAnalysis: { signalLow: 170.0 }, // raw risk = 190 - 168 = 22 -> clamps to 14.0
+    bufferPts: 2.0,
+  });
+  assert.strictEqual(wideClamp.riskPts, 14.00, 'Maximum option risk clamp must be 14.00 pts');
+  assert.strictEqual(wideClamp.stopLossPrice, 176.00);
+  console.log('1m strict gating & [4, 14] risk clamp assertions PASSED.');
+
+  console.log('\n>>> ALL TESTS PASSED! Multi-timeframe option logic verified on 5m canvas + 1m confirmation & clamps. <<<\n');
 }
 
 runTest();

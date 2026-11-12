@@ -1,0 +1,307 @@
+{
+  "generatedAt": "2026-11-12T21:08:40.440Z",
+  "timeframes": {
+    "15m": {
+      "bars": 6252,
+      "from": "2025-11-11",
+      "to": "2026-11-11",
+      "modes": {
+        "ALL": {
+          "trades": 31,
+          "wins": 18,
+          "losses": 13,
+          "winRatePct": 58.1,
+          "netPts": 2489.7,
+          "netRs1Lot": 161833,
+          "profitFactor": 3.75,
+          "maxDDPts": 445,
+          "avgHoldDays": 1.4
+        },
+        "FAILED_RECLAIM": {
+          "trades": 23,
+          "wins": 11,
+          "losses": 12,
+          "winRatePct": 47.8,
+          "netPts": 645.2,
+          "netRs1Lot": 41938,
+          "profitFactor": 1.65,
+          "maxDDPts": 787.3,
+          "avgHoldDays": 1.3
+        },
+        "CONFIRMED_BREAKOUT": {
+          "trades": 12,
+          "wins": 7,
+          "losses": 5,
+          "winRatePct": 58.3,
+          "netPts": 1312.7,
+          "netRs1Lot": 85325,
+          "profitFactor": 3.95,
+          "maxDDPts": 145.4,
+          "avgHoldDays": 1.3
+        },
+        "WIDE_FADE": {
+          "trades": 2,
+          "wins": 1,
+          "losses": 1,
+          "winRatePct": 50,
+          "netPts": 68.4,
+          "netRs1Lot": 4448,
+          "profitFactor": 1.89,
+          "maxDDPts": 77.3,
+          "avgHoldDays": 0.5
+        }
+      },
+      "setupBreakdown": {
+        "TIGHT_RECLAIM": {
+          "trades": 19,
+          "wins": 10,
+          "losses": 9,
+          "winRatePct": 52.6,
+          "netPts": 885.1,
+          "netRs1Lot": 57532,
+          "profitFactor": 2.46,
+          "maxDDPts": 431.2,
+          "avgHoldDays": 1.4
+        },
+        "B_BREAKDOWN": {
+          "trades": 5,
+          "wins": 5,
+          "losses": 0,
+          "winRatePct": 100,
+          "netPts": 1304.5,
+          "netRs1Lot": 84794,
+          "profitFactor": null,
+          "maxDDPts": 0,
+          "avgHoldDays": 1.8
+        },
+        "P_BREAKOUT": {
+          "trades": 5,
+          "wins": 2,
+          "losses": 3,
+          "winRatePct": 40,
+          "netPts": 231.7,
+          "netRs1Lot": 15058,
+          "profitFactor": 2.05,
+          "maxDDPts": 176,
+          "avgHoldDays": 1.2
+        },
+        "WIDE_FADE": {
+          "trades": 1,
+          "wins": 0,
+          "losses": 1,
+          "winRatePct": 0,
+          "netPts": -77.3,
+          "netRs1Lot": -5025,
+          "profitFactor": 0,
+          "maxDDPts": 77.3,
+          "avgHoldDays": 0
+        },
+        "WIDE_RECLAIM": {
+          "trades": 1,
+          "wins": 1,
+          "losses": 0,
+          "winRatePct": 100,
+          "netPts": 145.7,
+          "netRs1Lot": 9474,
+          "profitFactor": null,
+          "maxDDPts": 0,
+          "avgHoldDays": 1
+        }
+      }
+    },
+    "30m": {
+      "bars": 9051,
+      "from": "2024-01-01",
+      "to": "2026-10-26",
+      "modes": {
+        "ALL": {
+          "trades": 51,
+          "wins": 17,
+          "losses": 34,
+          "winRatePct": 33.3,
+          "netPts": -941.9,
+          "netRs1Lot": -61226,
+          "profitFactor": 0.71,
+          "maxDDPts": 1467.8,
+          "avgHoldDays": 1.4
+        },
+        "FAILED_RECLAIM": {
+          "trades": 42,
+          "wins": 14,
+          "losses": 28,
+          "winRatePct": 33.3,
+          "netPts": 73.8,
+          "netRs1Lot": 4799,
+          "profitFactor": 1.03,
+          "maxDDPts": 895.1,
+          "avgHoldDays": 1
+        },
+        "CONFIRMED_BREAKOUT": {
+          "trades": 20,
+          "wins": 8,
+          "losses": 12,
+          "winRatePct": 40,
+          "netPts": -402.7,
+          "netRs1Lot": -26176,
+          "profitFactor": 0.74,
+          "maxDDPts": 878.7,
+          "avgHoldDays": 2.3
+        },
+        "WIDE_FADE": {
+          "trades": 4,
+          "wins": 0,
+          "losses": 4,
+          "winRatePct": 0,
+          "netPts": -285.7,
+          "netRs1Lot": -18571,
+          "profitFactor": 0,
+          "maxDDPts": 285.7,
+          "avgHoldDays": 0.7
+        }
+      },
+      "setupBreakdown": {
+        "B_BREAKDOWN": {
+          "trades": 10,
+          "wins": 5,
+          "losses": 5,
+          "winRatePct": 50,
+          "netPts": 201.6,
+          "netRs1Lot": 13104,
+          "profitFactor": 1.25,
+          "maxDDPts": 387.1,
+          "avgHoldDays": 2.9
+        },
+        "TIGHT_RECLAIM": {
+          "trades": 32,
+          "wins": 11,
+          "losses": 21,
+          "winRatePct": 34.4,
+          "netPts": -356.5,
+          "netRs1Lot": -23171,
+          "profitFactor": 0.78,
+          "maxDDPts": 916.7,
+          "avgHoldDays": 0.9
+        },
+        "P_BREAKOUT": {
+          "trades": 6,
+          "wins": 1,
+          "losses": 5,
+          "winRatePct": 16.7,
+          "netPts": -542.2,
+          "netRs1Lot": -35242,
+          "profitFactor": 0.05,
+          "maxDDPts": 542.2,
+          "avgHoldDays": 1.9
+        },
+        "WIDE_RECLAIM": {
+          "trades": 1,
+          "wins": 0,
+          "losses": 1,
+          "winRatePct": 0,
+          "netPts": -100.7,
+          "netRs1Lot": -6547,
+          "profitFactor": 0,
+          "maxDDPts": 100.7,
+          "avgHoldDays": 0.1
+        },
+        "WIDE_FADE": {
+          "trades": 2,
+          "wins": 0,
+          "losses": 2,
+          "winRatePct": 0,
+          "netPts": -144.2,
+          "netRs1Lot": -9370,
+          "profitFactor": 0,
+          "maxDDPts": 144.2,
+          "avgHoldDays": 0.9
+        }
+      }
+    },
+    "1h": {
+      "bars": 4877,
+      "from": "2024-01-01",
+      "to": "2026-10-26",
+      "modes": {
+        "ALL": {
+          "trades": 50,
+          "wins": 17,
+          "losses": 33,
+          "winRatePct": 34,
+          "netPts": -604.6,
+          "netRs1Lot": -39301,
+          "profitFactor": 0.85,
+          "maxDDPts": 1914.7,
+          "avgHoldDays": 2.2
+        },
+        "FAILED_RECLAIM": {
+          "trades": 40,
+          "wins": 12,
+          "losses": 28,
+          "winRatePct": 30,
+          "netPts": -1203.2,
+          "netRs1Lot": -78211,
+          "profitFactor": 0.58,
+          "maxDDPts": 1435.1,
+          "avgHoldDays": 1.6
+        },
+        "CONFIRMED_BREAKOUT": {
+          "trades": 18,
+          "wins": 9,
+          "losses": 9,
+          "winRatePct": 50,
+          "netPts": 704.6,
+          "netRs1Lot": 45797,
+          "profitFactor": 1.48,
+          "maxDDPts": 714.4,
+          "avgHoldDays": 3.5
+        },
+        "WIDE_FADE": {
+          "trades": 0,
+          "wins": 0,
+          "losses": 0,
+          "winRatePct": 0,
+          "netPts": 0,
+          "netRs1Lot": 0,
+          "profitFactor": null,
+          "maxDDPts": 0,
+          "avgHoldDays": 0
+        }
+      },
+      "setupBreakdown": {
+        "TIGHT_RECLAIM": {
+          "trades": 34,
+          "wins": 10,
+          "losses": 24,
+          "winRatePct": 29.4,
+          "netPts": -922.5,
+          "netRs1Lot": -59960,
+          "profitFactor": 0.62,
+          "maxDDPts": 1375.9,
+          "avgHoldDays": 1.7
+        },
+        "P_BREAKOUT": {
+          "trades": 11,
+          "wins": 4,
+          "losses": 7,
+          "winRatePct": 36.4,
+          "netPts": -118.6,
+          "netRs1Lot": -7712,
+          "profitFactor": 0.9,
+          "maxDDPts": 623.2,
+          "avgHoldDays": 2.9
+        },
+        "B_BREAKDOWN": {
+          "trades": 5,
+          "wins": 3,
+          "losses": 2,
+          "winRatePct": 60,
+          "netPts": 436.5,
+          "netRs1Lot": 28371,
+          "profitFactor": 2.57,
+          "maxDDPts": 278.5,
+          "avgHoldDays": 4.6
+        }
+      }
+    }
+  }
+}

@@ -753,10 +753,14 @@ async function _scanOneRedBarInstrument(rawInst, rbCfg) {
         : '';
       const subject = `${side}: ${inst.label} · ${setupLabel}`;
       const medianAlert = setupKind === 'fib_bounce';
+      const exitModelCfg = String(process.env.DHAN_EXIT_MODEL || 'B').toUpperCase();
+      const useModelBPlan = !isBinance && (exitModelCfg === 'B' || Boolean(niftyOptEval?.directOptionLevels));
       const planLine = medianAlert
-        ? (Number(readout.tp1) > 0
-          ? 'Plan: stop is the signal wick. Target is the next median. The whole trade exits there. No half-off at 1:1.'
-          : 'Plan: stop is the signal wick. No median left in front. Hold until price closes back through the entry median, or the session ends.')
+        ? (useModelBPlan
+          ? 'Plan (Model B): stop is Option/Signal wick. Bank 50% @ 1:1 → move runner SL to cost +0.50 → exit runner at Option target / next median or 5m close-back.'
+          : (Number(readout.tp1) > 0
+            ? 'Plan (Model A): stop is the signal wick. Target is the next median. Full trade exits there (no 1:1 bank).'
+            : 'Plan (Model A): stop is the signal wick. No median left in front. Hold until price closes back through the entry median, or the session ends.'))
         : 'Plan: bank ~50% at 1:1 → move stop to cost · trail the rest';
       const targetLabel = medianAlert
         ? (Number(readout.tp1) > 0 ? `next median <b>${pxPrefix}${fmt(readout.tp1)}</b>` : 'no median left — hold')
@@ -1344,7 +1348,12 @@ async function _maybeAutoDhanNifty({ inst, side, readout, alertKey, dayKey, setu
           `[RedBarBot] NIFTY: 1m Micro-Confirmation CONFIRMED for ${selectedContract.symbolHint} via ${optEval.micro?.triggerPattern} | Entry=${directOptionLevels.entryPrice} SL=${directOptionLevels.stopLossPrice} 1:1=${directOptionLevels.tp1Banker} Target=${directOptionLevels.tpTarget} (RR ${directOptionLevels.rrRatio})`
         );
       } else {
-        console.log(`[RedBarBot] NIFTY: option 1m feed note (${optEval.status}: ${optEval.reason}) — proceeding with mapped index delta levels`);
+        const allowDeltaFallback = String(process.env.DHAN_ALLOW_DELTA_FALLBACK || 'false').toLowerCase() === 'true';
+        if (!allowDeltaFallback) {
+          console.log(`[RedBarBot] NIFTY: option 1m feed unavailable (${optEval.status}: ${optEval.reason}) — holding auto order (DHAN_ALLOW_DELTA_FALLBACK=false)`);
+          return;
+        }
+        console.log(`[RedBarBot] NIFTY: option 1m feed fallback opted-in (${optEval.status}: ${optEval.reason}) — proceeding with mapped index delta levels`);
       }
     }
 
@@ -1536,7 +1545,9 @@ async function pollManagedDhanStops() {
         continue;
       }
 
-      // NIFTY median wick: do not bank half at 1:1. The closed 5m candle owns the exit.
+      // Dual exit coordination on NIFTY median trades:
+      // 1) If DHAN_EXIT_MODEL=B & qty >= 2 lots: bank 50% @ 1:1 (option OR index 1R) and move runner SL to cost +0.50.
+      // 2) Closed 5m index median checks handle early reversal ('done'/'flip'/'back'), while broker SuperOrder TP guards the Option Chart ceiling (2.2R / 15m low).
       if (t.medianTrade && t.status === 'open') {
         const st = _instTrendState.get(tInst) || {};
         const bar = st.lastClosed5m;
