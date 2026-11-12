@@ -1601,6 +1601,11 @@ const RedBarTrend = {
     if (!advanced?.enabled || !Array.isArray(bars5m) || !bars5m.length) {
       return { triggered: false, blocked: false };
     }
+    // Gating rule: The highway playground only opens AFTER the First Red Bar has formed and closed!
+    // Never enter any trade before the first red candle is in place.
+    if (!advanced.firstRed || !advanced.firstRed.t) {
+      return { triggered: false, blocked: false };
+    }
     const medians = (Array.isArray(advanced.medians) ? advanced.medians : [])
       .filter((m) => Number.isFinite(m.price))
       .map((m) => {
@@ -1625,6 +1630,9 @@ const RedBarTrend = {
       const b = bars5m[i];
       if (b.t + barMs > now) continue;
       if (now - (b.t + barMs) > freshMs) break;
+      // Never trade the 09:15 opening candle itself or candles before firstRed
+      if (advanced.firstBar?.t != null && b.t <= advanced.firstBar.t) continue;
+      if (advanced.firstRed?.t != null && b.t < advanced.firstRed.t) continue;
       const prev = i > 0 ? bars5m[i - 1] : null;
       const prevRed = !!(prev && prev.c < prev.o);
       const prevGreen = !!(prev && prev.c > prev.o);
