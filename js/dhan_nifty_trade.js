@@ -390,9 +390,11 @@ function createDhanNiftyTrade(opts = {}) {
     indexStop,
     indexTp1,
     correlationId,
+    directOptionLevels,
+    contractOverride,
   }) {
     if (!freshness.ok) throw new Error(freshness.message);
-    const contract = await pickOptionContract({ side, spot: indexEntry });
+    const contract = contractOverride || await pickOptionContract({ side, spot: indexEntry });
     // Prefer ask for BUY so LIMIT is marketable; fall back to LTP.
     const rawPremium = Number(contract.ask) > 0 ? Number(contract.ask) : Number(contract.ltp);
     if (!(rawPremium > 0)) throw new Error(`No LTP/ask for ${contract.symbolHint}`);
@@ -400,7 +402,17 @@ function createDhanNiftyTrade(opts = {}) {
     const defaultLimitPad = instKey === 'NIFTY' ? 1.0 : (instKey === 'CRUDEOIL' ? 2.0 : 0.5);
     const limitPad = Math.max(0, envNum('DHAN_ENTRY_LIMIT_PAD', defaultLimitPad));
     const premium = tickPrem(rawPremium + limitPad);
-    const levels = mapPremiumLevels({
+    const levels = directOptionLevels ? {
+      entryPrice: tickPrem(directOptionLevels.entryPrice || premium),
+      stopLossPrice: tickPrem(directOptionLevels.stopLossPrice),
+      targetPrice: tickPrem(directOptionLevels.tpTarget || directOptionLevels.targetPrice),
+      slPts: tickPrem(directOptionLevels.riskPts || (premium - directOptionLevels.stopLossPrice)),
+      tpPts: tickPrem((directOptionLevels.tpTarget || directOptionLevels.targetPrice) - premium),
+      oneRPts: tickPrem(directOptionLevels.tp1Banker ? (directOptionLevels.tp1Banker - premium) : (directOptionLevels.riskPts || 8)),
+      tpMult: directOptionLevels.rrRatio || 2.2,
+      delta: 1.0,
+      isDirectOptionLevel: true,
+    } : mapPremiumLevels({
       entryPremium: premium,
       indexEntry,
       indexStop,
@@ -594,6 +606,23 @@ function createDhanNiftyTrade(opts = {}) {
     return Math.abs(await getOpenQtyForSecurity(securityId)) > 0;
   }
 
+  async function fetchOptionIntradayBars(securityId, interval = '1') {
+    const today = new Date();
+    const ist = new Date(today.toLocaleString('en-US', { timeZone: 'Asia/Kolkata' }));
+    const pad2 = (n) => String(n).padStart(2, '0');
+    const todayStr = `${ist.getFullYear()}-${pad2(ist.getMonth() + 1)}-${pad2(ist.getDate())}`;
+    const payload = await dhan.getIntradayOhlc({
+      securityId: String(securityId),
+      exchangeSegment: optSeg,
+      instrument: 'OPTIDX',
+      interval: String(interval),
+      fromDate: `${todayStr} 09:15:00`,
+      toDate: `${todayStr} 15:30:00`,
+    });
+    const { parseDhanOhlc } = require('./nifty_option_engine');
+    return parseDhanOhlc(payload?.data || payload);
+  }
+
   return {
     dhan,
     spec,
@@ -606,6 +635,7 @@ function createDhanNiftyTrade(opts = {}) {
     qty,
     nearestWeeklyExpiry,
     pickOptionContract,
+    fetchOptionIntradayBars,
     mapPremiumLevels,
     splitBankRunnerQty,
     openOptionSuperTrade,

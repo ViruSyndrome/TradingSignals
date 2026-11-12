@@ -1134,6 +1134,75 @@ async function _maybeAutoDhanNifty({ inst, side, readout, alertKey, dayKey, setu
       console.log(`[RedBarBot] ${instKey}: open F&O/MCX option position already — skip new Dhan entry`);
       return;
     }
+
+    let directOptionLevels = null;
+    let selectedContract = null;
+
+    // Dr. Dev / Sagar NIFTY Multi-Timeframe Option Engine:
+    // 15m Canvas on Option + 1m Micro-Confirmation ("Trader's Eye") before execution
+    if (instKey === 'NIFTY') {
+      const {
+        computeOptionCanvas,
+        check1mMicroConfirmation,
+        calculateOptionLevels,
+      } = require('./js/nifty_option_engine.js');
+
+      try {
+        selectedContract = await trader.pickOptionContract({ side, spot: indexEntry });
+        console.log(`[RedBarBot] NIFTY Option Engine selected ${selectedContract.symbolHint} (SecId: ${selectedContract.securityId})`);
+
+        // Check bid-ask spread
+        const rawAsk = Number(selectedContract.ask) || 0;
+        const rawBid = Number(selectedContract.ltp) || 0;
+        if (rawAsk > 0 && rawBid > 0 && (rawAsk - rawBid) > 2.5) {
+          console.log(`[RedBarBot] NIFTY: wide spread (${(rawAsk - rawBid).toFixed(2)} pts > 2.5) on ${selectedContract.symbolHint} — waiting for tighter book`);
+          return;
+        }
+
+        // Fetch 1-minute intraday bars of this option contract
+        let bars1m = [];
+        try {
+          bars1m = await trader.fetchOptionIntradayBars(selectedContract.securityId, '1');
+        } catch (e) {
+          console.warn(`[RedBarBot] NIFTY: could not fetch 1m option bars (${e.message}) — will check if 5m bars available`);
+        }
+
+        if (Array.isArray(bars1m) && bars1m.length >= 2) {
+          const micro = check1mMicroConfirmation(bars1m);
+          if (!micro.confirmed) {
+            console.log(
+              `[RedBarBot] NIFTY: 1m Micro-Confirmation PENDING for ${selectedContract.symbolHint}: ${micro.reason} — standing aside until 1m rejection wick/green bar forms`
+            );
+            return;
+          }
+
+          console.log(
+            `[RedBarBot] NIFTY: 1m Micro-Confirmation CONFIRMED for ${selectedContract.symbolHint} via ${micro.triggerPattern} (wickRatio=${micro.curWickRatio}%, signalLow=${micro.signalLow})`
+          );
+
+          // Compute Option 15m Canvas
+          const canvas = computeOptionCanvas(bars1m, dayKey);
+
+          // Calculate exact structural option levels (eliminating synthetic delta guessing)
+          const livePremium = Number(selectedContract.ask) > 0 ? Number(selectedContract.ask) : Number(selectedContract.ltp);
+          directOptionLevels = calculateOptionLevels({
+            currentPremium: livePremium,
+            optionCanvas: canvas,
+            microAnalysis: micro,
+            bufferPts: 2.0,
+          });
+
+          console.log(
+            `[RedBarBot] NIFTY Structural Option Levels: Entry=${directOptionLevels.entryPrice} | SL=${directOptionLevels.stopLossPrice} (${directOptionLevels.riskPts} pts risk) | 1:1=${directOptionLevels.tp1Banker} | Target=${directOptionLevels.tpTarget} (RR ${directOptionLevels.rrRatio})`
+          );
+        } else {
+          console.log(`[RedBarBot] NIFTY: 1m bars not returned (offline/closed) — proceeding with mapped index delta levels`);
+        }
+      } catch (err) {
+        console.warn(`[RedBarBot] NIFTY Option Engine evaluation error: ${err.message}`);
+      }
+    }
+
     console.log(`[RedBarBot] DHAN_AUTO ${instKey} ${side} ${setupKind} index=${indexEntry} stop=${indexStop} tp1=${indexTp1}`);
     const result = await trader.openOptionSuperTrade({
       side,
@@ -1141,6 +1210,8 @@ async function _maybeAutoDhanNifty({ inst, side, readout, alertKey, dayKey, setu
       indexStop,
       indexTp1,
       correlationId: `rb-${instKey.toLowerCase()}-${setupKind}-${Date.now()}`.replace(/[^a-zA-Z0-9_-]/g, '').slice(0, 30),
+      directOptionLevels,
+      contractOverride: selectedContract,
     });
 
     if (result.ok && result.orderId) {
@@ -1423,22 +1494,50 @@ async function pollManagedDhanStops() {
               ? (curPx >= Number(t.indexEntry) + risk)
               : (curPx <= Number(t.indexEntry) - risk);
             if (hit1R) {
-              console.log(`[RedBarBot] 🎯 [BE] ${tInst} 1:1 reached on underlying median trade: price=${curPx} vs entry=${t.indexEntry} (risk=${risk.toFixed(1)}pts). Moving SL to cost!`);
-              try {
-                const moved = await trader.moveStopToBreakeven(t.orderId, t.entryPremium, 0.5);
-                if (moved && !moved.error) {
+              console.log(`[RedBarBot] 🎯 1:1 reached on underlying median trade: price=${curPx} vs entry=${t.indexEntry} (risk=${risk.toFixed(1)}pts).`);
+              const exitModel = String(process.env.DHAN_EXIT_MODEL || 'B').toUpperCase();
+              if (exitModel === 'B' && !t.legABooked && Number(t.qty) >= (Number(t.lotSize) || 65) * 2) {
+                try {
+                  console.log(`[RedBarBot] 🏦 Model B: Banking 50% @ 1:1 on median trade ${t.symbolHint || t.orderId}...`);
+                  const res = await trader.bankHalfAtOneR({
+                    orderId: t.orderId,
+                    securityId: t.securityId,
+                    entryPremium: t.entryPremium,
+                    stopLossPrice: t.stopLossPrice,
+                    targetPrice: t.targetPrice,
+                    quantity: t.qty,
+                  });
+                  t.legABooked = true;
+                  t.legABookedAt = Date.now();
                   t.beMoved = true;
                   t.beMovedAt = Date.now();
                   if (bot && chatId) {
                     await bot.sendMessage(
                       chatId,
-                      `🎯 <b>1:1 reached on underlying</b> (${curPx.toFixed(1)})\n${t.symbolHint || t.orderId}: SL moved to Breakeven (${(Number(t.entryPremium) + 0.5).toFixed(1)}). Letting full trade run to target median!`,
+                      `🎯 <b>Model B 1:1 Banked</b> (${curPx.toFixed(1)})\n${t.symbolHint || t.orderId}: Banked 50% profit. Runner SL moved to Breakeven (+0.50).`,
                       { parse_mode: 'HTML', disable_web_page_preview: true },
                     ).catch(() => {});
                   }
+                } catch (e) {
+                  console.warn('[RedBarBot] bankHalfAtOneR error on median trade:', e.message);
                 }
-              } catch (e) {
-                console.warn('[RedBarBot] median moveStopToBreakeven error:', e.message);
+              } else if (!t.beMoved) {
+                try {
+                  const moved = await trader.moveStopToBreakeven(t.orderId, t.entryPremium, 0.5);
+                  if (moved && !moved.error) {
+                    t.beMoved = true;
+                    t.beMovedAt = Date.now();
+                    if (bot && chatId) {
+                      await bot.sendMessage(
+                        chatId,
+                        `🎯 <b>1:1 reached on underlying</b> (${curPx.toFixed(1)})\n${t.symbolHint || t.orderId}: SL moved to Breakeven (${(Number(t.entryPremium) + 0.5).toFixed(1)}). Letting full trade run to target median!`,
+                        { parse_mode: 'HTML', disable_web_page_preview: true },
+                      ).catch(() => {});
+                    }
+                  }
+                } catch (e) {
+                  console.warn('[RedBarBot] median moveStopToBreakeven error:', e.message);
+                }
               }
             }
           }
