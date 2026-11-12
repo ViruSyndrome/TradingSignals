@@ -1640,18 +1640,29 @@ const RedBarTrend = {
       const red = b.c < b.o;
 
       for (const m of medians) {
-        const meets = b.l <= m.hi + tol && b.h >= m.lo - tol;
-        if (!meets) continue;
-        const reclaimLong = b.l <= m.hi + tol && b.c > m.hi;
-        const rejectShort = b.h >= m.lo - tol && b.c < m.lo;
-        const flipLong = prevRed && green && b.l <= m.lo + tol;
-        const flipShort = prevGreen && red && b.h >= m.hi - tol;
+        // Did the current candle or previous candle test the median band?
+        const meetsNow = b.l <= m.hi + tol && b.h >= m.lo - tol;
+        const meetsPrev = !!(prev && prev.l <= m.hi + tol && prev.h >= m.lo - tol);
+        if (!meetsNow && !meetsPrev) continue;
+
+        // Retest confirmation: require a candle or two (must close confirming color in trade direction).
+        // Long: current candle closes green confirming bounce/reclaim.
+        const flipLong = prevRed && green && (b.l <= m.lo + tol || (prev && prev.l <= m.hi + tol));
+        const reclaimLong = green && b.c > m.hi && (meetsNow || (prev && prev.l <= m.hi + tol));
+
+        // Short: current candle closes red confirming rejection/breakdown.
+        const flipShort = prevGreen && red && (b.h >= m.hi - tol || (prev && prev.h >= m.lo - tol));
+        const rejectShort = red && b.c < m.lo && (meetsNow || (prev && prev.h >= m.lo - tol));
+
         let side = null;
         if (flipLong || reclaimLong) side = 'bullish';
         else if (flipShort || rejectShort) side = 'bearish';
         if (!side) continue;
 
-        const stop = side === 'bullish' ? b.l : b.h;
+        // Stop: Structural stop on the previous wick (or lower/higher of current and previous wick)
+        const stop = side === 'bullish'
+          ? (prev ? Math.min(b.l, prev.l) : b.l)
+          : (prev ? Math.max(b.h, prev.h) : b.h);
         const entry = b.c;
         if (side === 'bullish' && !(stop < entry)) continue;
         if (side === 'bearish' && !(stop > entry)) continue;

@@ -1377,11 +1377,15 @@ async function pollManagedDhanStops() {
         // Move SL to Breakeven once 1:1 risk distance is achieved on the underlying index
         if (!t.beMoved && Number(t.indexEntry) > 0 && Number(t.indexStop) > 0 && t.orderId) {
           const risk = Math.abs(Number(t.indexEntry) - Number(t.indexStop));
-          const bar5 = st.lastClosed5m;
+          // Only consider candles that closed AFTER the trade was opened (never past signal bars)
+          const bar5 = (st.lastClosed5m && Number(st.lastClosed5m.t) >= Number(t.openedAt || 0))
+            ? st.lastClosed5m
+            : null;
+          const liveIndexPx = Number(st.price) || 0;
           const curPx = long
-            ? Math.max(Number(st.price) || 0, Number(bar5?.h) || 0)
+            ? Math.max(liveIndexPx, Number(bar5?.h) || 0)
             : Math.min(
-              Number(st.price) > 0 ? Number(st.price) : Infinity,
+              liveIndexPx > 0 ? liveIndexPx : Infinity,
               Number(bar5?.l) > 0 ? Number(bar5.l) : Infinity,
             );
           if (curPx > 0 && risk > 0) {

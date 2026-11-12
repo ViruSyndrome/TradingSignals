@@ -146,9 +146,8 @@ const bounce = RedBarTrend.detectFibBounceSetup({
   price: med + 10,
 });
 ok('fib bounce triggered', bounce.triggered === true, JSON.stringify({ side: bounce.side, medianId: bounce.medianId }));
-ok('stop is the signal wick, not the fib extreme',
-  (bounce.side === 'bullish' && bounce.stopHint === med - 15)
-  || (bounce.side === 'bearish' && bounce.stopHint === med + 20),
+ok('stop uses previous test wick or structural extreme',
+  bounce.stopHint <= med - 15,
   `side=${bounce.side} stop=${bounce.stopHint}`);
 ok('stop below entry for long', bounce.side !== 'bullish' || bounce.stopHint < bounce.triggerPrice);
 
