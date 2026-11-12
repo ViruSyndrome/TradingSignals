@@ -2569,6 +2569,11 @@ const RangeEmaUI = {
           x1 = Math.min(x1, area.right);
           if (x1 <= x0) continue;
 
+          if (chart.$rbAdvancedFibs?.enabled && (b.style === 'sessionFib' || b.style === 'istFib0230')) {
+            // Advanced Fibs (Sagar intraday medians) replaces the legacy sessionFib box for intraday highway clarity
+            continue;
+          }
+
           const isFib = (b.style === 'sessionFib' || b.style === 'istFib0230') && b.f44 != null;
           const age = 0.4 + ((i + 1) / n) * 0.55;
           ctx.globalAlpha = age;
