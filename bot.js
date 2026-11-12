@@ -941,6 +941,13 @@ async function _maybeAutoDhanNifty({ inst, side, readout, alertKey, dayKey, setu
     && triggerForFlip > 0
     && Math.abs(triggerForFlip - flipBar) < 6 * 60 * 1000;
   const allManagedDhan = loadManagedDhanTrades();
+  const activeTrade = allManagedDhan.find(
+    (t) => String(t.instrumentId || 'NIFTY').toUpperCase() === instKey && t.status === 'open'
+  );
+  if (activeTrade) {
+    console.log(`[RedBarBot] ${instKey}: trade already open (${activeTrade.symbolHint || activeTrade.orderId}) — refuse concurrent order`);
+    return;
+  }
   const todayManagedDhan = allManagedDhan.filter(
     (t) => String(t.instrumentId || 'NIFTY').toUpperCase() === instKey
       && String(t.alertKey || '').includes(`|${dayKey}|`),
