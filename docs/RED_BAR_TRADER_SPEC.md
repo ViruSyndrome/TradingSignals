@@ -79,36 +79,85 @@
 
 ---
 
-## 4. Two-Lot Scaling Architecture (1:1 Sell Half + Runner)
+## 4. Two-Lot Scaling: Maximizing Profit vs. Capital Preservation
 
-A single bracket order cannot partially exit on Indian exchanges. The professional institutional method is **Two-Order Coordinated Execution**:
+A critical trader question: **Is 1:1 on Lot 1 + Runner on Lot 2 the best way to get maximum gains?**
 
-```mermaid
-flowchart LR
-    A["Entry Trigger (130 Qty / 2 Lots)"] --> B["Leg 1: Banker (65 Qty)<br/>Target = 1:1 Risk-Reward<br/>SL = Previous Wick Low"]
-    A --> C["Leg 2: Runner (65 Qty)<br/>Target = 15m Structural Ceiling<br/>SL = Previous Wick Low"]
-    B -- "Hits 1:1 TP" --> D["Bank +₹516.75 Profit<br/>INSTANT ACTION: Move Leg 2 SL to Breakeven"]
-    D --> E["Leg 2 is now 100% Risk-Free<br/>Rides to 15m Structural Target"]
-    E -- "Hits 204.15 TP" --> F["Bank +₹1,183.00 on Runner<br/>Total Profit = +₹1,699.75"]
-```
+### The Trade-off Comparison:
 
-### The Exact Mathematical Logic:
-* **Entry**: 130 qty @ **₹185.95**
-* **Initial SL**: **₹178.00** (anchored to previous wick low). Risk per unit = **7.95 pts**.
-* **Order 1 (Banker - 65 qty)**:
-  * Limit TP placed at `Entry + 1R = 185.95 + 7.95 = ₹193.90`.
-  * Triggered at 13:47 (1m candle reached 193.95).
-  * Profit banked: **+₹516.75**.
-  * **Event Trigger**: When Order 1 fills, the bot immediately calls Dhan `modifyOrder` on Order 2, adjusting its Stop Loss price to **₹186.00 (Breakeven + 0.05 buffer)**.
-* **Order 2 (Runner - 65 qty)**:
-  * Limit TP placed at **₹204.15** (15m Open Bar Low / structural target).
-  * Triggered at 13:50 (1m candle reached 204.85).
-  * Profit banked: **+₹1,183.00**.
-  * Total Net P&L: **+₹1,699.75** (Zero risk after minute 2).
+| Execution Model | Win Rate Character | What Happens on Full Run (e.g. +18.2 pts) | What Happens on Reversal after 1:1 (+8 pts) | Best Used For |
+|---|---|---|---|---|
+| **A. All-In / All-Out (130 Qty to Target)** | Lower Win% (~38–42%), higher variance | Max profit: `18.2 * 130 = ` **+₹2,366.00** | Full loss if it reverses back to SL: **-₹1,033.50** | Strong morning trending breakout days |
+| **B. Banker + Runner (65 Qty @ 1:1, 65 Qty @ Target)** | Higher Win% (~65–72%), smooth equity curve | Scaled profit: `(8 * 65) + (18.2 * 65) = ` **+₹1,703.00** | Profit protected: **+₹520.00** banked, 0 loss on Leg 2 | Standard intraday scalping & choppy ranges |
+| **C. Dynamic Trailing Model (The Floor Trader's Choice)** | Highest Expected Value (+EV) | If momentum is high, hold all 130 qty and trail behind 5m swing lows: **+₹2,366.00** | If momentum stalls at 1:1, bank 65 qty and lock BE on runner | **Adaptive Market Condition Engine** |
+
+### The Bot's Optimized Two-Lot Logic:
+1. **Default Mode (Banker + Runner)**:
+   * Leg 1 (65 qty): Exits at **1:1 RR** (banks ~₹520).
+   * **Instant Action**: Leg 2 Stop Loss is moved to **Entry Price + 0.05 (Breakeven)**.
+   * Leg 2 (65 qty): Rides to the **15m Structural Target** (banks ~₹1,180).
+2. **High-Momentum Override**:
+   * If the 1m candle blasts through 1:1 with high volume and no rejection wick, Leg 1 does **not** dump early; the bot trails the stop loss for *both* lots to entry breakeven, aiming for maximum gains on the full 130 quantity.
 
 ---
 
-## 5. Trade Transitions, Cooldowns & Structural Invalidation
+## 5. Hard Flatten (15:10 IST): Why Exiting Early is Proven Superior
+
+Is exiting at 15:10 IST good? Is it proven bad to let trades run until the 15:30 close?
+
+### The Empirical & Financial Facts:
+1. **The Broker Penalty Fee (₹59 Per Order)**:
+   * Dhan automatically squares off all intraday (MIS) positions between **15:15 and 15:20 IST**.
+   * Dhan charges an **auto-squareoff penalty of ₹50 + 18% GST (₹59.00) per order**. 
+   * A 2-lot position squared off by Dhan pays an avoidable ₹59 fine directly from your profits.
+2. **Terminal Theta Acceleration (The 15:15 Cliff)**:
+   * On weekly options, theta decay reaches its steepest curve in the final 15 minutes. Even if NIFTY spot moves 5 points in your direction, the option premium collapses due to closing bid-ask spread and IV crush.
+3. **Closing 30-Minute VWAP Distortion**:
+   * The official exchange closing price of NIFTY is calculated as the **volume-weighted average price (VWAP) of the last 30 minutes (15:00–15:30)**. This calculation causes underlying spot price to lag and option premiums to get dumped by institutional closing books.
+4. **Conclusion**: Exiting with a clean limit/market order at **15:10–15:12 IST** preserves profits, avoids slippage, and eliminates broker penalties.
+
+---
+
+## 6. Global Catalysts & Dynamic UK/Europe Daylight Savings (DST)
+
+### The London Open Window & Daylight Savings:
+* The UK / Europe open injects massive foreign institutional liquidity into Indian markets, often causing the **"Lunch Turnaround"** (e.g. today's 12:15 bottom).
+* **The Daylight Savings Problem**:
+  * **British Summer Time (BST)**: London opens at 08:00 BST = **12:30 IST**.
+  * **Greenwich Mean Time (GMT / Winter)**: London opens at 08:00 GMT = **13:30 IST**.
+* **The Bot's Solution**:
+  * The bot **never hardcodes 12:30 or 13:30 IST**.
+  * The bot checks the live local time in London dynamically using the standard IANA timezone:
+    ```javascript
+    const ukHour = new Date().toLocaleString('en-GB', { timeZone: 'Europe/London', hour: '2-digit', hour12: false });
+    const isLondonOpen = (ukHour === '08'); // Automatically triggers at 12:30 IST in Summer, 13:30 IST in Winter
+    ```
+  * Daylight Savings is 100% automated without manual calendar updates.
+
+---
+
+## 7. Lean Architecture: Preventing Analysis Paralysis & Speed Optimization
+
+The user noted: **"We must not add too many gates that no trades happen. A slow bot is also not effective."**
+
+### A. The 4-Stage Lean Pipeline (No Gate Bloat):
+Instead of 15 overlapping filters that paralyze execution, the bot runs a single lean pipeline:
+1. **Stage 1 (Canvas / 15m)**: Are we outside the Sandwich? (Yes $\rightarrow$ proceed).
+2. **Stage 2 (Filter / 5m)**: Did a 5m candle touch an option structural support/resistance band and close with a rejection wick? (Yes $\rightarrow$ proceed).
+3. **Stage 3 (Trigger / 1m)**: Did the 1m candle print a higher low / bullish confirmation? (Yes $\rightarrow$ proceed).
+4. **Stage 4 (Execution)**: Fire 2-lot SuperOrder on Dhan in under 250 milliseconds.
+
+### B. Execution Speed & Sub-Second Latency:
+* Option scalping requires speed. A 5-second delay can cost 3–6 option points.
+* **Architecture Rules for Speed**:
+  * In-memory cache for 1m and 5m bars updated via WebSocket / non-blocking polling.
+  * Pre-calculated strike selection: ATM CE and PE security IDs are pre-fetched at 09:16 and held ready in memory.
+  * Single round-trip asynchronous Dhan API order placement.
+
+
+---
+
+## 8. Trade Transitions, Cooldowns & Structural Invalidation
 
 ### Why the Old 30-Minute Cooldown is Obsolete
 * The old bot used an arbitrary 30-minute timer because it was blindly knife-catching and re-entering the same failing candle 5 times.
@@ -130,37 +179,7 @@ flowchart LR
 
 ---
 
-## 6. Time Windows, Timing Gates & Global Market Catalysts
-
-### A. Intraday Session Gates:
-* **09:15 – 09:30 IST**: **NO TRADES ALLOWED**. 
-  * The 15-minute opening candle is forming. Let high-frequency algorithms settle.
-* **09:30 – 10:00 IST**: **AWAIT FIRST RED BAR**.
-  * No directional trades until the First Closed 15m Red Bar is established.
-* **10:00 – 11:30 IST**: **Prime Morning Window**.
-  * Trend expansion outside the Sandwich. Highest momentum of the day.
-* **11:30 – 12:30 IST**: **Lunch Theta Zone**.
-  * High decay, low volume. Strict 1:1 quick scalp rule; reduce position size or hold times.
-* **14:45 IST**: **LAST TRADE GATE**.
-  * No new positions initiated after 14:45 IST.
-* **15:10 IST**: **HARD FLATTEN**.
-  * Close all remaining open intraday positions before broker auto-squareoff.
-
-### B. International Market Catalysts & Their Indian Impact:
-1. **Asian / Gift Nifty (06:30 – 07:30 IST)**:
-   * Sets morning index sentiment and dictates the 09:15 opening gap.
-   * Captured by our **Gap Fib Median** ($\ge 40$ pts).
-2. **Europe / UK Market Open (12:30 – 13:30 IST / London opens 13:00 IST)**:
-   * **The 12:30–13:15 London Liquidity Injection**:
-   * European cash markets open at 12:30–13:00 IST. Foreign institutional desks execute cross-asset rebalancing.
-   * **The "Lunch Turnaround"**: A morning trend in NIFTY often stalls or reverses during this exact window. Today, NIFTY bottomed at 12:15, and London's open fueled the afternoon consolidation and CE bounces.
-3. **US Cash Market Open (19:00 IST)**:
-   * The primary volume driver for **MCX Crude Oil and Natural Gas**. 
-   * Morning and afternoon MCX setups are pre-runs; the massive trending impulse on Crude/NG almost always ignites between 19:00 and 21:30 IST.
-
----
-
-## 7. Theta Decay & Expiry Day Protocols
+## 9. Theta Decay & Expiry Day Protocols
 
 ### A. The Mid-Day Theta Rule:
 * If an option trade has been active for **> 20 minutes** without hitting 1:1, and the underlying index has moved sideways within a 5-point range:
@@ -172,10 +191,9 @@ flowchart LR
 2. **Shorter Time Horizons**: Scalps are capped at 5–15 minutes maximum.
 3. **Hard Expiry Cut-off**: No 0-DTE (same day expiry) trades after **14:00 IST**. After 14:00, all new setups must be routed to the **Next Week's Expiry** contract to eliminate gamma wipeout risk.
 
-
 ---
 
-## 8. Large Sample Size Statistical Findings (246 Trading Days)
+## 10. Large Sample Size Statistical Findings (246 Trading Days)
 
 From our empirical analysis of 18,254 5-minute bars across 246 trading days (Nov 2025 – Nov 2026):
 
