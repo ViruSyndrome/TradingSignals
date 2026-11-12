@@ -1151,9 +1151,9 @@ async function _maybeAutoDhanNifty({ inst, side, readout, alertKey, dayKey, setu
         selectedContract = await trader.pickOptionContract({ side, spot: indexEntry });
         console.log(`[RedBarBot] NIFTY Option Engine selected ${selectedContract.symbolHint} (SecId: ${selectedContract.securityId})`);
 
-        // Check bid-ask spread
+        // Check true bid-ask spread on selected ATM/ITM contract
         const rawAsk = Number(selectedContract.ask) || 0;
-        const rawBid = Number(selectedContract.ltp) || 0;
+        const rawBid = Number(selectedContract.bid) || Number(selectedContract.ltp) || 0;
         if (rawAsk > 0 && rawBid > 0 && (rawAsk - rawBid) > 2.5) {
           console.log(`[RedBarBot] NIFTY: wide spread (${(rawAsk - rawBid).toFixed(2)} pts > 2.5) on ${selectedContract.symbolHint} — waiting for tighter book`);
           return;
@@ -1167,8 +1167,14 @@ async function _maybeAutoDhanNifty({ inst, side, readout, alertKey, dayKey, setu
           console.warn(`[RedBarBot] NIFTY: could not fetch 1m option bars (${e.message}) — will check if 5m bars available`);
         }
 
-        if (Array.isArray(bars1m) && bars1m.length >= 2) {
-          const micro = check1mMicroConfirmation(bars1m);
+        // Drop incomplete currently-forming 1m candle so micro-confirmation only evaluates closed 1m bars
+        const nowMs = Date.now();
+        const closedBars1m = (Array.isArray(bars1m) && bars1m.length >= 3 && bars1m[bars1m.length - 1].t <= nowMs && (nowMs - bars1m[bars1m.length - 1].t) < 58_000)
+          ? bars1m.slice(0, -1)
+          : bars1m;
+
+        if (Array.isArray(closedBars1m) && closedBars1m.length >= 2) {
+          const micro = check1mMicroConfirmation(closedBars1m);
           if (!micro.confirmed) {
             console.log(
               `[RedBarBot] NIFTY: 1m Micro-Confirmation PENDING for ${selectedContract.symbolHint}: ${micro.reason} — standing aside until 1m rejection wick/green bar forms`
@@ -1181,7 +1187,7 @@ async function _maybeAutoDhanNifty({ inst, side, readout, alertKey, dayKey, setu
           );
 
           // Compute Option 15m Canvas
-          const canvas = computeOptionCanvas(bars1m, dayKey);
+          const canvas = computeOptionCanvas(closedBars1m, dayKey);
 
           // Calculate exact structural option levels (eliminating synthetic delta guessing)
           const livePremium = Number(selectedContract.ask) > 0 ? Number(selectedContract.ask) : Number(selectedContract.ltp);
@@ -1475,7 +1481,7 @@ async function pollManagedDhanStops() {
           }
         }
 
-        // Move SL to Breakeven once 1:1 risk distance is achieved on the underlying index
+        // Move SL to Breakeven (and bank 50% in Model B) once 1:1 risk is reached on either option premium OR underlying index
         if (!t.beMoved && Number(t.indexEntry) > 0 && Number(t.indexStop) > 0 && t.orderId) {
           const risk = Math.abs(Number(t.indexEntry) - Number(t.indexStop));
           // Only consider candles that closed AFTER the trade was opened (never past signal bars)
@@ -1489,12 +1495,31 @@ async function pollManagedDhanStops() {
               liveIndexPx > 0 ? liveIndexPx : Infinity,
               Number(bar5?.l) > 0 ? Number(bar5.l) : Infinity,
             );
-          if (curPx > 0 && risk > 0) {
-            const hit1R = long
+          let optLtpHit1R = false;
+          if (Number(t.entryPremium) > 0 && Number(t.oneRPts) > 0 && t.expiry && t.strike != null) {
+            try {
+              const chain = await trader.dhan.getOptionChain({
+                underlyingScrip: t.underlyingScrip || trader.underlyingScrip || 13,
+                underlyingSeg: t.underlyingSeg || trader.underlyingSeg || 'IDX_I',
+                expiry: t.expiry,
+              });
+              const oc = chain?.data?.oc || chain?.oc || {};
+              const node = oc[String(t.strike)] || oc[Number(t.strike).toFixed(6)] || oc[Object.keys(oc).find((k) => Math.abs(Number(k) - Number(t.strike)) < 0.01)];
+              const optSide = t.optSide || (long ? 'CE' : 'PE');
+              const leg = optSide === 'CE' ? node?.ce : node?.pe;
+              const optLtp = Number(leg?.last_price) || 0;
+              if (optLtp >= Number(t.entryPremium) + Number(t.oneRPts)) {
+                optLtpHit1R = true;
+              }
+            } catch (_) {}
+          }
+          if ((curPx > 0 && risk > 0) || optLtpHit1R) {
+            const idxHit1R = curPx > 0 && risk > 0 && (long
               ? (curPx >= Number(t.indexEntry) + risk)
-              : (curPx <= Number(t.indexEntry) - risk);
+              : (curPx <= Number(t.indexEntry) - risk));
+            const hit1R = optLtpHit1R || idxHit1R;
             if (hit1R) {
-              console.log(`[RedBarBot] 🎯 1:1 reached on underlying median trade: price=${curPx} vs entry=${t.indexEntry} (risk=${risk.toFixed(1)}pts).`);
+              console.log(`[RedBarBot] 🎯 1:1 reached on median trade (opt1R=${optLtpHit1R}, idx1R=${idxHit1R}): price=${curPx} vs entry=${t.indexEntry} (risk=${risk.toFixed(1)}pts).`);
               const exitModel = String(process.env.DHAN_EXIT_MODEL || 'B').toUpperCase();
               if (exitModel === 'B' && !t.legABooked && Number(t.qty) >= (Number(t.lotSize) || 65) * 2) {
                 try {

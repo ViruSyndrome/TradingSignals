@@ -187,6 +187,7 @@ function createDhanNiftyTrade(opts = {}) {
     const leg = side === 'LONG' ? node2.ce : node2.pe;
     if (!leg?.security_id) throw new Error(`No ${side === 'LONG' ? 'CE' : 'PE'} at strike ${best}`);
     const ltp = Number(leg.last_price) || Number(leg.top_ask_price) || Number(leg.top_bid_price) || 0;
+    const bid = Number(leg.top_bid_price) || ltp;
     const ask = Number(leg.top_ask_price) || ltp;
     const delta = Math.abs(Number(leg.greeks?.delta) || deltaGuess);
     return {
@@ -196,6 +197,7 @@ function createDhanNiftyTrade(opts = {}) {
       optSide: side === 'LONG' ? 'CE' : 'PE',
       securityId: String(leg.security_id),
       ltp,
+      bid,
       ask,
       delta,
       symbolHint: `${instKey} ${best} ${side === 'LONG' ? 'CE' : 'PE'} ${expiry}`,
