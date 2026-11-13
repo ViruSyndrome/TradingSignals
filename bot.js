@@ -680,14 +680,19 @@ async function _scanOneRedBarInstrument(rawInst, rbCfg) {
       && envTrim('DHAN_ACCESS_TOKEN')
       && envTrim('DHAN_CLIENT_ID')
     ) {
+      const optDayKey = new Date().toLocaleDateString('en-CA', { timeZone: 'Asia/Kolkata' });
       niftyOptEval = await _evaluateNiftyOptionSetup({
         instKey: 'NIFTY',
         side,
         indexEntry: Number(readout.price),
-        dayKey,
+        dayKey: optDayKey,
         setupKind,
       });
-      if (!alreadyAlerted && (niftyOptEval.status === 'PENDING_1M' || niftyOptEval.status === 'WIDE_SPREAD')) {
+      const allowDeltaFallback = String(process.env.DHAN_ALLOW_DELTA_FALLBACK || 'false').toLowerCase() === 'true';
+      const holdForOptionGate = niftyOptEval.status === 'PENDING_1M'
+        || niftyOptEval.status === 'WIDE_SPREAD'
+        || ((niftyOptEval.status === 'FEED_UNAVAILABLE' || niftyOptEval.status === 'ERROR') && !allowDeltaFallback);
+      if (!alreadyAlerted && holdForOptionGate) {
         console.log(
           `[RedBarBot] NIFTY: ${side} ${setupKind} index signal armed — holding Telegram ENTER & Auto (${niftyOptEval.status}: ${niftyOptEval.reason})`
         );
@@ -961,14 +966,18 @@ async function _evaluateNiftyOptionSetup({ trader, instKey, side, indexEntry, da
     activeTrader = createDhanNiftyTrade({ instrumentId: instKey });
   }
   try {
+    const optDayKey = dayKey || new Date().toLocaleDateString('en-CA', { timeZone: 'Asia/Kolkata' });
     const selectedContract = await activeTrader.pickOptionContract({ side, spot: indexEntry });
-    const rawAsk = Number(selectedContract.ask) || 0;
-    const rawBid = Number(selectedContract.bid) || Number(selectedContract.ltp) || 0;
-    const spread = (rawAsk > 0 && rawBid > 0) ? Number((rawAsk - rawBid).toFixed(2)) : 0;
-    if (spread > 2.5) {
-      const reason = `wide bid-ask spread (${spread.toFixed(2)} pts > 2.5)`;
+    const rawAsk = selectedContract.rawAsk != null ? Number(selectedContract.rawAsk) : (Number(selectedContract.ask) || 0);
+    const rawBid = selectedContract.rawBid != null ? Number(selectedContract.rawBid) : (Number(selectedContract.bid) || 0);
+    const hasLiveBook = rawAsk > 0 && rawBid > 0;
+    const spread = hasLiveBook ? Number((rawAsk - rawBid).toFixed(2)) : null;
+    if ((rawAsk > 0 && rawBid <= 0) || (hasLiveBook && spread > 2.5)) {
+      const reason = rawBid <= 0
+        ? `missing live bid quote (bid=0, ask=${rawAsk.toFixed(2)})`
+        : `wide bid-ask spread (${spread.toFixed(2)} pts > 2.5)`;
       _logNiftyOptionTelemetry({
-        instKey, side, setupKind, dayKey, status: 'WIDE_SPREAD',
+        instKey, side, setupKind, dayKey: optDayKey, status: 'WIDE_SPREAD',
         symbol: selectedContract.symbolHint, bid: rawBid, ask: rawAsk, spread,
         reason, latencyMs: Date.now() - t0,
       });
@@ -980,7 +989,7 @@ async function _evaluateNiftyOptionSetup({ trader, instKey, side, indexEntry, da
       bars1m = await activeTrader.fetchOptionIntradayBars(selectedContract.securityId, '1', 3);
     } catch (e) {
       _logNiftyOptionTelemetry({
-        instKey, side, setupKind, dayKey, status: 'FEED_UNAVAILABLE',
+        instKey, side, setupKind, dayKey: optDayKey, status: 'FEED_UNAVAILABLE',
         symbol: selectedContract.symbolHint, bid: rawBid, ask: rawAsk, spread,
         reason: e.message, latencyMs: Date.now() - t0,
       });
@@ -991,19 +1000,19 @@ async function _evaluateNiftyOptionSetup({ trader, instKey, side, indexEntry, da
     const hasForming = Array.isArray(bars1m)
       && bars1m.length >= 3
       && bars1m[bars1m.length - 1].t <= nowMs
-      && (nowMs - bars1m[bars1m.length - 1].t) < 58_000;
+      && (nowMs - bars1m[bars1m.length - 1].t) < 60_000;
     const closedBars1m = hasForming ? bars1m.slice(0, -1) : (Array.isArray(bars1m) ? bars1m : []);
 
-    // Filter 1m micro check to active dayKey once >=2 today bars exist so prior close cannot masquerade as 09:16 open
-    const todayClosed1m = dayKey
-      ? closedBars1m.filter((b) => new Date(b.t + 5.5 * 3600 * 1000).toISOString().slice(0, 10) === dayKey)
+    // Filter 1m micro check to today's calendar IST session once >=2 today bars exist so prior close cannot masquerade as 09:16 open
+    const todayClosed1m = optDayKey
+      ? closedBars1m.filter((b) => new Date(b.t + 5.5 * 3600 * 1000).toISOString().slice(0, 10) === optDayKey)
       : closedBars1m;
     const microInput = todayClosed1m.length >= 2 ? todayClosed1m : closedBars1m;
 
     if (!Array.isArray(microInput) || microInput.length < 2) {
       const reason = `insufficient closed 1m option bars (${microInput.length})`;
       _logNiftyOptionTelemetry({
-        instKey, side, setupKind, dayKey, status: 'FEED_UNAVAILABLE',
+        instKey, side, setupKind, dayKey: optDayKey, status: 'FEED_UNAVAILABLE',
         symbol: selectedContract.symbolHint, bid: rawBid, ask: rawAsk, spread,
         bars1mCount: bars1m.length, droppedFormingBar: hasForming, reason, latencyMs: Date.now() - t0,
       });
@@ -1011,13 +1020,13 @@ async function _evaluateNiftyOptionSetup({ trader, instKey, side, indexEntry, da
     }
 
     const micro = check1mMicroConfirmation(microInput);
-    const canvas = computeOptionCanvas(closedBars1m, dayKey);
+    const canvas = computeOptionCanvas(closedBars1m, optDayKey);
     if (!micro.confirmed) {
       _logNiftyOptionTelemetry({
-        instKey, side, setupKind, dayKey, status: 'PENDING_1M',
+        instKey, side, setupKind, dayKey: optDayKey, status: 'PENDING_1M',
         symbol: selectedContract.symbolHint, bid: rawBid, ask: rawAsk, spread,
         bars1mCount: microInput.length, droppedFormingBar: hasForming,
-        openBarHigh: canvas.openBarHigh, openBarLow: canvas.openBarLow,
+        openBarHigh: canvas?.openBarHigh ?? null, openBarLow: canvas?.openBarLow ?? null,
         curWickRatio: micro.curWickRatio, lastClose: micro.lastClose,
         reason: micro.reason, latencyMs: Date.now() - t0,
       });
@@ -1032,7 +1041,18 @@ async function _evaluateNiftyOptionSetup({ trader, instKey, side, indexEntry, da
       };
     }
 
-    const livePremium = rawAsk > 0 ? rawAsk : Number(selectedContract.ltp);
+    if (!canvas) {
+      const reason = `missing option 15m canvas bars for ${optDayKey}`;
+      _logNiftyOptionTelemetry({
+        instKey, side, setupKind, dayKey: optDayKey, status: 'FEED_UNAVAILABLE',
+        symbol: selectedContract.symbolHint, bid: rawBid, ask: rawAsk, spread,
+        bars1mCount: microInput.length, droppedFormingBar: hasForming,
+        reason, latencyMs: Date.now() - t0,
+      });
+      return { status: 'FEED_UNAVAILABLE', selectedContract, directOptionLevels: null, spread, reason };
+    }
+
+    const livePremium = rawAsk > 0 ? rawAsk : (Number(selectedContract.ask) > 0 ? Number(selectedContract.ask) : Number(selectedContract.ltp));
     const directOptionLevels = calculateOptionLevels({
       currentPremium: livePremium,
       optionCanvas: canvas,
@@ -1040,7 +1060,7 @@ async function _evaluateNiftyOptionSetup({ trader, instKey, side, indexEntry, da
       bufferPts: 2.0,
     });
     _logNiftyOptionTelemetry({
-      instKey, side, setupKind, dayKey, status: 'CONFIRMED',
+      instKey, side, setupKind, dayKey: optDayKey, status: 'CONFIRMED',
       symbol: selectedContract.symbolHint, bid: rawBid, ask: rawAsk, spread,
       bars1mCount: microInput.length, droppedFormingBar: hasForming,
       openBarHigh: canvas.openBarHigh, openBarLow: canvas.openBarLow,
@@ -1323,12 +1343,13 @@ async function _maybeAutoDhanNifty({ inst, side, readout, alertKey, dayKey, setu
     // Dr. Dev / Sagar NIFTY Multi-Timeframe Option Engine:
     // Reuse same-tick evaluation from _scanOneRedBarInstrument when available, otherwise run _evaluateNiftyOptionSetup.
     if (instKey === 'NIFTY') {
+      const optDayKey = new Date().toLocaleDateString('en-CA', { timeZone: 'Asia/Kolkata' });
       const optEval = precomputedOptEval || await _evaluateNiftyOptionSetup({
         trader,
         instKey,
         side,
         indexEntry,
-        dayKey,
+        dayKey: optDayKey,
         setupKind,
       });
       selectedContract = optEval.selectedContract || null;
@@ -1790,7 +1811,7 @@ async function pollManagedDhanStops() {
         }
 
         // Step 1 — Exit Model Handling: Model A (All-In/All-Out) vs Model B (1:1 Banker + Runner)
-        const exitModel = String(process.env.DHAN_EXIT_MODEL || 'A').toUpperCase();
+        const exitModel = String(process.env.DHAN_EXIT_MODEL || 'B').toUpperCase();
         if (exitModel === 'A') {
           // Model A: Super Order remains full size to Target or SL on Dhan RMS.
           if (hitOneR && String(process.env.DHAN_MOVE_BE_AT_1R || '').toLowerCase() === 'true' && !t.beMoved) {

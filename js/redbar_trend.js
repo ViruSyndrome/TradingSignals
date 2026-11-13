@@ -5132,8 +5132,8 @@ const RedBarTrend = {
       ? 'Mid-zone SHORT · fill near mid · stop mid top · bank at anchor / 2R · no overnight'
       : setupKind === 'fib_bounce'
         ? (medianHold
-          ? 'Median wick · stop is the signal wick · no median left, hold until price closes back through it or the session ends'
-          : 'Median wick · stop is the signal wick · target is the next median · full exit there, no 1:1 bank')
+          ? 'Median wick · stop is signal/prior wick extreme · Model B: 50% @ 1:1 → BE +0.50 → runner to Option target or hold until 5m close-back'
+          : 'Median wick · stop is signal/prior wick extreme · Model B: 50% @ 1:1 → BE +0.50 → runner to Option target / next median or 5m close-back')
       : setupKind === 'trade2_confirmed'
         ? 'H1→M5 confirm · SL shelf / 15m · 50% @ 1:1 → BE → trail after 1:2 → TP 1:3'
         : setupKind === 'btc_asia_0530_breakout'
