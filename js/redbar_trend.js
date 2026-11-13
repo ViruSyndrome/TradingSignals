@@ -4263,16 +4263,15 @@ const RedBarTrend = {
     const instIdEarly = String(c.id || c.instrumentId || '').toUpperCase();
     const redSetup = this.firstRedSetup(
       price, firstRed1h, evalTs, c.touchPct ?? 0.15, slice, bars5m,
-      { requireWorkCloseForT1: instIdEarly === 'NIFTY' },
     );
 
-    // Advanced NIFTY Red Bar: first-bar / red / gap medians anchored on 15m; 5m confirm.
+    // Advanced NIFTY Red Bar: first-bar / red / gap medians anchored on 5m chart.
     const advancedFibsEnabled = !!(c.advancedFibs && this.isIndianIndex(instIdEarly) && instIdEarly === 'NIFTY');
     let advancedFibs = null;
     let fibBounce = null;
     if (advancedFibsEnabled && bars5m) {
       const priorBand = prior.length ? prior[prior.length - 1] : null;
-      const use15mDayFib = (c.dayFibTf === '15m' || c.firstRedTf === '15m' || instIdEarly === 'NIFTY');
+      const use15mDayFib = (c.dayFibTf === '15m' || c.firstRedTf === '15m');
       const bars15m = use15mDayFib
         ? (Array.isArray(c.bars15m) && c.bars15m.length
           ? c.bars15m

@@ -3379,7 +3379,7 @@ const RangeEmaUI = {
         }
 
         const lines = [];
-        const fbTag = adv.firstBar?.barMs >= 15 * 60000 ? '15m ' : '';
+        const fbTag = adv.firstBar?.barMs >= 15 * 60000 ? '15m ' : (adv.firstBar?.barMs === 5 * 60000 ? '5m ' : '');
         const frTag = adv.firstRed?.barMs >= 15 * 60000 ? '15m ' : (adv.firstRed?.barMs === 5 * 60000 ? '5m ' : '');
         if (adv.firstBar?.fibs?.median != null) {
           lines.push({

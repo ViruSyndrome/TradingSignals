@@ -18,9 +18,7 @@ function ok(label, cond, detail = '') {
 const nifty = (CONFIG.rangeEma?.instruments || []).find((x) => x.id === 'NIFTY');
 console.log('[1] Config');
 ok('NIFTY advancedFibs true', nifty && nifty.advancedFibs === true);
-ok('NIFTY dayFibTf is 15m', nifty && nifty.dayFibTf === '15m');
-ok('NIFTY firstRedTf is 5m', nifty && nifty.firstRedTf === '5m');
-ok('NIFTY firstRedAfterOpenMins is 15', nifty && nifty.firstRedAfterOpenMins === 15);
+ok('NIFTY firstRedTf is 5m (all NIFTY Fibs on 5m)', nifty && nifty.firstRedTf === '5m' && !nifty.dayFibTf);
 ok('NIFTY advancedFibGapPts 40', nifty && nifty.advancedFibGapPts === 40);
 ok('fib_bounce in ACTIONABLE_SETUPS', RedBarTrend.ACTIONABLE_SETUPS.includes('fib_bounce'));
 
@@ -288,35 +286,36 @@ const insideFrCheck = RedBarTrend.detectFibBounceSetup({
   evalTs: t0945 + 1000,
 });
 ok('5m bar inside forming 15m First Red does not fire fib_bounce', insideFrCheck.triggered === false, JSON.stringify(insideFrCheck));
-// Narrow sandwich check inside readAt: price strictly inside (150, 175) -> fib_sandwich_wait (no trade1_departure bypass)
-const swCheckBars15 = [...slice15, { t: t0945, o: 25155, h: 25165, l: 25150, c: 25160, v: 1 }];
+// Narrow sandwich check inside readAt: price strictly inside (25150, 25160) -> fib_sandwich_wait (no trade1_departure bypass)
+const swCheckBars15 = [...slice15, { t: t0945, o: 25152, h: 25157, l: 25151, c: 25155, v: 1 }];
 const swRead = RedBarTrend.readAt(swCheckBars15, swCheckBars15.length - 1, {
   ...nifty,
   asOfTs: t0945 + 6 * 60000,
   firstRed1h: fr15,
   bars1h: swCheckBars15,
   bars15m: swCheckBars15,
-  bars5m: [...bars5_test, { t: t0945, o: 25155, h: 25165, l: 25150, c: 25160, v: 1 }],
+  bars5m: [...bars5_test, { t: t0945, o: 25152, h: 25157, l: 25151, c: 25155, v: 1 }],
 });
 ok('narrow (<120) sandwich sets setupKind=fib_sandwich_wait and blocks trade1_departure', swRead?.setupKind === 'fib_sandwich_wait', JSON.stringify({ setupKind: swRead?.setupKind, trend: swRead?.trend }));
 
-console.log('\n[7] Hybrid: 15m Day/Gap Fib + 5m First Red strictly after 09:30');
-const frHybrid = RedBarTrend.firstRedBarOfSession([
+console.log('\n[7] Pure 5m NIFTY readAt anchors Day Fib + First Red on 5m');
+const bars5_chron = [
   ...bars5_test,
-  { t: ist(2026, 11, 13, 9, 20), o: 25175, h: 25180, l: 25140, c: 25145, v: 1 }, // red inside 09:15-09:30 -> must skip!
-], day13, { ...nifty, asOfTs: t0945 + 1000, barMs: 5 * 60000 });
-ok('5m First Red ignores 09:20 red inside 09:15-09:30 and picks 09:30 first 5m red after 15m open',
-  frHybrid && frHybrid.t === t0930 && frHybrid.barMs === 300000, JSON.stringify(frHybrid && { t: frHybrid.t, expected: t0930, barMs: frHybrid.barMs }));
-const hyRead = RedBarTrend.readAt(swCheckBars15, swCheckBars15.length - 1, {
+  { t: ist(2026, 11, 13, 9, 20), o: 25175, h: 25180, l: 25140, c: 25145, v: 1 },
+].sort((a, b) => a.t - b.t);
+const fr5Live = RedBarTrend.firstRedBarOfSession(bars5_chron, day13, { ...nifty, asOfTs: t0945 + 1000, barMs: 5 * 60000 });
+ok('5m First Red picks first 5m red bar after 09:15 (09:20)',
+  fr5Live && fr5Live.t === ist(2026, 11, 13, 9, 20) && fr5Live.barMs === 300000, JSON.stringify(fr5Live && { t: fr5Live.t, barMs: fr5Live.barMs }));
+const pure5Read = RedBarTrend.readAt(swCheckBars15, swCheckBars15.length - 1, {
   ...nifty,
   asOfTs: t0945 + 6 * 60000,
-  firstRed1h: frHybrid,
+  firstRed1h: fr5Live,
   bars15m: swCheckBars15,
-  bars5m: [...bars5_test, { t: t0945, o: 25155, h: 25165, l: 25150, c: 25160, v: 1 }],
+  bars5m: [...bars5_chron, { t: t0945, o: 25152, h: 25157, l: 25151, c: 25155, v: 1 }],
 });
-ok('hybrid readAt keeps 15m Day Fib (barMs=900000) + Gap Fib while using 5m First Red (barMs=300000)',
-  hyRead?.advancedFibs?.firstBar?.barMs === 900000 && hyRead?.advancedFibs?.firstRed?.barMs === 300000,
-  JSON.stringify({ fbMs: hyRead?.advancedFibs?.firstBar?.barMs, frMs: hyRead?.advancedFibs?.firstRed?.barMs }));
+ok('NIFTY readAt keeps both Day Fib and First Red on 5m (barMs=300000)',
+  pure5Read?.advancedFibs?.firstBar?.barMs === 300000 && pure5Read?.advancedFibs?.firstRed?.barMs === 300000,
+  JSON.stringify({ fbMs: pure5Read?.advancedFibs?.firstBar?.barMs, frMs: pure5Read?.advancedFibs?.firstRed?.barMs }));
 
 console.log(failed ? `\nFAILED ${failed}` : '\nALL PASS');
 process.exit(failed ? 1 : 0);
