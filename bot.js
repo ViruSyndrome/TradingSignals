@@ -597,7 +597,7 @@ async function _scanOneRedBarInstrument(rawInst, rbCfg) {
       ...rbCfg, ...inst, asOfTs: nowTs, barMs: firstRedBarMs,
     })
     : null;
-  if (!firstRed1h && isIndianIdx && bars5m && bars5m.length >= 6) {
+  if (!firstRed1h && isIndianIdx && firstRedTf !== '15m' && bars5m && bars5m.length >= 6) {
     firstRed1h = RedBarTrend.firstRedBarOfSession(bars5m, calDay, {
       ...rbCfg, ...inst, asOfTs: nowTs, barMs: 5 * 60000,
     });
@@ -611,6 +611,7 @@ async function _scanOneRedBarInstrument(rawInst, rbCfg) {
     asOfTs: nowTs,
     firstRed1h,
     bars1h,
+    bars15m: (workTf === '15m' && barsWork.length) ? barsWork : (firstRedTf === '15m' && bars1h?.length ? bars1h : null),
     bars5m: bars5m && bars5m.length ? bars5m : null,
   });
   if (!readout) return;

@@ -18,6 +18,7 @@ function ok(label, cond, detail = '') {
 const nifty = (CONFIG.rangeEma?.instruments || []).find((x) => x.id === 'NIFTY');
 console.log('[1] Config');
 ok('NIFTY advancedFibs true', nifty && nifty.advancedFibs === true);
+ok('NIFTY firstRedTf is 15m', nifty && nifty.firstRedTf === '15m');
 ok('NIFTY advancedFibGapPts 40', nifty && nifty.advancedFibGapPts === 40);
 ok('fib_bounce in ACTIONABLE_SETUPS', RedBarTrend.ACTIONABLE_SETUPS.includes('fib_bounce'));
 
@@ -239,6 +240,63 @@ const wideAllowed = RedBarTrend.detectFibBounceSetup({
   evalTs: hwBounceT + 5 * 60000,
 });
 ok('wide sandwich (>= 120 pts) allows detectFibBounceSetup inside [lo, hi]', wideAllowed.triggered === true && wideAllowed.side === 'bullish', JSON.stringify(wideAllowed));
+
+console.log('\n[6] 15m Anchor + No 5m trigger inside forming 15m First Red');
+const day13 = '2026-11-13';
+const bars15_test = [];
+for (let d = -2; d <= 0; d++) {
+  const baseDay = RedBarTrend.shiftDay(day13, d);
+  const parts = baseDay.split('-').map(Number);
+  for (let m = 0; m < 25; m++) {
+    const t = ist(parts[0], parts[1], parts[2], 9, 15) + m * 15 * 60000;
+    bars15_test.push({ t, o: 25200, h: 25210, l: 25190, c: 25205, v: 1 });
+  }
+}
+// Override today's 09:15 (15m green) and 09:30 (15m red: 25120 -> 25080)
+const t0915 = ist(2026, 11, 13, 9, 15);
+const t0930 = ist(2026, 11, 13, 9, 30);
+const t0945 = ist(2026, 11, 13, 9, 45);
+const idx0915 = bars15_test.findIndex((b) => b.t === t0915);
+bars15_test[idx0915] = { t: t0915, o: 25150, h: 25210, l: 25140, c: 25180, v: 1 };
+bars15_test[idx0915 + 1] = { t: t0930, o: 25180, h: 25185, l: 25115, c: 25120, v: 1 };
+const slice15 = bars15_test.slice(0, idx0915 + 2);
+const bars5_test = [
+  { t: ist(2026, 11, 12, 15, 25), o: 25190, h: 25200, l: 25180, c: 25195, v: 1 },
+  { t: t0915, o: 25150, h: 25180, l: 25140, c: 25175, v: 1 },
+  { t: t0915 + 5 * 60000, o: 25175, h: 25210, l: 25170, c: 25190, v: 1 },
+  { t: t0915 + 10 * 60000, o: 25190, h: 25195, l: 25165, c: 25180, v: 1 },
+  // 5m candles INSIDE forming 09:30-09:45 15m First Red (at 09:35, tags 09:15 median 25175 -> must NOT fire!)
+  { t: t0930, o: 25180, h: 25185, l: 25150, c: 25155, v: 1 },
+  { t: t0930 + 5 * 60000, o: 25155, h: 25185, l: 25145, c: 25180, v: 1 },
+  { t: t0930 + 10 * 60000, o: 25180, h: 25182, l: 25115, c: 25120, v: 1 },
+];
+const fr15 = RedBarTrend.firstRedBarOfSession(slice15, day13, { id: 'NIFTY', dayMode: 'ist', asOfTs: t0945 + 1000, barMs: 15 * 60000 });
+const adv15 = RedBarTrend.buildAdvancedNiftyFibs({
+  bars5m: bars5_test,
+  bars15m: slice15,
+  asOfDay: day13,
+  evalTs: t0945 + 1000,
+  firstRed1h: fr15,
+  dayMode: 'ist',
+});
+ok('15m anchor uses 09:15-09:30 15m box (high=25210, barMs=900000)', adv15?.firstBar?.barMs === 900000 && adv15?.firstBar?.high === 25210);
+const insideFrCheck = RedBarTrend.detectFibBounceSetup({
+  bars5m: bars5_test,
+  advanced: { ...adv15, sandwich: null },
+  evalTs: t0945 + 1000,
+});
+ok('5m bar inside forming 15m First Red does not fire fib_bounce', insideFrCheck.triggered === false, JSON.stringify(insideFrCheck));
+// Narrow sandwich check inside readAt: price strictly inside (150, 175) -> fib_sandwich_wait (no trade1_departure bypass)
+const swCheckBars15 = [...slice15, { t: t0945, o: 25155, h: 25165, l: 25150, c: 25160, v: 1 }];
+const swRead = RedBarTrend.readAt(swCheckBars15, swCheckBars15.length - 1, {
+  ...nifty,
+  asOfTs: t0945 + 6 * 60000,
+  firstRed1h: fr15,
+  bars1h: swCheckBars15,
+  bars15m: swCheckBars15,
+  bars5m: [...bars5_test, { t: t0945, o: 25155, h: 25165, l: 25150, c: 25160, v: 1 }],
+});
+ok('narrow (<120) sandwich sets setupKind=fib_sandwich_wait and blocks trade1_departure', swRead?.setupKind === 'fib_sandwich_wait', JSON.stringify({ setupKind: swRead?.setupKind, trend: swRead?.trend }));
 
 console.log(failed ? `\nFAILED ${failed}` : '\nALL PASS');
 process.exit(failed ? 1 : 0);

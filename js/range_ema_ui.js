@@ -594,7 +594,7 @@ const RangeEmaUI = {
       : firstRedTf === '15m' ? 15 * 60000
         : firstRedTf === '5m' ? 5 * 60000
           : 3600000;
-    const firstRedMinBars = firstRedTf === '30m' ? 48 : 24;
+    const firstRedMinBars = (firstRedTf === '15m' || firstRedTf === '5m') ? 6 : firstRedTf === '30m' ? 48 : 24;
     let firstRedLabel = !firstRedTf ? '' : (firstRedTf === '1h' ? '1H' : firstRedTf.toUpperCase());
     const limPivot = firstRedTf ? this._ohlcLimit(firstRedTf, c, instrument) : 0;
     const lim5m = this._ohlcLimit('5m', c, instrument);
@@ -703,8 +703,8 @@ const RangeEmaUI = {
             barMs: firstRedBarMs,
           });
         }
-        // No 15m fallback: the bot never uses one, so the desk must not show a first red the bot ignores.
-        if (!firstRed1h && isIndIdxId && bars5m && bars5m.length >= 24) {
+        // Wait for first closed 15m red bar on NIFTY (never silently revert to 5m first-red).
+        if (!firstRed1h && isIndIdxId && firstRedTf !== '15m' && bars5m && bars5m.length >= 24) {
           const fb5 = RedBarTrend.firstRedBarOfSession(bars5m, calDay, {
             ...readCfg,
             asOfTs: nowTs,
@@ -724,11 +724,15 @@ const RangeEmaUI = {
     }
 
     const barsFib = rawFib30m ? this._klinesToBars(rawFib30m) : null;
+    const bars15m = (firstRedTf === '15m' && bars1h && bars1h.length)
+      ? bars1h
+      : (workTf === '15m' && evalBars && evalBars.length ? evalBars : null);
     const readout = RedBarTrend.read(evalBars, {
       ...readCfg,
       asOfTs: nowTs,
       firstRed1h,
       bars1h,
+      bars15m,
       bars5m: bars5m && bars5m.length ? bars5m : null,
       barsFib: barsFib && barsFib.length ? barsFib : null,
     });
@@ -3373,18 +3377,28 @@ const RangeEmaUI = {
         }
 
         const lines = [];
+        const is15mAnchor = (adv.firstBar?.barMs || adv.firstRed?.barMs) >= 15 * 60000;
+        const tfTag = is15mAnchor ? '15m ' : '';
         if (adv.firstBar?.fibs?.median != null) {
           lines.push({
             v: adv.firstBar.fibs.median,
             c: 'rgba(56, 189, 248, 0.95)',
-            label: `First-bar mid ${fmt(adv.firstBar.fibs.median)}`,
+            label: `First-bar ${tfTag}mid ${fmt(adv.firstBar.fibs.median)}`,
           });
         }
         if (adv.firstRed?.fibs?.median != null) {
           lines.push({
             v: adv.firstRed.fibs.median,
             c: 'rgba(244, 63, 94, 0.9)',
-            label: `Red mid ${fmt(adv.firstRed.fibs.median)}`,
+            label: `Red ${tfTag}mid ${fmt(adv.firstRed.fibs.median)}`,
+          });
+        }
+        const hwMed = Array.isArray(adv.medians) ? adv.medians.find((m) => m.id === 'highway_halfway') : null;
+        if (hwMed && hwMed.price != null) {
+          lines.push({
+            v: hwMed.price,
+            c: 'rgba(34, 211, 238, 0.85)',
+            label: `Highway 50% ${fmt(hwMed.price)}`,
           });
         }
         if (adv.gap?.fibs?.median != null) {

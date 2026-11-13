@@ -143,8 +143,8 @@ const CONFIG = {
         dayMode: 'ist',
         // Cash close window 15:15–15:45 IST (15:30 close + 15:45 bar)
         bandStyle: 'sessionFib',
-        // Dr. Dev NSE intraday: 5m First Red candle after 09:15 open bar locks the morning Red Bar box early (~09:25–09:30)
-        firstRedTf: '5m',
+        // Dr. Dev NSE multi-TF: Anchor 09:15 & First Red Fib medians on 15m chart; confirm closes on 5m; 1m option micro-entry
+        firstRedTf: '15m',
         markWindow: {
           timeZone: 'Asia/Kolkata',
           startHour: 15, startMinute: 15,

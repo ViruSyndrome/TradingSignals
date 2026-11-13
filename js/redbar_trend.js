@@ -1414,6 +1414,7 @@ const RedBarTrend = {
    */
   buildAdvancedNiftyFibs({
     bars5m,
+    bars15m = null,
     asOfDay,
     evalTs,
     firstRed1h,
@@ -1422,18 +1423,22 @@ const RedBarTrend = {
     wideHighwayPts = 120,
     dayMode = 'ist',
   } = {}) {
-    if (!asOfDay || !Array.isArray(bars5m) || !bars5m.length) return null;
-    const firstBar = this.firstBarOfSession(bars5m, asOfDay, {
+    const has15m = Array.isArray(bars15m) && bars15m.length > 0;
+    const anchorBars = has15m ? bars15m : bars5m;
+    const anchorBarMs = has15m ? (15 * 60 * 1000) : (5 * 60 * 1000);
+    if (!asOfDay || !Array.isArray(anchorBars) || !anchorBars.length) return null;
+    const firstBar = this.firstBarOfSession(anchorBars, asOfDay, {
       dayMode,
       asOfTs: evalTs,
-      barMs: 5 * 60 * 1000,
+      barMs: anchorBarMs,
     });
     const firstBarFibs = this.firstRedFibs(firstBar);
     const firstRedFibs = this.firstRedFibs(firstRed1h);
 
     let gap = null;
     const priorDay = this.shiftDay(asOfDay, -1);
-    const prevBar = this.lastBarOfDay(bars5m, priorDay, dayMode);
+    const prevBar = this.lastBarOfDay(anchorBars, priorDay, dayMode)
+      || (has15m && Array.isArray(bars5m) ? this.lastBarOfDay(bars5m, priorDay, dayMode) : null);
     if (firstBar && prevBar && Number.isFinite(prevBar.c) && Number.isFinite(firstBar.open)) {
       const prevClose = prevBar.c;
       const todayOpen = firstBar.open;
@@ -1563,6 +1568,7 @@ const RedBarTrend = {
         high: firstRed1h.high,
         low: firstRed1h.low,
         t: firstRed1h.t,
+        barMs: firstRed1h.barMs ?? null,
         fibs: firstRedFibs,
       } : null,
       gap,
@@ -1627,6 +1633,12 @@ const RedBarTrend = {
 
     const now = evalTs != null ? Number(evalTs) : Date.now();
     const barMs = 5 * 60 * 1000;
+    const firstBarEnd = advanced.firstBar?.t != null
+      ? (advanced.firstBar.t + (advanced.firstBar.barMs || barMs))
+      : null;
+    const firstRedEnd = advanced.firstRed?.t != null
+      ? (advanced.firstRed.t + (advanced.firstRed.barMs || barMs))
+      : null;
     const freshMs = 20 * 60 * 1000;
     const tol = 8;
     let best = null;
@@ -1635,9 +1647,9 @@ const RedBarTrend = {
       const b = bars5m[i];
       if (b.t + barMs > now) continue;
       if (now - (b.t + barMs) > freshMs) break;
-      // Never trade the 09:15 opening candle itself or candles before firstRed
-      if (advanced.firstBar?.t != null && b.t <= advanced.firstBar.t) continue;
-      if (advanced.firstRed?.t != null && b.t < advanced.firstRed.t) continue;
+      // Never trade inside the 09:15 anchor bar or inside the forming First Red candle
+      if (firstBarEnd != null && b.t < firstBarEnd) continue;
+      if (firstRedEnd != null && b.t < firstRedEnd) continue;
       // Stand aside inside sandwich unless wide highway (>= 120 pts)
       if (hasSandwich && !isWideSandwich && b.c > advanced.sandwich.lo && b.c < advanced.sandwich.hi) continue;
       const prev = i > 0 ? bars5m[i - 1] : null;
@@ -1742,11 +1754,12 @@ const RedBarTrend = {
     const hi = firstRed.high;
     const lo = firstRed.low;
     const barMs = 5 * 60 * 1000;
+    const firstRedEndTs = firstRed.t + (firstRed.barMs || barMs);
     const lookMs = 3 * 3600 * 1000;
     const closed = [];
     for (let i = 0; i < bars5m.length; i++) {
       const b = bars5m[i];
-      if (b.t <= firstRed.t) continue;
+      if (b.t < firstRedEndTs) continue;
       if (asOfTs != null && b.t + barMs - 1500 > asOfTs) continue;
       if (asOfTs != null && (asOfTs - b.t) > lookMs) continue;
       closed.push(b);
@@ -1966,10 +1979,11 @@ const RedBarTrend = {
    * First-red: Trade 1 (leave) / Trade 2 (1H liquidity → 5m close-through).
    * Trade 2 anytime after first red (incl. Asia / within ~5m).
    */
-  firstRedSetup(price, firstRed, asOfTs, touchPct = 0.15, slice = null, bars5m = null) {
+  firstRedSetup(price, firstRed, asOfTs, touchPct = 0.15, slice = null, bars5m = null, opts = {}) {
     if (!firstRed || price == null) {
       return { id: 'no_red', label: 'No 1H first red yet', near: false, hoursSince: null };
     }
+    const firstRedEndTs = firstRed.t + (firstRed.barMs || 5 * 60 * 1000);
     const hoursSince = asOfTs != null && firstRed.t != null
       ? (asOfTs - firstRed.t) / 3600000
       : null;
@@ -2001,7 +2015,7 @@ const RedBarTrend = {
     if (Array.isArray(bars5m) && bars5m.length) {
       for (let k = Math.max(0, bars5m.length - 80); k < bars5m.length; k++) {
         const b = bars5m[k];
-        if (b.t <= firstRed.t) continue;
+        if (b.t < firstRedEndTs) continue;
         if (asOfTs != null && b.t + 5 * 60 * 1000 - 1500 > asOfTs) continue;
         if (b.c > firstRed.high) hadLeftAbove = true;
         if (b.c < firstRed.low) hadLeftBelow = true;
@@ -2033,7 +2047,7 @@ const RedBarTrend = {
       if (Array.isArray(bars5m) && bars5m.length) {
         for (let k = 0; k < bars5m.length; k++) {
           const b = bars5m[k];
-          if (b.t <= firstRed.t) continue;
+          if (b.t < firstRedEndTs) continue;
           if (asOfTs != null && b.t + 5 * 60 * 1000 - 1500 > asOfTs) continue;
           if (b.h >= (pobLo - tol) && b.l <= (pobHi + tol)) {
             pobRetested = true;
@@ -2101,7 +2115,7 @@ const RedBarTrend = {
     if ((leftAbove || leftBelow) && Array.isArray(bars5m) && bars5m.length) {
       for (let k = bars5m.length - 1; k >= 0; k--) {
         const b5 = bars5m[k];
-        if (b5.t < firstRed.t) break;
+        if (b5.t < firstRedEndTs) break;
         if (asOfTs != null && b5.t + 5 * 60 * 1000 - 1500 > asOfTs) continue;
         const out5 = leftAbove ? b5.c > firstRed.high : b5.c < firstRed.low;
         if (out5) {
@@ -2128,7 +2142,7 @@ const RedBarTrend = {
         const cur15Closed = asOfTs == null || (cur15.t + workMs - 1500 <= asOfTs);
         let closed5mOut = null;
         if (Array.isArray(bars5m) && bars5m.length) {
-          const anchorT = prevAlreadyOut ? prev15.t : cur15.t;
+          const anchorT = Math.max(prevAlreadyOut ? prev15.t : cur15.t, firstRedEndTs);
           for (let k = bars5m.length - 1; k >= 0; k--) {
             const b5 = bars5m[k];
             if (b5.t < anchorT) break;
@@ -2140,7 +2154,7 @@ const RedBarTrend = {
         if (prevAlreadyOut) {
           justDeparted = true;
           departBar = firstDepart5 || closed5mOut || prev15;
-        } else if (cur15Closed || closed5mOut) {
+        } else if (cur15Closed || (closed5mOut && !opts?.requireWorkCloseForT1)) {
           justDeparted = true;
           departBar = firstDepart5 || closed5mOut || cur15;
         }
@@ -4242,19 +4256,26 @@ const RedBarTrend = {
     const priorDayStr = this.shiftDay(istDay, -1);
     const priorDay = this.calendarDayHl(slice, priorDayStr, dayMode);
     const clock = this.istClockPhase(evalTs);
+    const instIdEarly = String(c.id || c.instrumentId || '').toUpperCase();
     const redSetup = this.firstRedSetup(
       price, firstRed1h, evalTs, c.touchPct ?? 0.15, slice, bars5m,
+      { requireWorkCloseForT1: instIdEarly === 'NIFTY' },
     );
 
-    // Advanced NIFTY Red Bar: first-bar / red / gap medians. The band between them is the trade.
-    const instIdEarly = String(c.id || c.instrumentId || '').toUpperCase();
+    // Advanced NIFTY Red Bar: first-bar / red / gap medians anchored on 15m; 5m confirm.
     const advancedFibsEnabled = !!(c.advancedFibs && this.isIndianIndex(instIdEarly) && instIdEarly === 'NIFTY');
     let advancedFibs = null;
     let fibBounce = null;
     if (advancedFibsEnabled && bars5m) {
       const priorBand = prior.length ? prior[prior.length - 1] : null;
+      const bars15m = Array.isArray(c.bars15m) && c.bars15m.length
+        ? c.bars15m
+        : (c.firstRedTf === '15m' && Array.isArray(c.bars1h) && c.bars1h.length
+          ? c.bars1h
+          : (this._inferBarMs(slice, 15 * 60000, i) === 15 * 60000 ? slice : null));
       advancedFibs = this.buildAdvancedNiftyFibs({
         bars5m,
+        bars15m,
         asOfDay: istDay,
         evalTs,
         firstRed1h,
@@ -4274,6 +4295,12 @@ const RedBarTrend = {
         });
       }
     }
+    const narrowSandwichStandAside = Boolean(
+      advancedFibs?.enabled
+      && advancedFibs.sandwich
+      && (advancedFibs.sandwich.hi - advancedFibs.sandwich.lo) < (Number(c.wideHighwayPts) || 120)
+      && advancedFibs.inSandwich
+    );
 
     const sessions = Array.isArray(c.sessions) ? c.sessions : [];
     const asiaSess = sessions.find((s) => ['asia', 'mcx_day'].includes((s.id || '').toLowerCase()))
@@ -4391,7 +4418,8 @@ const RedBarTrend = {
       trend = 'neutral';
       setupKind = 'mcx_530_watch';
     } else if (
-      redSetup.trade1Fresh && (redSetup.leftAbove || redSetup.leftBelow)
+      !narrowSandwichStandAside
+      && redSetup.trade1Fresh && (redSetup.leftAbove || redSetup.leftBelow)
       && !(redSetup.revisitSide && redSetup.revisitStrong
         && redSetup.triggerTs != null && (evalTs - Number(redSetup.triggerTs)) > 20 * 60000)
     ) {
@@ -4416,6 +4444,9 @@ const RedBarTrend = {
     } else if (sweep) {
       trend = sweep.side;
       setupKind = 'session_sweep';
+    } else if (narrowSandwichStandAside) {
+      trend = 'neutral';
+      setupKind = 'fib_sandwich_wait';
     } else if (redSetup.revisitSide) {
       trend = redSetup.revisitSide;
       setupKind = redSetup.revisitStrong ? 'trade2_confirmed' : 'trade2_watch';
@@ -4857,6 +4888,12 @@ const RedBarTrend = {
     btcConfluence = null, btcAsia0530 = null, mcx530 = null,
     medianHold = false,
   }) {
+    if (setupKind === 'fib_sandwich_wait') {
+      return {
+        state: 'wait',
+        reason: 'Price is strictly inside the narrow (< 120 pts) 09:15 vs red-bar sandwich — stand aside until price leaves the band.',
+      };
+    }
     if (trend !== 'bullish' && trend !== 'bearish') {
       return { state: 'wait', reason: 'No directional setup.' };
     }
