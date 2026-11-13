@@ -25,11 +25,11 @@ const TrendRunnerCopy = {
     },
     fib_bounce: {
       name: 'Median wick',
-      tip: 'A 5-minute wick met a median and closed back, or cut it and flipped color. Stop is that wick. Target is the next median. The whole trade exits there.',
+      tip: 'A 5-minute wick met a median and closed back, or cut it and flipped color. Stop is the signal/prior wick extreme. Model B: bank 50% @ 1:1 → move runner SL to cost +0.50 → exit runner at Option 15m open target or next median / 5m close-back.',
     },
     fib_sandwich_wait: {
-      name: 'Between the medians',
-      tip: 'Price is between the 09:15 median and the red-bar median. That space is the trade when a wick meets one of the lines.',
+      name: 'Between the medians (narrow)',
+      tip: 'Price is strictly inside the narrow (< 120 pts) 09:15 median vs red-bar median sandwich — stand aside until price breaks out of the band (or highway ≥ 120 pts).',
     },
     session_sweep: {
       name: 'Liquidity sweep',

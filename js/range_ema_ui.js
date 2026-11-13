@@ -11,6 +11,10 @@ const RangeEmaUI = {
   _refreshGen: 0,
   _chart: null,
   _chartRo: null,
+  _axisCleanup: null,
+  _savedViewports: {},
+  _niftyOptStatus: null,
+  _niftyOptFetchedAt: 0,
   state: {
     rows: [],
     updatedAt: null,
@@ -452,9 +456,24 @@ const RangeEmaUI = {
     // New generation invalidates in-flight work so tab clicks are never ignored
     const gen = ++this._refreshGen;
     const inst = this.activeInstrument();
+    const curRow = (this.state.rows || [])[0];
+    const sameChartShowing = !!(
+      this._chart
+      && curRow
+      && !curRow.error
+      && (curRow.instrument?.id === inst?.id || curRow.symbol === inst?.symbol)
+      && curRow.tf === this.activeTf()
+    );
     this.state.loading = true;
     this.state.error = null;
-    this.render();
+    if (sameChartShowing) {
+      const meta = document.querySelector('#rangeEmaDesk .range-desk-meta');
+      if (meta && !/refreshing…/.test(meta.textContent || '')) {
+        meta.textContent = `${meta.textContent} · refreshing…`;
+      }
+    } else {
+      this.render();
+    }
 
     const withTimeout = (p, ms, label) => Promise.race([
       p,
@@ -1056,6 +1075,10 @@ const RangeEmaUI = {
   },
 
   destroyChart() {
+    if (this._axisCleanup) {
+      try { this._axisCleanup(); } catch (_) {}
+      this._axisCleanup = null;
+    }
     if (this._chartRo) {
       try { this._chartRo.disconnect(); } catch (_) {}
       this._chartRo = null;
@@ -1066,6 +1089,348 @@ const RangeEmaUI = {
       } catch (_) {}
       this._chart = null;
     }
+  },
+
+  _loadViewport(viewKey) {
+    if (this._savedViewports[viewKey]) return this._savedViewports[viewKey];
+    try {
+      const raw = localStorage.getItem('trendrunner_rb_viewports_v1');
+      if (raw) {
+        const map = JSON.parse(raw);
+        if (map && map[viewKey]) {
+          this._savedViewports[viewKey] = map[viewKey];
+          return map[viewKey];
+        }
+      }
+    } catch (_) {}
+    return null;
+  },
+
+  _saveViewport(viewKey, vp) {
+    if (!viewKey || !vp) return;
+    this._savedViewports[viewKey] = vp;
+    try {
+      const raw = localStorage.getItem('trendrunner_rb_viewports_v1');
+      const map = raw ? JSON.parse(raw) : {};
+      map[viewKey] = vp;
+      localStorage.setItem('trendrunner_rb_viewports_v1', JSON.stringify(map));
+    } catch (_) {}
+  },
+
+  _clearViewport(viewKey) {
+    if (!viewKey) return;
+    delete this._savedViewports[viewKey];
+    try {
+      const raw = localStorage.getItem('trendrunner_rb_viewports_v1');
+      if (raw) {
+        const map = JSON.parse(raw);
+        delete map[viewKey];
+        localStorage.setItem('trendrunner_rb_viewports_v1', JSON.stringify(map));
+      }
+    } catch (_) {}
+  },
+
+  _captureViewport(chart) {
+    if (!chart || !chart.$rbViewKey || !chart.$rbBars?.length) return;
+    const xScale = chart.scales?.x;
+    const yScale = chart.scales?.y;
+    if (!xScale || !Number.isFinite(xScale.min) || !Number.isFinite(xScale.max)) return;
+    const bars = chart.$rbBars;
+    const times = chart.$rbTimes || [];
+    const n = bars.length;
+    const xMin = xScale.min;
+    const xMax = xScale.max;
+    const xSpan = Math.max(6, xMax - xMin);
+    const rightPad = Math.max(0, xMax - (n - 1));
+    const atRightEdge = xMax >= (n - 1 - 1.5);
+    const sIdx = Math.max(0, Math.min(n - 1, Math.round(xMin)));
+    const startTs = times[sIdx] ?? null;
+    const manualY = Boolean(chart.$rbManualY);
+    this._saveViewport(chart.$rbViewKey, {
+      xMin,
+      xMax,
+      xSpan,
+      rightPad,
+      atRightEdge,
+      startTs,
+      manualY,
+      yMin: manualY && yScale && Number.isFinite(yScale.min) ? yScale.min : null,
+      yMax: manualY && yScale && Number.isFinite(yScale.max) ? yScale.max : null,
+      userZoomed: Boolean(chart.$rbUserZoomed || manualY || !atRightEdge),
+      savedAt: Date.now(),
+    });
+  },
+
+  _defaultTodayWindow(bars, times, inst, compact) {
+    const n = bars.length;
+    if (!n) return { xMin: 0, xMax: 0 };
+    const rightPad = compact ? 3 : 6;
+    const leadIn = compact ? 4 : 8;
+    const minSpan = compact ? 18 : 28;
+    const dayMode = inst?.dayMode || 'utc';
+    const tz = dayMode === 'ist' ? 'Asia/Kolkata' : 'UTC';
+    const dayOf = (ts) => {
+      try {
+        return new Date(ts).toLocaleDateString('en-CA', { timeZone: tz });
+      } catch (_) {
+        return new Date(ts).toISOString().slice(0, 10);
+      }
+    };
+    const latestDay = dayOf(times[n - 1]);
+    let todayStartIdx = n - 1;
+    for (let i = n - 1; i >= 0; i--) {
+      if (dayOf(times[i]) === latestDay) todayStartIdx = i;
+      else break;
+    }
+    let xMin = Math.max(0, todayStartIdx - leadIn);
+    const xMax = (n - 1) + rightPad;
+    if ((xMax - xMin) < minSpan) {
+      xMin = Math.max(0, Math.round(xMax - minSpan));
+    }
+    return { xMin, xMax };
+  },
+
+  _calcVisibleYBounds(bars, idx0, idx1, rawNearLevels, compact) {
+    const sIdx = Math.max(0, Math.min(bars.length - 1, Math.floor(idx0)));
+    const eIdx = Math.max(sIdx, Math.min(bars.length - 1, Math.ceil(idx1)));
+    const visBars = bars.slice(sIdx, eIdx + 1);
+    const barHi = Math.max(...visBars.map((b) => b.h));
+    const barLo = Math.min(...visBars.map((b) => b.l));
+    const refPx = visBars[visBars.length - 1]?.c || bars[bars.length - 1]?.c || 1;
+    const visSpan = Math.max(barHi - barLo, refPx * 0.002);
+    const reach = Math.max(visSpan * (compact ? 0.9 : 1.15), refPx * (compact ? 0.006 : 0.01));
+    const nearLevels = (rawNearLevels || []).filter((v) => v >= barLo - reach && v <= barHi + reach);
+    const yHi = Math.max(barHi, ...nearLevels);
+    const yLo = Math.min(barLo, ...nearLevels);
+    const pad = Math.max((yHi - yLo) * 0.08, refPx * 0.0005);
+    return { min: yLo - pad, max: yHi + pad };
+  },
+
+  _fitYForWindow(chart) {
+    if (!chart || chart.$rbManualY || !chart.$rbBars?.length) return;
+    const xScale = chart.scales?.x;
+    const yScale = chart.scales?.y;
+    if (!xScale || !yScale) return;
+    const b = this._calcVisibleYBounds(
+      chart.$rbBars,
+      xScale.min,
+      xScale.max,
+      chart.$rbNearLevels || [],
+      !!chart.$rbCompact,
+    );
+    yScale.options.min = b.min;
+    yScale.options.max = b.max;
+  },
+
+  _bindCanvasAxisInteractions(canvas, chart) {
+    if (!canvas || !chart) return;
+    if (this._axisCleanup) {
+      try { this._axisCleanup(); } catch (_) {}
+      this._axisCleanup = null;
+    }
+    const self = this;
+    const getPt = (ev) => {
+      const rect = canvas.getBoundingClientRect();
+      const t = ev.touches?.[0] || ev.changedTouches?.[0] || ev;
+      return { x: t.clientX - rect.left, y: t.clientY - rect.top };
+    };
+    const hitZone = (pt) => {
+      const area = chart.chartArea;
+      if (!area) return null;
+      if (pt.x >= area.right - 4 && pt.y >= area.top && pt.y <= area.bottom) return 'y';
+      if (pt.y >= area.bottom - 4 && pt.x >= area.left && pt.x <= area.right) return 'x';
+      if (pt.x >= area.left && pt.x <= area.right && pt.y >= area.top && pt.y <= area.bottom) return 'plot';
+      return null;
+    };
+
+    let dragMode = null;
+    let startX = 0;
+    let startY = 0;
+    let startYMin = 0;
+    let startYMax = 0;
+    let startXMin = 0;
+    let startXMax = 0;
+
+    const onDown = (ev) => {
+      if (ev.button != null && ev.button !== 0) return;
+      const pt = getPt(ev);
+      const zone = hitZone(pt);
+      if (zone === 'y') {
+        const yScale = chart.scales?.y;
+        if (!yScale) return;
+        ev.stopPropagation();
+        if (ev.cancelable) ev.preventDefault();
+        dragMode = 'y';
+        startY = pt.y;
+        startYMin = Number.isFinite(yScale.options.min) ? yScale.options.min : yScale.min;
+        startYMax = Number.isFinite(yScale.options.max) ? yScale.options.max : yScale.max;
+        chart.$rbUserZoomed = true;
+        chart.$rbManualY = true;
+        if (chart.options?.plugins?.zoom?.pan) chart.options.plugins.zoom.pan.mode = 'xy';
+        canvas.style.cursor = 'ns-resize';
+      } else if (zone === 'x') {
+        const xScale = chart.scales?.x;
+        const n = chart.$rbBars?.length || 1;
+        if (!xScale) return;
+        ev.stopPropagation();
+        if (ev.cancelable) ev.preventDefault();
+        dragMode = 'x';
+        startX = pt.x;
+        startXMin = Number.isFinite(xScale.min) ? xScale.min : 0;
+        startXMax = Number.isFinite(xScale.max) ? xScale.max : (n - 1);
+        chart.$rbUserZoomed = true;
+        canvas.style.cursor = 'ew-resize';
+      } else if (zone === 'plot' && !ev.shiftKey) {
+        canvas.style.cursor = 'grabbing';
+      }
+    };
+
+    const onMove = (ev) => {
+      const pt = getPt(ev);
+      if (!dragMode) {
+        if (ev.target === canvas) {
+          const z = hitZone(pt);
+          canvas.style.cursor = z === 'y' ? 'ns-resize' : z === 'x' ? 'ew-resize' : z === 'plot' ? 'grab' : '';
+        }
+        return;
+      }
+      if (dragMode === 'y') {
+        const yScale = chart.scales?.y;
+        if (!yScale) return;
+        if (ev.cancelable) ev.preventDefault();
+        const dy = pt.y - startY;
+        // Drag UP -> zoom IN (expand candles vertically); drag DOWN -> compress vertically
+        const factor = Math.exp(dy * 0.006);
+        const mid = (startYMin + startYMax) / 2;
+        const half = Math.max(((startYMax - startYMin) / 2) * factor, 0.5);
+        yScale.options.min = mid - half;
+        yScale.options.max = mid + half;
+        try { chart.update('none'); } catch (_) {}
+      } else if (dragMode === 'x') {
+        const xScale = chart.scales?.x;
+        const n = chart.$rbBars?.length || 1;
+        if (!xScale) return;
+        if (ev.cancelable) ev.preventDefault();
+        const dx = pt.x - startX;
+        // Drag RIGHT -> zoom IN (wider bars); drag LEFT -> zoom OUT (more history)
+        const factor = Math.exp(-dx * 0.005);
+        const maxTotal = Math.max(1, (n - 1) + (chart.$rbRightSpacers || 0));
+        const span = Math.max(8, startXMax - startXMin);
+        const newSpan = Math.max(8, Math.min(maxTotal, span * factor));
+        const anchorFrac = startXMax >= (n - 2) ? 1 : 0.5;
+        const anchor = startXMin + span * anchorFrac;
+        let nextMin = anchor - newSpan * anchorFrac;
+        let nextMax = anchor + newSpan * (1 - anchorFrac);
+        if (nextMax > maxTotal) {
+          nextMax = maxTotal;
+          nextMin = Math.max(0, maxTotal - newSpan);
+        }
+        if (nextMin < 0) {
+          nextMin = 0;
+          nextMax = Math.min(maxTotal, newSpan);
+        }
+        xScale.options.min = Math.round(nextMin);
+        xScale.options.max = Math.round(nextMax);
+        self._fitYForWindow(chart);
+        try { chart.update('none'); } catch (_) {}
+      }
+    };
+
+    const onUp = () => {
+      if (dragMode) {
+        dragMode = null;
+        canvas.style.cursor = '';
+        self._captureViewport(chart);
+      } else if (canvas.style.cursor === 'grabbing') {
+        canvas.style.cursor = 'grab';
+      }
+    };
+
+    const onDblClick = (ev) => {
+      const zone = hitZone(getPt(ev));
+      if (zone === 'y') {
+        ev.stopPropagation();
+        chart.$rbManualY = false;
+        if (chart.options?.plugins?.zoom?.pan) chart.options.plugins.zoom.pan.mode = 'x';
+        self._fitYForWindow(chart);
+        try { chart.update('none'); } catch (_) {}
+        self._captureViewport(chart);
+      } else if (zone === 'x') {
+        ev.stopPropagation();
+        document.getElementById('rbZoomReset')?.click();
+      }
+    };
+
+    canvas.addEventListener('mousedown', onDown, { capture: true });
+    canvas.addEventListener('touchstart', onDown, { capture: true, passive: false });
+    window.addEventListener('mousemove', onMove);
+    window.addEventListener('touchmove', onMove, { passive: false });
+    window.addEventListener('mouseup', onUp);
+    window.addEventListener('touchend', onUp);
+    canvas.addEventListener('dblclick', onDblClick, { capture: true });
+
+    this._axisCleanup = () => {
+      canvas.removeEventListener('mousedown', onDown, { capture: true });
+      canvas.removeEventListener('touchstart', onDown, { capture: true });
+      window.removeEventListener('mousemove', onMove);
+      window.removeEventListener('touchmove', onMove);
+      window.removeEventListener('mouseup', onUp);
+      window.removeEventListener('touchend', onUp);
+      canvas.removeEventListener('dblclick', onDblClick, { capture: true });
+      canvas.style.cursor = '';
+    };
+  },
+
+  async _refreshNiftyOptionCard() {
+    const el = document.getElementById('rbNiftyOptCard');
+    if (!el) return;
+    let botBase = '';
+    try { botBase = localStorage.getItem('trade_bot_url') || ''; } catch (_) {}
+    if (!botBase && typeof CONFIG !== 'undefined') {
+      botBase = CONFIG.market?.proxyBaseUrl || CONFIG.trade?.botBaseUrl || '';
+    }
+    botBase = String(botBase || '').replace(/\/$/, '');
+    if (!botBase) {
+      el.innerHTML = '<div style="font-size:11.5px;color:#94a3b8;">Dhan Options Status: Configure Oracle Bot URL in Settings to inspect live expiry, strike, spread &amp; 1m telemetry.</div>';
+      return;
+    }
+    if (!this._niftyOptStatus || (Date.now() - this._niftyOptFetchedAt > 15_000)) {
+      try {
+        const res = await fetch(`${botBase}/api/dhan/nifty-option-status`, { cache: 'no-store' });
+        if (res.ok) {
+          this._niftyOptStatus = await res.json();
+          this._niftyOptFetchedAt = Date.now();
+        }
+      } catch (_) {}
+    }
+    const targetEl = document.getElementById('rbNiftyOptCard');
+    if (!targetEl) return;
+    const st = this._niftyOptStatus;
+    if (!st || !st.ok) {
+      targetEl.innerHTML = '<div style="font-size:11.5px;color:#94a3b8;">Dhan Options Engine: Model B (50% @ 1:1 → BE +0.50 → Option 15m Open / Median) · Telemetry endpoint offline or unreachable.</div>';
+      return;
+    }
+    const modeTag = st.autoTrade
+      ? '<span style="color:#4ade80;font-weight:700;">DHAN AUTO ON</span>'
+      : '<span style="color:#fbbf24;font-weight:700;">MANUAL MODE (DHAN_AUTO_TRADE=false)</span>';
+    const pick = st.optionPick;
+    const ceTxt = pick?.ce ? `${pick.ce.symbolHint} · LTP ₹${pick.ce.ltp}${pick.ce.hasLiveBook ? ` (Spread ${(pick.ce.ask - pick.ce.bid).toFixed(2)})` : ''}` : '—';
+    const peTxt = pick?.pe ? `${pick.pe.symbolHint} · LTP ₹${pick.pe.ltp}${pick.pe.hasLiveBook ? ` (Spread ${(pick.pe.ask - pick.pe.bid).toFixed(2)})` : ''}` : '—';
+    const tel = st.latestTelemetry;
+    const telTxt = tel
+      ? `${tel.status || '—'} · ${tel.symbol || ''} (${tel.tsIst ? String(tel.tsIst).slice(11, 16) : ''} IST)${tel.entryPrice ? ` · Bracket Ask ₹${tel.entryPrice} / SL ₹${tel.stopLossPrice} / 1:1 ₹${tel.tp1Banker} / 15m Tgt ₹${tel.tpTarget}` : tel.reason ? ` — ${tel.reason}` : ''}`
+      : 'No 1m option evaluations logged today yet (waits for index trigger).';
+    targetEl.innerHTML = `
+      <div style="display:flex;flex-wrap:wrap;justify-content:space-between;gap:6px;margin-bottom:6px;font-size:11.5px;">
+        <span>🇮🇳 <strong>NIFTY Options Engine</strong> · ${modeTag}</span>
+        <span style="color:#94a3b8;">Model ${st.exitModel} (${st.lots} lots / ${st.qty} qty) · Delta fallback ${st.delta}</span>
+      </div>
+      <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(220px,1fr));gap:6px;font-size:11.5px;color:#cbd5e1;margin-bottom:6px;">
+        <div style="background:rgba(34,197,94,0.08);border:1px solid rgba(34,197,94,0.22);border-radius:6px;padding:5px 8px;">📞 <strong>ATM CE:</strong> ${ceTxt}</div>
+        <div style="background:rgba(239,68,68,0.08);border:1px solid rgba(239,68,68,0.22);border-radius:6px;padding:5px 8px;">📉 <strong>ATM PE:</strong> ${peTxt}</div>
+      </div>
+      <div style="font-size:11px;color:#94a3b8;"><strong>Last 1m Gate Telemetry:</strong> ${String(telTxt).replace(/[<>&]/g, '')}</div>
+    `;
   },
 
   _tabsHtml(inst) {
@@ -1089,6 +1454,7 @@ const RangeEmaUI = {
       return;
     }
     host.hidden = false;
+    if (this._chart) this._captureViewport(this._chart);
     this.destroyChart();
 
     const inst = this.activeInstrument() || { label: 'BTC', id: 'BTC' };
@@ -1161,6 +1527,9 @@ const RangeEmaUI = {
     `;
 
     this._bindChartControls();
+    if (inst && ['NIFTY', 'BANKNIFTY', 'SENSEX'].includes(String(inst.id || '').toUpperCase())) {
+      this._refreshNiftyOptionCard();
+    }
     if (!row.error) requestAnimationFrame(() => this._paintChart(row, c));
   },
 
@@ -1206,7 +1575,12 @@ const RangeEmaUI = {
     const doZoom = (factor) => {
       if (!this._chart) return;
       this._chart.$rbUserZoomed = true;
-      try { this._chart.zoom?.(factor); } catch (_) {}
+      try {
+        this._chart.zoom?.(factor);
+        this._fitYForWindow(this._chart);
+        this._chart.update?.('none');
+        this._captureViewport(this._chart);
+      } catch (_) {}
     };
     document.getElementById('rbZoomIn')?.addEventListener('click', () => doZoom(1.35));
     document.getElementById('rbZoomOut')?.addEventListener('click', () => doZoom(0.75));
@@ -1215,7 +1589,9 @@ const RangeEmaUI = {
       this._forceResetZoom = true;
       const ch = this._chart;
       if (ch) {
+        if (ch.$rbViewKey) this._clearViewport(ch.$rbViewKey);
         ch.$rbUserZoomed = false;
+        ch.$rbManualY = false;
         if (ch.scales?.y) {
           delete ch.scales.y.options.min;
           delete ch.scales.y.options.max;
@@ -1234,12 +1610,15 @@ const RangeEmaUI = {
       const yScale = ch.scales?.y;
       if (!yScale) return;
       ch.$rbUserZoomed = true;
+      ch.$rbManualY = true;
+      if (ch.options?.plugins?.zoom?.pan) ch.options.plugins.zoom.pan.mode = 'xy';
       const span = (yScale.max - yScale.min);
       const delta = span * 0.15 * dir;
       // dir = +1 means shift view UP (increase min & max), dir = -1 means shift DOWN
       yScale.options.min = (yScale.min ?? yScale.start) + delta;
       yScale.options.max = (yScale.max ?? yScale.end) + delta;
       try { ch.update('none'); } catch (_) {}
+      this._captureViewport(ch);
     };
     document.getElementById('rbFloatPanUp')?.addEventListener('click', () => panPrice(1));
     document.getElementById('rbFloatPanDown')?.addEventListener('click', () => panPrice(-1));
@@ -1252,13 +1631,15 @@ const RangeEmaUI = {
       let panned = false;
       if (ch && typeof ch.pan === 'function') {
         const xScale = ch.scales?.x;
-        const isZoomed = ch.$rbUserZoomed || (ch.isZoomedOrPanned ? ch.isZoomedOrPanned() : (xScale && (xScale.min > 0.5 || xScale.max < (ch.$rbBars?.length - 1.5))));
-        if (isZoomed && xScale) {
+        if (xScale) {
           try {
             const prevMin = xScale.min;
             ch.pan({ x: dir * 80 }, undefined, 'default');
             if (Math.abs(xScale.min - prevMin) > 0.1) {
               ch.$rbUserZoomed = true;
+              this._fitYForWindow(ch);
+              ch.update?.('none');
+              this._captureViewport(ch);
               panned = true;
             }
           } catch (_) {}
@@ -1666,7 +2047,7 @@ const RangeEmaUI = {
           <span class="lg rb-lg-desk" style="border-left:3px solid #22c55e; color:#94a3b8; padding-left:4px;">Prev Fib Box</span>
           <span id="rbCandleInfo" style="margin-left:auto; font-weight:600; font-size:11.5px; color:#cbd5e1;"></span>
         </div>
-        <p class="rb-zoom-hint">Floating 4-way D-Pad (▲▼◀▶ + − ↺ · drag ⠿ or click ⇄ to move) · Mouse wheel &amp; touch pinch supported</p>
+        <p class="rb-zoom-hint">Drag chart to pan · Drag Y (price) or X (time) axis to scale · Double-click axis to reset · Wheel zooms time</p>
         <div class="rb-chart-box">
           <canvas id="redBarChart" aria-label="TrendRunner Desk chart"></canvas>
           <div class="rb-floating-dpad${localStorage.getItem('trendrunner_dpad_side') !== 'right' ? ' is-left' : ''}" id="rbFloatingDpad" aria-label="Chart navigation">
@@ -1785,9 +2166,15 @@ const RangeEmaUI = {
       `;
     })() : '';
 
+    const niftyOptCardHtml = isNiftyInst
+      ? `<div id="rbNiftyOptCard" style="margin:8px 0;padding:10px 12px;border-radius:8px;border:1px solid rgba(56,189,248,0.28);background:rgba(15,23,42,0.55);font-size:12px;color:#cbd5e1;">Loading live NIFTY Options strike, spread &amp; 1m gate status…</div>`
+      : '';
+
     let actionContentHtml = '';
     if (showEnter) {
-      const botBtns = `
+      const botBtns = isNiftyInst
+        ? `<p class="rb-manage-plan-note">NIFTY Options Model B: 1m option rejection gate + bid/ask spread filter runs before Telegram/Dhan alerts. Runner targets Option 15m open ceiling or next median.</p>`
+        : `
         <div class="rb-bot-actions">
           <button type="button" class="rb-inst-btn active" id="rbPlaceTwoLeg">Place two-leg on Binance</button>
           <button type="button" class="rb-inst-btn" id="rbCheckBinance">Check Binance positions</button>
@@ -1795,23 +2182,31 @@ const RangeEmaUI = {
         </div>
         <p class="rb-manage-plan-note">Notification = alert that ENTER fired (PWA banner and/or Telegram). It does <em>not</em> mean an order is filled unless auto-trade is on or you pressed Place.</p>`;
 
+      const runnerLabel = isNiftyInst
+        ? 'TP B · Option 15m / Median'
+        : 'TP B · 50% @ 1:3';
+      const enterPlanDesc = isNiftyInst
+        ? 'Model B on Option Chart: SL = 1m option wick (4–14 pts) or index wick · Leg A banks 50% @ 1:1 (SL→cost +0.50) · Runner → Option 15m open / median.'
+        : (useSnap ? 'Frozen at first ENTER (ignores later level drift).' : 'Same entry + stop. Leg A books 50% @ 1:1 · Leg B runner @ 1:3.');
+
       actionContentHtml = `
         ${statusBanner}
+        ${niftyOptCardHtml}
         ${btcConfHtml}
         ${tellHtml}
-        ${posLine}
+        ${isNiftyInst ? '' : posLine}
         <div class="rb-manage-plan">
-          <div class="rb-manage-plan-title">One ENTER · set-and-forget two legs</div>
-          <p class="rb-manage-plan-note">${useSnap ? 'Frozen at first ENTER (ignores later level drift).' : 'Same entry + stop. Leg A books 50% @ 1:1 · Leg B runner @ 1:3.'}</p>
+          <div class="rb-manage-plan-title">${isNiftyInst ? 'NIFTY ENTER · Model B Bracket' : 'One ENTER · set-and-forget two legs'}</div>
+          <p class="rb-manage-plan-note">${enterPlanDesc}</p>
           <div class="rb-action-levels">
             <div><span>Entry</span><strong>${this._fmt(eN)}</strong><small class="rb-level-sub">${useSnap ? 'Frozen' : (ladder ? 'H1→M5' : 'Live')}</small></div>
             <div><span>Stop (both legs)</span><strong class="neg-text">${this._fmt(sN)}</strong>${stopSub}</div>
             <div><span>TP A · 50% @ 1:1</span><strong class="pos-text">${this._fmt(tpA)}</strong>${tp1Sub}</div>
-            <div><span>TP B · 50% @ 1:3</span><strong class="pos-text">${this._fmt(tpB)}</strong>${runnerSub}</div>
+            <div><span>${runnerLabel}</span><strong class="pos-text">${this._fmt(tpB)}</strong>${runnerSub}</div>
           </div>
           ${botBtns}
         </div>
-        ${futuresBarHtml}
+        ${isNiftyInst ? '' : futuresBarHtml}
       `;
     } else {
       // Stepper (Magnet-aware when in Equilibrium Context, standard 4-step for Red Bar DNA)
@@ -1964,6 +2359,7 @@ const RangeEmaUI = {
 
       actionContentHtml = `
         ${statusBanner}
+        ${niftyOptCardHtml}
         ${btcConfHtml}
         ${tellHtml}
         <div class="rb-stepper-wrap">
@@ -2394,6 +2790,9 @@ const RangeEmaUI = {
         const bodyW = Math.max(3.5, Math.min(slot * 0.78, 18));
 
         ctx.save();
+        ctx.beginPath();
+        ctx.rect(area.left, area.top, area.right - area.left, area.bottom - area.top);
+        ctx.clip();
         const isRenko = chart.$rbChartMode === 'renko';
 
         if (isRenko) {
@@ -3643,6 +4042,7 @@ const RangeEmaUI = {
     const n = bars.length;
     const times = bars.map((b) => b.t);
 
+    const rightSpacers = compact ? 10 : 18;
     const labels = times.map((t, i) => {
       const d = new Date(t);
       const time = d.toLocaleTimeString(undefined, { hour: '2-digit', minute: '2-digit', hour12: false });
@@ -3652,6 +4052,7 @@ const RangeEmaUI = {
       }
       return time;
     });
+    for (let s = 0; s < rightSpacers; s++) labels.push('');
     const closes = bars.map((b) => b.c);
     // Map each prior-day band onto bar indices in the visible window (for day-scoped boxes)
     const dayMode = inst.dayMode || c.dayMode || 'utc';
@@ -4123,50 +4524,66 @@ const RangeEmaUI = {
       levelTags.length = 3;
     }
 
-    // Binance / Dhan-style Viewport Lock:
-    // Preserve user's X and Y zoom/pan across background auto-refreshes on the same instrument + timeframe
+    // TradingView / Dhan-style Viewport Persistence & Today-Centered Default:
+    // 1) Restore saved zoom/pan across 30s refreshes AND full page reloads via localStorage.
+    // 2) On fresh load (or Reset), center & zoom cleanly onto TODAY's session with right margin.
     const viewKey = `${inst.id || priceLabel}:${tf}:${this.state.chartMode || 'candles'}`;
+    const isSameView = Boolean(this._chart && this._chart.$rbViewKey === viewKey);
+    const forceReset = Boolean(this._forceResetZoom);
+    if (forceReset) this._forceResetZoom = false;
+
+    const savedVp = forceReset ? null : this._loadViewport(viewKey);
+    const maxTotalX = Math.max(0, (n - 1) + rightSpacers);
     let savedXMin = undefined;
     let savedXMax = undefined;
     let savedYMin = yLo - pad;
     let savedYMax = yHi + pad;
     let preservedUserZoom = false;
-    let isSameView = false;
+    let savedManualY = false;
 
-    if (this._forceResetZoom) {
-      this._forceResetZoom = false;
-    } else if (this._chart && this._chart.$rbViewKey === viewKey) {
-      isSameView = true;
-      const prevX = this._chart.scales?.x;
-      const prevY = this._chart.scales?.y;
-      const prevN = this._chart.$rbBars?.length || n;
-      const wasZoomed = !!(
-        this._chart.$rbUserZoomed
-        || (this._chart.isZoomedOrPanned && this._chart.isZoomedOrPanned())
-        || (prevX && (prevX.min > 0.5 || prevX.max < prevN - 1.5))
-      );
-      if (wasZoomed && prevX && Number.isFinite(prevX.min) && Number.isFinite(prevX.max)) {
-        preservedUserZoom = true;
-        const visCount = Math.max(8, prevX.max - prevX.min);
-        const atRightEdge = (prevN - 1 - prevX.max) <= 1.5;
-        if (atRightEdge) {
-          // User was zoomed in at the live right edge — keep the exact bar count anchored to latest candle
-          savedXMax = n - 1;
-          savedXMin = Math.max(0, Math.round(n - 1 - visCount));
-        } else {
-          // User panned back in history — keep the same timestamp window locked
-          const prevTimes = this._chart.$rbTimes || [];
-          const prevStartTs = prevTimes[Math.max(0, Math.round(prevX.min))];
-          let matchedIdx = prevStartTs != null ? times.findIndex((t) => t >= prevStartTs) : -1;
-          if (matchedIdx < 0) matchedIdx = Math.max(0, Math.min(n - 1, Math.round(prevX.min)));
-          savedXMin = matchedIdx;
-          savedXMax = Math.min(n - 1, Math.round(matchedIdx + visCount));
-        }
-        if (prevY && Number.isFinite(prevY.min) && Number.isFinite(prevY.max)) {
-          savedYMin = prevY.min;
-          savedYMax = prevY.max;
-        }
+    if (savedVp && Number.isFinite(savedVp.xSpan)) {
+      preservedUserZoom = Boolean(savedVp.userZoomed);
+      savedManualY = Boolean(savedVp.manualY);
+      const visSpan = Math.max(8, Math.min(maxTotalX, savedVp.xSpan));
+      if (savedVp.atRightEdge) {
+        const rPad = Number.isFinite(savedVp.rightPad)
+          ? Math.max(0, Math.min(rightSpacers, savedVp.rightPad))
+          : (compact ? 3 : 6);
+        savedXMax = Math.min(maxTotalX, (n - 1) + rPad);
+        savedXMin = Math.max(0, savedXMax - visSpan);
+      } else {
+        let matchedIdx = savedVp.startTs != null ? times.findIndex((t) => t >= savedVp.startTs) : -1;
+        if (matchedIdx < 0) matchedIdx = Math.max(0, Math.min(n - 1, Number(savedVp.xMin ?? 0)));
+        savedXMin = Math.max(0, matchedIdx);
+        savedXMax = Math.min(maxTotalX, savedXMin + visSpan);
       }
+    } else {
+      const defWin = this._defaultTodayWindow(bars, times, inst, compact);
+      savedXMin = defWin.xMin;
+      savedXMax = Math.min(maxTotalX, defWin.xMax);
+    }
+    if (savedXMin != null) savedXMin = Math.max(0, Math.round(savedXMin));
+    if (savedXMax != null) savedXMax = Math.min(maxTotalX, Math.round(savedXMax));
+
+    if (
+      savedManualY
+      && savedVp
+      && Number.isFinite(savedVp.yMin)
+      && Number.isFinite(savedVp.yMax)
+      && savedVp.yMax > savedVp.yMin
+    ) {
+      savedYMin = savedVp.yMin;
+      savedYMax = savedVp.yMax;
+    } else {
+      const yBounds = this._calcVisibleYBounds(
+        bars,
+        savedXMin ?? 0,
+        savedXMax ?? (n - 1),
+        rawNearLevels,
+        compact,
+      );
+      savedYMin = yBounds.min;
+      savedYMax = yBounds.max;
     }
 
     this.destroyChart();
@@ -4681,18 +5098,20 @@ const RangeEmaUI = {
           },
           zoom: {
             limits: {
-              x: { min: 'original', max: 'original', minRange: 12 },
-              y: { min: 0, max: 500000, minRange: Math.max(barSpan * 0.06, 30) },
+              x: { min: 0, max: maxTotalX, minRange: 8 },
+              y: { min: 0, max: 500000, minRange: Math.max((savedYMax - savedYMin) * 0.03, 1) },
             },
-            // Smooth two-axis drag-pan on touch and desktop
+            // Smooth plot drag-pan (X only until user manually scales Y-axis; Shift+drag to box-zoom)
             pan: {
               enabled: true,
-              mode: 'xy',
+              mode: savedManualY ? 'xy' : 'x',
               threshold: 6,
               modifierKey: null,
               onPanComplete({ chart }) {
                 chart.$rbUserZoomed = true;
+                self._fitYForWindow(chart);
                 try { chart.update('none'); } catch (_) {}
+                self._captureViewport(chart);
               },
             },
             zoom: {
@@ -4700,19 +5119,18 @@ const RangeEmaUI = {
               pinch: { enabled: true },
               drag: {
                 enabled: !compact,
+                modifierKey: 'shift',
                 backgroundColor: 'rgba(124, 106, 245, 0.18)',
                 borderColor: 'rgba(124, 106, 245, 0.45)',
                 borderWidth: 1,
               },
-              // Pinch/wheel zoom both axes so day-range gaps open up
-              mode: 'xy',
+              // Wheel/pinch zooms time axis cleanly while auto-fitting Y unless Y was manually scaled
+              mode: 'x',
               onZoomComplete({ chart }) {
                 chart.$rbUserZoomed = true;
+                self._fitYForWindow(chart);
                 try { chart.update('none'); } catch (_) {}
-              },
-              onPanComplete({ chart }) {
-                chart.$rbUserZoomed = true;
-                try { chart.update('none'); } catch (_) {}
+                self._captureViewport(chart);
               },
             },
           },
@@ -4825,6 +5243,10 @@ const RangeEmaUI = {
     this._chart.$rbHoveredLevel = null;
     this._chart.$rbHoveredKey = null;
     this._chart.$rbDecimals = inst.priceDecimals ?? 2;
+    this._chart.$rbManualY = savedManualY;
+    this._chart.$rbNearLevels = rawNearLevels;
+    this._chart.$rbRightSpacers = rightSpacers;
+    this._bindCanvasAxisInteractions(canvas, this._chart);
 
     const elInitInfo = document.getElementById('rbCandleInfo');
     if (elInitInfo && bars && bars.length) {

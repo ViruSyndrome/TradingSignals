@@ -3494,7 +3494,7 @@ const RedBarTrend = {
       const rr = hasMedianTarget && riskDist > 0 ? Math.abs(tp1 - triggerP) / riskDist : null;
       return {
         invalidation: sp,
-        invalidationReason: fibBounce.stopReason || 'signal wick',
+        invalidationReason: fibBounce.stopReason || 'signal/prior wick extreme',
         stopStructural: Number.isFinite(sp),
         tp1,
         tp2: null,
@@ -3502,8 +3502,8 @@ const RedBarTrend = {
         bookZone: tp1,
         firstMagnet: hasMedianTarget ? { price: tp1, label: fibBounce.tpLabel || 'next median' } : null,
         bookReason: hasMedianTarget
-          ? `Median wick @ ${fibBounce.medianLabel || 'median'} · stop the signal wick · target ${fibBounce.tpLabel || 'next median'}`
-          : `Median wick @ ${fibBounce.medianLabel || 'median'} · stop the signal wick · no median left, hold to the close`,
+          ? `Median wick @ ${fibBounce.medianLabel || 'median'} · Model B (1:1 bank → runner to Option 15m open / ${fibBounce.tpLabel || 'next median'})`
+          : `Median wick @ ${fibBounce.medianLabel || 'median'} · Model B (1:1 bank → runner to Option 15m open / 5m close-back)`,
         bookIsMagnet: hasMedianTarget,
         stopPct: triggerP > 0 ? (riskDist / triggerP) * 100 : null,
         targetPct: hasMedianTarget && triggerP > 0 ? (Math.abs(tp1 - triggerP) / triggerP) * 100 : null,

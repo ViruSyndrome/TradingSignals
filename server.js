@@ -69,6 +69,68 @@ app.get('/api/dhan/ohlc', async (req, res) => {
   }
 });
 
+let _niftyOptStatusCache = { ts: 0, optionPick: null };
+app.get('/api/dhan/nifty-option-status', async (req, res) => {
+  const fs = require('fs');
+  const path = require('path');
+  const autoTrade = String(process.env.DHAN_AUTO_TRADE || 'false').toLowerCase() === 'true';
+  const exitModel = String(process.env.DHAN_EXIT_MODEL || 'B').toUpperCase();
+  const lots = Math.max(1, Number(process.env.DHAN_NIFTY_LOTS) || 2);
+  const delta = Number(process.env.NIFTY_OPT_DELTA) || 0.55;
+  let latestTelemetry = null;
+  try {
+    const fp = path.join(__dirname, 'logs', 'option_engine_telemetry.jsonl');
+    if (fs.existsSync(fp)) {
+      const lines = fs.readFileSync(fp, 'utf8').trim().split('\n').filter(Boolean);
+      if (lines.length) latestTelemetry = JSON.parse(lines[lines.length - 1]);
+    }
+  } catch (_) {}
+
+  let optionPick = _niftyOptStatusCache.optionPick;
+  if (Date.now() - _niftyOptStatusCache.ts > 20_000) {
+    try {
+      const { isDhanConfigured } = require('./js/dhan_client.js');
+      if (isDhanConfigured()) {
+        const { createDhanNiftyTrade } = require('./js/dhan_nifty_trade.js');
+        const trader = createDhanNiftyTrade({ instrumentId: 'NIFTY' });
+        const ce = await trader.pickOptionContract({ side: 'LONG' });
+        const pe = await trader.pickOptionContract({ side: 'SHORT', expiry: ce.expiry });
+        optionPick = {
+          expiry: ce.expiry,
+          ce: {
+            strike: ce.strike,
+            symbolHint: ce.symbolHint,
+            ltp: ce.ltp,
+            bid: ce.rawBid ?? ce.bid,
+            ask: ce.rawAsk ?? ce.ask,
+            hasLiveBook: Boolean(ce.hasLiveBook),
+          },
+          pe: {
+            strike: pe.strike,
+            symbolHint: pe.symbolHint,
+            ltp: pe.ltp,
+            bid: pe.rawBid ?? pe.bid,
+            ask: pe.rawAsk ?? pe.ask,
+            hasLiveBook: Boolean(pe.hasLiveBook),
+          },
+        };
+        _niftyOptStatusCache = { ts: Date.now(), optionPick };
+      }
+    } catch (_) {}
+  }
+
+  res.json({
+    ok: true,
+    autoTrade,
+    exitModel,
+    lots,
+    qty: lots * 65,
+    delta,
+    optionPick,
+    latestTelemetry,
+  });
+});
+
 function tradeEnv(key, fallback = '') {
   const v = process.env[key];
   return typeof v === 'string' && v.trim() ? v.trim() : fallback;
