@@ -604,6 +604,7 @@ const RangeEmaUI = {
     let rawFib30m = null;
     let raw1m = null;
     let deskMeta = null;
+    const workTf = c.workingTf || '15m';
     try {
       const get = (iv, n) => (typeof API.getDeskOHLC === 'function'
         ? API.getDeskOHLC(instrument, iv, n)
@@ -617,7 +618,6 @@ const RangeEmaUI = {
       const needPivotFetch = !!firstRedTf && tf !== firstRedTf;
       const needFib30m = tf === '1h' && mwMins < 60 && firstRedTf !== '30m';
       const need1m = (typeof FibMagnet !== 'undefined');
-      const workTf = c.workingTf || '15m';
       const needWorkTf = tf !== workTf;
       const pair = await Promise.allSettled([
         get(tf, lim),
@@ -679,8 +679,10 @@ const RangeEmaUI = {
       orAnchor: instrument.orAnchor || c.orAnchor || null,
       fibLevels: instrument.fibLevels || c.fibLevels || [0, 0.44, 0.5, 0.56, 1],
       sessions: instrument.sessions || c.sessions || [],
+      dayFibTf: instrument.dayFibTf || null,
       firstRedTf,
       firstRedLabel,
+      firstRedAfterOpenMins: instrument.firstRedAfterOpenMins ?? null,
     };
 
     // Sagar pivot: first CLOSED red on pivot TF AFTER the calendar day’s first candle
@@ -3377,20 +3379,20 @@ const RangeEmaUI = {
         }
 
         const lines = [];
-        const is15mAnchor = (adv.firstBar?.barMs || adv.firstRed?.barMs) >= 15 * 60000;
-        const tfTag = is15mAnchor ? '15m ' : '';
+        const fbTag = adv.firstBar?.barMs >= 15 * 60000 ? '15m ' : '';
+        const frTag = adv.firstRed?.barMs >= 15 * 60000 ? '15m ' : (adv.firstRed?.barMs === 5 * 60000 ? '5m ' : '');
         if (adv.firstBar?.fibs?.median != null) {
           lines.push({
             v: adv.firstBar.fibs.median,
             c: 'rgba(56, 189, 248, 0.95)',
-            label: `First-bar ${tfTag}mid ${fmt(adv.firstBar.fibs.median)}`,
+            label: `First-bar ${fbTag}mid ${fmt(adv.firstBar.fibs.median)}`,
           });
         }
         if (adv.firstRed?.fibs?.median != null) {
           lines.push({
             v: adv.firstRed.fibs.median,
             c: 'rgba(244, 63, 94, 0.9)',
-            label: `Red ${tfTag}mid ${fmt(adv.firstRed.fibs.median)}`,
+            label: `Red ${frTag}mid ${fmt(adv.firstRed.fibs.median)}`,
           });
         }
         const hwMed = Array.isArray(adv.medians) ? adv.medians.find((m) => m.id === 'highway_halfway') : null;

@@ -688,11 +688,15 @@ const RedBarTrend = {
     const isMcx = this.isMcxCommodity(instId);
     const isEarlyMark = !!(window && this.isSessionFib(cfg) && (Number(window.endHour) <= 6 || window.timeZone === 'America/New_York'));
     const sessDay = isEarlyMark ? this.sessionDayKey(now, window) : asOfDay;
+    const afterOpenMins = Number(cfg.firstRedAfterOpenMins);
+    const afterOpenCutoffTs = (Number.isFinite(afterOpenMins) && afterOpenMins > 0 && !isEarlyMark && !isMcx)
+      ? (this.zonedClockToUtc(asOfDay, 'Asia/Kolkata', 9, 15) + afterOpenMins * 60000)
+      : null;
     const markEndTs = isEarlyMark
       ? this.zonedClockToUtc(sessDay, window.timeZone || 'Asia/Kolkata', window.endHour, window.endMinute)
       : (isMcx
         ? this.zonedClockToUtc(asOfDay, 'Asia/Kolkata', 9, 0)
-        : null);
+        : afterOpenCutoffTs);
     const dayBars = [];
     for (let i = 0; i < bars.length; i++) {
       const bDay = isEarlyMark ? this.sessionDayKey(bars[i].t, window) : this.dayKey(bars[i].t, dayMode);
@@ -701,7 +705,7 @@ const RedBarTrend = {
       if (markEndTs != null && bars[i].t < markEndTs - 1000) continue;
       dayBars.push({ bar: bars[i], index: i });
     }
-    // If markEndTs already skipped the mark-window open candle (BTC), start at 0; for MCX/NSE skip open bar [0]
+    // If markEndTs already skipped the opening candle(s) (BTC or post-15m-open NIFTY 5m), start at 0; else skip open bar [0]
     const startJ = (markEndTs != null && !isMcx) ? 0 : 1;
     for (let j = startJ; j < dayBars.length; j++) {
       const { bar, index } = dayBars[j];
@@ -4268,11 +4272,14 @@ const RedBarTrend = {
     let fibBounce = null;
     if (advancedFibsEnabled && bars5m) {
       const priorBand = prior.length ? prior[prior.length - 1] : null;
-      const bars15m = Array.isArray(c.bars15m) && c.bars15m.length
-        ? c.bars15m
-        : (c.firstRedTf === '15m' && Array.isArray(c.bars1h) && c.bars1h.length
-          ? c.bars1h
-          : (this._inferBarMs(slice, 15 * 60000, i) === 15 * 60000 ? slice : null));
+      const use15mDayFib = (c.dayFibTf === '15m' || c.firstRedTf === '15m' || instIdEarly === 'NIFTY');
+      const bars15m = use15mDayFib
+        ? (Array.isArray(c.bars15m) && c.bars15m.length
+          ? c.bars15m
+          : (this._inferBarMs(slice, 15 * 60000, i) === 15 * 60000
+            ? slice
+            : (Array.isArray(c.bars1h) && c.bars1h.length && this._inferBarMs(c.bars1h, 15 * 60000) === 15 * 60000 ? c.bars1h : null)))
+        : null;
       advancedFibs = this.buildAdvancedNiftyFibs({
         bars5m,
         bars15m,

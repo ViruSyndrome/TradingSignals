@@ -18,7 +18,9 @@ function ok(label, cond, detail = '') {
 const nifty = (CONFIG.rangeEma?.instruments || []).find((x) => x.id === 'NIFTY');
 console.log('[1] Config');
 ok('NIFTY advancedFibs true', nifty && nifty.advancedFibs === true);
-ok('NIFTY firstRedTf is 15m', nifty && nifty.firstRedTf === '15m');
+ok('NIFTY dayFibTf is 15m', nifty && nifty.dayFibTf === '15m');
+ok('NIFTY firstRedTf is 5m', nifty && nifty.firstRedTf === '5m');
+ok('NIFTY firstRedAfterOpenMins is 15', nifty && nifty.firstRedAfterOpenMins === 15);
 ok('NIFTY advancedFibGapPts 40', nifty && nifty.advancedFibGapPts === 40);
 ok('fib_bounce in ACTIONABLE_SETUPS', RedBarTrend.ACTIONABLE_SETUPS.includes('fib_bounce'));
 
@@ -297,6 +299,24 @@ const swRead = RedBarTrend.readAt(swCheckBars15, swCheckBars15.length - 1, {
   bars5m: [...bars5_test, { t: t0945, o: 25155, h: 25165, l: 25150, c: 25160, v: 1 }],
 });
 ok('narrow (<120) sandwich sets setupKind=fib_sandwich_wait and blocks trade1_departure', swRead?.setupKind === 'fib_sandwich_wait', JSON.stringify({ setupKind: swRead?.setupKind, trend: swRead?.trend }));
+
+console.log('\n[7] Hybrid: 15m Day/Gap Fib + 5m First Red strictly after 09:30');
+const frHybrid = RedBarTrend.firstRedBarOfSession([
+  ...bars5_test,
+  { t: ist(2026, 11, 13, 9, 20), o: 25175, h: 25180, l: 25140, c: 25145, v: 1 }, // red inside 09:15-09:30 -> must skip!
+], day13, { ...nifty, asOfTs: t0945 + 1000, barMs: 5 * 60000 });
+ok('5m First Red ignores 09:20 red inside 09:15-09:30 and picks 09:30 first 5m red after 15m open',
+  frHybrid && frHybrid.t === t0930 && frHybrid.barMs === 300000, JSON.stringify(frHybrid && { t: frHybrid.t, expected: t0930, barMs: frHybrid.barMs }));
+const hyRead = RedBarTrend.readAt(swCheckBars15, swCheckBars15.length - 1, {
+  ...nifty,
+  asOfTs: t0945 + 6 * 60000,
+  firstRed1h: frHybrid,
+  bars15m: swCheckBars15,
+  bars5m: [...bars5_test, { t: t0945, o: 25155, h: 25165, l: 25150, c: 25160, v: 1 }],
+});
+ok('hybrid readAt keeps 15m Day Fib (barMs=900000) + Gap Fib while using 5m First Red (barMs=300000)',
+  hyRead?.advancedFibs?.firstBar?.barMs === 900000 && hyRead?.advancedFibs?.firstRed?.barMs === 300000,
+  JSON.stringify({ fbMs: hyRead?.advancedFibs?.firstBar?.barMs, frMs: hyRead?.advancedFibs?.firstRed?.barMs }));
 
 console.log(failed ? `\nFAILED ${failed}` : '\nALL PASS');
 process.exit(failed ? 1 : 0);
