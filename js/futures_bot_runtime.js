@@ -9,6 +9,7 @@ const { createDhanClient, isDhanConfigured } = require('./dhan_client.js');
 const DEFAULT_CONTRACTS = {
   NIFTY: {
     symbol: 'NIFTY',
+    yahooSymbol: '^NSEI',
     signalSeg: 'IDX_I',
     signalInst: 'INDEX',
     signalScripEnv: 'PATRICK_NIFTY_SIG_SCRIP',
@@ -128,6 +129,43 @@ function resampleBars(bars, minutes) {
   return [...map.values()].sort((a, b) => a.t - b.t);
 }
 
+async function fetchYahooBars(yahooSymbol, tfMin) {
+  const yInt = tfMin === 60 ? '60m' : tfMin === 30 ? '30m' : tfMin === 5 ? '5m' : '15m';
+  const yRange = (yInt === '15m' || yInt === '5m') ? '1mo' : '3mo';
+  const qs = `interval=${yInt}&range=${yRange}&includePrePost=false`;
+  const urls = [
+    `https://query1.finance.yahoo.com/v8/finance/chart/${encodeURIComponent(yahooSymbol)}?${qs}`,
+    `https://query2.finance.yahoo.com/v8/finance/chart/${encodeURIComponent(yahooSymbol)}?${qs}`,
+  ];
+  let lastErr;
+  for (const url of urls) {
+    try {
+      const r = await fetch(url, { headers: { 'User-Agent': 'Mozilla/5.0' } });
+      if (!r.ok) throw new Error(`Yahoo HTTP ${r.status}`);
+      const data = await r.json();
+      const result = data?.chart?.result?.[0];
+      if (!result) throw new Error('Empty Yahoo chart');
+      const ts = result.timestamp || [];
+      const q = result.indicators?.quote?.[0] || {};
+      const rows = [];
+      for (let i = 0; i < ts.length; i++) {
+        const o = q.open?.[i];
+        const h = q.high?.[i];
+        const l = q.low?.[i];
+        const c = q.close?.[i];
+        const v = q.volume?.[i];
+        if (![o, h, l, c].every(Number.isFinite)) continue;
+        rows.push([ts[i] * 1000, o, h, l, c, v || 0]);
+      }
+      if (rows.length < 20) throw new Error(`Not enough Yahoo bars (${rows.length})`);
+      return rowsToBars(rows);
+    } catch (e) {
+      lastErr = e;
+    }
+  }
+  throw lastErr || new Error(`Yahoo fallback failed for ${yahooSymbol}`);
+}
+
 async function fetchSymbolBars(dhan, sym, tf = '15m', daysBack = 25) {
   const spec = DEFAULT_CONTRACTS[sym];
   if (!spec) throw new Error(`Unknown futures symbol: ${sym}`);
@@ -141,24 +179,37 @@ async function fetchSymbolBars(dhan, sym, tf = '15m', daysBack = 25) {
     return rowsToBars(data);
   }
 
-  if (!dhan) throw new Error(`Dhan client unavailable for ${sym}`);
-  const scripId = process.env[spec.signalScripEnv] || spec.defaultSigScrip;
-  const toMs = Date.now();
-  const fromMs = toMs - daysBack * 86400000;
   const tfMin = tfToMinutes(tf);
-  const apiInterval = tfMin === 60 ? '60' : tfMin === 5 ? '5' : '15';
-  const rows = await dhan.getIntradayRange({
-    securityId: String(scripId),
-    exchangeSegment: spec.signalSeg,
-    instrument: spec.signalInst,
-    interval: apiInterval,
-    fromMs,
-    toMs,
-    chunkDays: 20,
-    pauseMs: 280,
-  });
-  const bars = rowsToBars(rows);
-  return tfMin === 30 ? resampleBars(bars, 30) : bars;
+  if (dhan) {
+    try {
+      const scripId = process.env[spec.signalScripEnv] || spec.defaultSigScrip;
+      const toMs = Date.now();
+      const fromMs = toMs - daysBack * 86400000;
+      const apiInterval = tfMin === 60 ? '60' : tfMin === 5 ? '5' : '15';
+      const rows = await dhan.getIntradayRange({
+        securityId: String(scripId),
+        exchangeSegment: spec.signalSeg,
+        instrument: spec.signalInst,
+        interval: apiInterval,
+        fromMs,
+        toMs,
+        chunkDays: 20,
+        pauseMs: 280,
+      });
+      const bars = rowsToBars(rows);
+      return tfMin === 30 ? resampleBars(bars, 30) : bars;
+    } catch (dhanErr) {
+      if (spec.yahooSymbol) {
+        return fetchYahooBars(spec.yahooSymbol, tfMin);
+      }
+      throw dhanErr;
+    }
+  }
+
+  if (spec.yahooSymbol) {
+    return fetchYahooBars(spec.yahooSymbol, tfMin);
+  }
+  throw new Error(`Dhan client unavailable for ${sym}`);
 }
 
 /**
