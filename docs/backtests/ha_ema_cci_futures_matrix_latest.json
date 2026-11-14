@@ -1,11 +1,24 @@
 {
-  "generatedAt": "2026-11-12T21:08:40.222Z",
+  "generatedAt": "2026-11-14T08:31:27.368Z",
   "timeframes": {
     "15m": {
       "bars": 6252,
       "from": "2025-11-11",
       "to": "2026-11-11",
       "rows": [
+        {
+          "label": "Production Engine (HA 2-Bar Stack + Session Latch + Quiet CCI)",
+          "trades": 54,
+          "wins": 11,
+          "losses": 43,
+          "winRatePct": 20.4,
+          "netPts": 2215.6,
+          "netPtsAfterFriction9_3": 1713.4,
+          "netRs1Lot": 144014,
+          "netRs1LotAfterFriction": 111371,
+          "profitFactor": 2.49,
+          "maxDDPts": 808.1
+        },
         {
           "label": "Exact User (HA Stack + Close CCI, NO filter)",
           "trades": 109,
@@ -357,6 +370,19 @@
       "to": "2026-10-26",
       "rows": [
         {
+          "label": "Production Engine (HA 2-Bar Stack + Session Latch + Quiet CCI)",
+          "trades": 66,
+          "wins": 16,
+          "losses": 50,
+          "winRatePct": 24.2,
+          "netPts": 674.2,
+          "netPtsAfterFriction9_3": 60.4,
+          "netRs1Lot": 43823,
+          "netRs1LotAfterFriction": 3926,
+          "profitFactor": 1.33,
+          "maxDDPts": 515.8
+        },
+        {
           "label": "Exact User (HA Stack + Close CCI, NO filter)",
           "trades": 171,
           "wins": 48,
@@ -707,6 +733,19 @@
       "to": "2026-10-26",
       "rows": [
         {
+          "label": "Production Engine (HA 2-Bar Stack + Session Latch + Quiet CCI)",
+          "trades": 33,
+          "wins": 7,
+          "losses": 26,
+          "winRatePct": 21.2,
+          "netPts": -1.9,
+          "netPtsAfterFriction9_3": -308.8,
+          "netRs1Lot": -123,
+          "netRs1LotAfterFriction": -20072,
+          "profitFactor": 1,
+          "maxDDPts": 603.8
+        },
+        {
           "label": "Exact User (HA Stack + Close CCI, NO filter)",
           "trades": 104,
           "wins": 30,
@@ -1056,6 +1095,19 @@
       "from": "2025-11-11",
       "to": "2026-11-11",
       "rows": [
+        {
+          "label": "Production Engine (HA 2-Bar Stack + Session Latch + Quiet CCI)",
+          "trades": 161,
+          "wins": 39,
+          "losses": 122,
+          "winRatePct": 24.2,
+          "netPts": 2857.2,
+          "netPtsAfterFriction9_3": 1359.9,
+          "netRs1Lot": 185718,
+          "netRs1LotAfterFriction": 88393,
+          "profitFactor": 2.13,
+          "maxDDPts": 556.2
+        },
         {
           "label": "Exact User (HA Stack + Close CCI, NO filter)",
           "trades": 299,

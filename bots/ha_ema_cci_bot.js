@@ -25,7 +25,7 @@ const STATE_PATH = path.join(__dirname, 'state_ha_ema_cci.json');
 const DEFAULT_PROFILES = {
   NIFTY:    { sym: 'NIFTY',    tf: '15m', exitMode: 'cci',        chandMult: 4.5, mult: 65,  capitalRs: 165000 },
   CRUDEOIL: { sym: 'CRUDEOIL', tf: '15m', exitMode: 'chandelier', chandMult: 2.5, mult: 100, capitalRs: 210000 },
-  XAU:      { sym: 'XAU',      tf: '1h',  exitMode: 'chandelier', chandMult: 3.5, mult: 85,  capitalRs: 120000 },
+  XAU:      { sym: 'XAU',      tf: '1h',  exitMode: 'chandelier', chandMult: 3.5, mult: 85,  capitalRs: 140000 },
 };
 
 const SYMBOLS = String(process.env.HA_CCI_SYMBOLS || 'NIFTY,CRUDEOIL,XAU')

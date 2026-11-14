@@ -7,6 +7,25 @@
  */
 const DEFAULT_BASE = 'https://api.dhan.co/v2';
 
+// Shared in-memory cache + rate-limit queue for /charts/intraday across all client instances
+const _klineCache = new Map();
+const KLINE_CACHE_TTL_MS = 12 * 1000;
+let _lastChartCallTs = 0;
+let _chartQueue = Promise.resolve();
+
+function _throttleChartCall(fn) {
+  const run = async () => {
+    const now = Date.now();
+    const wait = Math.max(0, _lastChartCallTs + 260 - now);
+    if (wait > 0) await new Promise((r) => setTimeout(r, wait));
+    _lastChartCallTs = Date.now();
+    return fn();
+  };
+  const next = _chartQueue.then(run, run);
+  _chartQueue = next.catch(() => {});
+  return next;
+}
+
 function env(key, fallback = '') {
   const v = process.env[key];
   return typeof v === 'string' && v.trim() ? v.trim() : fallback;
@@ -23,7 +42,7 @@ function createDhanClient(opts = {}) {
     throw err;
   }
 
-  async function _request(method, path, { body, query, extraHeaders } = {}) {
+  async function _request(method, path, { body, query, extraHeaders, retryCount = 0 } = {}) {
     const q = new URLSearchParams();
     if (query) {
       for (const [k, v] of Object.entries(query)) {
@@ -54,6 +73,11 @@ function createDhanClient(opts = {}) {
       throw err;
     }
     if (!r.ok) {
+      if (r.status === 429 && retryCount < 2) {
+        console.warn(`[DhanClient] HTTP 429 rate limit on ${path} — backing off ${1500 * (retryCount + 1)}ms (retry ${retryCount + 1}/2)...`);
+        await new Promise((resolve) => setTimeout(resolve, 1500 * (retryCount + 1)));
+        return _request(method, path, { body, query, extraHeaders, retryCount: retryCount + 1 });
+      }
       const msg = data.message || data.errorMessage || data.error || `Dhan HTTP ${r.status}`;
       const err = new Error(typeof msg === 'string' ? msg : JSON.stringify(msg));
       err.status = r.status;
@@ -89,7 +113,7 @@ function createDhanClient(opts = {}) {
     fromDate,
     toDate,
   } = {}) {
-    return _request('POST', '/charts/intraday', {
+    return _throttleChartCall(() => _request('POST', '/charts/intraday', {
       body: {
         securityId: String(securityId),
         exchangeSegment,
@@ -99,7 +123,7 @@ function createDhanClient(opts = {}) {
         fromDate,
         toDate,
       },
-    });
+    }));
   }
 
   /** Map Dhan TF label → supported API interval (no native 30m). */
@@ -164,6 +188,11 @@ function createDhanClient(opts = {}) {
     const exchangeSegment = instrument.dhanExchangeSegment || 'IDX_I';
     const instrumentType = instrument.dhanInstrument || 'INDEX';
     const { api, resampleMs } = mapInterval(interval);
+    const cacheKey = `${securityId}|${exchangeSegment}|${instrumentType}|${api}|${resampleMs || 0}`;
+    const cached = _klineCache.get(cacheKey);
+    if (cached && Date.now() - cached.ts < KLINE_CACHE_TTL_MS && cached.rows.length >= Math.min(limit, 40)) {
+      return cached.rows.length > limit ? cached.rows.slice(-limit) : cached.rows;
+    }
     const days = Math.min(80, Math.max(3, Math.ceil((Number(limit) || 500) / 50) + 2));
     const to = new Date();
     const from = new Date(Date.now() - days * 86400000);
@@ -177,6 +206,9 @@ function createDhanClient(opts = {}) {
     });
     let rows = _toRows(payload);
     rows = _resample(rows, resampleMs);
+    if (rows.length) {
+      _klineCache.set(cacheKey, { ts: Date.now(), rows });
+    }
     if (rows.length > limit) rows = rows.slice(-limit);
     return rows;
   }

@@ -2,6 +2,7 @@
 
 const fs = require('fs');
 const path = require('path');
+const { prepareIndicators, createInitialState, stepHaEmaCciBar } = require('../js/ha_ema_cci_engine.js');
 
 function loadBars(tf) {
     const p = path.join(__dirname, '..', '.cache_desk', `NIFTY_${tf}.json`);
@@ -222,6 +223,43 @@ for (const tf of ['15m', '30m', '1h', '5m']) {
         { label: 'Quiet-Filtered (Normal Stack + Close CCI)', stackType: 'RAW', cciSource: 'close', quietFilter: true, waitStackOrder: 'strictCross' },
         { label: 'Either-Order (HA Stack + Close CCI, NO filter)', stackType: 'HA', cciSource: 'close', quietFilter: false, waitStackOrder: 'either' },
     ];
+    // Production engine row (2-bar HA stack ls && lsPrev + session hours + 1-trade-per-stack latch + Quiet CCI)
+    {
+        const ind = prepareIndicators(bars);
+        const st = createInitialState();
+        for (let i = 0; i < bars.length; i++) {
+            stepHaEmaCciBar(bars, i, st, { symbol: 'NIFTY', quietFilter: true, exitMode: 'cci', chandMult: 4.5, ind });
+        }
+        const trs = st.closedTrades;
+        const wins = trs.filter(t => t.grossPts > 0);
+        const losses = trs.filter(t => t.grossPts <= 0);
+        const grossWin = wins.reduce((s, t) => s + t.grossPts, 0);
+        const grossLoss = Math.abs(losses.reduce((s, t) => s + t.grossPts, 0));
+        const grossPts = grossWin - grossLoss;
+        const netAfterFric = trs.reduce((s, t) => s + (t.grossPts - 9.3), 0);
+        let eq = 0, pk = 0, mdd = 0;
+        for (const t of trs) {
+            eq += t.grossPts;
+            if (eq > pk) pk = eq;
+            if (pk - eq > mdd) mdd = pk - eq;
+        }
+        reportOut.timeframes[tf].rows.push({
+            label: 'Production Engine (HA 2-Bar Stack + Session Latch + Quiet CCI)',
+            trades: trs.length,
+            wins: wins.length,
+            losses: losses.length,
+            winRatePct: trs.length ? +((wins.length / trs.length) * 100).toFixed(1) : 0,
+            netPts: +grossPts.toFixed(1),
+            netPtsAfterFriction9_3: +netAfterFric.toFixed(1),
+            netRs1Lot: Math.round(grossPts * 65),
+            netRs1LotAfterFriction: Math.round(netAfterFric * 65),
+            profitFactor: grossLoss > 0 ? +(grossWin / grossLoss).toFixed(2) : null,
+            maxDDPts: +mdd.toFixed(1),
+        });
+        console.log(
+            `${'Production Engine (HA 2-Bar + Latch + Quiet)'.padEnd(48)} | Tr=${String(trs.length).padStart(3)} (${wins.length}W/${losses.length}L) | Gross=${grossPts.toFixed(1).padStart(7)} pts | NetFric=${netAfterFric.toFixed(1).padStart(7)} pts (Rs ${Math.round(netAfterFric * 65).toLocaleString('en-IN')})`
+        );
+    }
     for (const c of configs) {
         const r = runBacktest(bars, c);
         reportOut.timeframes[tf].rows.push({

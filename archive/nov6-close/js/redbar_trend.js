@@ -3005,30 +3005,34 @@ const RedBarTrend = {
       }
     }
 
-    // NIFTY morning leave/retest: stop = real 5m structure (prev candle / pullback / box mid / box edge).
-    // Prefer a tighter structural candidate when several exist. Never invent a fake "comfort" stop closer than structure.
+    // NIFTY morning leave/retest: stop = real 5m structure (pullback wick / box mid / box edge / real swing).
+    // Never pick a micro 2–5 pt candle wiggle (< ~15 index pts) when real box/pullback structure is right behind it (Nov 9 fix 90b194f).
     if (
       String(instId).toUpperCase() === 'NIFTY'
       && firstRed1h && Number.isFinite(firstRed1h.low) && Number.isFinite(firstRed1h.high)
       && (setupKind === 'trade1_departure' || setupKind === 'trade2_confirmed')
     ) {
       const boxPad = price * 0.00015; // ~3.5 pts on NIFTY
+      const minNiftyStop = price * 0.0006; // ~15 pts minimum structural stop distance on NIFTY (prevents 3–5 pt micro-stops)
       const preferMax = price * 0.0016; // ~38 pts — preference window only, not a skip rule
       const boxMid = (firstRed1h.high + firstRed1h.low) / 2;
-      const last2 = Array.isArray(bars5m) && bars5m.length >= 2 ? bars5m.slice(-2) : [];
-      const prev5Lo = last2.length ? Math.min(...last2.map((b) => b.l)) : null;
-      const prev5Hi = last2.length ? Math.max(...last2.map((b) => b.h)) : null;
+      const last3 = Array.isArray(bars5m) && bars5m.length >= 3 ? bars5m.slice(-4, -1) : (Array.isArray(bars5m) ? bars5m.slice(-2) : []);
+      const prev5Lo = last3.length ? Math.min(...last3.map((b) => b.l)) : null;
+      const prev5Hi = last3.length ? Math.max(...last3.map((b) => b.h)) : null;
       if (trend === 'bullish') {
         const cands = [
-          sweepExtreme != null && sweepExtreme < price ? { v: sweepExtreme - boxPad, tag: '5m swing (pullback low)' } : null,
-          prev5Lo != null && prev5Lo < price ? { v: prev5Lo - boxPad, tag: '5m swing (prev candle low)' } : null,
-          boxMid < price ? { v: boxMid - boxPad, tag: '5m swing (box 50% mid)' } : null,
-          firstRed1h.low < price ? { v: firstRed1h.low - boxPad, tag: '5m swing (session box low)' } : null,
+          sweepExtreme != null && sweepExtreme < price ? { v: sweepExtreme - boxPad, tag: '5m swing (pullback low)', prio: 1 } : null,
+          boxMid < price ? { v: boxMid - boxPad, tag: '5m swing (box 50% mid)', prio: 2 } : null,
+          firstRed1h.low < price ? { v: firstRed1h.low - boxPad, tag: '5m swing (session box low)', prio: 3 } : null,
+          prev5Lo != null && prev5Lo < price ? { v: prev5Lo - boxPad, tag: '5m swing (prev candle low)', prio: 4 } : null,
         ].filter((x) => x && Number.isFinite(x.v) && x.v < price);
-        const preferred = cands
+        // Require at least minNiftyStop (~15 pts) if any candidate has >= minNiftyStop; otherwise pick widest available structure
+        const realStruct = cands.filter((x) => (price - x.v) >= minNiftyStop);
+        const pool = realStruct.length ? realStruct : cands;
+        const preferred = pool
           .filter((x) => (price - x.v) <= preferMax)
-          .sort((a, b) => b.v - a.v);
-        const pick = preferred[0] || cands.sort((a, b) => b.v - a.v)[0];
+          .sort((a, b) => (a.prio - b.prio) || (b.v - a.v));
+        const pick = preferred[0] || pool.sort((a, b) => (realStruct.length ? (b.v - a.v) : (a.v - b.v)))[0];
         if (pick) {
           invalidation = pick.v;
           invalidationReason = pick.tag;
@@ -3036,15 +3040,17 @@ const RedBarTrend = {
         }
       } else if (trend === 'bearish') {
         const cands = [
-          sweepExtreme != null && sweepExtreme > price ? { v: sweepExtreme + boxPad, tag: '5m swing (pullback high)' } : null,
-          prev5Hi != null && prev5Hi > price ? { v: prev5Hi + boxPad, tag: '5m swing (prev candle high)' } : null,
-          boxMid > price ? { v: boxMid + boxPad, tag: '5m swing (box 50% mid)' } : null,
-          firstRed1h.high > price ? { v: firstRed1h.high + boxPad, tag: '5m swing (session box high)' } : null,
+          sweepExtreme != null && sweepExtreme > price ? { v: sweepExtreme + boxPad, tag: '5m swing (pullback high)', prio: 1 } : null,
+          boxMid > price ? { v: boxMid + boxPad, tag: '5m swing (box 50% mid)', prio: 2 } : null,
+          firstRed1h.high > price ? { v: firstRed1h.high + boxPad, tag: '5m swing (session box high)', prio: 3 } : null,
+          prev5Hi != null && prev5Hi > price ? { v: prev5Hi + boxPad, tag: '5m swing (prev candle high)', prio: 4 } : null,
         ].filter((x) => x && Number.isFinite(x.v) && x.v > price);
-        const preferred = cands
+        const realStruct = cands.filter((x) => (x.v - price) >= minNiftyStop);
+        const pool = realStruct.length ? realStruct : cands;
+        const preferred = pool
           .filter((x) => (x.v - price) <= preferMax)
-          .sort((a, b) => a.v - b.v);
-        const pick = preferred[0] || cands.sort((a, b) => a.v - b.v)[0];
+          .sort((a, b) => (a.prio - b.prio) || (a.v - b.v));
+        const pick = preferred[0] || pool.sort((a, b) => (realStruct.length ? (a.v - b.v) : (b.v - a.v)))[0];
         if (pick) {
           invalidation = pick.v;
           invalidationReason = pick.tag;

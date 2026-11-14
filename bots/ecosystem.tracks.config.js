@@ -7,6 +7,7 @@ module.exports = {
       env: {
         PORT: '3001',
         TELEGRAM_POLLING: 'false',
+        NOV6_STATE_DIR: './archive/nov6-close',
         REDBAR_BOT_INSTRUMENTS: 'NIFTY',
         DHAN_AUTO_INSTRUMENTS: 'NIFTY',
         REDBAR_AUTO_TRADE: 'false',

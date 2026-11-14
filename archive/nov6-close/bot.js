@@ -25,8 +25,15 @@ global.CONFIG = CONFIG;
 global.Indicators = Indicators; // signals.js references Indicators as a global
 global.RedBarTrend = RedBarTrend;
 
-const token = process.env.TELEGRAM_BOT_TOKEN;
-const chatId = process.env.TELEGRAM_CHAT_ID;
+// Silence legacy Render container so only the Oracle VM sends Telegram alerts & trades
+const isLegacyRenderHost = Boolean(
+  process.env.RENDER || process.env.RENDER_SERVICE_ID || process.env.RENDER_EXTERNAL_URL
+) && String(process.env.ALLOW_RENDER_BOT || '').toLowerCase() !== 'true';
+if (isLegacyRenderHost) {
+  console.log('[Bot] Legacy Render host detected — Telegram & scanner disabled (Oracle VM is primary).');
+}
+const token = isLegacyRenderHost ? null : process.env.TELEGRAM_BOT_TOKEN;
+const chatId = isLegacyRenderHost ? null : process.env.TELEGRAM_CHAT_ID;
 const pollingEnabled = Boolean(token && chatId) && process.env.TELEGRAM_POLLING === 'true';
 
 const { TwitterApi } = require('twitter-api-v2');
@@ -539,7 +546,7 @@ async function _scanOneRedBarInstrument(inst, rbCfg) {
       : firstRedTf === '5m' ? 5 * 60000
         : 3600000;
   const firstRedMinBars = (firstRedTf === '15m' || firstRedTf === '5m') ? 6 : firstRedTf === '30m' ? 48 : 24;
-  const needPivotFetch = !!firstRedTf && workTf !== firstRedTf;
+  const needPivotFetch = !!firstRedTf && workTf !== firstRedTf && !(firstRedTf === '5m' && need5m);
   const rawPair = await _withTimeout(
     Promise.all([
       _deskBars(inst, workTf, 500),
@@ -555,8 +562,8 @@ async function _scanOneRedBarInstrument(inst, rbCfg) {
     return raw.map((k) => ({ t: +k[0], o: +k[1], h: +k[2], l: +k[3], c: +k[4] }));
   };
   const rawBarsWork = toBars(rawPair[0]);
-  const bars1h = needPivotFetch ? toBars(rawPair[1]) : rawBarsWork;
   const bars5m = need5m ? toBars(rawPair[2]) : rawBarsWork;
+  const bars1h = needPivotFetch ? toBars(rawPair[1]) : (firstRedTf === '5m' ? bars5m : rawBarsWork);
   const closed15Only = String(process.env.NOV6_CLOSED_15M || 'true').toLowerCase() !== 'false';
   const nowTsCheck = Date.now();
   const barsWork = (closed15Only && workTf === '15m' && rawBarsWork.length >= 2 && (rawBarsWork[rawBarsWork.length - 1].t + 15 * 60000) > nowTsCheck + 2000)
@@ -577,7 +584,8 @@ async function _scanOneRedBarInstrument(inst, rbCfg) {
     const closes = barsWork.map((b) => b.c);
     const ema10 = calcEma(closes, 10);
     const ema30 = calcEma(closes, 30);
-    _instTrendState.set(String(inst.id).toUpperCase(), { ema10, ema30, updatedAt: Date.now() });
+    const latestClose = closes[closes.length - 1];
+    _instTrendState.set(String(inst.id).toUpperCase(), { price: latestClose, ema10, ema30, updatedAt: Date.now() });
   }
   const lastT = barsWork[barsWork.length - 1].t;
   const nowTs = Date.now();
@@ -604,6 +612,9 @@ async function _scanOneRedBarInstrument(inst, rbCfg) {
     bars5m: bars5m && bars5m.length ? bars5m : null,
   });
   if (!readout) return;
+  const livePrice = Number(readout.price) || barsWork[barsWork.length - 1].c;
+  const curTrend = _instTrendState.get(String(inst.id).toUpperCase()) || {};
+  _instTrendState.set(String(inst.id).toUpperCase(), { ...curTrend, price: livePrice, updatedAt: Date.now() });
   const side = readout.trend === 'bullish' ? 'LONG' : readout.trend === 'bearish' ? 'SHORT' : 'WAIT';
   const setupKind = readout.setupKind || 'wait';
   const actionState = readout.actionState || 'wait';
@@ -879,6 +890,20 @@ async function _maybeAutoDhanNifty({ inst, side, readout, alertKey, dayKey, setu
     console.log(`[RedBarBot] ${inst.id}: Dhan already opened for ${alertKey}`);
     return;
   }
+  const instKey = String(inst.id || 'NIFTY').toUpperCase();
+  const allManagedDhan = loadManagedDhanTrades();
+  const activeTrade = allManagedDhan.find(
+    (t) => String(t.instrumentId || 'NIFTY').toUpperCase() === instKey && t.status === 'open'
+  );
+  if (activeTrade) {
+    console.log(`[RedBarBot] ${instKey}: trade already open (${activeTrade.symbolHint || activeTrade.orderId}) — refuse concurrent order`);
+    return;
+  }
+  const todayManagedDhan = allManagedDhan.filter(
+    (t) => String(t.instrumentId || 'NIFTY').toUpperCase() === instKey
+      && (t.dayKey === dayKey || String(t.alertKey || '').includes(`|${dayKey}|`)),
+  );
+
   const rawDhanCap = process.env.DHAN_AUTO_MAX_PER_DAY;
   const dhanCapDisabled = rawDhanCap === '0' || rawDhanCap === 'none' || rawDhanCap === 'unlimited' || rawDhanCap === 'false';
   const maxPerDay = dhanCapDisabled ? 0 : (Number(rawDhanCap) || Number(process.env.REDBAR_AUTO_MAX_PER_DAY) || 0);
@@ -890,18 +915,54 @@ async function _maybeAutoDhanNifty({ inst, side, readout, alertKey, dayKey, setu
     console.log(`[RedBarBot] ${inst.id}: Dhan day cap ${dayCount}/${maxPerDay} — skip ${alertKey}`);
     return;
   }
+
+  // Dr. Dev Day 1 Rulebook ("दो लॉस लगातार, उस दिन ट्रेडिंग बंद") + Morning vs 12:45 Afternoon Trikal separation (Nov 9 fix e58b036/90b194f):
+  const isAfternoonSession = mins >= (12 * 60 + 45) || String(setupKind || '').startsWith('afternoon_1245');
+  const sessBucket = isAfternoonSession ? 'PM' : 'AM';
+  const consecLossKey = `DHAN_CONSEC_LOSSES_${sessBucket}_${dayKey || 'noday'}`;
+  const closedSessChron = [...todayManagedDhan]
+    .filter((t) => {
+      if (!t.status || t.status === 'open') return false;
+      const isPmTrade = String(t.setupKind || '').startsWith('afternoon_1245');
+      return isAfternoonSession ? isPmTrade : !isPmTrade;
+    })
+    .sort((a, b) => Number(a.closedAt || 0) - Number(b.closedAt || 0));
+  let consecLosses = Number(lastAlerted[consecLossKey]) || 0;
+  if (closedSessChron.length >= 2) {
+    const lastTwo = closedSessChron.slice(-2);
+    if (lastTwo.every((t) => t.status === 'closed_sl' && !t.legABooked)) {
+      consecLosses = Math.max(consecLosses, 2);
+    }
+  }
+  if (consecLosses >= 2) {
+    console.log(
+      `[RedBarBot] NIFTY: 2 consecutive ${sessBucket} SL losses (Dr. Dev rule) — ${isAfternoonSession ? 'stopping for the day' : 'morning done, waiting for 12:45 Afternoon Trikal'} (${alertKey})`,
+    );
+    return;
+  }
+
+  // Once Trade 1 (trade1_departure) has already been taken today, do not re-fire trade1_departure
+  // in later 20m buckets — 2nd and 3rd morning trades must be Trade 2 (shelf retest / sweep) or Session Sweep,
+  // unless Trade 1 stopped out and qualifies for the single Rule 6 re-entry below (Nov 9 fix 07867bc/5c5fc46).
+  const priorT1Today = todayManagedDhan.filter((t) => t.setupKind === 'trade1_departure');
+  const t1AlreadyWonToday = Boolean(lastAlerted[`DHAN_T1_WON_${dayKey}`])
+    || priorT1Today.some((t) => t.legABooked || t.status === 'closed_target' || t.status === 'closed_be');
+
   const lastTs = Number(lastAlerted[`DHAN_TRADE_${inst.id}_LAST_TS`]) || 0;
   // Fix Your Trading Day4 Rule 6: after SL hunt, if ENTER still fires (trend intact)
-  // and price revisits the same entry zone — waive cooldown once (other guards stay).
+  // and price revisits the same entry zone — waive cooldown once per day (never chain Rule 6 on Rule 6).
+  const rule6CountKey = `DHAN_RULE6_COUNT_${dayKey || 'noday'}`;
+  const rule6UsedToday = (Number(lastAlerted[rule6CountKey]) || 0) >= 1
+    || todayManagedDhan.some((t) => t.rule6Reentry);
   let rule6SlRow = null;
-  if (lastTs && Date.now() - lastTs < cooldownMs) {
+  if (!rule6UsedToday) {
     const reentryWindowMs = Number(process.env.DHAN_SL_REENTRY_WINDOW_MS) || (90 * 60 * 1000);
     const sameLevelPts = Number(process.env.DHAN_SL_REENTRY_LEVEL_PTS) || 15;
-    const recentSl = loadManagedDhanTrades()
-      .filter((t) => String(t.instrumentId || '').toUpperCase() === 'NIFTY'
-        && t.status === 'closed_sl'
+    const recentSl = todayManagedDhan
+      .filter((t) => t.status === 'closed_sl'
         && t.side === side
-        && !t.rule6Reentered)
+        && !t.rule6Reentered
+        && !t.rule6Reentry)
       .sort((a, b) => Number(b.closedAt || 0) - Number(a.closedAt || 0))[0];
     const priorEntry = Number(recentSl?.indexEntry);
     const nowEntry = Number(readout.price);
@@ -909,11 +970,36 @@ async function _maybeAutoDhanNifty({ inst, side, readout, alertKey, dayKey, setu
     const levelOk = priorEntry > 0 && nowEntry > 0 && Math.abs(nowEntry - priorEntry) <= sameLevelPts;
     if (freshSl && levelOk) {
       rule6SlRow = recentSl;
+    }
+  }
+
+  if (setupKind === 'trade1_departure' && (t1AlreadyWonToday || ((priorT1Today.length > 0 || dayCount >= 1) && !rule6SlRow))) {
+    console.log(
+      `[RedBarBot] NIFTY: Trade 1 departure already completed today — waiting for Trade 2 (shelf retest) or Sweep for 2nd/3rd trade`,
+    );
+    return;
+  }
+
+  // Cooldown check:
+  // - If last trade won (1:1 banked / target) and a NEW setup (e.g. Trade 2 after Trade 1) triggers, only require 5m breathing room.
+  // - Otherwise enforce full cooldownMs unless waived once today by Rule 6.
+  const lastClosed = [...todayManagedDhan]
+    .filter((t) => t.status && t.status !== 'open')
+    .sort((a, b) => Number(b.closedAt || 0) - Number(a.closedAt || 0))[0];
+  const lastWonAndNewSetup = Boolean(
+    lastClosed
+    && (lastClosed.legABooked || lastClosed.status === 'closed_target' || lastClosed.status === 'closed_be')
+    && lastClosed.setupKind !== setupKind,
+  );
+  const effectiveCooldownMs = lastWonAndNewSetup ? (5 * 60 * 1000) : cooldownMs;
+
+  if (lastTs && Date.now() - lastTs < effectiveCooldownMs) {
+    if (rule6SlRow) {
       console.log(
-        `[RedBarBot] NIFTY: Rule 6 SL-reentry — waive cooldown (prior ${priorEntry} → now ${nowEntry}, ≤${sameLevelPts} pts)`,
+        `[RedBarBot] NIFTY: Rule 6 SL-reentry (1/1 today) — waive cooldown (prior ${rule6SlRow.indexEntry} → now ${readout.price})`,
       );
     } else {
-      const left = Math.ceil((cooldownMs - (Date.now() - lastTs)) / 60000);
+      const left = Math.ceil((effectiveCooldownMs - (Date.now() - lastTs)) / 60000);
       console.log(`[RedBarBot] ${inst.id}: Dhan cooldown ${left}m — skip ${alertKey}`);
       return;
     }
@@ -987,8 +1073,13 @@ async function _maybeAutoDhanNifty({ inst, side, readout, alertKey, dayKey, setu
       lastAlerted[`DHAN_TRADE_${inst.id}_DETAIL`] = alertKey;
       lastAlerted[`DHAN_TRADE_${inst.id}_LAST_TS`] = Date.now();
       lastAlerted[countKey] = dayCount + 1;
+      if (rule6SlRow) {
+        lastAlerted[rule6CountKey] = (Number(lastAlerted[rule6CountKey]) || 0) + 1;
+      }
       saveAlertState(lastAlerted);
-      const managed = loadManagedDhanTrades().filter((t) => t.status !== 'open');
+      const managed = loadManagedDhanTrades()
+        .filter((t) => t.status !== 'open' || (t.instrumentId && String(t.instrumentId).toUpperCase() !== instKey))
+        .slice(-30);
       if (rule6SlRow && rule6SlRow.orderId) {
         for (const row of managed) {
           if (String(row.orderId) === String(rule6SlRow.orderId) && row.status === 'closed_sl') {
@@ -1001,6 +1092,7 @@ async function _maybeAutoDhanNifty({ inst, side, readout, alertKey, dayKey, setu
       managed.push({
         status: 'open',
         instrumentId: 'NIFTY',
+        dayKey: dayKey || '',
         side,
         setupKind,
         alertKey,
@@ -1059,7 +1151,9 @@ async function pollManagedDhanStops() {
   if (String(process.env.TRADE_ENABLED || '').toLowerCase() !== 'true') return;
   if (!envTrim('DHAN_CLIENT_ID') || !envTrim('DHAN_ACCESS_TOKEN')) return;
 
-  let rows = loadManagedDhanTrades().filter((t) => t.status === 'open');
+  const allRows = loadManagedDhanTrades();
+  const closedRows = allRows.filter((t) => t.status !== 'open').slice(-30);
+  let rows = allRows.filter((t) => t.status === 'open');
   if (!rows.length) return;
 
   const { createDhanNiftyTrade } = require('./js/dhan_nifty_trade.js');
@@ -1157,9 +1251,21 @@ async function pollManagedDhanStops() {
 
         if (ltp != null && oneR > 0) {
           const openR = (ltp - t.entryPremium) / oneR;
+          let hitOneR = openR >= 0.95;
+          if (!hitOneR && !t.legABooked && t.indexTp1 != null) {
+            const curIndexPx = Number(_instTrendState.get(String(t.instrumentId || 'NIFTY').toUpperCase())?.price) || 0;
+            if (curIndexPx > 0) {
+              const isLong = String(t.side).toUpperCase() === 'LONG';
+              const tpTarget = Number(t.indexTp1);
+              if ((isLong && curIndexPx >= tpTarget) || (!isLong && curIndexPx <= tpTarget)) {
+                hitOneR = true;
+                console.log(`[RedBarBot] 🎯 NIFTY 1:1 reached on underlying: price=${curIndexPx} vs tpTarget=${tpTarget}`);
+              }
+            }
+          }
 
           // Step 1 — 1:1 hit
-          if (!t.legABooked && openR >= 0.95) {
+          if (!t.legABooked && hitOneR) {
             try {
               const res = await trader.bankHalfAtOneR({
                 orderId: t.orderId,
@@ -1171,6 +1277,15 @@ async function pollManagedDhanStops() {
               });
               t.legABooked = true;
               t.legABookedAt = Date.now();
+              const tDayKey = t.dayKey || (String(t.alertKey || '').split('|')[2] || '');
+              const tSess = String(t.setupKind || '').startsWith('afternoon_1245') ? 'PM' : 'AM';
+              if (tDayKey) {
+                lastAlerted[`DHAN_CONSEC_LOSSES_${tSess}_${tDayKey}`] = 0;
+                if (t.setupKind === 'trade1_departure') {
+                  lastAlerted[`DHAN_T1_WON_${tDayKey}`] = true;
+                }
+                saveAlertState(lastAlerted);
+              }
               t.legAMode = res.mode;
               t.bankQty = res.bankQty || 0;
               t.qty = res.runnerQty != null ? res.runnerQty : t.qty;
@@ -1336,6 +1451,23 @@ async function pollManagedDhanStops() {
         }
       } catch (_) { /* keep managing */ }
 
+      if (t.status !== 'open') {
+        const tDayKey = t.dayKey || (String(t.alertKey || '').split('|')[2] || '');
+        const tSess = String(t.setupKind || '').startsWith('afternoon_1245') ? 'PM' : 'AM';
+        if (tDayKey) {
+          if (t.legABooked || t.status === 'closed_target' || t.status === 'closed_be') {
+            lastAlerted[`DHAN_CONSEC_LOSSES_${tSess}_${tDayKey}`] = 0;
+            if (t.setupKind === 'trade1_departure') {
+              lastAlerted[`DHAN_T1_WON_${tDayKey}`] = true;
+            }
+          } else if (t.status === 'closed_sl') {
+            lastAlerted[`DHAN_CONSEC_LOSSES_${tSess}_${tDayKey}`] = (Number(lastAlerted[`DHAN_CONSEC_LOSSES_${tSess}_${tDayKey}`]) || 0) + 1;
+          }
+        }
+        lastAlerted.DHAN_TRADE_NIFTY_LAST_TS = Date.now();
+        saveAlertState(lastAlerted);
+      }
+
       next.push(t);
     } catch (e) {
       console.warn('[RedBarBot] Dhan manage row failed:', e.message);
@@ -1343,7 +1475,7 @@ async function pollManagedDhanStops() {
     }
   }
 
-  saveManagedDhanTrades(next);
+  saveManagedDhanTrades([...closedRows, ...next].slice(-40));
 }
 
 async function _maybeAutoFuturesTwoLeg({ inst, side, readout, alertKey, dayKey }) {
