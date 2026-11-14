@@ -15,9 +15,9 @@ module.exports = {
         NOV6_EMA_FILTER: 'true',
         NOV6_FIRST_RED_GATE: 'true',
         NOV6_SANDWICH_GATE: 'true',
-        // Flip DHAN_AUTO_TRADE=true and TRADE_ENABLED=true when ready for live options test (2+ lots recommended for 1:1 50% bank)
-        DHAN_AUTO_TRADE: 'false',
-        TRADE_ENABLED: 'false',
+        // Live NIFTY Options auto-trading enabled on Track 1 (Nov 6 Closed with Nov 9–12 fixes)
+        DHAN_AUTO_TRADE: 'true',
+        TRADE_ENABLED: 'true',
         DHAN_NIFTY_LOTS: '2',
       },
     },

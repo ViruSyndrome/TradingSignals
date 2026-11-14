@@ -57,6 +57,7 @@ function makeDefaultBotState() {
 }
 
 async function scanOnce(dhan, botState) {
+  const activeDhan = dhan || (isDhanConfigured() ? createDhanClient() : null);
   for (const sym of SYMBOLS) {
     if (!botState.bySymbol[sym]) {
       botState.bySymbol[sym] = { ...createInitialState(), allocatedCapitalRs: ALLOCATED_CAPITAL_RS, realizedRs: 0 };
@@ -64,7 +65,7 @@ async function scanOnce(dhan, botState) {
     const symState = botState.bySymbol[sym];
     let bars;
     try {
-      bars = OFFLINE ? loadOfflineBars(sym, TF) : completedBars(await fetchSymbolBars(dhan, sym, TF, 25), TF);
+      bars = OFFLINE ? loadOfflineBars(sym, TF) : completedBars(await fetchSymbolBars(activeDhan, sym, TF, 25), TF);
     } catch (e) {
       console.error(`[${BOT_NAME}] Feed error (${sym} ${TF}):`, e.message);
       continue;

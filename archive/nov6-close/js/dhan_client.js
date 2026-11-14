@@ -26,7 +26,46 @@ function _throttleChartCall(fn) {
   return next;
 }
 
+const fs = require('fs');
+const nodePath = require('path');
+
+let _dotEnvCache = {};
+let _dotEnvMtime = 0;
+let _dotEnvCheckedAt = 0;
+
 function env(key, fallback = '') {
+  const now = Date.now();
+  if (now - _dotEnvCheckedAt > 5000) {
+    _dotEnvCheckedAt = now;
+    try {
+      const envPath = nodePath.resolve(process.cwd(), '.env');
+      const st = fs.statSync(envPath);
+      if (st.mtimeMs !== _dotEnvMtime) {
+        _dotEnvMtime = st.mtimeMs;
+        const raw = fs.readFileSync(envPath, 'utf8');
+        const next = {};
+        for (const line of raw.split(/\r?\n/)) {
+          const m = line.match(/^\s*([A-Za-z_][A-Za-z0-9_]*)\s*=\s*(.*)\s*$/);
+          if (m) {
+            let val = m[2].trim();
+            if ((val.startsWith('"') && val.endsWith('"')) || (val.startsWith("'") && val.endsWith("'"))) {
+              val = val.slice(1, -1);
+            }
+            next[m[1]] = val;
+          }
+        }
+        _dotEnvCache = next;
+        if (next.DHAN_ACCESS_TOKEN) process.env.DHAN_ACCESS_TOKEN = next.DHAN_ACCESS_TOKEN;
+        if (next.DHAN_CLIENT_ID) process.env.DHAN_CLIENT_ID = next.DHAN_CLIENT_ID;
+      }
+    } catch (_) {
+      // ignore if .env missing
+    }
+  }
+  if (key === 'DHAN_ACCESS_TOKEN' || key === 'DHAN_CLIENT_ID') {
+    const fromDisk = _dotEnvCache[key];
+    if (typeof fromDisk === 'string' && fromDisk.trim()) return fromDisk.trim();
+  }
   const v = process.env[key];
   return typeof v === 'string' && v.trim() ? v.trim() : fallback;
 }
@@ -43,6 +82,8 @@ function createDhanClient(opts = {}) {
   }
 
   async function _request(method, path, { body, query, extraHeaders, retryCount = 0 } = {}) {
+    const activeToken = opts.accessToken || env('DHAN_ACCESS_TOKEN') || accessToken;
+    const activeClientId = opts.clientId || env('DHAN_CLIENT_ID') || clientId;
     const q = new URLSearchParams();
     if (query) {
       for (const [k, v] of Object.entries(query)) {
@@ -54,9 +95,9 @@ function createDhanClient(opts = {}) {
     const url = `${baseUrl}${path}${qs ? `?${qs}` : ''}`;
     const headers = {
       Accept: 'application/json',
-      'access-token': accessToken,
+      'access-token': activeToken,
       'Content-Type': 'application/json',
-      'client-id': String(clientId),
+      'client-id': String(activeClientId),
       ...(extraHeaders || {}),
     };
     const init = { method, headers, cache: 'no-store' };
