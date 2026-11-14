@@ -1,0 +1,321 @@
+'use strict';
+
+const CONFIG = {
+
+  // ─── UI mode ────────────────────────────────────────────────────────────────
+  // redBarOnly: hide legacy multi-coin High Conf / tapes / moonshots (solo trader).
+  ui: {
+    redBarOnly: true,
+  },
+
+  // ─── Assets to track ────────────────────────────────────────────────────────
+  assets: {
+
+    // Red Bar focus: BTC only (Nifty / gold later when feeds exist)
+    crypto: [
+      { id: 'BTCUSDT', symbol: 'BTC', name: 'Bitcoin', currency: 'USD', icon: '₿' },
+    ],
+
+    coreWinners: ['BTC'],
+    probationWinners: [],
+    provenWinners: ['BTC'],
+  },
+
+  signals: {
+    winnersOnlyBuys: true, // Week experiment: allow S.BUY on any tracked coin (you still only take S.BUY)
+    coreOnlyBuys: true,   // Week experiment: allow probation S.BUY too
+    // Hard gates (kill buys after scoring — stronger than soft dampeners)
+    bearRegimeBlockBuys: true,     // No alt BUY/STRONG_BUY when BTC regime is bear
+    extremeGreedBlockBuys: false,  // Soft only: F&G dampener + Research chip (no hard NEUTRAL kill)
+    extremeGreedBlockAt: 75,
+    // Strong Buy badge (alerts/Telegram/X) — match the rule that worked for you
+    strongConfidenceGate: 100,  // all directional indicators must agree
+    strongBuyMaxRsi: 40,        // require cool/low RSI for S.BUY (score floor is 4.0 in LEVELS)
+    strongSellMinRsi: 60,
+    // X "watch" names: full agreement and close to the S.BUY score floor (4.0)
+    watchScoreFloor: 3.5,
+    // Score ≥ 4 and 100% confidence. Both halves must average above 0 or the buy is withheld.
+    // Older half (25 closed trades): -2.12%. Newer half (39 closed trades): +2.70%.
+    expectancy: {
+      allowBuys: true,
+      minScore: 4,
+      minConfidence: 100,
+      olderAvgPct: -2.12,
+      newerAvgPct: 2.70,
+    },
+  },
+
+  // ─── Experimental score factors (A/B via backtest --no-smc / --smc-ablation) ─
+  // Heuristics — not full institutional SMC/Wyckoff. Live defaults ON; validate with CLI.
+  factors: {
+    enableSmc: true,       // Liquidity sweep (+2 / +3 vol confirm)
+    enableWyckoff: true,   // Spring (+1.5)
+    enableVpoc: true,      // Near POC support (+1)
+  },
+
+  // ─── New listings research (watch/alert only — never auto-buy) ─────────────
+  listings: {
+    enabled: false, // off in Red Bar–only mode
+    catalogId: 48,         // Binance CMS "New Cryptocurrency Listing"
+    pollMs: 5 * 60 * 1000,
+    snapshotKey: 'trading_listings_symbols_v1',
+    seenArticlesKey: 'trading_listings_articles_v1',
+  },
+
+  // ─── Live exit policy (single source of truth for OCO, bots, UI, backtests) ─
+  // Keep take-profit / hold-limit messaging identical everywhere.
+  exits: {
+    takeProfitPct: 15,      // Single Target: exit 100% at this %
+    holdLimitDays: 7,       // Time stop if neither bank TP nor trail exits
+    stopAtrMult: 1.5,         // Initial protective stop distance
+    // Single target plan: exit 100% at TP
+    partialPct: 100,
+    runnerTrailAtrMult: 2,
+    moveStopToBreakevenAfterPartial: true,
+    feePerSide: 0.001,      // 0.10% exchange fee per side
+    slippagePerSide: 0.001, // 0.10% slippage per side → 0.40% round-trip
+  },
+
+  // ─── Red Bar Desk (trend prediction) + optional EMA overlay ────────────────
+  // Sagar playbook: mark-window fibs + 1H first-red pivot (trade 1 / revisit trade 2)
+  // + prior-day H/L book + Asia→London→US liquidity clock (js/redbar_trend.js).
+  // EMA 10/30 is a SEPARATE overlay on the desk — not the trend engine.
+  // Tabs: BTC, NIFTY, XAU, NG (Natural Gas — provisional until Sagar confirms Fib window / Dhan MCX feed).
+  rangeEma: {
+    enabled: true,
+    workingTf: '15m',
+    timeframes: ['5m', '15m', '30m', '1h'],
+    lookbackDays: 90,
+    touchPct: 0.15,
+    chartBandDays: 7,
+    emaFast: 10,
+    emaSlow: 30,
+    ohlcLimit: { '5m': 1000, '15m': 1000, '30m': 1000, '1h': 720 },
+    chartBars: { '5m': 120, '15m': 100, '30m': 96, '1h': 84 },
+    // Crisp, thick TradingView/Binance-style candles on phones (◀ ▶ / drag pans earlier)
+    chartBarsMobile: { '5m': 56, '15m': 48, '30m': 48, '1h': 42 },
+    defaultInstrument: 'BTC',
+    instruments: [
+      {
+        id: 'BTC',
+        label: 'BTC',
+        symbol: 'BTCUSDT',
+        // Must match the bot (USD-M). Spot OHLC drifts and paints wrong mark Fibs.
+        feed: 'binanceFutures',
+        dayMode: 'ny',
+        // 1H 16:00–17:00 NY candle (US Cash Close & CME Settle) — highest point of wick (Fib 1) to lowest point of wick (Fib 0)
+        // Automatically maps to 02:30–03:30 IST in Winter (EST) and 01:30–02:30 IST in Summer (EDT)
+        bandStyle: 'sessionFib',
+        markWindow: {
+          timeZone: 'America/New_York',
+          startHour: 16, startMinute: 0,
+          endHour: 17, endMinute: 0,
+        },
+        markLabel: '16:00–17:00 ET (US Close / CME Settle)',
+        fibLevels: [0, 0.44, 0.5, 0.56, 1],
+        priceDecimals: 2,
+        tradeHint: 'Binance USDⓈ-M · BTCUSDT · Fib US Close (16:00–17:00 ET / 02:30–03:30 IST)',
+        showSessionMarkers: true,
+        firstRedTf: null, // BTC uses only the single mark window at start of day
+        sessions: [
+          { id: 'asia', label: 'Asia', timeZone: 'Asia/Tokyo', open: [9, 0], close: [15, 0], color: '#818cf8' },
+          { id: 'london', label: 'London', timeZone: 'Europe/London', open: [8, 0], close: [16, 30], color: '#f472b6' },
+          { id: 'ny', label: 'US', timeZone: 'America/New_York', open: [9, 30], close: [16, 0], color: '#cbd5e1' },
+        ],
+      },
+      {
+        id: 'NIFTY',
+        label: 'NIFTY',
+        symbol: '^NSEI',
+        currency: 'INR',
+        dhanSecurityId: '13',
+        dhanExchangeSegment: 'IDX_I',
+        dhanInstrument: 'INDEX',
+        feed: 'yahoo',
+        dayMode: 'ist',
+        // Cash close window 15:15–15:45 IST (15:30 close + 15:45 bar)
+        bandStyle: 'sessionFib',
+        // Dr. Dev NSE intraday: 5m First Red candle after 09:15 open bar locks the morning Red Bar box early (~09:25–09:30)
+        firstRedTf: '5m',
+        markWindow: {
+          timeZone: 'Asia/Kolkata',
+          startHour: 15, startMinute: 15,
+          endHour: 15, endMinute: 45,
+        },
+        markLabel: '15:15–15:45 IST',
+        fibLevels: [0, 0.44, 0.5, 0.56, 1],
+        priceDecimals: 2,
+        timeframes: ['5m', '15m', '30m', '1h'],
+        ohlcLimit: { '5m': 360, '15m': 500, '30m': 500, '1h': 400 },
+        tradeHint: 'NSE broker · Fib on 15:15–15:45 IST close window (not Binance)',
+        showSessionMarkers: true,
+        sessions: [
+          { id: 'nse', label: 'NSE', timeZone: 'Asia/Kolkata', open: [9, 15], close: [15, 30], color: '#38bdf8' },
+        ],
+      },
+      {
+        id: 'XAU',
+        label: 'XAU',
+        symbol: 'XAUUSDT',
+        fallbackSymbol: 'PAXGUSDT',
+        feed: 'binanceFutures',
+        dayMode: 'ny',
+        bandStyle: 'sessionFib',
+        // Sagar: gold/silver/copper first-red on 30m (not 1H)
+        firstRedTf: '30m',
+        markWindow: {
+          timeZone: 'America/New_York',
+          startHour: 16, startMinute: 0,
+          endHour: 17, endMinute: 0,
+        },
+        markLabel: '16:00–17:00 ET (COMEX Settle)',
+        fibLevels: [0, 0.44, 0.5, 0.56, 1],
+        priceDecimals: 2,
+        tradeHint: 'Binance Futures · XAUUSDT · Fib COMEX Settle (16:00–17:00 ET) · first red 30m',
+        showSessionMarkers: true,
+        sessions: [
+          { id: 'asia', label: 'Asia', timeZone: 'Asia/Tokyo', open: [9, 0], close: [15, 0], color: '#818cf8' },
+          { id: 'london', label: 'London', timeZone: 'Europe/London', open: [8, 0], close: [16, 30], color: '#f472b6' },
+          { id: 'ny', label: 'US', timeZone: 'America/New_York', open: [9, 30], close: [16, 0], color: '#cbd5e1' },
+        ],
+      },
+      {
+        // Natural Gas — Sagar: evening close Fib 23:00–23:30 IST; first red on 30m (same as Crude).
+        // MCX ~09:00–23:30/23:55 IST. Live feed: Dhan MCX FUTCOM (574319), fallback: Yahoo NG=F.
+        id: 'NG',
+        label: 'NG',
+        symbol: 'NATURALGAS NOV FUT',
+        currency: 'INR',
+        dhanSecurityId: '574319',
+        dhanExchangeSegment: 'MCX_COMM',
+        dhanInstrument: 'FUTCOM',
+        feed: 'dhan',
+        fallbackFeed: 'yahoo',
+        fallbackSymbol: 'NG=F',
+        dayMode: 'ist',
+        bandStyle: 'sessionFib',
+        firstRedTf: '30m',
+        markWindow: {
+          timeZone: 'Asia/Kolkata',
+          startHour: 23, startMinute: 0,
+          endHour: 23, endMinute: 30,
+        },
+        markLabel: '23:00–23:30 IST (MCX close)',
+        fibLevels: [0, 0.44, 0.5, 0.56, 1],
+        priceDecimals: 1,
+        timeframes: ['5m', '15m', '30m', '1h'],
+        ohlcLimit: { '5m': 360, '15m': 500, '30m': 500, '1h': 400 },
+        tradeHint: 'Dhan MCX · NATURALGAS NOV FUT (574319) · Fib 23:00–23:30 IST close · first red 30m',
+        showSessionMarkers: true,
+        sessions: [
+          { id: 'mcx_day', label: 'MCX day', timeZone: 'Asia/Kolkata', open: [9, 0], close: [17, 0], color: '#818cf8' },
+          { id: 'mcx_eve', label: 'MCX eve', timeZone: 'Asia/Kolkata', open: [17, 0], close: [23, 30], color: '#f472b6' },
+          { id: 'us', label: 'US', timeZone: 'America/New_York', open: [9, 0], close: [14, 30], color: '#cbd5e1' },
+        ],
+      },
+    ],
+  },
+
+  // ─── Dynamic Optimization Parameters ───────────────────────────────────────
+  // EMA/RSI are auto-updated by the backtester parameter sweep.
+  // holdLimit mirrors exits.holdLimitDays for older call sites.
+  activeParams: {
+    holdLimit: 7,
+    emaFast: 9,
+    emaSlow: 21,
+    rsiPeriod: 14
+  },
+
+  // Public trust badge — refreshed by weekly `node backtest.js` / GitHub Action.
+  lastBacktest: {
+    runAt: '2026-10-11T06:31:02.654Z',
+    totalRuns: 14,
+    coreCount: 1,
+    probationCount: 0,
+    winnersTrades: 4621,
+    winnersWinRate: 49.2,
+    winnersAvgReturn: 1.14,
+  },
+  // Signal thresholds are defined in signals.js LEVELS object.
+
+  // ─── Market data proxies (browser cannot hit Yahoo directly — no CORS) ─────
+  market: {
+    // Supabase edge function — public Nifty/^NSEI chart proxy
+    yahooProxyUrl: 'https://ogoljnujatnlttrpjpxr.supabase.co/functions/v1/yahoo-chart',
+    // Optional Render bot base (also serves /api/yahoo/chart if deployed)
+    proxyBaseUrl: '',
+  },
+
+  // ─── Alerts relay (desk → Render → Telegram). Same host as trade bot. ──────
+  alerts: {
+    // Oracle bot (Cloudflare tunnel). Update if cloudflared quick-tunnel URL rotates.
+    botBaseUrl: 'https://real-follows-wav-seal.trycloudflare.com',
+  },
+
+  // ─── Owner click-to-trade (Oracle bot; keys never in browser) ──────────────
+  trade: {
+    // Public bot URL (no trailing slash). Also used for Telegram ENTER relay.
+    botBaseUrl: 'https://real-follows-wav-seal.trycloudflare.com',
+    defaultQuoteUsdt: 50,
+  },
+
+  // ─── Scanner denylist (moonshots + scalps) ─────────────────────────────────
+  // Stables / fiat / gold pegs can print fake S.BUY on tiny range noise.
+  scanner: {
+    denyExact: [
+      'USDCUSDT', 'FDUSDUSDT', 'TUSDUSDT', 'USDPUSDT', 'DAIUSDT',
+      'RLUSDUSDT', 'XUSDUSDT', 'USDEUSDT', 'BFUSDUSDT', 'USD1USDT',
+      'EURUSDT', 'EURIUSDT', 'AEURUSDT', 'EULUSDT',
+      'XAUTUSDT', 'PAXGUSDT', // gold — not crypto momentum
+    ],
+    denyBases: [
+      'USDC', 'FDUSD', 'TUSD', 'USDP', 'DAI', 'RLUSD', 'XUSD', 'USDE',
+      'BFUSD', 'USD1', 'EUR', 'EURI', 'AEUR', 'EUL', 'XAUT', 'PAXG',
+    ],
+  },
+
+  // ─── 5m Scalper (volatile alts — pullback entries, not chase) ───────────────
+  // Separate from daily core and 4H moonshots. Paper/small size only.
+  scalper: {
+    enabled: false, // Hidden from main UX — experimental 5m scanner kept in code
+    scanIntervalMs: 2 * 60 * 1000,  // rescan every 2 minutes
+    initialDelayMs: 12 * 1000,
+    minQuoteVolume: 2_000_000,      // $2M+ 24h quote vol (liquidity floor)
+    topVolatile: 80,                // scan top-N by daily range
+    maxSetups: 8,
+    minBuyScore: 4.5,
+    minStrongScore: 6.0,
+    requireImpulse: true,           // need recent upper-BB touch (momentum pullback)
+    requireConfirmForStrong: true,  // S.BUY only on EMA retest CONFIRM
+    softBearPenalty: 1.0,           // soft score hit if BTC regime bear (when passed)
+    stopAtrMult: 1.2,
+    takeProfitR: 2,
+    maxStopPct: 1.5,                // hard cap ~1.5% stop on 5m
+    holdBarsHint: 12,               // ~1 hour on 5m — time-stop mindset
+  },
+
+  // ─── Data refresh & caching ─────────────────────────────────────────────────
+  refresh: {
+    intervalMs:  30 * 1000,    // UI refresh every 30 seconds
+    cacheMs:     25 * 1000,    // cache data for 25 seconds
+    historyDays: 250,          // days of OHLCV history to fetch (>=200 so SMA200 computes)
+    bootPoolLimit: 8,          // parallel OHLC workers on first paint
+    bootSkip4H: true,          // first pass: 1d only (halves requests); 4H backfills after paint
+    // Prefer CONFIG.signals.strongConfidenceGate (kept here for older UI readers)
+    strongConfidenceGate: 100,
+  },
+
+  // ─── API endpoints ───────────────────────────────────────────────────────────
+  api: {
+    // coingecko API removed — migrated to Binance
+  },
+
+  // ─── Market hours (IST) ─────────────────────────────────────────────────────
+  marketHours: {
+    nse: { open: { h: 9, m: 15 }, close: { h: 15, m: 30 }, timezone: 'Asia/Kolkata', days: [1,2,3,4,5] },
+    us:  { open: { h: 19,m: 0  }, close: { h: 1,  m: 30 }, timezone: 'Asia/Kolkata', days: [1,2,3,4,5] },
+    crypto: 'always',
+  },
+};
+
+if (typeof module !== 'undefined' && module.exports) module.exports = CONFIG;

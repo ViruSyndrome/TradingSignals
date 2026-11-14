@@ -1,0 +1,863 @@
+'use strict';
+
+/**
+ * api.js — Data fetching with in-memory caching and rate limiting.
+ * Sources:
+ *   - Binance (high rate limits, CORS-enabled) for crypto OHLC + prices
+ *   - Yahoo Finance via allorigins CORS proxy for stocks, commodities, forex (currently disabled)
+ */
+const API = {
+
+  // ─── Cache helpers (localStorage-backed) ───────────────────────────────────
+  _forceNetwork: false, // when true, skip localStorage reads (resume / manual refresh)
+
+  _get(key) {
+    if (this._forceNetwork) return null;
+    try {
+      const stored = localStorage.getItem(`trading_cache_${key}`);
+      if (!stored) return null;
+      const entry = JSON.parse(stored);
+      if (Date.now() - entry.ts < Math.min(entry.ttl, 40000)) return entry.data;
+      return null;
+    } catch(e) { return null; }
+  },
+  _set(key, data, ttl = CONFIG.refresh.cacheMs) {
+    try {
+      localStorage.setItem(`trading_cache_${key}`, JSON.stringify({ data, ts: Date.now(), ttl }));
+    } catch(e) {}
+    return data;
+  },
+
+  /** Drop market-data localStorage entries (prices + klines). */
+  clearMarketCache() {
+    try {
+      Object.keys(localStorage).forEach(key => {
+        if (key.startsWith('trading_cache_')) localStorage.removeItem(key);
+      });
+    } catch (e) {}
+  },
+
+  withBypassCache(fn) {
+    const prev = this._forceNetwork;
+    this._forceNetwork = true;
+    return Promise.resolve()
+      .then(() => fn())
+      .finally(() => { this._forceNetwork = prev; });
+  },
+
+  // Binance blocks some cloud IPs with HTTP 418. Rotate public market-data hosts.
+  _binanceHosts: [
+    'https://data-api.binance.vision',
+    'https://api1.binance.com',
+    'https://api2.binance.com',
+    'https://api3.binance.com',
+    'https://api4.binance.com',
+    'https://api.binance.com',
+  ],
+  _binanceHostIdx: 0,
+  _binanceCooloffUntil: 0,
+  _binanceHardBanUntil: 0, // after full 418 sweep, skip Binance for a while and use OKX
+  _preferOkx: false,
+  _okxWarned: false,
+
+  _isNode() {
+    return typeof process !== 'undefined' && !!(process.versions && process.versions.node);
+  },
+
+  _binanceBase() {
+    return this._binanceHosts[this._binanceHostIdx % this._binanceHosts.length];
+  },
+
+  _rotateBinanceHost(reason) {
+    const prev = this._binanceBase();
+    this._binanceHostIdx = (this._binanceHostIdx + 1) % this._binanceHosts.length;
+    console.warn(`[API] Rotating Binance host (${reason}): ${prev} → ${this._binanceBase()}`);
+  },
+
+  _markBinanceHardBan(minutes = 45) {
+    this._binanceHardBanUntil = Date.now() + minutes * 60 * 1000;
+    console.warn(`[API] Binance IP appears banned (418). Using OKX fallback for ~${minutes}m.`);
+  },
+
+  _binanceIsHardBanned() {
+    return Date.now() < this._binanceHardBanUntil;
+  },
+
+  // ─── Generic fetch with timeout + retry ────────────────────────────────────────
+  async _fetch(url, timeoutMs = 5000, retries = 1) {
+    let lastErr;
+    for (let attempt = 0; attempt <= retries; attempt++) {
+      const ctrl = new AbortController();
+      const timer = setTimeout(() => ctrl.abort(), timeoutMs);
+      try {
+        const headers = {};
+        if (this._isNode()) {
+          headers['User-Agent'] = 'Mozilla/5.0 (compatible; TrendRunnerBot/1.0; +https://trendrunner.app)';
+          headers['Accept'] = 'application/json';
+        }
+        const r = await fetch(url, { signal: ctrl.signal, headers, cache: 'no-store' });
+        if (!r.ok) {
+          clearTimeout(timer);
+          const err = new Error(`HTTP ${r.status}`);
+          err.status = r.status;
+          throw err;
+        }
+        // Enforce timeout on the JSON body parsing as well, since large payloads can hang indefinitely
+        const jsonPromise = r.json();
+        const timeoutPromise = new Promise((_, reject) => {
+          setTimeout(() => reject(new Error('JSON Parse Timeout')), timeoutMs);
+        });
+        const result = await Promise.race([jsonPromise, timeoutPromise]);
+        clearTimeout(timer);
+        return result;
+      } catch (e) {
+        clearTimeout(timer);
+        // Chrome: "signal is aborted without reason" on timeout — make it actionable
+        if (e?.name === 'AbortError' || /abort/i.test(e?.message || '')) {
+          const te = new Error('Timed out');
+          te.name = 'TimeoutError';
+          lastErr = te;
+        } else {
+          lastErr = e;
+        }
+        // If it's a 418 or 403, don't retry, it's a hard block
+        if (e.status === 418 || e.status === 403) break;
+        if (attempt < retries) await this._delay(300 * (attempt + 1));
+      }
+    }
+    throw lastErr;
+  },
+
+  /**
+   * Fetch from Binance API with automatic fallback routing through alternative public hosts.
+   * Handles 418 IP bans by cycling endpoints and backing off gracefully.
+   * pathQuery example: `/api/v3/klines?symbol=BTCUSDT&interval=1d&limit=250`
+   */
+  async _fetchBinance(pathQuery, timeoutMs = 4000, retries = 0) {
+    if (this._binanceIsHardBanned() || this._preferOkx) {
+      const err = new Error('HTTP 418');
+      err.status = 418;
+      throw err;
+    }
+    if (Date.now() < this._binanceCooloffUntil) {
+      await this._delay(this._binanceCooloffUntil - Date.now());
+    }
+
+    let lastErr;
+    const triedHosts = new Set();
+    const maxAttempts = retries + 1;
+    
+    for (let attempt = 0; attempt < maxAttempts; attempt++) {
+      const host = this._binanceBase();
+      triedHosts.add(host);
+      const url = `${host}${pathQuery}`;
+      
+      try {
+        return await this._fetch(url, timeoutMs, 0); // No inner retries, handle them here
+      } catch (e) {
+        lastErr = e;
+        if (e.status === 418 || e.status === 429 || e.status === 403) {
+          this._rotateBinanceHost(e.status);
+          // Every public host rejected us — treat IP as banned and stop retrying Binance
+          if (triedHosts.size >= this._binanceHosts.length) {
+            this._preferOkx = true;
+            this._markBinanceHardBan(45);
+            break;
+          }
+          const backoff = Math.min(2000, 500 * (attempt + 1));
+          this._binanceCooloffUntil = Date.now() + backoff;
+          await this._delay(backoff);
+          continue;
+        }
+        // For network timeouts/ISP blocks, fail fast
+        if (attempt < maxAttempts - 1) await this._delay(300 * (attempt + 1));
+      }
+    }
+    throw lastErr;
+  },
+
+  // ─── Delay helper ────────────────────────────────────────────────────────────
+  _delay(ms) { return new Promise(r => setTimeout(r, ms)); },
+
+  /** OKX public tickers → Binance-shaped price map { BTCUSDT: { lastPrice, priceChangePercent, quoteVolume } } */
+  async _getCryptoPricesOkx(wantedSymbols) {
+    const data = await this._fetch('https://www.okx.com/api/v5/market/tickers?instType=SPOT', 5000, 0);
+    const rows = Array.isArray(data?.data) ? data.data : [];
+    const wanted = new Set((wantedSymbols || []).map(s => String(s).toUpperCase()));
+    const mapped = {};
+    for (const t of rows) {
+      const inst = String(t.instId || ''); // BTC-USDT
+      if (!inst.endsWith('-USDT')) continue;
+      const symbol = inst.replace('-', '');
+      if (wanted.size && !wanted.has(symbol)) continue;
+      const last = parseFloat(t.last);
+      const open = parseFloat(t.open24h || t.sodUtc8 || t.sodUtc0);
+      let pct = null;
+      if (Number.isFinite(last) && Number.isFinite(open) && open > 0) {
+        pct = ((last - open) / open) * 100;
+      }
+      mapped[symbol] = {
+        symbol,
+        lastPrice: String(last),
+        priceChangePercent: pct != null ? String(pct) : undefined,
+        quoteVolume: t.volCcy24h || t.vol24h,
+      };
+    }
+    if (!this._okxWarned) {
+      console.warn('[API] Serving prices via OKX fallback (Binance unavailable from this IP).');
+      this._okxWarned = true;
+    }
+    return mapped;
+  },
+
+  /** Map desk/Binance intervals → OKX candle bar ids */
+  _okxBar(interval) {
+    const map = {
+      '1m': '1m', '3m': '3m', '5m': '5m', '15m': '15m', '30m': '30m',
+      '1h': '1H', '1H': '1H', '2h': '2H', '4h': '4H', '4H': '4H',
+      '6h': '6H', '12h': '12H', '1d': '1D', '1D': '1D', '1w': '1W',
+    };
+    return map[interval] || map[String(interval || '').toLowerCase()] || '1D';
+  },
+
+  /** OKX candles → Binance kline rows [ts, o, h, l, c, v] oldest→newest */
+  async _getCryptoOHLCOkx(coinId, interval = '1d', limitOverride) {
+    const binanceSymbol = coinId.replace('_4H', '').replace('_5M', '');
+    const base = binanceSymbol.replace(/USDT$/, '');
+    const instId = `${base}-USDT`;
+    const bar = this._okxBar(interval);
+    const limit = Math.min(Math.max(limitOverride || CONFIG.refresh?.historyDays || 250, 40), 300);
+    const data = await this._fetch(
+      `https://www.okx.com/api/v5/market/candles?instId=${encodeURIComponent(instId)}&bar=${encodeURIComponent(bar)}&limit=${limit}`,
+      8000,
+      2
+    );
+    const rows = Array.isArray(data?.data) ? data.data.slice() : [];
+    if (!rows.length) throw new Error('Empty OKX candles');
+    // OKX returns newest first
+    rows.reverse();
+    return rows.map(r => [
+      Number(r[0]),
+      r[1],
+      r[2],
+      r[3],
+      r[4],
+      r[5],
+    ]);
+  },
+
+  /** Clear IP ban flag so desk can retry Binance (e.g. data-api.binance.vision). */
+  clearBinanceBan() {
+    this._binanceHardBanUntil = 0;
+    this._preferOkx = false;
+    this._binanceCooloffUntil = 0;
+  },
+
+  // ══════════════════════════════════════════════════════════════════════════════
+  // CRYPTO — Binance & DefiLlama (Fundamentals)
+  // ══════════════════════════════════════════════════════════════════════════════
+
+  async getDefiLlamaProtocols() {
+    const key = 'defillama_protocols';
+    const cached = this._get(key);
+    // Cache for 1 hour to avoid hitting DefiLlama limits
+    if (cached) return cached;
+    
+    try {
+      const [protocolsRes, chainsRes] = await Promise.all([
+        this._fetch('https://api.llama.fi/protocols', 5000),
+        this._fetch('https://api.llama.fi/chains', 5000)
+      ]);
+      
+      const merged = [];
+      if (Array.isArray(protocolsRes)) merged.push(...protocolsRes);
+      if (Array.isArray(chainsRes)) {
+        // Map chain objects to look like protocol objects so the UI parses it correctly
+        merged.push(...chainsRes.map(c => ({
+          symbol: c.tokenSymbol,
+          tvl: c.tvl,
+          name: c.name
+        })));
+      }
+      return this._set(key, merged, 3400000); 
+    } catch (e) {
+      console.warn('[API] DefiLlama fetch failed:', e.message);
+      return [];
+    }
+  },
+
+  async getCryptoSymbolRules() {
+    const key = 'crypto_symbol_rules';
+    const cached = this._get(key);
+    if (cached) return cached;
+    // Rules are Binance-specific; skip entirely when IP is banned (bot does not need them)
+    if (this._preferOkx || this._binanceIsHardBanned()) return {};
+    try {
+      const rawSymbols = CONFIG.assets.crypto.map(a => a.id.replace('_4H', '').replace('_5M', ''));
+      const uniqueSymbols = [...new Set(rawSymbols)];
+      const symbols = JSON.stringify(uniqueSymbols);
+      const data = await this._fetchBinance(`/api/v3/exchangeInfo?symbols=${encodeURIComponent(symbols)}`, 5000);
+      const rules = {};
+      for (const item of data.symbols || []) {
+        const filters = Object.fromEntries((item.filters || []).map(f => [f.filterType, f]));
+        rules[item.symbol] = {
+          tickSize: parseFloat(filters.PRICE_FILTER?.tickSize || 0),
+          stepSize: parseFloat(filters.LOT_SIZE?.stepSize || 0),
+          minQty: parseFloat(filters.LOT_SIZE?.minQty || 0),
+          minNotional: parseFloat(filters.NOTIONAL?.minNotional || filters.MIN_NOTIONAL?.minNotional || 0),
+        };
+      }
+      return this._set(key, rules, 86400000);
+    } catch (e) {
+      console.warn('[API] Binance symbol rules failed:', e.message);
+      return {};
+    }
+  },
+
+  /**
+   * Binance new-listing CMS catalog (unofficial public endpoint).
+   * Works in Node (bot). Browser may block CORS — callers must handle null.
+   */
+  async getListingAnnouncements({ pageSize = 12 } = {}) {
+    const catalogId = CONFIG.listings?.catalogId ?? 48;
+    const size = Math.min(Math.max(pageSize, 5), 20);
+    const url = `https://www.binance.com/bapi/composite/v1/public/cms/article/catalog/list/query?catalogId=${catalogId}&pageNo=1&pageSize=${size}`;
+    try {
+      const data = await this._fetch(url, 8000, 1);
+      const articles = Array.isArray(data?.data?.articles)
+        ? data.data.articles
+        : (Array.isArray(data?.data?.catalogs?.[0]?.articles) ? data.data.catalogs[0].articles : []);
+      return articles.map(a => ({
+        id: a.id,
+        code: a.code,
+        title: a.title || '',
+        url: a.code
+          ? `https://www.binance.com/en/support/announcement/detail/${a.code}`
+          : 'https://www.binance.com/en/support/announcement/new-cryptocurrency-listing?c=48',
+      })).filter(a => a.title);
+    } catch (e) {
+      console.warn('[API] Listing announcements failed:', e.message);
+      return null;
+    }
+  },
+
+  /** All tradable spot USDT symbols (for new-pair snapshot diffs). */
+  async getSpotUsdtSymbols() {
+    const key = 'spot_usdt_symbols';
+    const cached = this._get(key);
+    if (cached) return cached;
+    try {
+      if (this._binanceIsHardBanned() || this._preferOkx) throw new Error('Binance unavailable');
+      const data = await this._fetchBinance('/api/v3/exchangeInfo', 12000);
+      const symbols = (data.symbols || [])
+        .filter(s => s.quoteAsset === 'USDT' && s.status === 'TRADING' && s.isSpotTradingAllowed !== false)
+        .map(s => s.symbol)
+        .filter(s => /^[A-Z0-9]+USDT$/.test(s));
+      return this._set(key, symbols, 10 * 60 * 1000);
+    } catch (e) {
+      console.warn('[API] Spot USDT symbol list failed:', e.message);
+      return null;
+    }
+  },
+
+  /**
+   * Fetch current prices for all crypto in one call (Binance).
+   */
+  async getCryptoPrices() {
+    const key = 'crypto_prices';
+    const cached = this._get(key);
+    if (cached) return cached;
+
+    const rawSymbols = CONFIG.assets.crypto.map(a => a.id.replace('_4H', '').replace('_5M', ''));
+    const uniqueSymbols = [...new Set(rawSymbols)];
+    const symbols = JSON.stringify(uniqueSymbols);
+    const urlPath = `/api/v3/ticker/24hr?symbols=${encodeURIComponent(symbols)}`;
+    try {
+      if (!this._binanceIsHardBanned()) {
+        const data = await this._fetchBinance(urlPath, 5000);
+        const mapped = {};
+        for (const t of data) mapped[t.symbol] = t;
+        return this._set(key, mapped);
+      }
+    } catch (e) {
+      console.warn('[API] Binance price fetch failed:', e.message);
+    }
+    try {
+      this._preferOkx = true;
+      if (!this._binanceIsHardBanned()) this._markBinanceHardBan(45);
+      const mapped = await this._getCryptoPricesOkx(uniqueSymbols);
+      if (mapped && Object.keys(mapped).length) return this._set(key, mapped);
+    } catch (e2) {
+      console.warn('[API] OKX price fallback failed:', e2.message);
+    }
+    return null;
+  },
+
+  /**
+   * Fetch historical OHLC for a single crypto asset (Binance → OKX fallback).
+   * Returns array of [timestamp_ms, open, high, low, close, volume]
+   */
+  async getCryptoOHLC(coinId, interval = '1d', limitOverride) {
+    const limit = limitOverride || CONFIG.refresh.historyDays;
+    const key = `crypto_hist_${coinId}_${interval}_${limit}`;
+    const cached = this._get(key);
+    if (cached && Array.isArray(cached) && cached.length >= 40) return cached;
+
+    const binanceSymbol = coinId.replace('_4H', '').replace('_5M', '');
+    const path = `/api/v3/klines?symbol=${binanceSymbol}&interval=${interval}&limit=${Math.min(limit, 1000)}`;
+    // Always try Binance public data host first for desk TFs (spot klines are CORS-friendly)
+    try {
+      if (this._binanceIsHardBanned()) {
+        // One-shot vision host even when other api*.binance.com hosts 418'd
+        const vision = `https://data-api.binance.vision${path}`;
+        const data = await this._fetch(vision, 8000, 1);
+        if (Array.isArray(data) && data.length >= 40) {
+          this.clearBinanceBan();
+          return this._set(key, data, CONFIG.refresh.cacheMs);
+        }
+      } else {
+        const data = await this._fetchBinance(path, 8000, 2);
+        if (!Array.isArray(data) || data.length === 0) throw new Error('Empty klines');
+        return this._set(key, data, CONFIG.refresh.cacheMs);
+      }
+    } catch (e) {
+      console.warn(`[API] Binance history failed for ${coinId} ${interval}:`, e.message);
+    }
+    try {
+      const data = await this._getCryptoOHLCOkx(coinId, interval, limit);
+      if (!Array.isArray(data) || data.length < 40) throw new Error(`OKX short history (${data?.length || 0})`);
+      return this._set(key, data, CONFIG.refresh.cacheMs);
+    } catch (e2) {
+      console.warn(`[API] OKX history failed for ${coinId} ${interval}:`, e2.message);
+      throw e2;
+    }
+  },
+
+  /** Binance USDⓈ-M Futures klines (e.g. XAUUSDT TradFi perp). Same row shape as spot. */
+  async getFuturesOHLC(symbol, interval = '30m', limitOverride) {
+    const limit = limitOverride || 500;
+    const sym = String(symbol || '').toUpperCase().replace('_4H', '').replace('_5M', '');
+    const key = `fapi_hist_${sym}_${interval}_${limit}`;
+    const cached = this._get(key);
+    if (cached) return cached;
+
+    const path = `/fapi/v1/klines?symbol=${encodeURIComponent(sym)}&interval=${interval}&limit=${limit}`;
+    const hosts = [
+      'https://fapi.binance.com',
+      'https://fstream.binance.com',
+    ];
+    let lastErr;
+    for (const host of hosts) {
+      try {
+        const data = await this._fetch(`${host}${path}`, 15000, 1);
+        if (!Array.isArray(data) || !data.length) throw new Error('Empty futures klines');
+        return this._set(key, data, CONFIG.refresh.cacheMs);
+      } catch (e) {
+        lastErr = e;
+        console.warn(`[API] Futures OHLC failed ${host} ${sym}:`, e.message);
+      }
+    }
+    throw lastErr || new Error(`Futures OHLC failed for ${sym}`);
+  },
+
+  _yahooInterval(interval) {
+    const map = { '5m': '5m', '15m': '15m', '30m': '30m', '1h': '60m', '4h': '60m', '1d': '1d' };
+    return map[interval] || '30m';
+  },
+
+  _yahooRange(interval, limit) {
+    // Keep 5m payloads small — large ranges through any hop hang the Nifty spinner.
+    if (interval === '5m') return '7d';
+    if (interval === '15m') return '1mo';
+    if (interval === '30m' || interval === '1h' || interval === '60m') return '3mo';
+    if (interval === '1d') return '2y';
+    return '3mo';
+  },
+
+  /** Prefer Supabase edge proxy (CORS-safe). Optional Render bot URL as backup. */
+  _yahooProxyUrls(symbol, yInt, range) {
+    const qs = `symbol=${encodeURIComponent(symbol)}&interval=${encodeURIComponent(yInt)}&range=${encodeURIComponent(range)}`;
+    const urls = [];
+    const supabaseFn = (typeof CONFIG !== 'undefined' && CONFIG.market?.yahooProxyUrl)
+      || 'https://ogoljnujatnlttrpjpxr.supabase.co/functions/v1/yahoo-chart';
+    if (supabaseFn) urls.push(`${String(supabaseFn).replace(/\/$/, '')}?${qs}`);
+
+    let botBase = '';
+    try {
+      botBase = (typeof localStorage !== 'undefined' && localStorage.getItem('trade_bot_url')) || '';
+    } catch (_) {}
+    if (!botBase && typeof CONFIG !== 'undefined') {
+      botBase = CONFIG.market?.proxyBaseUrl || CONFIG.trade?.botBaseUrl || '';
+    }
+    botBase = String(botBase || '').replace(/\/$/, '');
+    if (botBase) urls.push(`${botBase}/api/yahoo/chart?${qs}`);
+
+    // Node / same-origin can hit Yahoo directly; browsers usually cannot (no CORS).
+    if (this._isNode()) {
+      const chartQs = `interval=${yInt}&range=${range}&includePrePost=false`;
+      urls.push(`https://query1.finance.yahoo.com/v8/finance/chart/${encodeURIComponent(symbol)}?${chartQs}`);
+      urls.push(`https://query2.finance.yahoo.com/v8/finance/chart/${encodeURIComponent(symbol)}?${chartQs}`);
+    }
+    return urls;
+  },
+
+  _yahooRowsFromChart(data, limit) {
+    const result = data?.chart?.result?.[0];
+    if (!result) {
+      const yErr = data?.chart?.error?.description || data?.chart?.error?.code || data?.error;
+      throw new Error(yErr || 'Empty Yahoo chart');
+    }
+    const ts = result.timestamp || [];
+    const q = result.indicators?.quote?.[0] || {};
+    const rows = [];
+    for (let i = 0; i < ts.length; i++) {
+      const o = q.open?.[i];
+      const h = q.high?.[i];
+      const l = q.low?.[i];
+      const c = q.close?.[i];
+      const v = q.volume?.[i];
+      if (![o, h, l, c].every(Number.isFinite)) continue;
+      rows.push([ts[i] * 1000, o, h, l, c, v || 0]);
+    }
+    if (rows.length < 20) throw new Error(`Not enough Yahoo bars (${rows.length})`);
+    return rows.length > limit ? rows.slice(-limit) : rows;
+  },
+
+  /**
+   * Yahoo Finance chart OHLC (Nifty ^NSEI, etc.) → Binance-shaped kline rows.
+   * Browser path uses Supabase edge proxy (Yahoo itself has no CORS).
+   */
+  async getYahooOHLC(symbol, interval = '30m', limitOverride) {
+    const yInt = this._yahooInterval(interval);
+    let limit = limitOverride || 500;
+    if (yInt === '5m') limit = Math.min(limit, 400);
+    // Prefer lean ranges first so the desk paints; widen only if needed.
+    const ranges = [this._yahooRange(yInt, limit)];
+    if (yInt === '15m' || yInt === '5m') {
+      for (const r of ['5d', '7d', '1mo']) {
+        if (!ranges.includes(r)) ranges.push(r);
+      }
+    } else if (yInt === '60m' || yInt === '30m') {
+      for (const r of ['1mo', '3mo']) {
+        if (!ranges.includes(r)) ranges.push(r);
+      }
+    }
+    let lastErr;
+    for (const range of ranges) {
+      const key = `yahoo_hist_${symbol}_${yInt}_${range}_${limit}`;
+      const cached = this._get(key);
+      if (cached) return cached;
+
+      const urls = this._yahooProxyUrls(symbol, yInt, range);
+      for (const url of urls) {
+        try {
+          const data = await this._fetch(url, 18000, 0);
+          const sliced = this._yahooRowsFromChart(data, limit);
+          return this._set(key, sliced, CONFIG.refresh.cacheMs);
+        } catch (e) {
+          lastErr = e;
+          console.warn(`[API] Yahoo OHLC failed (${symbol} ${yInt} ${range}):`, e.message);
+        }
+      }
+    }
+    const tip = 'Nifty feed unreachable — hard-refresh the page (clear site cache) and try again';
+    throw lastErr || new Error(tip);
+  },
+
+  /**
+   * DhanHQ intraday OHLC (Node: direct keys; browser: Oracle/Render bot proxy).
+   * Returns Binance-shaped rows [t,o,h,l,c,v].
+   */
+  async getDhanOHLC(instrument, interval = '15m', limitOverride) {
+    const limit = limitOverride || 500;
+    const sid = instrument?.dhanSecurityId || instrument?.securityId || instrument?.symbol || '13';
+    const key = `dhan_hist_${sid}_${interval}_${limit}`;
+    const cached = this._get(key);
+    if (cached) return cached;
+
+    if (this._isNode()) {
+      try {
+        const { createDhanClient, isDhanConfigured } = require('./dhan_client.js');
+        if (!isDhanConfigured()) throw new Error('DHAN_CLIENT_ID / DHAN_ACCESS_TOKEN missing');
+        const dhan = createDhanClient();
+        const rows = await dhan.getKlines(instrument, interval, limit);
+        if (!rows?.length) throw new Error('Empty Dhan klines');
+        return this._set(key, rows, CONFIG.refresh.cacheMs);
+      } catch (e) {
+        console.warn(`[API] Dhan OHLC failed (${sid} ${interval}):`, e.message);
+        if (instrument?.symbol) {
+          console.warn('[API] Falling back to Yahoo for', instrument.symbol);
+          return this.getYahooOHLC(instrument.symbol, interval, limit);
+        }
+        throw e;
+      }
+    }
+
+    // Browser → bot proxy (keys stay on server)
+    let botBase = '';
+    try {
+      botBase = (typeof localStorage !== 'undefined' && localStorage.getItem('trade_bot_url')) || '';
+    } catch (_) {}
+    const cfgBot = (typeof CONFIG !== 'undefined')
+      ? (CONFIG.market?.proxyBaseUrl || CONFIG.trade?.botBaseUrl || CONFIG.alerts?.botBaseUrl || '')
+      : '';
+    if (cfgBot && (!botBase || (botBase.includes('trycloudflare.com') && cfgBot.includes('trycloudflare.com') && botBase !== cfgBot))) {
+      botBase = cfgBot;
+      try {
+        if (typeof localStorage !== 'undefined') localStorage.setItem('trade_bot_url', cfgBot);
+      } catch (_) {}
+    } else if (!botBase) {
+      botBase = cfgBot;
+    }
+    botBase = String(botBase || '').replace(/\/$/, '');
+    if (!botBase) throw new Error('Set Oracle Bot URL in Settings for Dhan Nifty/MCX feed');
+    const qs = new URLSearchParams({
+      securityId: String(sid),
+      exchangeSegment: instrument?.dhanExchangeSegment || 'IDX_I',
+      instrument: instrument?.dhanInstrument || 'INDEX',
+      interval: String(interval),
+      limit: String(limit),
+    });
+    const data = await this._fetch(`${botBase}/api/dhan/ohlc?${qs}`, 20000, 1);
+    const rows = Array.isArray(data?.rows) ? data.rows : (Array.isArray(data) ? data : null);
+    if (!rows?.length) throw new Error(data?.error || 'Empty Dhan proxy response');
+    return this._set(key, rows, CONFIG.refresh.cacheMs);
+  },
+
+  /**
+   * Desk OHLC router by instrument.feed.
+   * instrument: { feed, symbol, fallbackSymbol? }
+   */
+  async getDeskOHLC(instrument, interval = '30m', limitOverride) {
+    if (!instrument) return null;
+    let feed = instrument.feed || 'binanceFutures';
+    const sym = String(instrument.symbol || '').toUpperCase();
+    const id = String(instrument.id || '').toUpperCase();
+    // Hard guard: BTC/XAU desk + bot must never silently fall back to spot OHLC
+    // (spot vs USD-M mark Fibs / first-red diverged every day in Oct 2026 audit).
+    if (
+      (id === 'BTC' || id === 'XAU' || sym === 'BTCUSDT' || sym === 'XAUUSDT' || sym === 'PAXGUSDT')
+      && feed === 'binanceSpot'
+    ) {
+      console.warn(`[API] ${id || sym} feed was binanceSpot — forcing binanceFutures (spot Fibs are wrong for USD-M)`);
+      feed = 'binanceFutures';
+    }
+    if (feed === 'dhan') {
+      try {
+        return await this.getDhanOHLC(instrument, interval, limitOverride);
+      } catch (e) {
+        if (instrument.fallbackFeed === 'yahoo' && instrument.fallbackSymbol) {
+          console.warn(`[API] Dhan ${id || sym} failed (${e.message}) — falling back to Yahoo ${instrument.fallbackSymbol}`);
+          const bars = await this.getYahooOHLC(instrument.fallbackSymbol, interval, limitOverride);
+          // Yahoo NG=F is USD Henry Hub — never paint as MCX ₹. Stamp meta for the desk.
+          if (Array.isArray(bars)) {
+            const wantInr = String(instrument.currency || '').toUpperCase() === 'INR';
+            bars.__deskMeta = {
+              feedSource: 'yahoo',
+              fallbackFrom: 'dhan',
+              fallbackSymbol: instrument.fallbackSymbol,
+              currency: wantInr ? 'USD' : (instrument.currency || 'USD'),
+              priceDecimals: wantInr ? 2 : (instrument.priceDecimals ?? 2),
+              warning: wantInr
+                ? `Dhan MCX offline — Yahoo ${instrument.fallbackSymbol} in USD (not MCX ₹). Fibs/levels are US contract scale.`
+                : `Dhan offline — Yahoo ${instrument.fallbackSymbol} fallback.`,
+            };
+          }
+          return bars;
+        }
+        throw e;
+      }
+    }
+    if (feed === 'yahoo') {
+      return this.getYahooOHLC(sym, interval, limitOverride);
+    }
+    if (feed === 'binanceFutures') {
+      try {
+        return await this.getFuturesOHLC(sym, interval, limitOverride);
+      } catch (e) {
+        if (instrument.fallbackSymbol) {
+          console.warn(`[API] Futures ${sym} failed — falling back to ${instrument.fallbackSymbol}`);
+          return this.getCryptoOHLC(instrument.fallbackSymbol, interval, limitOverride);
+        }
+        throw e;
+      }
+    }
+    return this.getCryptoOHLC(sym, interval, limitOverride);
+  },
+
+  /**
+   * Fetch all crypto data: prices + historical prices.
+   * Live-patches the last close with the current ticker price so signals
+   * react to intraday moves instead of a stale (still-forming) daily candle.
+   */
+  async getAllCrypto(opts = {}) {
+    if (opts.bypassCache) {
+      return this.withBypassCache(() => this.getAllCrypto({ ...opts, bypassCache: false }));
+    }
+    const phase = opts.phase || 'full'; // 'boot' = fast first paint; 'full' = include 4H + rules
+    const boot = phase === 'boot';
+    // --- Dynamic Private Coin Injection ---
+    try {
+      if (typeof localStorage !== 'undefined') {
+        const portStr = localStorage.getItem('trading_invested');
+        const port = portStr ? JSON.parse(portStr) : [];
+        if (typeof CONFIG !== 'undefined' && CONFIG.assets && CONFIG.assets.crypto) {
+          const keys = Array.isArray(port) ? port : Object.keys(port);
+          for (const sym of keys) {
+            // Locked holdings track the base daily pair only
+            const normalized = String(sym).toUpperCase().replace('_4H', '').replace('_5M', '');
+            const hasEquivalentAsset = CONFIG.assets.crypto.some(a =>
+              a.id.replace('_4H', '').replace('_5M', '') === normalized
+            );
+            if (!hasEquivalentAsset) {
+              CONFIG.assets.crypto.push({
+                id: normalized,
+                symbol: normalized.replace('USDT', ''),
+                name: normalized.replace('USDT', ''),
+                currency: 'USD',
+                icon: '💎'
+              });
+            }
+          }
+        }
+      }
+    } catch(e) {}
+    
+    const prices = await this.getCryptoPrices();
+    // Symbol rules are not needed to paint the dashboard — defer off the critical path
+    this.getCryptoSymbolRules().catch(() => {});
+
+    // DefiLlama is huge (~8MB) — never on boot; delay so it cannot saturate the first paint
+    if (boot) {
+      setTimeout(() => {
+        this.getDefiLlamaProtocols().catch(e => console.warn('Background Llama fetch failed', e));
+      }, 60000);
+    } else {
+      this.getDefiLlamaProtocols().catch(e => console.warn('Background Llama fetch failed', e));
+    }
+    const llamaData = [];
+      
+    // Fast-fail: If we couldn't even fetch basic prices, both Binance and OKX are blocked/offline.
+    if (!prices || Object.keys(prices).length === 0) {
+      throw new Error('All crypto exchange APIs (Binance/OKX) are unreachable. Please check your connection, ad-blocker, or VPN.');
+    }
+
+    // Create a fast lookup map for DefiLlama data by symbol (keep the one with highest TVL)
+    const llamaMap = new Map();
+    if (Array.isArray(llamaData)) {
+      for (const p of llamaData) {
+        if (p.symbol && p.tvl > 100000) {
+          const sym = p.symbol.toUpperCase();
+          const existing = llamaMap.get(sym);
+          if (!existing || p.tvl > existing.tvl) {
+            llamaMap.set(sym, p);
+          }
+        }
+      }
+    }
+
+    // Browser: dynamic async worker pool (avoid head-of-line blocking)
+    const onServer = this._isNode();
+    const bootPool = CONFIG.refresh?.bootPoolLimit ?? 8;
+    const poolLimit = onServer ? 1 : (boot ? bootPool : 6);
+    const chunkDelay = onServer ? 800 : (boot ? 0 : 20);
+    const skip4H = boot && CONFIG.refresh?.bootSkip4H !== false;
+    const results = [];
+    
+    let currentIndex = 0;
+    const workerTask = async () => {
+      while (currentIndex < CONFIG.assets.crypto.length) {
+        const i = currentIndex++;
+        const asset = CONFIG.assets.crypto[i];
+        try {
+          const res = await this._processAssetData(asset, prices, llamaMap, { skip4H });
+          results.push(res);
+        } catch (err) {
+          console.warn(`[API] Worker failed for ${asset.id}:`, err);
+        }
+        if (chunkDelay > 0) await this._delay(chunkDelay);
+      }
+    };
+
+    const workers = [];
+    for (let w = 0; w < Math.min(poolLimit, CONFIG.assets.crypto.length); w++) {
+      workers.push(workerTask());
+    }
+    await Promise.all(workers);
+
+    return results.sort((a, b) => (b.tvl || 0) - (a.tvl || 0));
+  },
+
+  async _processAssetData(asset, prices, llamaMap, opts = {}) {
+    const onServer = this._isNode();
+    const skip4H = !!opts.skip4H && !asset.grafted; // grafted moonshots still need 4H
+    let hist1D, hist4H;
+    if (onServer) {
+      hist1D = await this.getCryptoOHLC(asset.id, '1d');
+      await this._delay(120);
+      hist4H = skip4H ? null : await this.getCryptoOHLC(asset.id, '4h');
+    } else if (skip4H) {
+      hist1D = await this.getCryptoOHLC(asset.id, '1d');
+      hist4H = null;
+    } else {
+      [hist1D, hist4H] = await Promise.all([
+        this.getCryptoOHLC(asset.id, '1d'),
+        this.getCryptoOHLC(asset.id, '4h')
+      ]);
+    }
+    const binanceSymbol = asset.id.replace('_4H', '').replace('_5M', '');
+    const baseSymbol = binanceSymbol.replace('USDT', '');
+    
+    const priceInfo = prices?.[binanceSymbol] ?? {};
+    const livePrice = priceInfo.lastPrice ? parseFloat(priceInfo.lastPrice) : null;
+    
+    const llamaProtocol = llamaMap.get(baseSymbol);
+
+    const hist = asset.grafted ? (hist4H || hist1D) : hist1D;
+    
+    const closes     = hist ? hist.map(r => parseFloat(r[4])) : [];
+    const opens      = hist ? hist.map(r => parseFloat(r[1])) : [];
+    const highs      = hist ? hist.map(r => parseFloat(r[2])) : [];
+    const lows       = hist ? hist.map(r => parseFloat(r[3])) : [];
+    const volumes    = hist ? hist.map(r => parseFloat(r[5])) : [];
+    const timestamps = hist ? hist.map(r => r[0]) : [];
+
+    const closes1D   = hist1D ? hist1D.map(r => parseFloat(r[4])) : [];
+    const closes4H   = hist4H ? hist4H.map(r => parseFloat(r[4])) : [];
+
+    let change4h = null;
+    if (closes4H.length >= 2 && livePrice != null) {
+      const prev4HClose = closes4H[closes4H.length - 2];
+      if (prev4HClose > 0) {
+        change4h = ((livePrice - prev4HClose) / prev4HClose) * 100;
+      }
+    }
+
+    if (livePrice != null && closes.length > 0) {
+      const lastIdx = closes.length - 1;
+      closes[lastIdx] = livePrice;
+      if (highs[lastIdx] != null && livePrice > highs[lastIdx]) highs[lastIdx] = livePrice;
+      if (lows[lastIdx]  != null && livePrice < lows[lastIdx])  lows[lastIdx]  = livePrice;
+    }
+
+    return {
+      asset,
+      rules: null,
+      price:      livePrice,
+      change24h:  priceInfo.priceChangePercent != null ? parseFloat(priceInfo.priceChangePercent) : null,
+      change4h,
+      volume:     priceInfo.quoteVolume ? parseFloat(priceInfo.quoteVolume) : null,
+      marketCap:  llamaProtocol?.mcap || null,
+      tvl:        llamaProtocol?.tvl || null,
+      closes, opens, highs, lows, volumes, timestamps,
+      closes1D, closes4H,
+      rawOHLC:    hist ?? [],
+      source:     'binance',
+      fetchedAt:  new Date().toISOString(),
+      error:      hist ? null : 'Data unavailable',
+      _bootPartial: skip4H,
+    };
+  },
+};
+
+if (typeof module !== 'undefined' && module.exports) module.exports = { API };
