@@ -248,8 +248,8 @@ async function scanOnce(dhan, botState) {
             : 'Scanning 15m bars';
       await notify(
         `📡 Patrick Swing Bot Online (${AUTO_TRADE ? 'LIVE' : 'PAPER TRADER'})\n` +
-        `Symbol: ${SYMBOLS.join(',')} ${TF} (${MODE}) | Last Close: ${s.lastClosePx || '—'}\n` +
-        `Feed: Dhan + Yahoo ^NSEI automatic fallback (works even if Dhan token is expired)\n` +
+        `Symbol: ${SYMBOLS.join(',')} ${TF} (${MODE}) | Last Close: ${s.lastClosePx || 'Awaiting Dhan token refresh'}\n` +
+        `Feed: Dhan Official Charts (IDX_I / 13) + 5s .env hot token reload\n` +
         `State: ${boxStatus}\n` +
         `Scoreboard: ${wins}W / ${losses}L | Net P&L: ${netReal >= 0 ? '+' : ''}₹${netReal} | Paper Equity: ₹${eq}`
       );
