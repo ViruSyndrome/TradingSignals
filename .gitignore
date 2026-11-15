@@ -38,3 +38,4 @@ bots/state_*.json
 *_nov6.json
 telegram_boot_ping.json
 listings_seen.json
+local_reports/
