@@ -585,6 +585,9 @@ const API = {
         return this._set(key, rows, CONFIG.refresh.cacheMs);
       } catch (e) {
         console.warn(`[API] Dhan OHLC failed (${sid} ${interval}):`, e.message);
+        if (process.env.DHAN_NO_YAHOO_FALLBACK === 'true') {
+          throw new Error(`Dhan OHLC failed (${sid} ${interval}, Yahoo fallback disabled): ${e.message}`);
+        }
         if (instrument?.symbol) {
           console.warn('[API] Falling back to Yahoo for', instrument.symbol);
           return this.getYahooOHLC(instrument.symbol, interval, limit);
@@ -646,7 +649,7 @@ const API = {
       try {
         return await this.getDhanOHLC(instrument, interval, limitOverride);
       } catch (e) {
-        if (instrument.fallbackFeed === 'yahoo' && instrument.fallbackSymbol) {
+        if (process.env.DHAN_NO_YAHOO_FALLBACK !== 'true' && instrument.fallbackFeed === 'yahoo' && instrument.fallbackSymbol) {
           console.warn(`[API] Dhan ${id || sym} failed (${e.message}) — falling back to Yahoo ${instrument.fallbackSymbol}`);
           const bars = await this.getYahooOHLC(instrument.fallbackSymbol, interval, limitOverride);
           // Yahoo NG=F is USD Henry Hub — never paint as MCX ₹. Stamp meta for the desk.

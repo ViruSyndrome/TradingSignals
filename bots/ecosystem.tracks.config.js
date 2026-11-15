@@ -10,6 +10,7 @@ module.exports = {
         NOV6_STATE_DIR: './archive/nov6-close',
         REDBAR_BOT_INSTRUMENTS: 'NIFTY',
         DHAN_AUTO_INSTRUMENTS: 'NIFTY',
+        DHAN_NO_YAHOO_FALLBACK: 'true',
         REDBAR_AUTO_TRADE: 'false',
         NOV6_CLOSED_15M: 'true',
         NOV6_EMA_FILTER: 'true',

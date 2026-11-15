@@ -29,6 +29,13 @@ const ADX_THRESHOLD = Number(process.env.AI_RENKO_ADX_THRESH || 15);
 const MODE_B_TRIGGER_PTS = Number(process.env.AI_RENKO_LOCK_TRIG || 66.66); // 2 Bricks
 const MODE_B_LOCK_PTS = Number(process.env.AI_RENKO_LOCK_FLOOR || 25.0);
 
+// Mode C Hybrid Smart-Lock + Tail-Risk Cap (+120p trigger -> +20p floor, Hard Cap SL -150p)
+const MODE_C_TRIGGER_PTS = Number(process.env.AI_RENKO_C_TRIG || 120.0);
+const MODE_C_LOCK_PTS = Number(process.env.AI_RENKO_C_FLOOR || 20.0);
+const MODE_C_CAP_SL_PTS = Number(process.env.AI_RENKO_C_CAP_SL || 150.0);
+const BOOT_PING_COOLDOWN_MS = 30 * 60 * 1000;
+const FEED_ERR_LOG_COOLDOWN_MS = 15 * 60 * 1000;
+
 const LOTS = Math.max(1, Number(process.env.AI_RENKO_LOTS || 1));
 const MULT = 65; // NIFTY 1 lot = 65 qty
 const FUT_COST_PTS = 9.3; // ~₹605/lot Dhan Futures brokerage + taxes + slippage
@@ -89,15 +96,20 @@ function makeDefaultBotState() {
       adxThreshold: ADX_THRESHOLD,
       modeBTriggerPts: MODE_B_TRIGGER_PTS,
       modeBLockPts: MODE_B_LOCK_PTS,
+      modeCTriggerPts: MODE_C_TRIGGER_PTS,
+      modeCLockPts: MODE_C_LOCK_PTS,
+      modeCCapSlPts: MODE_C_CAP_SL_PTS,
     },
     lots: LOTS,
     lastProcessedTs: 0,
+    lastBootPingAt: 0,
     lastClosePx: 0,
     lastBarIso: null,
     lastTrend: 0,
     lastSupertrend: 0,
     modeA: makeEmptyBook(FUT_CAPITAL_RS),
     modeB: makeEmptyBook(FUT_CAPITAL_RS),
+    modeC: makeEmptyBook(FUT_CAPITAL_RS),
   };
 }
 
@@ -193,15 +205,121 @@ function recordClosedTrade(book, pos, exitIdxPx, exitOptPx, reason) {
   return { netIdx, netFutRs, netOpt, netOptRs };
 }
 
+const PROTECTED_MODES = [
+  {
+    key: 'modeB',
+    tag: '[MODE B - 70% WR Lock]',
+    lockTag: '[MODE B - Profit Lock]',
+    entryLabel: `Mode B (+${MODE_B_TRIGGER_PTS}p -> +${MODE_B_LOCK_PTS}p)`,
+    trig: MODE_B_TRIGGER_PTS,
+    floor: MODE_B_LOCK_PTS,
+    capSl: Infinity,
+  },
+  {
+    key: 'modeC',
+    tag: '[MODE C - Smart Lock+Cap]',
+    lockTag: '[MODE C - Smart Lock]',
+    entryLabel: `Mode C (+${MODE_C_TRIGGER_PTS}p -> +${MODE_C_LOCK_PTS}p, Cap -${MODE_C_CAP_SL_PTS}p)`,
+    trig: MODE_C_TRIGGER_PTS,
+    floor: MODE_C_LOCK_PTS,
+    capSl: MODE_C_CAP_SL_PTS,
+  },
+];
+
+let lastFeedErrAt = 0;
+let lastFeedErrMsg = '';
+
+/**
+ * Evaluate bar-by-bar profit-lock activation and exit triggers for Mode B / Mode C.
+ */
+async function processProtectedModeBar(cfg, book, bar, sig, activeDhan) {
+  const pos = book.pos;
+  if (!pos) return;
+
+  if (!pos.locked) {
+    const triggered = pos.side === 'LONG'
+      ? bar.h >= pos.entryIdx + cfg.trig
+      : bar.l <= pos.entryIdx - cfg.trig;
+    if (triggered) {
+      pos.locked = true;
+      pos.lockPrice = +(pos.side === 'LONG' ? pos.entryIdx + cfg.floor : pos.entryIdx - cfg.floor).toFixed(2);
+      if (!OFFLINE) {
+        await notify(
+          `🔒 ${cfg.lockTag} ${SYM} ${TF} ${pos.side} hit +${cfg.trig} pts!\n` +
+          `Floor Stop locked at ${pos.lockPrice} (+${cfg.floor} pts guaranteed profit)`
+        );
+      }
+    }
+  }
+
+  let exitPx = null;
+  let reason = null;
+
+  if (pos.locked) {
+    if (pos.side === 'LONG' && bar.l <= pos.lockPrice) {
+      exitPx = pos.lockPrice;
+      reason = 'PROFIT_LOCK';
+    } else if (pos.side === 'SHORT' && bar.h >= pos.lockPrice) {
+      exitPx = pos.lockPrice;
+      reason = 'PROFIT_LOCK';
+    }
+  }
+
+  if (exitPx === null && Number.isFinite(cfg.capSl)) {
+    if (pos.side === 'LONG' && bar.l <= pos.entryIdx - cfg.capSl) {
+      exitPx = +(pos.entryIdx - cfg.capSl).toFixed(2);
+      reason = 'HARD_CAP_SL';
+    } else if (pos.side === 'SHORT' && bar.h >= pos.entryIdx + cfg.capSl) {
+      exitPx = +(pos.entryIdx + cfg.capSl).toFixed(2);
+      reason = 'HARD_CAP_SL';
+    }
+  }
+
+  if (exitPx === null) {
+    if ((pos.side === 'LONG' && sig.sellSignal) || (pos.side === 'SHORT' && sig.buySignal)) {
+      exitPx = bar.c;
+      reason = 'ST_FLIP';
+    }
+  }
+
+  if (exitPx === null) return;
+
+  pos.exitTs = bar.t;
+  const exitOptPx = await fetchOptionExitPremium(activeDhan, pos, exitPx);
+  const res = recordClosedTrade(book, pos, exitPx, exitOptPx, reason);
+  const wr = ((book.wins / book.trades) * 100).toFixed(1);
+  const optWr = ((book.optWins / book.optTrades) * 100).toFixed(1);
+  book.pos = null;
+
+  if (!OFFLINE || sig._isLatestBar) {
+    await notify(
+      `📙 ${cfg.tag} EXIT ${pos.side} ${SYM} ${TF} (${reason})\n` +
+      `Index: ${pos.entryIdx.toFixed(2)} → ${exitPx.toFixed(2)} | Net: ${res.netIdx >= 0 ? '+' : ''}${res.netIdx.toFixed(1)} pts (₹${res.netFutRs})\n` +
+      `Option (${pos.optLabel}): ₹${pos.entryOpt} → ₹${exitOptPx} | Net: ${res.netOpt >= 0 ? '+' : ''}${res.netOpt.toFixed(1)} pts (₹${res.netOptRs})\n` +
+      `Stats: ${book.trades} tr | Fut WR ${wr}% (Net ₹${book.netRs}) | Opt WR ${optWr}% (Net ₹${book.optNetRs})`
+    );
+  }
+}
+
 async function scanOnce(dhan, botState) {
+  if (!botState.modeA) botState.modeA = makeEmptyBook(FUT_CAPITAL_RS);
+  if (!botState.modeB) botState.modeB = makeEmptyBook(FUT_CAPITAL_RS);
+  if (!botState.modeC) botState.modeC = makeEmptyBook(FUT_CAPITAL_RS);
+
   const activeDhan = dhan || (!OFFLINE && isDhanConfigured() ? createDhanClient() : null);
   let bars;
   try {
     bars = OFFLINE
       ? loadOfflineBars(SYM, TF)
       : completedBars(await fetchSymbolBars(activeDhan, SYM, TF, 25), TF);
+    lastFeedErrMsg = '';
   } catch (e) {
-    console.error(`[${BOT_NAME}] Feed error (${SYM} ${TF}):`, e.message);
+    const now = Date.now();
+    if (e.message !== lastFeedErrMsg || now - lastFeedErrAt >= FEED_ERR_LOG_COOLDOWN_MS) {
+      lastFeedErrAt = now;
+      lastFeedErrMsg = e.message;
+      console.error(`[${BOT_NAME}] Feed error (${SYM} ${TF}):`, e.message);
+    }
     return;
   }
 
@@ -269,71 +387,15 @@ async function scanOnce(dhan, botState) {
     }
 
     // ------------------------------------------------------------------------
-    // MODE B: High Win-Rate Profit-Lock (+66.66p -> Lock +25p floor, ~70.6% WR)
+    // MODE B & MODE C: Profit-Lock & Hybrid Smart-Lock + Tail-Risk Cap
     // ------------------------------------------------------------------------
-    const posB = botState.modeB.pos;
-    if (posB) {
-      if (!posB.locked) {
-        if (posB.side === 'LONG' && b.h >= posB.entryIdx + MODE_B_TRIGGER_PTS) {
-          posB.locked = true;
-          posB.lockPrice = +(posB.entryIdx + MODE_B_LOCK_PTS).toFixed(2);
-          if (!OFFLINE) {
-            await notify(
-              `🔒 [MODE B - Profit Lock] ${SYM} ${TF} LONG hit +${MODE_B_TRIGGER_PTS} pts!\n` +
-              `Floor Stop locked at ${posB.lockPrice} (+${MODE_B_LOCK_PTS} pts guaranteed profit)`
-            );
-          }
-        } else if (posB.side === 'SHORT' && b.l <= posB.entryIdx - MODE_B_TRIGGER_PTS) {
-          posB.locked = true;
-          posB.lockPrice = +(posB.entryIdx - MODE_B_LOCK_PTS).toFixed(2);
-          if (!OFFLINE) {
-            await notify(
-              `🔒 [MODE B - Profit Lock] ${SYM} ${TF} SHORT hit +${MODE_B_TRIGGER_PTS} pts!\n` +
-              `Floor Stop locked at ${posB.lockPrice} (+${MODE_B_LOCK_PTS} pts guaranteed profit)`
-            );
-          }
-        }
-      }
-
-      let exitPxB = null;
-      let reasonB = null;
-      if (posB.side === 'LONG' && sig.sellSignal) {
-        exitPxB = posB.locked ? Math.max(b.c, posB.lockPrice) : b.c;
-        reasonB = posB.locked && exitPxB === posB.lockPrice ? 'PROFIT_LOCK' : 'ST_FLIP';
-      } else if (posB.side === 'SHORT' && sig.buySignal) {
-        exitPxB = posB.locked ? Math.min(b.c, posB.lockPrice) : b.c;
-        reasonB = posB.locked && exitPxB === posB.lockPrice ? 'PROFIT_LOCK' : 'ST_FLIP';
-      } else if (posB.locked) {
-        if (posB.side === 'LONG' && b.l <= posB.lockPrice) {
-          exitPxB = posB.lockPrice;
-          reasonB = 'PROFIT_LOCK';
-        } else if (posB.side === 'SHORT' && b.h >= posB.lockPrice) {
-          exitPxB = posB.lockPrice;
-          reasonB = 'PROFIT_LOCK';
-        }
-      }
-
-      if (exitPxB !== null) {
-        posB.exitTs = b.t;
-        const exitOptPx = await fetchOptionExitPremium(activeDhan, posB, exitPxB);
-        const resB = recordClosedTrade(botState.modeB, posB, exitPxB, exitOptPx, reasonB);
-        const wrB = ((botState.modeB.wins / botState.modeB.trades) * 100).toFixed(1);
-        const optWrB = ((botState.modeB.optWins / botState.modeB.optTrades) * 100).toFixed(1);
-        botState.modeB.pos = null;
-
-        if (!OFFLINE || isLatestBar) {
-          await notify(
-            `📙 [MODE B - 70% WR Lock] EXIT ${posB.side} ${SYM} ${TF} (${reasonB})\n` +
-            `Index: ${posB.entryIdx.toFixed(2)} → ${exitPxB.toFixed(2)} | Net: ${resB.netIdx >= 0 ? '+' : ''}${resB.netIdx.toFixed(1)} pts (₹${resB.netFutRs})\n` +
-            `Option (${posB.optLabel}): ₹${posB.entryOpt} → ₹${exitOptPx} | Net: ${resB.netOpt >= 0 ? '+' : ''}${resB.netOpt.toFixed(1)} pts (₹${resB.netOptRs})\n` +
-            `Stats B: ${botState.modeB.trades} tr | Fut WR ${wrB}% (Net ₹${botState.modeB.netRs}) | Opt WR ${optWrB}% (Net ₹${botState.modeB.optNetRs})`
-          );
-        }
-      }
+    const sigWithFlag = { ...sig, _isLatestBar: isLatestBar };
+    for (const modeCfg of PROTECTED_MODES) {
+      await processProtectedModeBar(modeCfg, botState[modeCfg.key], b, sigWithFlag, activeDhan);
     }
 
     // ------------------------------------------------------------------------
-    // NEW ENTRY ON AI RENKO SUPERTREND FLIP (Both Mode A & Mode B)
+    // NEW ENTRY ON AI RENKO SUPERTREND FLIP (Mode A, Mode B & Mode C)
     // ------------------------------------------------------------------------
     if (sig.buySignal || sig.sellSignal) {
       const side = sig.buySignal ? 'LONG' : 'SHORT';
@@ -359,9 +421,11 @@ async function scanOnce(dhan, botState) {
         botState.modeA.pos = { ...newPosBase };
         enteredModes.push('Mode A (Pure Flip)');
       }
-      if (!botState.modeB.pos) {
-        botState.modeB.pos = { ...newPosBase };
-        enteredModes.push(`Mode B (+${MODE_B_TRIGGER_PTS}p -> Lock +${MODE_B_LOCK_PTS}p)`);
+      for (const modeCfg of PROTECTED_MODES) {
+        if (!botState[modeCfg.key].pos) {
+          botState[modeCfg.key].pos = { ...newPosBase };
+          enteredModes.push(modeCfg.entryLabel);
+        }
       }
 
       if (enteredModes.length > 0 && (!OFFLINE || isLatestBar)) {
@@ -384,19 +448,25 @@ async function scanOnce(dhan, botState) {
 
 async function main() {
   const botState = OFFLINE ? makeDefaultBotState() : loadJsonState(STATE_PATH, makeDefaultBotState);
+  if (!botState.modeC) botState.modeC = makeEmptyBook(FUT_CAPITAL_RS);
   const dhan = !OFFLINE && isDhanConfigured() ? createDhanClient() : null;
 
   console.log(
     `[${BOT_NAME}] Starting (${OFFLINE ? 'OFFLINE REPLAY' : 'PAPER LIVE'}) | ${SYM} ${TF} | ` +
-    `ATR=${ATR_LENGTH}, Factor=${BASE_FACTOR}, Brick=${BRICK_SIZE} | Mode A + Mode B (Futures & Options)`
+    `ATR=${ATR_LENGTH}, Factor=${BASE_FACTOR}, Brick=${BRICK_SIZE} | Mode A + Mode B + Mode C (Futures & Options)`
   );
 
   if (!OFFLINE && !ONCE) {
-    await notify(
-      `🤖 AI Renko Supertrend™ Bot STARTED (PAPER)\n` +
-      `Symbol: ${SYM} ${TF} | Brick=${BRICK_SIZE} | ATR(${ATR_LENGTH}) Factor(${BASE_FACTOR})\n` +
-      `Tracks BOTH Mode A (Pure Flip) & Mode B (+${MODE_B_TRIGGER_PTS}p -> +${MODE_B_LOCK_PTS}p Lock) across Futures & ATM CE/PE Options`
-    );
+    const now = Date.now();
+    if (now - (botState.lastBootPingAt || 0) >= BOOT_PING_COOLDOWN_MS) {
+      botState.lastBootPingAt = now;
+      saveJsonState(STATE_PATH, botState);
+      await notify(
+        `🤖 AI Renko Supertrend™ Bot STARTED (PAPER)\n` +
+        `Symbol: ${SYM} ${TF} | Brick=${BRICK_SIZE} | ATR(${ATR_LENGTH}) Factor(${BASE_FACTOR})\n` +
+        `Tracks Mode A (Pure Flip), Mode B (+${MODE_B_TRIGGER_PTS}p -> +${MODE_B_LOCK_PTS}p), & Mode C (+${MODE_C_TRIGGER_PTS}p -> +${MODE_C_LOCK_PTS}p, Cap -${MODE_C_CAP_SL_PTS}p)`
+      );
+    }
   }
 
   await scanOnce(dhan, botState);
@@ -404,7 +474,12 @@ async function main() {
     saveJsonState(STATE_PATH, botState);
   } else {
     console.log('\n=== OFFLINE REPLAY SUMMARY (1-Year Actual Dhan NIFTY 15m Candles) ===');
-    for (const [label, b] of [['Mode A (Pure Flip)', botState.modeA], ['Mode B (Profit-Lock 70% WR)', botState.modeB]]) {
+    const summaryBooks = [
+      ['Mode A (Pure Flip)', botState.modeA],
+      ['Mode B (Profit-Lock 70% WR)', botState.modeB],
+      ['Mode C (Smart Lock+Cap)', botState.modeC],
+    ];
+    for (const [label, b] of summaryBooks) {
       const fWr = b.trades ? ((b.wins / b.trades) * 100).toFixed(1) : '0.0';
       const oWr = b.optTrades ? ((b.optWins / b.optTrades) * 100).toFixed(1) : '0.0';
       console.log(
