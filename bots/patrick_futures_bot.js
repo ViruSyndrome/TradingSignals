@@ -27,6 +27,8 @@ const SYMBOLS = String(process.env.PATRICK_SYMBOLS || 'NIFTY')
   .filter(Boolean);
 const TF = process.env.PATRICK_TF || '15m';
 const MODE = (process.env.PATRICK_MODE || 'ALL').toUpperCase(); // ALL | CONFIRMED_BREAKOUT
+const VOL_FILTER = String(process.env.PATRICK_VOL_FILTER || 'false').toLowerCase() === 'true';
+const ATR_FILTER = String(process.env.PATRICK_ATR_FILTER || 'false').toLowerCase() === 'true';
 const LOTS = Math.max(1, Number(process.env.PATRICK_LOTS || 1));
 const ALLOCATED_CAPITAL_RS = Number(process.env.PATRICK_CAPITAL_RS || 200000);
 const AUTO_TRADE = String(process.env.PATRICK_AUTO_TRADE || 'false').toLowerCase() === 'true';
@@ -91,6 +93,8 @@ async function scanOnce(dhan, botState) {
         mode: MODE,
         singleLotTrail,
         atrArr,
+        volFilter: VOL_FILTER,
+        atrFilter: ATR_FILTER,
       });
 
       for (const ev of events) {

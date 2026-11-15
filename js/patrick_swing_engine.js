@@ -226,6 +226,18 @@ function stepPatrickBar(bars, idx, state, opts = {}) {
   const tryOpen = (side, kind, sl) => {
     const risk = side === 'LONG' ? b.c - sl : sl - b.c;
     if (risk >= curAtr * 0.4 && risk <= b.c * 0.012) {
+      if (opts.volFilter && b.v > 0 && idx >= 19) {
+        let vSum = 0;
+        for (let k = idx - 19; k <= idx; k++) vSum += (bars[k].v || 0);
+        const vAvg = vSum / 20;
+        if (vAvg > 0 && b.v < vAvg) return false;
+      }
+      if (opts.atrFilter && idx >= 49) {
+        let aSum = 0;
+        for (let k = idx - 49; k <= idx; k++) aSum += (atrArr[k] || curAtr);
+        const aAvg = aSum / 50;
+        if (aAvg > 0 && curAtr < aAvg) return false;
+      }
       state.pos = {
         side,
         kind,
