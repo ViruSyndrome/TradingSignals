@@ -127,7 +127,7 @@ function createDhanNiftyTrade(opts = {}) {
   const productType = process.env.DHAN_PRODUCT_TYPE || 'INTRADAY';
   const freshness = checkContractFreshness(spec);
 
-  async function nearestWeeklyExpiry() {
+  async function nearestWeeklyExpiry({ minDteDays = 0, maxDteDays = 45 } = {}) {
     const res = await dhan.getOptionExpiryList({
       underlyingScrip,
       underlyingSeg,
@@ -140,15 +140,28 @@ function createDhanNiftyTrade(opts = {}) {
     const m = String(ist.getMonth() + 1).padStart(2, '0');
     const d = String(ist.getDate()).padStart(2, '0');
     const todayStr = `${y}-${m}-${d}`;
+    const todayUtcMs = Date.parse(`${todayStr}T00:00:00Z`);
     const upcoming = dates.filter((x) => String(x) >= todayStr).sort();
+    if (minDteDays > 0 && upcoming.length) {
+      const qualified = upcoming.filter((expStr) => {
+        const dte = Math.round((Date.parse(`${String(expStr)}T00:00:00Z`) - todayUtcMs) / 86400000);
+        return dte >= minDteDays && dte <= maxDteDays;
+      });
+      if (qualified.length) return qualified[0];
+      const fallback = upcoming.filter((expStr) => {
+        const dte = Math.round((Date.parse(`${String(expStr)}T00:00:00Z`) - todayUtcMs) / 86400000);
+        return dte >= minDteDays;
+      });
+      if (fallback.length) return fallback[0];
+    }
     return upcoming[0] || dates[dates.length - 1];
   }
 
   /**
    * Pick CE for LONG bias, PE for SHORT bias — nearest ATM (or 1 ITM if DHAN_STRIKE_MODE=itm).
    */
-  async function pickOptionContract({ side, spot }) {
-    const expiry = await nearestWeeklyExpiry();
+  async function pickOptionContract({ side, spot, minDteDays = 0, maxDteDays = 45, strikeMode } = {}) {
+    const expiry = await nearestWeeklyExpiry({ minDteDays, maxDteDays });
     const chain = await dhan.getOptionChain({
       underlyingScrip,
       underlyingSeg,
@@ -161,7 +174,7 @@ function createDhanNiftyTrade(opts = {}) {
     const strikes = Object.keys(oc).map(Number).filter((n) => Number.isFinite(n)).sort((a, b) => a - b);
     if (!strikes.length) throw new Error('Empty option chain');
 
-    const mode = String(process.env.DHAN_STRIKE_MODE || 'atm').toLowerCase();
+    const mode = String(strikeMode || process.env.DHAN_STRIKE_MODE || 'atm').toLowerCase();
     // Never pick an OTM strike when buying options:
     // LONG (CE) → at or below spot (slight ITM / ATM); SHORT (PE) → at or above spot (slight ITM / ATM)
     let want = side === 'LONG'

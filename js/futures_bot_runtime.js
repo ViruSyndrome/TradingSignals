@@ -5,6 +5,7 @@ const fs = require('fs');
 const path = require('path');
 const { TelegramBot } = require('node-telegram-bot-api');
 const { createDhanClient, isDhanConfigured } = require('./dhan_client.js');
+const { createDhanNiftyTrade } = require('./dhan_nifty_trade.js');
 
 const DEFAULT_CONTRACTS = {
   NIFTY: {
@@ -18,7 +19,7 @@ const DEFAULT_CONTRACTS = {
     execScripEnv: 'DHAN_NIFTY_FUT_SCRIP',
     lotQty: 65,
     tickSize: 0.05,
-    productType: 'NORMAL',
+    productType: 'MARGIN',
   },
   CRUDEOIL: {
     symbol: 'CRUDEOIL',
@@ -31,7 +32,7 @@ const DEFAULT_CONTRACTS = {
     execScripEnv: 'DHAN_CRUDEOIL_EXEC_SCRIP',
     lotQty: 100, // Standard MCX CRUDEOIL (1 lot = 100 bbl; set DHAN_CRUDEOIL_MINI=true for CRUDEOILM 10 bbl)
     tickSize: 1.0,
-    productType: 'NORMAL',
+    productType: 'MARGIN',
   },
   XAU: {
     symbol: 'XAU',
@@ -42,7 +43,7 @@ const DEFAULT_CONTRACTS = {
     execScripEnv: 'DHAN_GOLDM_FUT_SCRIP',
     lotQty: 1, // GOLDM MCX Futures uses lot=1 in qty=units or check broker spec; alert-first by default
     tickSize: 1.0,
-    productType: 'NORMAL',
+    productType: 'MARGIN',
   },
 };
 
@@ -299,6 +300,186 @@ async function hasOpenFuturesPosition(dhan, sym) {
   }
 }
 
+function getIstClock(nowMs = Date.now()) {
+  const dt = new Date(nowMs);
+  const dateStr = dt.toLocaleDateString('en-CA', { timeZone: 'Asia/Kolkata' });
+  const parts = dt.toLocaleTimeString('en-IN', { timeZone: 'Asia/Kolkata', hour12: false }).split(':').map(Number);
+  const dow = dt.toLocaleDateString('en-US', { timeZone: 'Asia/Kolkata', weekday: 'short' });
+  const mins = (parts[0] || 0) * 60 + (parts[1] || 0);
+  const isWeekday = dow !== 'Sat' && dow !== 'Sun';
+  return { dateStr, mins, isWeekday, isOpen: isWeekday && mins >= 555 && mins < 930 };
+}
+
+function dhanReady(dhan) {
+  return Boolean(dhan && (typeof dhan.isConfigured === 'function' ? dhan.isConfigured() : isDhanConfigured()));
+}
+
+async function getNiftySpotLtp(dhan) {
+  if (!dhanReady(dhan)) return null;
+  return dhan.getMarketLtp('IDX_I', '13');
+}
+
+async function getAvailableBalance(dhan) {
+  if (!dhanReady(dhan)) return null;
+  try {
+    const f = await dhan.getFundLimits();
+    const bal = f?.availabelBalance ?? f?.availableBalance ?? f?.data?.availabelBalance ?? f?.data?.availableBalance;
+    return Number.isFinite(Number(bal)) ? Number(bal) : null;
+  } catch {
+    return null;
+  }
+}
+
+async function hasOpenSecurityPosition(dhan, securityId) {
+  if (!dhanReady(dhan) || !securityId) return false;
+  try {
+    const pos = await dhan.getPositions();
+    const list = Array.isArray(pos) ? pos : (pos?.data || []);
+    const row = list.find((p) => String(p.securityId) === String(securityId));
+    return row ? Number(row.netQty || 0) > 0 : false;
+  } catch {
+    return true; // fail-safe on network glitch
+  }
+}
+
+/**
+ * Pick live 7–21 DTE NIFTY Option contract (CE on LONG, PE on SHORT), or deterministic offline estimate.
+ */
+async function resolveSwingOption({
+  dhan,
+  side,
+  spot,
+  minDteDays = 7,
+  maxDteDays = 25,
+  strikeMode = 'atm',
+  offline = false,
+}) {
+  const optType = side === 'LONG' ? 'CE' : 'PE';
+  const baseStrike = side === 'LONG' ? Math.floor(spot / 50) * 50 : Math.ceil(spot / 50) * 50;
+  const strike = strikeMode === 'itm' ? (side === 'LONG' ? baseStrike - 50 : baseStrike + 50) : baseStrike;
+  if (!offline && dhan && isDhanConfigured()) {
+    try {
+      const optHelper = createDhanNiftyTrade({ client: dhan, instrumentId: 'NIFTY', productType: 'MARGIN' });
+      const pick = await optHelper.pickOptionContract({ side, spot, minDteDays, maxDteDays, strikeMode });
+      const px = pick.ask > 0 ? pick.ask : pick.ltp;
+      if (px > 0) {
+        return {
+          label: `${pick.strike} ${pick.optSide} (${pick.expiry})`,
+          expiry: pick.expiry,
+          strike: pick.strike,
+          optSide: pick.optSide,
+          securityId: pick.securityId,
+          premium: +px.toFixed(2),
+          delta: +(pick.delta || 0.58).toFixed(2),
+          live: true,
+        };
+      }
+    } catch (_) {
+      // Fall back cleanly if outside hours / API transient
+    }
+  }
+  return {
+    label: `${strike} ${optType} (Est)`,
+    expiry: null,
+    strike,
+    optSide: optType,
+    securityId: null,
+    premium: 170.0,
+    delta: strikeMode === 'itm' ? 0.65 : 0.58,
+    live: false,
+  };
+}
+
+/**
+ * Read live Dhan Option LTP when live securityId is present, else fall back to calibrated delta/gamma/theta estimate.
+ */
+async function fetchOptionLiveOrEstExit({
+  dhan,
+  securityId,
+  live,
+  side,
+  entryIdx,
+  entryOpt,
+  exitIdx,
+  delta = 0.58,
+  entryTs,
+  exitTs,
+  offline = false,
+}) {
+  if (!offline && live && securityId && dhan && isDhanConfigured()) {
+    try {
+      const ltp = await dhan.getMarketLtp('NSE_FNO', securityId);
+      if (ltp > 0) return +ltp.toFixed(2);
+    } catch (_) {
+      // Fallback below
+    }
+  }
+  const idxMove = side === 'LONG' ? (exitIdx - entryIdx) : (entryIdx - exitIdx);
+  const d = delta || 0.58;
+  const rawMove = idxMove > 0
+    ? idxMove * d + 0.0005 * idxMove * idxMove
+    : Math.max(-(entryOpt - 5), idxMove * d * 0.85);
+  const holdDays = Math.max(0.05, ((exitTs || Date.now()) - (entryTs || Date.now())) / 86400000);
+  const thetaEst = Math.min(holdDays, 4) * 10;
+  return +Math.max(1, entryOpt + rawMove - thetaEst).toFixed(2);
+}
+
+/**
+ * Execute an isolated Dhan carry-forward (MARGIN) Option BUY/SELL MARKET order with margin & position guards.
+ */
+async function executeOptionSwingOrder(dhan, {
+  autoTrade,
+  securityId,
+  txType, // 'BUY' | 'SELL'
+  lots = 1,
+  qtyPerLot = 65,
+  estPremium = 0,
+  productType = 'MARGIN',
+  tag = 'OPTBOT',
+  nowMs = Date.now(),
+}) {
+  const qty = Math.max(1, Math.round(lots * qtyPerLot));
+  if (!autoTrade) {
+    return { simulated: true, reason: 'AUTO_TRADE=false', txType, qty, lots };
+  }
+  if (!dhanReady(dhan) || !securityId) {
+    return { skipped: true, reason: 'DHAN_OR_SECURITY_ID_MISSING', txType, qty, lots };
+  }
+  const clk = getIstClock(nowMs);
+  if (!clk.isOpen) {
+    return { skipped: true, reason: 'MARKET_CLOSED', txType, qty, lots };
+  }
+  if (txType === 'BUY' && estPremium > 0) {
+    const avail = await getAvailableBalance(dhan);
+    const needed = +(estPremium * qty * 1.03).toFixed(2);
+    if (avail !== null && avail < needed) {
+      return { skipped: true, reason: 'INSUFFICIENT_FUNDS', avail, needed, txType, qty, lots };
+    }
+  }
+  if (txType === 'SELL') {
+    const isOpen = await hasOpenSecurityPosition(dhan, securityId);
+    if (!isOpen) {
+      return { skipped: true, reason: 'NO_OPEN_POSITION', txType, qty, lots };
+    }
+  }
+
+  const res = await dhan.placeOrder({
+    transactionType: txType,
+    exchangeSegment: 'NSE_FNO',
+    productType,
+    orderType: 'MARKET',
+    validity: 'DAY',
+    securityId: String(securityId),
+    quantity: qty,
+    disclosedQuantity: 0,
+    price: 0,
+    triggerPrice: 0,
+    afterMarketOrder: false,
+    correlationId: `${tag}_${securityId}_${Date.now()}`.slice(0, 28),
+  });
+  return { simulated: false, placed: true, orderId: res?.orderId || null, raw: res, txType, qty, lots };
+}
+
 module.exports = {
   DEFAULT_CONTRACTS,
   createNotifier,
@@ -313,6 +494,13 @@ module.exports = {
   modifyExchangeSlOrder,
   cancelExchangeOrder,
   hasOpenFuturesPosition,
+  getIstClock,
+  getNiftySpotLtp,
+  getAvailableBalance,
+  hasOpenSecurityPosition,
+  resolveSwingOption,
+  fetchOptionLiveOrEstExit,
+  executeOptionSwingOrder,
   roundToTick,
   createDhanClient,
   isDhanConfigured,

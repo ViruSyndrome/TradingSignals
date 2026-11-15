@@ -4,13 +4,17 @@ require('dotenv').config();
 const fs = require('fs');
 const path = require('path');
 const { calculateAIRenkoSupertrend } = require('../js/ai_renko_supertrend.js');
-const { createDhanNiftyTrade } = require('../js/dhan_nifty_trade.js');
 const {
   createNotifier,
   loadJsonState,
   saveJsonState,
   completedBars,
   fetchSymbolBars,
+  getIstClock,
+  getNiftySpotLtp,
+  resolveSwingOption,
+  fetchOptionLiveOrEstExit,
+  executeOptionSwingOrder,
   createDhanClient,
   isDhanConfigured,
 } = require('../js/futures_bot_runtime.js');
@@ -41,11 +45,15 @@ const MULT = 65; // NIFTY 1 lot = 65 qty
 const FUT_COST_PTS = 9.3; // ~₹605/lot Dhan Futures brokerage + taxes + slippage
 const OPT_COST_PTS = 1.5; // ~₹97.5/lot Dhan Option round-trip brokerage + STT + slippage
 const FUT_CAPITAL_RS = Number(process.env.AI_RENKO_FUT_CAPITAL_RS || 200000);
-const OPT_CAPITAL_RS = Number(process.env.AI_RENKO_OPT_CAPITAL_RS || 35000);
+const OPT_CAPITAL_RS = Number(process.env.AI_RENKO_OPT_CAPITAL_RS || 37790);
+const MIN_DTE_DAYS = Math.max(0, Number(process.env.AI_RENKO_MIN_DTE || 7));
+const MAX_DTE_DAYS = Math.max(MIN_DTE_DAYS + 7, Number(process.env.AI_RENKO_MAX_DTE || 25));
+const STRIKE_MODE = String(process.env.AI_RENKO_STRIKE_MODE || 'atm').toLowerCase();
 
 const POLL_MS = Math.max(15000, Number(process.env.AI_RENKO_POLL_MS || 60000));
 const ONCE = process.argv.includes('--once');
 const OFFLINE = process.argv.includes('--offline');
+const AUTO_TRADE = !OFFLINE && String(process.env.AI_RENKO_AUTO_TRADE || 'false').toLowerCase() === 'true';
 
 const rawNotify = createNotifier(BOT_NAME);
 const notify = async (msg) => {
@@ -113,57 +121,32 @@ function makeDefaultBotState() {
   };
 }
 
-/**
- * Resolve ATM/1-step ITM Dhan NIFTY Option quote when live & API configured.
- * Falls back gracefully to a realistic synthetic ATM estimate (~0.58 delta) offline or after-hours.
- */
 async function resolveOptionSnapshot(dhan, side, spot) {
-  const optType = side === 'LONG' ? 'CE' : 'PE';
-  const strike = side === 'LONG' ? Math.floor(spot / 50) * 50 : Math.ceil(spot / 50) * 50;
-  if (!OFFLINE && dhan && isDhanConfigured()) {
-    try {
-      const optHelper = createDhanNiftyTrade({ client: dhan, instrumentId: 'NIFTY' });
-      const pick = await optHelper.pickOptionContract({ side, spot });
-      const px = pick.ask > 0 ? pick.ask : pick.ltp;
-      if (px > 0) {
-        return {
-          label: `${pick.strike} ${pick.optSide} (${pick.expiry})`,
-          securityId: pick.securityId,
-          premium: +px.toFixed(2),
-          delta: +(pick.delta || 0.58).toFixed(2),
-          live: true,
-        };
-      }
-    } catch (e) {
-      // Fallback safely if outside market hours or expired token
-    }
-  }
-  return {
-    label: `${strike} ${optType} (Est)`,
-    securityId: null,
-    premium: 170.0,
-    delta: 0.58,
-    live: false,
-  };
+  return resolveSwingOption({
+    dhan,
+    side,
+    spot,
+    minDteDays: MIN_DTE_DAYS,
+    maxDteDays: MAX_DTE_DAYS,
+    strikeMode: STRIKE_MODE,
+    offline: OFFLINE,
+  });
 }
 
 async function fetchOptionExitPremium(dhan, pos, currentSpot) {
-  if (!OFFLINE && pos.optLive && pos.optSecurityId && dhan && isDhanConfigured()) {
-    try {
-      const ltp = await dhan.getMarketLtp('NSE_FNO', pos.optSecurityId);
-      if (ltp > 0) return +ltp.toFixed(2);
-    } catch (_) {
-      // fallback to delta estimation below
-    }
-  }
-  const idxMove = pos.side === 'LONG' ? (currentSpot - pos.entryIdx) : (pos.entryIdx - currentSpot);
-  const delta = pos.delta || 0.58;
-  const rawMove = idxMove > 0
-    ? idxMove * delta + 0.0005 * idxMove * idxMove
-    : Math.max(-(pos.entryOpt - 5), idxMove * delta * 0.85);
-  const holdDays = Math.max(0.05, ((pos.exitTs || Date.now()) - pos.entryTs) / 86400000);
-  const thetaEst = Math.min(holdDays, 4) * 10;
-  return +Math.max(1, pos.entryOpt + rawMove - thetaEst).toFixed(2);
+  return fetchOptionLiveOrEstExit({
+    dhan,
+    securityId: pos.optSecurityId,
+    live: pos.optLive,
+    side: pos.side,
+    entryIdx: pos.entryIdx,
+    entryOpt: pos.entryOpt,
+    exitIdx: currentSpot,
+    delta: pos.delta,
+    entryTs: pos.entryTs,
+    exitTs: pos.exitTs,
+    offline: OFFLINE,
+  });
 }
 
 function recordClosedTrade(book, pos, exitIdxPx, exitOptPx, reason) {
@@ -229,6 +212,86 @@ const PROTECTED_MODES = [
 let lastFeedErrAt = 0;
 let lastFeedErrMsg = '';
 
+async function closeModeBookPosition(cfg, book, pos, exitPx, reason, activeDhan, isLatestBar) {
+  pos.exitTs = pos.exitTs || Date.now();
+  let execNote = '';
+  if (cfg.key === 'modeC' && AUTO_TRADE && pos.liveOrderPlaced && pos.optSecurityId) {
+    try {
+      const ord = await executeOptionSwingOrder(activeDhan, {
+        autoTrade: true,
+        securityId: pos.optSecurityId,
+        txType: 'SELL',
+        lots: LOTS,
+        qtyPerLot: MULT,
+        tag: `RNK_${reason}`.slice(0, 12),
+      });
+      execNote = ord.placed ? `\nBroker EXIT Order: ${ord.orderId || 'OK'}` : `\nBroker EXIT Skipped: ${ord.reason}`;
+    } catch (e) {
+      execNote = `\n⚠️ Broker EXIT Error: ${e.message}`;
+    }
+  }
+  const exitOptPx = await fetchOptionExitPremium(activeDhan, pos, exitPx);
+  const res = recordClosedTrade(book, pos, exitPx, exitOptPx, reason);
+  const wr = ((book.wins / book.trades) * 100).toFixed(1);
+  const optWr = ((book.optWins / book.optTrades) * 100).toFixed(1);
+  book.pos = null;
+
+  if (!OFFLINE || isLatestBar) {
+    const modeLabel = cfg.key === 'modeC' && AUTO_TRADE ? 'LIVE' : 'PAPER';
+    await notify(
+      `📙 ${cfg.tag} (${modeLabel}) EXIT ${pos.side} ${SYM} ${TF} (${reason})\n` +
+      `Index: ${pos.entryIdx.toFixed(2)} → ${exitPx.toFixed(2)} | Net: ${res.netIdx >= 0 ? '+' : ''}${res.netIdx.toFixed(1)} pts (₹${res.netFutRs})\n` +
+      `Option (${pos.optLabel}): ₹${pos.entryOpt} → ₹${exitOptPx} | Net: ${res.netOpt >= 0 ? '+' : ''}${res.netOpt.toFixed(1)} pts (₹${res.netOptRs})\n` +
+      `Stats: ${book.trades} tr | Fut WR ${wr}% (Net ₹${book.netRs}) | Opt WR ${optWr}% (Net ₹${book.optNetRs})${execNote}`
+    );
+  }
+}
+
+/**
+ * Evaluate real-time intrabar Spot triggers for Mode C (+120p lock, -150p hard cap, expiry close).
+ */
+async function checkModeCLiveIntrabar(activeDhan, botState) {
+  const cfg = PROTECTED_MODES.find((m) => m.key === 'modeC');
+  const pos = botState.modeC?.pos;
+  if (OFFLINE || !cfg || !pos || !activeDhan || !isDhanConfigured()) return;
+
+  const clk = getIstClock();
+  if (!clk.isOpen) return;
+
+  const spot = await getNiftySpotLtp(activeDhan);
+  if (!(spot > 0)) return;
+
+  if (!pos.locked) {
+    const hitTrig = pos.side === 'LONG' ? spot >= pos.entryIdx + cfg.trig : spot <= pos.entryIdx - cfg.trig;
+    if (hitTrig) {
+      pos.locked = true;
+      pos.lockPrice = +(pos.side === 'LONG' ? pos.entryIdx + cfg.floor : pos.entryIdx - cfg.floor).toFixed(2);
+      await notify(
+        `🔒 ${cfg.lockTag} LIVE INTRABAR ${SYM} hit +${cfg.trig} pts @ Spot ${spot}!\n` +
+        `Floor Stop locked at ${pos.lockPrice} (+${cfg.floor} pts)`
+      );
+    }
+  }
+
+  let exitPx = null;
+  let reason = null;
+  if (pos.locked && ((pos.side === 'LONG' && spot <= pos.lockPrice) || (pos.side === 'SHORT' && spot >= pos.lockPrice))) {
+    exitPx = spot;
+    reason = 'PROFIT_LOCK_LTP';
+  } else if ((pos.side === 'LONG' && spot <= pos.entryIdx - cfg.capSl) || (pos.side === 'SHORT' && spot >= pos.entryIdx + cfg.capSl)) {
+    exitPx = spot;
+    reason = 'HARD_CAP_SL_LTP';
+  } else if (pos.expiry && pos.expiry === clk.dateStr && clk.mins >= 910) {
+    exitPx = spot;
+    reason = 'EXPIRY_DAY_EXIT';
+  }
+
+  if (exitPx !== null) {
+    pos.exitTs = Date.now();
+    await closeModeBookPosition(cfg, botState.modeC, pos, exitPx, reason, activeDhan, true);
+  }
+}
+
 /**
  * Evaluate bar-by-bar profit-lock activation and exit triggers for Mode B / Mode C.
  */
@@ -285,28 +348,16 @@ async function processProtectedModeBar(cfg, book, bar, sig, activeDhan) {
   if (exitPx === null) return;
 
   pos.exitTs = bar.t;
-  const exitOptPx = await fetchOptionExitPremium(activeDhan, pos, exitPx);
-  const res = recordClosedTrade(book, pos, exitPx, exitOptPx, reason);
-  const wr = ((book.wins / book.trades) * 100).toFixed(1);
-  const optWr = ((book.optWins / book.optTrades) * 100).toFixed(1);
-  book.pos = null;
-
-  if (!OFFLINE || sig._isLatestBar) {
-    await notify(
-      `📙 ${cfg.tag} EXIT ${pos.side} ${SYM} ${TF} (${reason})\n` +
-      `Index: ${pos.entryIdx.toFixed(2)} → ${exitPx.toFixed(2)} | Net: ${res.netIdx >= 0 ? '+' : ''}${res.netIdx.toFixed(1)} pts (₹${res.netFutRs})\n` +
-      `Option (${pos.optLabel}): ₹${pos.entryOpt} → ₹${exitOptPx} | Net: ${res.netOpt >= 0 ? '+' : ''}${res.netOpt.toFixed(1)} pts (₹${res.netOptRs})\n` +
-      `Stats: ${book.trades} tr | Fut WR ${wr}% (Net ₹${book.netRs}) | Opt WR ${optWr}% (Net ₹${book.optNetRs})`
-    );
-  }
+  await closeModeBookPosition(cfg, book, pos, exitPx, reason, activeDhan, sig._isLatestBar);
 }
 
 async function scanOnce(dhan, botState) {
   if (!botState.modeA) botState.modeA = makeEmptyBook(FUT_CAPITAL_RS);
   if (!botState.modeB) botState.modeB = makeEmptyBook(FUT_CAPITAL_RS);
-  if (!botState.modeC) botState.modeC = makeEmptyBook(FUT_CAPITAL_RS);
+  if (!botState.modeC) botState.modeC = makeEmptyBook(OPT_CAPITAL_RS);
 
   const activeDhan = dhan || (!OFFLINE && isDhanConfigured() ? createDhanClient() : null);
+  await checkModeCLiveIntrabar(activeDhan, botState);
   let bars;
   try {
     bars = OFFLINE
@@ -408,32 +459,60 @@ async function scanOnce(dhan, botState) {
         entryIso: barIso,
         stLine: +sig.supertrend.toFixed(2),
         optLabel: optSnap.label,
+        expiry: optSnap.expiry || null,
         optSecurityId: optSnap.securityId,
         optLive: optSnap.live,
         entryOpt: optSnap.premium,
         delta: optSnap.delta,
         locked: false,
         lockPrice: null,
+        liveOrderPlaced: false,
       };
 
       const enteredModes = [];
+      let liveExecMsg = '';
       if (!botState.modeA.pos) {
         botState.modeA.pos = { ...newPosBase };
-        enteredModes.push('Mode A (Pure Flip)');
+        enteredModes.push('Mode A (Paper)');
       }
-      for (const modeCfg of PROTECTED_MODES) {
-        if (!botState[modeCfg.key].pos) {
-          botState[modeCfg.key].pos = { ...newPosBase };
-          enteredModes.push(modeCfg.entryLabel);
+      if (!botState.modeB.pos) {
+        botState.modeB.pos = { ...newPosBase };
+        enteredModes.push('Mode B (Paper)');
+      }
+      if (!botState.modeC.pos) {
+        const posC = { ...newPosBase };
+        if (AUTO_TRADE && optSnap.live && optSnap.securityId) {
+          try {
+            const ord = await executeOptionSwingOrder(activeDhan, {
+              autoTrade: true,
+              securityId: optSnap.securityId,
+              txType: 'BUY',
+              lots: LOTS,
+              qtyPerLot: MULT,
+              estPremium: optSnap.premium,
+              tag: 'RENKO_C_ENT',
+            });
+            if (ord.placed) {
+              posC.liveOrderPlaced = true;
+              liveExecMsg = `\n✅ LIVE Mode C BUY Placed: ${LOTS} lot (${LOTS * MULT} qty) | OrderID: ${ord.orderId || 'OK'}`;
+            } else {
+              liveExecMsg = `\n⚠️ Mode C Live Order Skipped (${ord.reason}${ord.avail !== undefined ? `: Avail ₹${ord.avail}, Need ₹${ord.needed}` : ''}) — tracking Paper`;
+            }
+          } catch (e) {
+            liveExecMsg = `\n❌ Mode C Live BUY Error: ${e.message}`;
+          }
         }
+        botState.modeC.pos = posC;
+        enteredModes.push(`Mode C (${posC.liveOrderPlaced ? 'LIVE OPTIONS' : 'Paper'})`);
       }
 
       if (enteredModes.length > 0 && (!OFFLINE || isLatestBar)) {
+        const tagExec = botState.modeC.pos?.liveOrderPlaced ? 'LIVE OPTIONS' : 'PAPER';
         await notify(
-          `🟢 ENTER (PAPER) [AI Renko ST Brick=${BRICK_SIZE}] ${SYM} ${TF} ${side}\n` +
-          `Index Entry: ${b.c.toFixed(2)} | AI Renko ST Stop: ${sig.supertrend.toFixed(2)} | Bar: ${barIso}\n` +
+          `🟢 ENTER (${tagExec}) [AI Renko ST Brick=${BRICK_SIZE}] ${SYM} ${TF} ${side}\n` +
+          `Index Entry: ${b.c.toFixed(2)} | Mode C Cap SL: ${(side === 'LONG' ? b.c - MODE_C_CAP_SL_PTS : b.c + MODE_C_CAP_SL_PTS).toFixed(2)} | Bar: ${barIso}\n` +
           `Dhan Option (${optSnap.live ? 'LIVE QUOTE' : 'EST'}): BUY ${optSnap.label} @ ₹${optSnap.premium} (Δ ${optSnap.delta})\n` +
-          `Active Books: ${enteredModes.join(' & ')}`
+          `Active Books: ${enteredModes.join(' & ')}${liveExecMsg}`
         );
       }
     }
@@ -448,12 +527,13 @@ async function scanOnce(dhan, botState) {
 
 async function main() {
   const botState = OFFLINE ? makeDefaultBotState() : loadJsonState(STATE_PATH, makeDefaultBotState);
-  if (!botState.modeC) botState.modeC = makeEmptyBook(FUT_CAPITAL_RS);
+  if (!botState.modeC) botState.modeC = makeEmptyBook(OPT_CAPITAL_RS);
   const dhan = !OFFLINE && isDhanConfigured() ? createDhanClient() : null;
 
+  const execBadge = OFFLINE ? 'OFFLINE REPLAY' : (AUTO_TRADE ? 'LIVE OPTIONS (MODE C)' : 'PAPER LIVE');
   console.log(
-    `[${BOT_NAME}] Starting (${OFFLINE ? 'OFFLINE REPLAY' : 'PAPER LIVE'}) | ${SYM} ${TF} | ` +
-    `ATR=${ATR_LENGTH}, Factor=${BASE_FACTOR}, Brick=${BRICK_SIZE} | Mode A + Mode B + Mode C (Futures & Options)`
+    `[${BOT_NAME}] Starting (${execBadge}) | ${SYM} ${TF} | ` +
+    `ATR=${ATR_LENGTH}, Factor=${BASE_FACTOR}, Brick=${BRICK_SIZE} | DTE ${MIN_DTE_DAYS}-${MAX_DTE_DAYS} | Lots=${LOTS}`
   );
 
   if (!OFFLINE && !ONCE) {
@@ -462,9 +542,9 @@ async function main() {
       botState.lastBootPingAt = now;
       saveJsonState(STATE_PATH, botState);
       await notify(
-        `🤖 AI Renko Supertrend™ Bot STARTED (PAPER)\n` +
-        `Symbol: ${SYM} ${TF} | Brick=${BRICK_SIZE} | ATR(${ATR_LENGTH}) Factor(${BASE_FACTOR})\n` +
-        `Tracks Mode A (Pure Flip), Mode B (+${MODE_B_TRIGGER_PTS}p -> +${MODE_B_LOCK_PTS}p), & Mode C (+${MODE_C_TRIGGER_PTS}p -> +${MODE_C_LOCK_PTS}p, Cap -${MODE_C_CAP_SL_PTS}p)`
+        `🤖 AI Renko Supertrend™ Bot STARTED (${execBadge})\n` +
+        `Symbol: ${SYM} ${TF} | Brick=${BRICK_SIZE} | Lots=${LOTS} (${MIN_DTE_DAYS}-${MAX_DTE_DAYS} DTE ${STRIKE_MODE.toUpperCase()})\n` +
+        `Mode C LIVE (+${MODE_C_TRIGGER_PTS}p -> +${MODE_C_LOCK_PTS}p, Cap -${MODE_C_CAP_SL_PTS}p) + Mode A & B Paper tracking`
       );
     }
   }

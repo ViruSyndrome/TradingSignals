@@ -116,10 +116,72 @@ function load(sym, tf) {
   Promise.all([
     trader.pickOptionContract({ side: 'LONG', spot: 25180 }),
     trader.pickOptionContract({ side: 'SHORT', spot: 25180 }),
-  ]).then(([ce, pe]) => {
+  ]).then(async ([ce, pe]) => {
     assert.strictEqual(ce.strike, 25150, `LONG @ 25180 must pick 25150 CE (not OTM 25200), got ${ce.strike}`);
     assert.strictEqual(pe.strike, 25200, `SHORT @ 25180 must pick 25200 PE (not OTM 25150), got ${pe.strike}`);
     console.log(`Nov 6 Close Track 1 Readiness: ITM/ATM strikes verified (LONG->${ce.strike}CE, SHORT->${pe.strike}PE), minSl=${lv.slPts}pts, Nov 9 & 12 guards verified`);
+
+    // 4. Verify Swing Options (7-25 DTE Selection + MARGIN + Balance & Position Guards)
+    const { createDhanNiftyTrade: createSwingNiftyTrade } = require('../js/dhan_nifty_trade.js');
+    const { executeOptionSwingOrder } = require('../js/futures_bot_runtime.js');
+    const nowUtc = Date.now();
+    const fmtDate = (daysAhead) => new Date(nowUtc + daysAhead * 86400000).toISOString().slice(0, 10);
+    const nearExp = fmtDate(2);
+    const swingExp = fmtDate(8);
+    const farExp = fmtDate(29);
+
+    const mockSwingClient = {
+      isConfigured: () => true,
+      getOptionExpiryList: async () => ({ data: [nearExp, swingExp, farExp] }),
+      getOptionChain: async ({ expiry }) => ({
+        data: {
+          expiry,
+          last_price: 25144,
+          oc: {
+            '25100.000000': { ce: { security_id: '55100CE', last_price: 270, top_ask_price: 270, greeks: { delta: 0.58 } }, pe: { security_id: '55100PE', last_price: 200, top_ask_price: 200, greeks: { delta: -0.42 } } },
+            '25150.000000': { ce: { security_id: '55150CE', last_price: 235, top_ask_price: 235, greeks: { delta: 0.51 } }, pe: { security_id: '55150PE', last_price: 225, top_ask_price: 225, greeks: { delta: -0.46 } } },
+          },
+        },
+      }),
+    };
+    const swingTrader = createSwingNiftyTrade({ client: mockSwingClient, productType: 'MARGIN' });
+    const swingCe = await swingTrader.pickOptionContract({ side: 'LONG', spot: 25144, minDteDays: 7, maxDteDays: 25, strikeMode: 'atm' });
+    const swingPe = await swingTrader.pickOptionContract({ side: 'SHORT', spot: 25144, minDteDays: 7, maxDteDays: 25, strikeMode: 'atm' });
+    assert.strictEqual(swingCe.expiry, swingExp, `Swing CE must skip ${nearExp} (<7 DTE) and pick ${swingExp}, got ${swingCe.expiry}`);
+    assert.strictEqual(swingPe.expiry, swingExp, `Swing PE must skip ${nearExp} (<7 DTE) and pick ${swingExp}, got ${swingPe.expiry}`);
+    assert.strictEqual(swingCe.strike, 25100, `LONG @ 25144 must pick 25100 CE, got ${swingCe.strike}`);
+    assert.strictEqual(swingPe.strike, 25150, `SHORT @ 25144 must pick 25150 PE, got ${swingPe.strike}`);
+
+    // Mon 2026-11-16 10:00 IST = 04:30 UTC
+    const marketOpenMs = Date.parse('2026-11-16T04:30:00Z');
+    const marketClosedMs = Date.parse('2026-11-15T04:30:00Z'); // Sunday
+    const placedOrders = [];
+    const mockExecDhan = {
+      isConfigured: () => true,
+      getFundLimits: async () => ({ availabelBalance: 15000 }),
+      getPositions: async () => [{ securityId: '55100CE', netQty: 65 }],
+      placeOrder: async (payload) => { placedOrders.push(payload); return { orderId: 'ORD999' }; },
+    };
+
+    const closedRes = await executeOptionSwingOrder(mockExecDhan, { autoTrade: true, securityId: '55100CE', txType: 'BUY', lots: 1, qtyPerLot: 65, estPremium: 270, nowMs: marketClosedMs });
+    assert.strictEqual(closedRes.reason, 'MARKET_CLOSED');
+
+    const poorRes = await executeOptionSwingOrder(mockExecDhan, { autoTrade: true, securityId: '55100CE', txType: 'BUY', lots: 1, qtyPerLot: 65, estPremium: 270, nowMs: marketOpenMs });
+    assert.strictEqual(poorRes.reason, 'INSUFFICIENT_FUNDS'); // needs 270*65*1.03 = ₹18,076.50 > ₹15,000
+
+    const noPosRes = await executeOptionSwingOrder(mockExecDhan, { autoTrade: true, securityId: '55150PE', txType: 'SELL', lots: 1, qtyPerLot: 65, nowMs: marketOpenMs });
+    assert.strictEqual(noPosRes.reason, 'NO_OPEN_POSITION');
+
+    mockExecDhan.getFundLimits = async () => ({ availabelBalance: 37790.76 });
+    const okBuy = await executeOptionSwingOrder(mockExecDhan, { autoTrade: true, securityId: '55100CE', txType: 'BUY', lots: 1, qtyPerLot: 65, estPremium: 270, nowMs: marketOpenMs });
+    assert.strictEqual(okBuy.placed, true);
+    assert.strictEqual(placedOrders[0].productType, 'MARGIN');
+
+    const okSell = await executeOptionSwingOrder(mockExecDhan, { autoTrade: true, securityId: '55100CE', txType: 'SELL', lots: 1, qtyPerLot: 65, nowMs: marketOpenMs });
+    assert.strictEqual(okSell.placed, true);
+    assert.strictEqual(placedOrders[1].productType, 'MARGIN');
+
+    console.log(`Swing Options Guards OK: DTE skipped ${nearExp} -> ${swingExp}, MARGIN verified, MARKET_CLOSED / INSUFFICIENT_FUNDS / NO_OPEN_POSITION guards verified`);
     console.log('ALL_FUTURES_BOT_ENGINE_TESTS_PASSED');
   }).catch((err) => {
     console.error(err);
