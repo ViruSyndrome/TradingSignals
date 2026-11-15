@@ -636,6 +636,13 @@ const API = {
     let feed = instrument.feed || 'binanceFutures';
     const sym = String(instrument.symbol || '').toUpperCase();
     const id = String(instrument.id || '').toUpperCase();
+    if (process.env.DHAN_NO_YAHOO_FALLBACK === 'true' && feed === 'yahoo') {
+      if (instrument.dhanSecurityId) {
+        feed = 'dhan';
+      } else {
+        throw new Error(`Yahoo feed disabled for ${id || sym} (DHAN_NO_YAHOO_FALLBACK=true)`);
+      }
+    }
     // Hard guard: BTC/XAU desk + bot must never silently fall back to spot OHLC
     // (spot vs USD-M mark Fibs / first-red diverged every day in Oct 2026 audit).
     if (
