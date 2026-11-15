@@ -202,10 +202,14 @@ function stepPatrickBar(bars, idx, state, opts = {}) {
     }
 
     if (closed) {
+      const effExit = pos.side === 'LONG'
+        ? +(pos.entry + pos.realizedPts).toFixed(2)
+        : +(pos.entry - pos.realizedPts).toFixed(2);
       const closedTrade = {
         side: pos.side,
         kind: pos.kind,
         entry: pos.entry,
+        exit: effExit,
         entryTs: pos.entryTs,
         exitTs: b.t,
         grossPts: +pos.realizedPts.toFixed(2),

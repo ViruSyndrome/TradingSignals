@@ -42,7 +42,14 @@ const POLL_MS = Math.max(15000, Number(process.env.HA_CCI_POLL_MS || 60000));
 const ONCE = process.argv.includes('--once');
 const OFFLINE = process.argv.includes('--offline');
 
-const notify = createNotifier(BOT_NAME);
+const rawNotify = createNotifier(BOT_NAME);
+const notify = async (msg) => {
+  if (OFFLINE) {
+    console.log(`[${BOT_NAME}][OFFLINE] ${msg.replace(/\n/g, ' | ')}`);
+    return;
+  }
+  return rawNotify(msg);
+};
 
 function loadOfflineBars(sym, tf) {
   const p = path.join(__dirname, '..', '.cache_desk', `${sym}_${tf}.json`);
@@ -100,7 +107,7 @@ async function scanOnce(dhan, botState) {
 
     const startIdx = symState.lastProcessedTs > 0
       ? Math.max(201, bars.findIndex((b) => b.t > symState.lastProcessedTs))
-      : bars.length - 1;
+      : (OFFLINE ? 201 : bars.length - 1);
     if (startIdx < 201) continue;
 
     const ind = prepareIndicators(bars);
@@ -200,12 +207,12 @@ async function scanOnce(dhan, botState) {
       }
     }
   }
-  saveJsonState(STATE_PATH, botState);
+  if (!OFFLINE) saveJsonState(STATE_PATH, botState);
 }
 
 (async () => {
   const dhan = isDhanConfigured() ? createDhanClient() : null;
-  const botState = loadJsonState(STATE_PATH, makeDefaultBotState);
+  const botState = OFFLINE ? makeDefaultBotState() : loadJsonState(STATE_PATH, makeDefaultBotState);
   console.log(`[${BOT_NAME}] Booting | Profiles=${SYMBOLS.map((s) => `${s}:${DEFAULT_PROFILES[s].tf}:${DEFAULT_PROFILES[s].exitMode}`).join(', ')} | Lots=${LOTS} | AutoTrade=${AUTO_TRADE} | Offline=${OFFLINE}`);
 
   await scanOnce(dhan, botState);

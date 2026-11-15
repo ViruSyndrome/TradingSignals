@@ -38,7 +38,14 @@ const OFFLINE = process.argv.includes('--offline');
 
 const MULT = { NIFTY: 65, CRUDEOIL: 100, XAU: 85 };
 const COST_PTS = { NIFTY: 9.3, CRUDEOIL: 7.5, XAU: 0.8 };
-const notify = createNotifier(BOT_NAME);
+const rawNotify = createNotifier(BOT_NAME);
+const notify = async (msg) => {
+  if (OFFLINE) {
+    console.log(`[${BOT_NAME}][OFFLINE] ${msg.replace(/\n/g, ' | ')}`);
+    return;
+  }
+  return rawNotify(msg);
+};
 
 function loadOfflineBars(sym, tf) {
   const p = path.join(__dirname, '..', '.cache_desk', `${sym}_${tf}.json`);
@@ -78,10 +85,10 @@ async function scanOnce(dhan, botState) {
     symState.lastClosePx = bars[bars.length - 1].c;
     symState.lastBarIso = new Date(bars[bars.length - 1].t).toISOString();
 
-    // On fresh start without processed timestamp, anchor at bar before last so live starts cleanly without replaying history
+    // On fresh start without processed timestamp, anchor at bar before last in live mode, or bar 0 in --offline replay mode
     const startIdx = symState.lastProcessedTs > 0
       ? Math.max(0, bars.findIndex((b) => b.t > symState.lastProcessedTs))
-      : bars.length - 1;
+      : (OFFLINE ? 0 : bars.length - 1);
 
     if (startIdx < 0) continue;
     const atrArr = computeATR(bars, 14);
@@ -218,12 +225,12 @@ async function scanOnce(dhan, botState) {
       }
     }
   }
-  saveJsonState(STATE_PATH, botState);
+  if (!OFFLINE) saveJsonState(STATE_PATH, botState);
 }
 
 (async () => {
   const dhan = isDhanConfigured() ? createDhanClient() : null;
-  const botState = loadJsonState(STATE_PATH, makeDefaultBotState);
+  const botState = OFFLINE ? makeDefaultBotState() : loadJsonState(STATE_PATH, makeDefaultBotState);
   console.log(`[${BOT_NAME}] Booting | Symbols=${SYMBOLS.join(',')} | TF=${TF} | Mode=${MODE} | Lots=${LOTS} | Capital=₹${ALLOCATED_CAPITAL_RS} | AutoTrade=${AUTO_TRADE} | Offline=${OFFLINE}`);
 
   await scanOnce(dhan, botState);
