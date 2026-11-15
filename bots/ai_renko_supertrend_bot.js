@@ -577,7 +577,16 @@ async function main() {
     }
   }
 
-  await scanOnce(dhan, botState);
+  if (ONCE || OFFLINE) {
+    await scanOnce(dhan, botState);
+  } else {
+    try {
+      await scanOnce(dhan, botState);
+      saveJsonState(STATE_PATH, botState);
+    } catch (e) {
+      console.error(`[${BOT_NAME}] Initial scan error (continuing loop):`, e.message);
+    }
+  }
   if (!OFFLINE) {
     saveJsonState(STATE_PATH, botState);
   } else {

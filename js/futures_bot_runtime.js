@@ -374,8 +374,8 @@ async function resolveSwingOption({
           live: true,
         };
       }
-    } catch (_) {
-      // Fall back cleanly if outside hours / API transient
+    } catch (e) {
+      console.warn(`[SwingOpt] Option resolution failed for ${side} @ ${spot} (falling back to Est):`, e.message);
     }
   }
   return {

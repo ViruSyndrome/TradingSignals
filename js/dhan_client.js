@@ -12,6 +12,8 @@ const _klineCache = new Map();
 const KLINE_CACHE_TTL_MS = 12 * 1000;
 let _lastChartCallTs = 0;
 let _chartQueue = Promise.resolve();
+let _lastOptionChainTs = 0;
+let _optionChainQueue = Promise.resolve();
 
 function _throttleChartCall(fn) {
   const run = async () => {
@@ -23,6 +25,19 @@ function _throttleChartCall(fn) {
   };
   const next = _chartQueue.then(run, run);
   _chartQueue = next.catch(() => {});
+  return next;
+}
+
+function _throttleOptionChainCall(fn) {
+  const run = async () => {
+    const now = Date.now();
+    const wait = Math.max(0, _lastOptionChainTs + 3200 - now);
+    if (wait > 0) await new Promise((r) => setTimeout(r, wait));
+    _lastOptionChainTs = Date.now();
+    return fn();
+  };
+  const next = _optionChainQueue.then(run, run);
+  _optionChainQueue = next.catch(() => {});
   return next;
 }
 
@@ -114,9 +129,11 @@ function createDhanClient(opts = {}) {
       throw err;
     }
     if (!r.ok) {
-      if (r.status === 429 && retryCount < 2) {
-        console.warn(`[DhanClient] HTTP 429 rate limit on ${path} — backing off ${1500 * (retryCount + 1)}ms (retry ${retryCount + 1}/2)...`);
-        await new Promise((resolve) => setTimeout(resolve, 1500 * (retryCount + 1)));
+      if (r.status === 429 && retryCount < 4) {
+        const baseWait = String(path).includes('/optionchain') ? 3200 : 1600;
+        const delayMs = baseWait * (retryCount + 1) + Math.floor(Math.random() * 500);
+        console.warn(`[DhanClient] HTTP 429 rate limit on ${path} — backing off ${delayMs}ms (retry ${retryCount + 1}/4)...`);
+        await new Promise((resolve) => setTimeout(resolve, delayMs));
         return _request(method, path, { body, query, extraHeaders, retryCount: retryCount + 1 });
       }
       const msg = data.message || data.errorMessage || data.error || `Dhan HTTP ${r.status}`;
@@ -359,21 +376,27 @@ function createDhanClient(opts = {}) {
       _request('POST', '/positions/exit-all', { body: { dhanClientId: String(clientId) } }));
   }
 
+  const _expiryCache = new Map();
   async function getOptionExpiryList({ underlyingScrip = 13, underlyingSeg = 'IDX_I' } = {}) {
-    return _request('POST', '/optionchain/expirylist', {
+    const key = `${underlyingScrip}:${underlyingSeg}`;
+    const hit = _expiryCache.get(key);
+    if (hit && Date.now() - hit.ts < 10 * 60 * 1000) return hit.data;
+    const data = await _throttleOptionChainCall(() => _request('POST', '/optionchain/expirylist', {
       body: { UnderlyingScrip: Number(underlyingScrip), UnderlyingSeg: underlyingSeg },
-    });
+    }));
+    _expiryCache.set(key, { ts: Date.now(), data });
+    return data;
   }
 
   async function getOptionChain({ underlyingScrip = 13, underlyingSeg = 'IDX_I', expiry } = {}) {
     if (!expiry) throw new Error('getOptionChain: expiry YYYY-MM-DD required');
-    return _request('POST', '/optionchain', {
+    return _throttleOptionChainCall(() => _request('POST', '/optionchain', {
       body: {
         UnderlyingScrip: Number(underlyingScrip),
         UnderlyingSeg: underlyingSeg,
         Expiry: String(expiry),
       },
-    });
+    }));
   }
 
   /**

@@ -38,7 +38,7 @@ module.exports = {
         PATRICK_STRIKE_MODE: 'atm',
         PATRICK_CAPITAL_RS: '37790',
         PATRICK_AUTO_TRADE: 'true',
-        PATRICK_POLL_MS: '60000',
+        PATRICK_POLL_MS: '61000',
       },
     },
     {
@@ -49,7 +49,7 @@ module.exports = {
         HA_CCI_SYMBOLS: 'CRUDEOIL,NIFTY',
         HA_CCI_LOTS: '1',
         HA_CCI_AUTO_TRADE: 'false',
-        HA_CCI_POLL_MS: '60000',
+        HA_CCI_POLL_MS: '73000',
       },
     },
     {
@@ -72,7 +72,7 @@ module.exports = {
         AI_RENKO_PAUSE_ON_PATRICK: 'opposite',
         AI_RENKO_PATRICK_RESERVE_RS: '15000',
         AI_RENKO_AUTO_TRADE: 'true',
-        AI_RENKO_POLL_MS: '60000',
+        AI_RENKO_POLL_MS: '67000',
       },
     },
     {

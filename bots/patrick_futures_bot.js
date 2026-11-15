@@ -224,7 +224,7 @@ async function scanOnce(dhan, botState) {
 
     // On fresh start without processed timestamp, anchor at bar before last in live mode, or bar 0 in --offline replay mode
     const startIdx = symState.lastProcessedTs > 0
-      ? Math.max(0, bars.findIndex((b) => b.t > symState.lastProcessedTs))
+      ? bars.findIndex((b) => b.t > symState.lastProcessedTs)
       : (OFFLINE ? 0 : bars.length - 1);
 
     if (startIdx < 0) continue;
@@ -440,7 +440,15 @@ async function scanOnce(dhan, botState) {
   const botState = OFFLINE ? makeDefaultBotState() : loadJsonState(STATE_PATH, makeDefaultBotState);
   console.log(`[${BOT_NAME}] Booting | Symbols=${SYMBOLS.join(',')} | TF=${TF} | Exec=${EXEC_MODE} (${MIN_DTE_DAYS}-${MAX_DTE_DAYS} DTE ${STRIKE_MODE.toUpperCase()}) | Mode=${MODE} | Lots=${LOTS} | Capital=₹${ALLOCATED_CAPITAL_RS} | AutoTrade=${AUTO_TRADE} | Offline=${OFFLINE}`);
 
-  await scanOnce(dhan, botState);
+  if (ONCE || OFFLINE) {
+    await scanOnce(dhan, botState);
+  } else {
+    try {
+      await scanOnce(dhan, botState);
+    } catch (e) {
+      console.error(`[${BOT_NAME}] Initial scan error (continuing loop):`, e.message);
+    }
+  }
   if (ONCE) {
     console.log(`[${BOT_NAME}] --once scan complete.`);
     process.exit(0);
