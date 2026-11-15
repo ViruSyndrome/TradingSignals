@@ -47,5 +47,21 @@ module.exports = {
         HA_CCI_POLL_MS: '60000',
       },
     },
+    {
+      name: 'ai-renko-nifty-paper',
+      script: './bots/ai_renko_supertrend_bot.js',
+      cwd: '.',
+      env: {
+        AI_RENKO_TF: '15m',
+        AI_RENKO_ATR_LEN: '14',
+        AI_RENKO_FACTOR: '3',
+        AI_RENKO_BRICK: '33.33',
+        AI_RENKO_ADX_FILTER: 'false',
+        AI_RENKO_LOCK_TRIG: '66.66',
+        AI_RENKO_LOCK_FLOOR: '25',
+        AI_RENKO_LOTS: '1',
+        AI_RENKO_POLL_MS: '60000',
+      },
+    },
   ],
 };
