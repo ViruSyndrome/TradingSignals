@@ -629,8 +629,128 @@ function createBinanceFuturesTrade(opts = {}) {
     return result;
   }
 
+  /**
+   * Open a single-position ISOLATED MARKET trade with one reduce-only STOP_MARKET algo order
+   * (for Chandelier/ATR trailing strategies without fixed TP targets). Refuses to overwrite an existing position.
+   */
+  async function openSingleStopTrade({
+    symbol = 'BTCUSDT',
+    side,
+    marginUsdt,
+    leverage = 2,
+    stopPrice,
+    entryHint,
+  } = {}) {
+    const sym = String(symbol).toUpperCase();
+    const tradeSide = String(side || '').toUpperCase();
+    if (tradeSide !== 'LONG' && tradeSide !== 'SHORT') throw new Error('side must be LONG or SHORT');
+    if (!(Number(marginUsdt) > 0)) throw new Error('marginUsdt must be > 0');
+    if (!(Number(stopPrice) > 0)) throw new Error('stopPrice must be > 0');
+
+    const lev = Math.max(1, Math.min(10, Math.floor(Number(leverage) || 2)));
+    await _syncTime();
+    const filters = await getExchangeFilters(sym);
+
+    // Never overwrite or wipe an already-open position
+    const existing = await getPositionRisk(sym);
+    const activeRow = (existing || []).find((p) => String(p.symbol).toUpperCase() === sym && Math.abs(parseFloat(p.positionAmt || 0)) > 0);
+    if (activeRow) {
+      return { skipped: true, reason: 'POSITION_ALREADY_OPEN', existingAmt: parseFloat(activeRow.positionAmt) };
+    }
+
+    await setMarginType(sym, 'ISOLATED');
+    await setLeverage(sym, lev);
+
+    const mark = Number.isFinite(Number(entryHint)) && Number(entryHint) > 0 ? Number(entryHint) : await getMarkPrice(sym);
+    if (!(mark > 0)) throw new Error('Could not resolve mark price');
+    if ((tradeSide === 'LONG' && !(stopPrice < mark)) || (tradeSide === 'SHORT' && !(stopPrice > mark))) {
+      return { skipped: true, reason: 'INVALID_STOP_VS_MARK', mark, stopPrice };
+    }
+
+    const notional = Number(marginUsdt) * lev;
+    const qty = roundStep(notional / mark, filters.stepSize, 'down');
+    if (!(qty >= filters.minQty) || qty * mark < filters.minNotional) {
+      return {
+        skipped: true,
+        reason: 'BELOW_MIN_NOTIONAL',
+        qty,
+        notional: +(qty * mark).toFixed(2),
+        minNotional: filters.minNotional,
+        minQty: filters.minQty,
+      };
+    }
+
+    // Clear any stale orphaned open/algo orders since positionAmt is 0
+    try { await clearSymbolForEntry(sym, { closePosition: false }); } catch (_) {}
+
+    const openSide = tradeSide === 'LONG' ? 'BUY' : 'SELL';
+    const closeSide = tradeSide === 'LONG' ? 'SELL' : 'BUY';
+    const stopPx = roundPrice(stopPrice, filters.tickSize);
+
+    const entryOrder = await _request('POST', '/fapi/v1/order', {
+      symbol: sym,
+      side: openSide,
+      type: 'MARKET',
+      quantity: String(qty),
+      newOrderRespType: 'RESULT',
+    }, { signed: true });
+
+    const execQty = parseFloat(entryOrder.executedQty || qty);
+    const avgPrice = parseFloat(entryOrder.avgPrice || mark);
+
+    let stopOrder = null;
+    let stopError = null;
+    for (let attempt = 0; attempt < 2; attempt++) {
+      try {
+        const curMark = attempt === 0 ? avgPrice : await getMarkPrice(sym);
+        const safeSl = tradeSide === 'LONG'
+          ? roundPrice(Math.min(stopPx, curMark * 0.998), filters.tickSize)
+          : roundPrice(Math.max(stopPx, curMark * 1.002), filters.tickSize);
+        const rawStop = await placeAlgoConditional({
+          symbol: sym,
+          side: closeSide,
+          type: 'STOP_MARKET',
+          triggerPrice: String(safeSl),
+          quantity: String(execQty),
+          reduceOnly: 'true',
+        });
+        const id = rawStop?.algoId || rawStop?.orderId;
+        stopOrder = { ...rawStop, algoId: id, orderId: id, stopPrice: safeSl };
+        break;
+      } catch (e) {
+        stopError = e.message;
+        await new Promise((r) => setTimeout(r, 400));
+      }
+    }
+
+    return {
+      ok: Boolean(stopOrder),
+      placed: true,
+      symbol: sym,
+      side: tradeSide,
+      leverage: lev,
+      qty: execQty,
+      avgPrice,
+      stopPrice: stopOrder?.stopPrice || stopPx,
+      entryOrderId: entryOrder.orderId,
+      stopAlgoId: stopOrder?.algoId || null,
+      warning: stopOrder ? null : `Stop failed: ${stopError}`,
+    };
+  }
+
+  /**
+   * Close open position via reduce-only MARKET order and cancel all open algo/resting orders.
+   */
+  async function closeMarketOnly(symbol = 'BTCUSDT') {
+    const sym = String(symbol).toUpperCase();
+    const notes = await clearSymbolForEntry(sym, { closePosition: true });
+    return { ok: true, symbol: sym, notes };
+  }
+
   return {
     openTwoLegDeskTrade,
+    openSingleStopTrade,
+    closeMarketOnly,
     attachProtectiveLegs,
     moveStopToBreakeven,
     clearSymbolForEntry,

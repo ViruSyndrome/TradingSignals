@@ -54,6 +54,21 @@ const POLL_MS = Math.max(15000, Number(process.env.AI_RENKO_POLL_MS || 60000));
 const ONCE = process.argv.includes('--once');
 const OFFLINE = process.argv.includes('--offline');
 const AUTO_TRADE = !OFFLINE && String(process.env.AI_RENKO_AUTO_TRADE || 'false').toLowerCase() === 'true';
+const PATRICK_STATE_PATH = path.join(__dirname, 'state_patrick_futures.json');
+const PAUSE_ON_PATRICK = String(process.env.AI_RENKO_PAUSE_ON_PATRICK || 'opposite').toLowerCase(); // 'opposite' | 'all' | 'none'
+const PATRICK_RESERVE_RS = Math.max(0, Number(process.env.AI_RENKO_PATRICK_RESERVE_RS || 15000));
+
+function getActivePatrickPosition() {
+  if (OFFLINE) return null;
+  try {
+    if (!fs.existsSync(PATRICK_STATE_PATH)) return null;
+    const raw = JSON.parse(fs.readFileSync(PATRICK_STATE_PATH, 'utf8'));
+    const pos = raw?.bySymbol?.[SYM]?.pos;
+    return pos && pos.side ? pos : null;
+  } catch {
+    return null;
+  }
+}
 
 const rawNotify = createNotifier(BOT_NAME);
 const notify = async (msg) => {
@@ -480,30 +495,43 @@ async function scanOnce(dhan, botState) {
         enteredModes.push('Mode B (Paper)');
       }
       if (!botState.modeC.pos) {
-        const posC = { ...newPosBase };
-        if (AUTO_TRADE && optSnap.live && optSnap.securityId) {
-          try {
-            const ord = await executeOptionSwingOrder(activeDhan, {
-              autoTrade: true,
-              securityId: optSnap.securityId,
-              txType: 'BUY',
-              lots: LOTS,
-              qtyPerLot: MULT,
-              estPremium: optSnap.premium,
-              tag: 'RENKO_C_ENT',
-            });
-            if (ord.placed) {
-              posC.liveOrderPlaced = true;
-              liveExecMsg = `\n✅ LIVE Mode C BUY Placed: ${LOTS} lot (${LOTS * MULT} qty) | OrderID: ${ord.orderId || 'OK'}`;
-            } else {
-              liveExecMsg = `\n⚠️ Mode C Live Order Skipped (${ord.reason}${ord.avail !== undefined ? `: Avail ₹${ord.avail}, Need ₹${ord.needed}` : ''}) — tracking Paper`;
+        const patPos = getActivePatrickPosition();
+        const pauseDueToPat = patPos && (
+          PAUSE_ON_PATRICK === 'all' ||
+          (PAUSE_ON_PATRICK === 'opposite' && patPos.side !== side)
+        );
+        if (pauseDueToPat) {
+          liveExecMsg = `\n⏸️ Mode C PAUSED: Patrick active ${patPos.side} takes priority (filter=${PAUSE_ON_PATRICK})`;
+        } else {
+          const posC = { ...newPosBase };
+          if (AUTO_TRADE && optSnap.live && optSnap.securityId) {
+            try {
+              const ord = await executeOptionSwingOrder(activeDhan, {
+                autoTrade: true,
+                securityId: optSnap.securityId,
+                txType: 'BUY',
+                lots: LOTS,
+                qtyPerLot: MULT,
+                estPremium: optSnap.premium,
+                minRemainingRs: patPos ? 0 : PATRICK_RESERVE_RS,
+                tag: 'RENKO_C_ENT',
+              });
+              if (ord.placed) {
+                posC.liveOrderPlaced = true;
+                liveExecMsg = `\n✅ LIVE Mode C BUY Placed: ${LOTS} lot (${LOTS * MULT} qty) | OrderID: ${ord.orderId || 'OK'}`;
+              } else {
+                liveExecMsg = `\n⚠️ Mode C Live Order Skipped (${ord.reason}${ord.avail !== undefined ? `: Avail ₹${ord.avail}, Need ₹${ord.needed}${ord.minRemainingRs ? ` + ₹${ord.minRemainingRs} Patrick reserve` : ''}` : ''}) — tracking Paper`;
+              }
+            } catch (e) {
+              liveExecMsg = `\n❌ Mode C Live BUY Error: ${e.message}`;
             }
-          } catch (e) {
-            liveExecMsg = `\n❌ Mode C Live BUY Error: ${e.message}`;
+          }
+          // Only keep paper Mode C active when auto-trade isn't blocked by priority cash reserve
+          if (!AUTO_TRADE || posC.liveOrderPlaced || !liveExecMsg.includes('RESERVED_FOR_PRIORITY')) {
+            botState.modeC.pos = posC;
+            enteredModes.push(`Mode C (${posC.liveOrderPlaced ? 'LIVE OPTIONS' : 'Paper'})`);
           }
         }
-        botState.modeC.pos = posC;
-        enteredModes.push(`Mode C (${posC.liveOrderPlaced ? 'LIVE OPTIONS' : 'Paper'})`);
       }
 
       if (enteredModes.length > 0 && (!OFFLINE || isLatestBar)) {

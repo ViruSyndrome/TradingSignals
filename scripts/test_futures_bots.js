@@ -172,10 +172,84 @@ function load(sym, tf) {
     const noPosRes = await executeOptionSwingOrder(mockExecDhan, { autoTrade: true, securityId: '55150PE', txType: 'SELL', lots: 1, qtyPerLot: 65, nowMs: marketOpenMs });
     assert.strictEqual(noPosRes.reason, 'NO_OPEN_POSITION');
 
+    mockExecDhan.getFundLimits = async () => ({ availabelBalance: 25000 });
+    const reservedRes = await executeOptionSwingOrder(mockExecDhan, { autoTrade: true, securityId: '55100CE', txType: 'BUY', lots: 1, qtyPerLot: 65, estPremium: 270, minRemainingRs: 15000, nowMs: marketOpenMs });
+    assert.strictEqual(reservedRes.reason, 'RESERVED_FOR_PRIORITY');
+
     mockExecDhan.getFundLimits = async () => ({ availabelBalance: 37790.76 });
     const okBuy = await executeOptionSwingOrder(mockExecDhan, { autoTrade: true, securityId: '55100CE', txType: 'BUY', lots: 1, qtyPerLot: 65, estPremium: 270, nowMs: marketOpenMs });
     assert.strictEqual(okBuy.placed, true);
     assert.strictEqual(placedOrders[0].productType, 'MARGIN');
+
+    // 7. Verify HA+EMA+CCI BTC entryWindowsUtc gate + Binance openSingleStopTrade guards
+    const b1hPath = path.join(__dirname, '..', '.cache_binance_um', 'BTCUSDT_1h_2025-10.json');
+    if (fs.existsSync(b1hPath)) {
+      const bars1h = [
+        ...JSON.parse(fs.readFileSync(path.join(__dirname, '..', '.cache_binance_um', 'BTCUSDT_1h_2025-09.json'), 'utf8')),
+        ...JSON.parse(fs.readFileSync(b1hPath, 'utf8')),
+      ].map((b) => ({ t: +b.t, o: +b.o, h: +b.h, l: +b.l, c: +b.c, v: +(b.v || 0) }));
+      const indBtc = prepareIndicators(bars1h);
+      const stBtc = initHa();
+      for (let i = 205; i < bars1h.length; i++) {
+        stepHaEmaCciBar(bars1h, i, stBtc, { symbol: 'BTCUSDT', entryWindowsUtc: [[180, 590]], exitMode: 'chandelier', chandMult: 4.5, quietFilter: false, entryGate: 'all', ind: indBtc });
+      }
+      for (const tr of stBtc.closedTrades) {
+        const d = new Date(tr.entryTs);
+        const mins = d.getUTCHours() * 60 + d.getUTCMinutes();
+        assert(mins >= 180 && mins <= 590, `BTC entry ${d.toISOString()} outside UTC 03:00-09:50 window`);
+      }
+      console.log(`BTC HA+EMA+CCI UTC window verified (${stBtc.closedTrades.length} trades in 2025-09..10 slice)`);
+    }
+
+    const { createBinanceFuturesTrade } = require('../js/binance_futures_trade.js');
+    const origFetch = global.fetch;
+    let mockPosAmt = '-0.012';
+    const mockCalls = [];
+    global.fetch = async (url, init = {}) => {
+      const u = String(url);
+      mockCalls.push({ method: init.method || 'GET', url: u });
+      const okJson = (obj) => ({ ok: true, status: 200, text: async () => JSON.stringify(obj), json: async () => obj });
+      if (u.includes('/fapi/v1/time')) return okJson({ serverTime: Date.now() });
+      if (u.includes('/fapi/v1/exchangeInfo')) {
+        return okJson({
+          symbols: [{
+            symbol: 'BTCUSDT',
+            filters: [
+              { filterType: 'PRICE_FILTER', tickSize: '0.10' },
+              { filterType: 'LOT_SIZE', stepSize: '0.001', minQty: '0.001' },
+              { filterType: 'MIN_NOTIONAL', notional: '50' },
+            ],
+          }],
+        });
+      }
+      if (u.includes('/fapi/v2/positionRisk')) return okJson([{ symbol: 'BTCUSDT', positionAmt: mockPosAmt }]);
+      if (u.includes('/fapi/v1/marginType') || u.includes('/fapi/v1/leverage')) return okJson({ code: 200, msg: 'success' });
+      if (u.includes('/fapi/v1/openAlgoOrders') || u.includes('/fapi/v1/openOrders')) return okJson([]);
+      if (u.includes('/fapi/v1/allOpenOrders')) return okJson({ code: 200 });
+      if (u.includes('/fapi/v1/order')) return okJson({ orderId: 1001, executedQty: '0.002', avgPrice: '65000.0' });
+      if (u.includes('/fapi/v1/algoOrder')) return okJson({ algoId: 2002 });
+      return okJson({});
+    };
+    try {
+      const bTrade = createBinanceFuturesTrade({ apiKey: 'test_k', apiSecret: 'test_s' });
+      const busyRes = await bTrade.openSingleStopTrade({ symbol: 'BTCUSDT', side: 'LONG', marginUsdt: 75, leverage: 2, stopPrice: 63000, entryHint: 65000 });
+      assert.strictEqual(busyRes.reason, 'POSITION_ALREADY_OPEN');
+
+      mockPosAmt = '0';
+      const badSlRes = await bTrade.openSingleStopTrade({ symbol: 'BTCUSDT', side: 'LONG', marginUsdt: 75, leverage: 2, stopPrice: 66000, entryHint: 65000 });
+      assert.strictEqual(badSlRes.reason, 'INVALID_STOP_VS_MARK');
+
+      const tinyRes = await bTrade.openSingleStopTrade({ symbol: 'BTCUSDT', side: 'LONG', marginUsdt: 20, leverage: 2, stopPrice: 63000, entryHint: 65000 });
+      assert.strictEqual(tinyRes.reason, 'BELOW_MIN_NOTIONAL');
+
+      const goodRes = await bTrade.openSingleStopTrade({ symbol: 'BTCUSDT', side: 'LONG', marginUsdt: 75, leverage: 2, stopPrice: 63000, entryHint: 65000 });
+      assert.strictEqual(goodRes.ok, true);
+      assert.strictEqual(goodRes.qty, 0.002);
+      assert.strictEqual(goodRes.stopAlgoId, 2002);
+      console.log('Binance Single-Stop Trade Guards OK: POSITION_ALREADY_OPEN, INVALID_STOP_VS_MARK, BELOW_MIN_NOTIONAL, MARKET+STOP_MARKET verified');
+    } finally {
+      global.fetch = origFetch;
+    }
 
     const okSell = await executeOptionSwingOrder(mockExecDhan, { autoTrade: true, securityId: '55100CE', txType: 'SELL', lots: 1, qtyPerLot: 65, nowMs: marketOpenMs });
     assert.strictEqual(okSell.placed, true);

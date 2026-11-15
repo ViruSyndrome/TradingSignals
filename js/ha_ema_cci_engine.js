@@ -59,8 +59,13 @@ function istParts(ts) {
   };
 }
 
-function allowNewEntry(sym, ts) {
-  if (sym === 'XAU' || sym === 'GOLD' || sym === 'XAUUSDT') return true;
+function allowNewEntry(sym, ts, entryWindowsUtc) {
+  if (Array.isArray(entryWindowsUtc) && entryWindowsUtc.length > 0) {
+    const d = new Date(ts);
+    const uMins = d.getUTCHours() * 60 + d.getUTCMinutes();
+    return entryWindowsUtc.some(([startMin, endMin]) => uMins >= startMin && uMins <= endMin);
+  }
+  if (sym === 'XAU' || sym === 'GOLD' || sym === 'XAUUSDT' || sym === 'BTC' || sym === 'BTCUSDT') return true;
   const { mins } = istParts(ts);
   if (sym === 'NIFTY') return mins >= 9 * 60 + 15 && mins <= 15 * 60 + 20;
   return mins >= 9 * 60 && mins <= 23 * 60 + 15;
@@ -193,7 +198,7 @@ function stepHaEmaCciBar(bars, idx, state, opts = {}) {
   // 2) Reset one-trade-per-stack latch when stack breaks
   if (!ls) state.longTaken = false;
   if (!ss) state.shortTaken = false;
-  if (!allowNewEntry(sym, b.t)) return { state, events };
+  if (!allowNewEntry(sym, b.t, opts.entryWindowsUtc)) return { state, events };
 
   let enterLong = crossUp100 && ls && lsPrev && !state.longTaken;
   let enterShort = crossDnNeg100 && ss && ssPrev && !state.shortTaken;
@@ -202,7 +207,7 @@ function stepHaEmaCciBar(bars, idx, state, opts = {}) {
     const jump = Math.abs(cNow - cPrev);
     const thrust = enterLong ? (cNow - 100) : (-100 - cNow);
     let badOpen = false;
-    if (sym !== 'XAU' && sym !== 'GOLD' && sym !== 'XAUUSDT') {
+    if (sym !== 'XAU' && sym !== 'GOLD' && sym !== 'XAUUSDT' && sym !== 'BTC' && sym !== 'BTCUSDT') {
       const clk = istParts(b.t);
       const prevDay = istParts(bars[idx - 1].t).day;
       badOpen = clk.day !== prevDay || (sym === 'NIFTY' && clk.mins === 9 * 60 + 15);

@@ -436,6 +436,7 @@ async function executeOptionSwingOrder(dhan, {
   estPremium = 0,
   productType = 'MARGIN',
   tag = 'OPTBOT',
+  minRemainingRs = 0,
   nowMs = Date.now(),
 }) {
   const qty = Math.max(1, Math.round(lots * qtyPerLot));
@@ -454,6 +455,9 @@ async function executeOptionSwingOrder(dhan, {
     const needed = +(estPremium * qty * 1.03).toFixed(2);
     if (avail !== null && avail < needed) {
       return { skipped: true, reason: 'INSUFFICIENT_FUNDS', avail, needed, txType, qty, lots };
+    }
+    if (avail !== null && minRemainingRs > 0 && avail < needed + minRemainingRs) {
+      return { skipped: true, reason: 'RESERVED_FOR_PRIORITY', avail, needed, minRemainingRs, txType, qty, lots };
     }
   }
   if (txType === 'SELL') {
