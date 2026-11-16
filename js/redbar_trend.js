@@ -1440,9 +1440,15 @@ const RedBarTrend = {
     const firstRedFibs = this.firstRedFibs(firstRed1h);
 
     let gap = null;
-    const priorDay = this.shiftDay(asOfDay, -1);
-    const prevBar = this.lastBarOfDay(anchorBars, priorDay, dayMode)
-      || (has15m && Array.isArray(bars5m) ? this.lastBarOfDay(bars5m, priorDay, dayMode) : null);
+    const findPrevTradingBar = (arr) => {
+      if (!Array.isArray(arr)) return null;
+      for (let k = arr.length - 1; k >= 0; k--) {
+        if (this.dayKey(arr[k].t, dayMode) < asOfDay) return arr[k];
+      }
+      return null;
+    };
+    const prevBar = findPrevTradingBar(anchorBars)
+      || (has15m && Array.isArray(bars5m) ? findPrevTradingBar(bars5m) : null);
     if (firstBar && prevBar && Number.isFinite(prevBar.c) && Number.isFinite(firstBar.open)) {
       const prevClose = prevBar.c;
       const todayOpen = firstBar.open;

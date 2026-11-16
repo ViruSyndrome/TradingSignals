@@ -680,6 +680,9 @@ const RangeEmaUI = {
       fibLevels: instrument.fibLevels || c.fibLevels || [0, 0.44, 0.5, 0.56, 1],
       sessions: instrument.sessions || c.sessions || [],
       dayFibTf: instrument.dayFibTf || null,
+      advancedFibs: Boolean(instrument.advancedFibs),
+      advancedFibGapPts: instrument.advancedFibGapPts ?? c.advancedFibGapPts ?? 40,
+      wideHighwayPts: instrument.wideHighwayPts ?? c.wideHighwayPts ?? 120,
       firstRedTf,
       firstRedLabel,
       firstRedAfterOpenMins: instrument.firstRedAfterOpenMins ?? null,
@@ -3358,13 +3361,72 @@ const RangeEmaUI = {
         const adv = chart.$rbAdvancedFibs;
         if (!adv || !adv.enabled) return;
         const yScale = chart.scales.y;
+        const xScale = chart.scales.x;
         const area = chart.chartArea;
-        if (!yScale || !area) return;
+        if (!yScale || !xScale || !area) return;
         const ctx = chart.ctx;
         const compact = !!chart.$rbCompact;
         const d = chart.$rbDecimals ?? 2;
         const fmt = (v) => Number(v).toFixed(d === 0 ? 0 : (v % 1 === 0 ? 0 : d));
         ctx.save();
+
+        // Draw today's First Candle (09:15 IST) Fib Box (0 / 0.44 / 0.50 / 0.56 / 1)
+        const fb = adv.firstBar;
+        const fbFib = fb?.fibs;
+        if (fb && fbFib && fbFib.f0 != null && fbFib.f1 != null) {
+          const times = chart.$rbTimes || [];
+          const fbMs = Number(fb.barMs) > 0 ? Number(fb.barMs) : 5 * 60000;
+          const barStep = times.length > 1 ? Math.abs(xScale.getPixelForValue(1) - xScale.getPixelForValue(0)) : 8;
+          const halfStep = Number.isFinite(barStep) ? barStep / 2 : 4;
+          let x0 = area.left;
+          let xm1 = Math.min(area.right, area.left + Math.max(6, barStep));
+          if (times.length && fb.t != null && fb.t >= times[0] - 1000) {
+            const firstIdx = times.findIndex((t) => t >= fb.t - 1000);
+            if (firstIdx >= 0) {
+              const px = xScale.getPixelForValue(firstIdx) - halfStep;
+              if (Number.isFinite(px)) x0 = Math.max(area.left, px);
+              let lastIdx = firstIdx;
+              for (let k = firstIdx; k < times.length; k++) {
+                if (times[k] < fb.t + fbMs - 1000) lastIdx = k;
+                else break;
+              }
+              const px1 = xScale.getPixelForValue(lastIdx) + halfStep;
+              if (Number.isFinite(px1)) xm1 = Math.min(area.right, Math.max(x0 + 6, px1));
+            }
+          }
+          if (x0 < area.right) {
+            const zones = [
+              { lo: fbFib.f0, hi: fbFib.f44, fill: 'rgba(249, 115, 22, 0.16)' },
+              { lo: fbFib.f44, hi: fbFib.f56, fill: 'rgba(74, 222, 128, 0.16)' },
+              { lo: fbFib.f56, hi: fbFib.f1, fill: 'rgba(148, 163, 184, 0.16)' },
+            ];
+            for (const z of zones) {
+              if (z.lo == null || z.hi == null) continue;
+              const yA = yScale.getPixelForValue(z.hi);
+              const yB = yScale.getPixelForValue(z.lo);
+              if (![yA, yB].every(Number.isFinite)) continue;
+              ctx.fillStyle = z.fill;
+              ctx.fillRect(x0, Math.min(yA, yB), area.right - x0, Math.max(1, Math.abs(yB - yA)));
+            }
+            const yHi = yScale.getPixelForValue(fbFib.f1);
+            const yLo = yScale.getPixelForValue(fbFib.f0);
+            if ([yHi, yLo].every(Number.isFinite)) {
+              const topY = Math.min(yHi, yLo);
+              const boxH = Math.max(2, Math.abs(yLo - yHi));
+              ctx.strokeStyle = 'rgba(250, 204, 21, 0.9)';
+              ctx.lineWidth = 1.4;
+              ctx.setLineDash([3, 2]);
+              ctx.strokeRect(x0, topY, Math.max(6, xm1 - x0), boxH);
+              ctx.setLineDash([]);
+              const hm = (t) => new Date(t).toLocaleTimeString('en-IN', { timeZone: 'Asia/Kolkata', hour: '2-digit', minute: '2-digit', hour12: false });
+              ctx.font = 'bold 9px Outfit, system-ui, sans-serif';
+              ctx.fillStyle = 'rgba(250, 204, 21, 0.95)';
+              ctx.textAlign = 'left';
+              ctx.textBaseline = 'top';
+              ctx.fillText(`Fib ${hm(fb.t)}–${hm(fb.t + fbMs)}`, x0 + 2, topY + boxH + 2);
+            }
+          }
+        }
 
         // Sandwich fill between first-bar median and red-bar median
         if (adv.sandwich && adv.sandwich.lo != null && adv.sandwich.hi != null) {
