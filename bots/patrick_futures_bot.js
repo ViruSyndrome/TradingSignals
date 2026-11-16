@@ -51,7 +51,8 @@ const COST_PTS = { NIFTY: 9.3, CRUDEOIL: 7.5, XAU: 0.8 };
 const rawNotify = createNotifier(BOT_NAME);
 const notify = async (msg) => {
   if (OFFLINE) {
-    console.log(`[${BOT_NAME}][OFFLINE] ${msg.replace(/\n/g, ' | ')}`);
+    const s = typeof msg === 'string' ? msg : String(msg?.text || '');
+    console.log(`[${BOT_NAME}][OFFLINE] ${s.replace(/\n/g, ' | ')}`);
     return;
   }
   return rawNotify(msg);
@@ -156,12 +157,33 @@ async function closePatrickOptionTrade(activeDhan, sym, symState, exitIdxPx, rea
   const losses = symState.paperTrades.length - wins;
   const netEq = Math.round((symState.allocatedCapitalRs || ALLOCATED_CAPITAL_RS) + symState.netRealizedRs);
   const icon = netOptRs >= 0 ? '✅ WON' : '🛑 LOST';
-  await notify(
-    `${icon} EXIT (${AUTO_TRADE ? 'LIVE OPTIONS' : 'PAPER OPTIONS'}) ${sym} ${pos?.side || opt.side} (${reason})\n` +
-    `Index: ${(pos?.entry || opt.entryIdx).toFixed(2)} → ${exitIdxPx.toFixed(2)} (${grossIdx >= 0 ? '+' : ''}${grossIdx.toFixed(1)} pts)\n` +
+  const sideLabel = pos?.side || opt.side;
+  const entryIdxPx = pos?.entry || opt.entryIdx;
+  const exitText =
+    `${icon} EXIT (${AUTO_TRADE ? 'LIVE OPTIONS' : 'PAPER OPTIONS'}) ${sym} ${sideLabel} (${reason})\n` +
+    `Index: ${entryIdxPx.toFixed(2)} → ${exitIdxPx.toFixed(2)} (${grossIdx >= 0 ? '+' : ''}${grossIdx.toFixed(1)} pts)\n` +
     `Option (${opt.label || 'ATM'}): ₹${opt.entryOpt || 0} → ₹${exitOptPx} | Net: ${netOptPts >= 0 ? '+' : ''}${netOptPts} pts (₹${netOptRs})\n` +
-    `Scoreboard: ${wins}W / ${losses}L | Total Opt Net P&L: ${symState.netRealizedRs >= 0 ? '+' : ''}₹${symState.netRealizedRs} | Equity: ₹${netEq}${execNote}`
-  );
+    `Scoreboard: ${wins}W / ${losses}L | Total Opt Net P&L: ${symState.netRealizedRs >= 0 ? '+' : ''}₹${symState.netRealizedRs} | Equity: ₹${netEq}${execNote}`;
+  await notify(OFFLINE ? exitText : {
+    text: exitText,
+    card: {
+      kind: netOptRs >= 0 ? 'WIN' : 'LOSS',
+      title: `PATRICK SWING • ${sym} ${TF}`,
+      subtitle: `${sideLabel} ${reason}`,
+      execBadge: AUTO_TRADE ? 'LIVE OPTIONS' : 'PAPER OPTIONS',
+      levels: [
+        { price: entryIdxPx, label: `ENTRY ${entryIdxPx.toFixed(1)}`, color: '#94a3b8', dash: '3 3' },
+        { price: exitIdxPx, label: `EXIT ${exitIdxPx.toFixed(1)}`, color: netOptRs >= 0 ? '#22c55e' : '#ef4444' },
+      ],
+      metrics: [
+        { label: 'Option Contract', value: opt.label || 'ATM', sub: `${LOTS} lot (${LOTS * (MULT[sym] || 65)} qty)` },
+        { label: 'Option Fill', value: `₹${opt.entryOpt || 0} → ₹${exitOptPx}`, sub: `${netOptPts >= 0 ? '+' : ''}${netOptPts} pts`, color: netOptRs >= 0 ? '#22c55e' : '#f43f5e' },
+        { label: 'Trade Net P&L', value: `${netOptRs >= 0 ? '+' : ''}₹${netOptRs}`, sub: `${grossIdx >= 0 ? '+' : ''}${grossIdx.toFixed(1)} idx pts`, color: netOptRs >= 0 ? '#22c55e' : '#f43f5e' },
+        { label: 'Scoreboard', value: `${wins}W / ${losses}L`, sub: `Equity ₹${netEq}` },
+      ],
+      footer: 'Patrick Breakout/Reclaim • 1.5R BE -> 10-Bar Trail -> 5.5R TP',
+    },
+  });
 }
 
 /**
@@ -292,12 +314,34 @@ async function scanOnce(dhan, botState) {
               delta: optSnap.delta,
               livePlaced,
             };
-            await notify(
+            const enterText =
               `🟢 ENTER (${livePlaced ? 'LIVE OPTIONS' : 'PAPER OPTIONS'}) ${sym} ${TF} ${ev.side} [${ev.kind}]\n` +
               `Index Entry: ${ev.entry.toFixed(2)} | Index SL: ${ev.sl.toFixed(2)} | 5.5R TP: ${tpFinal.toFixed(2)}\n` +
               `Option (${optSnap.live ? 'LIVE QUOTE' : 'EST'}): BUY ${optSnap.label} @ ₹${optSnap.premium} (Δ ${optSnap.delta}) | ${LOTS} lot (${LOTS * mult} qty)\n` +
-              `Plan: 1.5R → Index SL to BE | 2.5R+ → 10-bar swing trail | 5.5R full TP${execMsg}`
-            );
+              `Plan: 1.5R → Index SL to BE | 2.5R+ → 10-bar swing trail | 5.5R full TP${execMsg}`;
+            await notify(OFFLINE ? enterText : {
+              text: enterText,
+              card: {
+                kind: ev.side === 'LONG' ? 'ENTER_LONG' : 'ENTER_SHORT',
+                title: `PATRICK SWING • ${sym} ${TF}`,
+                subtitle: `Setup ${ev.kind} • VolFilter=${VOL_FILTER}`,
+                execBadge: livePlaced ? 'LIVE OPTIONS' : 'PAPER OPTIONS',
+                ts: bars[i].t,
+                bars: bars.slice(Math.max(0, i - 47), i + 1),
+                levels: [
+                  { price: ev.entry, label: `ENTRY ${ev.entry.toFixed(1)}`, color: '#38bdf8' },
+                  { price: ev.sl, label: `STOP ${ev.sl.toFixed(1)}`, color: '#ef4444' },
+                  { price: tpFinal, label: `5.5R TP ${tpFinal.toFixed(1)}`, color: '#22c55e', dash: '3 3' },
+                ],
+                metrics: [
+                  { label: 'Dhan Option', value: optSnap.label, sub: `${LOTS} lot (${LOTS * mult} qty)` },
+                  { label: 'Option Entry', value: `₹${optSnap.premium}`, sub: `Delta ${optSnap.delta} (${optSnap.live ? 'LIVE' : 'EST'})` },
+                  { label: 'Index Levels', value: `${ev.entry.toFixed(1)} | SL ${ev.sl.toFixed(1)}`, sub: `Risk ${ev.risk.toFixed(1)}p -> 5.5R ${tpFinal.toFixed(1)}` },
+                  { label: 'Plan & Execution', value: livePlaced ? 'LIVE MARGIN' : 'PAPER', sub: '1.5R BE -> 10-Bar Trail' },
+                ],
+                footer: 'High-Conviction Patrick Breakout • Priority Over Opposite Renko',
+              },
+            });
           } else {
             await executeFuturesOrder(activeDhan, {
               autoTrade: AUTO_TRADE,

@@ -6,6 +6,7 @@ const path = require('path');
 const { TelegramBot } = require('node-telegram-bot-api');
 const { createDhanClient, isDhanConfigured } = require('./dhan_client.js');
 const { createDhanNiftyTrade } = require('./dhan_nifty_trade.js');
+const { renderTradeCardPng } = require('./tg_card.js');
 
 const DEFAULT_CONTRACTS = {
   NIFTY: {
@@ -47,22 +48,61 @@ const DEFAULT_CONTRACTS = {
   },
 };
 
+function escapeTgHtml(s) {
+  return String(s ?? '')
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;');
+}
+
+function formatTelegramHtml(botLabel, text) {
+  const lines = String(text || '').split('\n');
+  const head = escapeTgHtml(lines[0] || '');
+  const body = lines.slice(1).map((l) => {
+    const m = l.match(/^([^:|]+):\s*(.+)$/);
+    if (m && m[1].length <= 28) {
+      return `<b>${escapeTgHtml(m[1])}:</b> <code>${escapeTgHtml(m[2])}</code>`;
+    }
+    return escapeTgHtml(l);
+  }).join('\n');
+  return body ? `<b>[${escapeTgHtml(botLabel)}] ${head}</b>\n${body}` : `<b>[${escapeTgHtml(botLabel)}] ${head}</b>`;
+}
+
 function createNotifier(botLabel) {
   const tgDisabled = String(process.env.NOTIFY_TELEGRAM || 'true').toLowerCase() === 'false';
   const token = tgDisabled ? null : process.env.TELEGRAM_BOT_TOKEN;
   const chatId = tgDisabled ? null : process.env.TELEGRAM_CHAT_ID;
   const tg = token && chatId ? new TelegramBot(token, { polling: false }) : null;
-  return async function notify(text) {
-    const line = `[${botLabel}] ${text}`;
+  return async function notify(msgOrOpts) {
+    const isObj = msgOrOpts && typeof msgOrOpts === 'object' && !Array.isArray(msgOrOpts);
+    const rawText = isObj ? String(msgOrOpts.text || '') : String(msgOrOpts || '');
+    const card = isObj ? msgOrOpts.card : null;
+    const line = `[${botLabel}] ${rawText}`;
     console.log(line);
     if (!tg || !chatId) return;
+
+    const html = formatTelegramHtml(botLabel, rawText);
     try {
+      if (card) {
+        const png = renderTradeCardPng(card);
+        if (png && png.length > 0) {
+          const caption = html.length <= 1000 ? html : `${html.slice(0, 990)}...`;
+          await Promise.race([
+            tg.sendPhoto(chatId, png, { caption, parse_mode: 'HTML' }, { filename: 'trade_card.png', contentType: 'image/png' }),
+            new Promise((_, rej) => setTimeout(() => rej(new Error('Telegram photo timeout 7000ms')), 7000)),
+          ]);
+          return;
+        }
+      }
       await Promise.race([
-        tg.sendMessage(chatId, line, { disable_web_page_preview: true }),
+        tg.sendMessage(chatId, html, { parse_mode: 'HTML', disable_web_page_preview: true }),
         new Promise((_, rej) => setTimeout(() => rej(new Error('Telegram timeout 5000ms')), 5000)),
       ]);
     } catch (e) {
       console.error(`[${botLabel}] Telegram send failed:`, e.message);
+      try {
+        await tg.sendMessage(chatId, line, { disable_web_page_preview: true });
+      } catch (_) {}
     }
   };
 }

@@ -255,6 +255,25 @@ function load(sym, tf) {
     assert.strictEqual(okSell.placed, true);
     assert.strictEqual(placedOrders[1].productType, 'MARGIN');
 
+    const { renderTradeCardPng } = require('../js/tg_card.js');
+    const niftySlice = load('NIFTY', '15m').slice(-48);
+    const png = renderTradeCardPng({
+      kind: 'ENTER_LONG',
+      title: 'AI RENKO MODE C • NIFTY 15m',
+      subtitle: 'Brick 33.33 • ST 25040.50',
+      execBadge: 'LIVE OPTIONS',
+      bars: niftySlice,
+      levels: [
+        { price: niftySlice[niftySlice.length - 1].c, label: 'ENTRY', color: '#38bdf8' },
+        { price: niftySlice[niftySlice.length - 1].c - 150, label: 'CAP SL -150p', color: '#ef4444' },
+      ],
+      metrics: [
+        { label: 'Dhan Option', value: '25100 CE (2026-11-23)', sub: '1 lot (65 qty)' },
+        { label: 'Option Entry', value: '₹269.95', sub: 'Delta 0.58 (LIVE)' },
+      ],
+    });
+    assert(Buffer.isBuffer(png) && png.length > 5000 && png[0] === 0x89 && png[1] === 0x50, 'tg_card PNG signature failed');
+
     console.log(`Swing Options Guards OK: DTE skipped ${nearExp} -> ${swingExp}, MARGIN verified, MARKET_CLOSED / INSUFFICIENT_FUNDS / NO_OPEN_POSITION guards verified`);
     console.log('ALL_FUTURES_BOT_ENGINE_TESTS_PASSED');
   }).catch((err) => {

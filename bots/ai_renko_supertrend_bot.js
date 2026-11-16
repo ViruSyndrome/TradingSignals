@@ -74,7 +74,8 @@ function getActivePatrickPosition() {
 const rawNotify = createNotifier(BOT_NAME);
 const notify = async (msg) => {
   if (OFFLINE) {
-    console.log(`[${BOT_NAME}][OFFLINE] ${msg.replace(/\n/g, ' | ')}`);
+    const s = typeof msg === 'string' ? msg : String(msg?.text || '');
+    console.log(`[${BOT_NAME}][OFFLINE] ${s.replace(/\n/g, ' | ')}`);
     return;
   }
   return rawNotify(msg);
@@ -260,7 +261,31 @@ async function closeModeBookPosition(cfg, book, pos, exitPx, reason, activeDhan,
       `Option (${pos.optLabel}): ₹${pos.entryOpt} → ₹${exitOptPx} | Net: ${res.netOpt >= 0 ? '+' : ''}${res.netOpt.toFixed(1)} pts (₹${res.netOptRs})\n` +
       `Stats: ${book.trades} tr | Fut WR ${wr}% (Net ₹${book.netRs}) | Opt WR ${optWr}% (Net ₹${book.optNetRs})${execNote}`;
     if (!TG_MODE_C_ONLY || cfg.key === 'modeC') {
-      await notify(msg);
+      if (cfg.key === 'modeC' && !OFFLINE) {
+        const won = res.netOptRs >= 0;
+        await notify({
+          text: msg,
+          card: {
+            kind: won ? 'WIN' : 'LOSS',
+            title: `AI RENKO MODE C • ${SYM} ${TF}`,
+            subtitle: `${pos.side} ${reason}`,
+            execBadge: AUTO_TRADE ? 'LIVE OPTIONS' : 'PAPER',
+            levels: [
+              { price: pos.entryIdx, label: `ENTRY ${pos.entryIdx.toFixed(1)}`, color: '#94a3b8', dash: '3 3' },
+              { price: exitPx, label: `EXIT ${exitPx.toFixed(1)}`, color: won ? '#22c55e' : '#ef4444' },
+            ],
+            metrics: [
+              { label: 'Option Contract', value: pos.optLabel, sub: `${LOTS} lot (${LOTS * MULT})` },
+              { label: 'Option Exit', value: `₹${pos.entryOpt} → ₹${exitOptPx}`, sub: `${res.netOpt >= 0 ? '+' : ''}${res.netOpt.toFixed(1)} pts`, color: won ? '#22c55e' : '#f43f5e' },
+              { label: 'Trade Net P&L', value: `${res.netOptRs >= 0 ? '+' : ''}₹${res.netOptRs}`, sub: `${res.netIdx >= 0 ? '+' : ''}${res.netIdx.toFixed(1)} idx pts`, color: won ? '#22c55e' : '#f43f5e' },
+              { label: 'Scoreboard (Opt)', value: `${book.optTrades} tr • ${optWr}% WR`, sub: `Net ₹${book.optNetRs}` },
+            ],
+            footer: `Mode C Hybrid (+${MODE_C_TRIGGER_PTS}p -> +${MODE_C_LOCK_PTS}p, Cap -${MODE_C_CAP_SL_PTS}p)`,
+          },
+        });
+      } else {
+        await notify(msg);
+      }
     } else {
       console.log(`[${BOT_NAME}] ${msg.replace(/\n/g, ' | ')}`);
     }
@@ -546,12 +571,36 @@ async function scanOnce(dhan, botState) {
       const modeCRelevant = enteredModes.some((m) => m.startsWith('Mode C')) || Boolean(liveExecMsg);
       if (enteredModes.length > 0 && (!OFFLINE || isLatestBar) && (!TG_MODE_C_ONLY || modeCRelevant)) {
         const tagExec = botState.modeC.pos?.liveOrderPlaced ? 'LIVE OPTIONS' : 'PAPER';
-        await notify(
+        const capSl = side === 'LONG' ? b.c - MODE_C_CAP_SL_PTS : b.c + MODE_C_CAP_SL_PTS;
+        const trigPx = side === 'LONG' ? b.c + MODE_C_TRIGGER_PTS : b.c - MODE_C_TRIGGER_PTS;
+        const enterMsg =
           `🟢 ENTER (${tagExec}) [AI Renko ST Brick=${BRICK_SIZE}] ${SYM} ${TF} ${side}\n` +
-          `Index Entry: ${b.c.toFixed(2)} | Mode C Cap SL: ${(side === 'LONG' ? b.c - MODE_C_CAP_SL_PTS : b.c + MODE_C_CAP_SL_PTS).toFixed(2)} | Bar: ${barIso}\n` +
+          `Index Entry: ${b.c.toFixed(2)} | Mode C Cap SL: ${capSl.toFixed(2)} | Bar: ${barIso}\n` +
           `Dhan Option (${optSnap.live ? 'LIVE QUOTE' : 'EST'}): BUY ${optSnap.label} @ ₹${optSnap.premium} (Δ ${optSnap.delta})\n` +
-          `Active Books: ${enteredModes.join(' & ')}${liveExecMsg}`
-        );
+          `Active Books: ${enteredModes.join(' & ')}${liveExecMsg}`;
+        await notify(OFFLINE ? enterMsg : {
+          text: enterMsg,
+          card: {
+            kind: side === 'LONG' ? 'ENTER_LONG' : 'ENTER_SHORT',
+            title: `AI RENKO MODE C • ${SYM} ${TF}`,
+            subtitle: `Brick ${BRICK_SIZE} • ST ${sig.supertrend.toFixed(2)}`,
+            execBadge: tagExec,
+            ts: b.t,
+            bars: bars.slice(Math.max(0, i - 47), i + 1),
+            levels: [
+              { price: b.c, label: `ENTRY ${b.c.toFixed(1)}`, color: '#38bdf8' },
+              { price: capSl, label: `CAP SL ${capSl.toFixed(1)}`, color: '#ef4444' },
+              { price: trigPx, label: `LOCK +120p ${trigPx.toFixed(1)}`, color: '#f59e0b', dash: '3 3' },
+            ],
+            metrics: [
+              { label: 'Dhan Option', value: optSnap.label, sub: `${LOTS} lot (${LOTS * MULT} qty)` },
+              { label: 'Option Entry', value: `₹${optSnap.premium}`, sub: `Delta ${optSnap.delta} (${optSnap.live ? 'LIVE' : 'EST'})` },
+              { label: 'Index Levels', value: `${b.c.toFixed(1)} → Cap ${capSl.toFixed(1)}`, sub: `+${MODE_C_TRIGGER_PTS}p -> +${MODE_C_LOCK_PTS}p Lock` },
+              { label: 'Active Status', value: tagExec, sub: patPos ? `Patrick ${patPos.side} Active` : `Reserve ₹${PATRICK_RESERVE_RS}` },
+            ],
+            footer: `7–25 DTE Swing MARGIN • Auto 15:10 Exit Only on Expiry Day`,
+          },
+        });
       }
     }
 

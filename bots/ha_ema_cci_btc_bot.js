@@ -41,7 +41,8 @@ const AUTO_TRADE = !OFFLINE && HAS_KEYS && String(process.env.HA_BTC_AUTO_TRADE 
 const rawNotify = createNotifier(BOT_NAME);
 const notify = async (msg) => {
   if (OFFLINE) {
-    console.log(`[${BOT_NAME}][OFFLINE] ${msg.replace(/\n/g, ' | ')}`);
+    const s = typeof msg === 'string' ? msg : String(msg?.text || '');
+    console.log(`[${BOT_NAME}][OFFLINE] ${s.replace(/\n/g, ' | ')}`);
     return;
   }
   return rawNotify(msg);
@@ -268,10 +269,32 @@ async function scanOnce(trader, botState) {
           }
         }
         if (!OFFLINE || isLatestBar) {
-          await notify(
+          const execBadge = botState.livePos?.liveOrderPlaced ? `LIVE ${LEVERAGE}x ISOLATED` : 'PAPER';
+          const enterText =
             `🟢 ENTER (${botState.livePos?.liveOrderPlaced ? 'LIVE BINANCE' : 'PAPER'}) ${SYMBOL} ${TF} ${ev.side} [HA+EMA+CCI]\n` +
-            `Entry: $${ev.entry.toFixed(1)} | Chandelier ${CHAND_MULT}x SL: $${ev.sl.toFixed(1)} | CCI: ${ev.cci}${liveNote}`
-          );
+            `Entry: $${ev.entry.toFixed(1)} | Chandelier ${CHAND_MULT}x SL: $${ev.sl.toFixed(1)} | CCI: ${ev.cci}${liveNote}`;
+          await notify(OFFLINE ? enterText : {
+            text: enterText,
+            card: {
+              kind: ev.side === 'LONG' ? 'ENTER_LONG' : 'ENTER_SHORT',
+              title: `BTC BINANCE • ${SYMBOL} ${TF}`,
+              subtitle: `HA+EMA+CCI • Chandelier ${CHAND_MULT}x ATR`,
+              execBadge,
+              ts: bars[i].t,
+              bars: bars.slice(Math.max(0, i - 47), i + 1),
+              levels: [
+                { price: ev.entry, label: `ENTRY $${ev.entry.toFixed(1)}`, color: '#38bdf8' },
+                { price: ev.sl, label: `STOP $${ev.sl.toFixed(1)}`, color: '#ef4444' },
+              ],
+              metrics: [
+                { label: 'Side & Entry', value: `${ev.side} @ $${ev.entry.toFixed(1)}`, sub: `CCI(200) ${ev.cci}` },
+                { label: 'Chandelier SL', value: `$${ev.sl.toFixed(1)}`, sub: `${CHAND_MULT}x ATR(${ev.atr})` },
+                { label: 'Position Sizing', value: botState.livePos?.qty ? `${botState.livePos.qty} BTC` : `${Math.round(MARGIN_FRAC * 100)}% Avail`, sub: `${LEVERAGE}x Isolated` },
+                { label: 'Entry Window', value: '03:00–09:50 UTC', sub: '24/7 Chandelier Trail' },
+              ],
+              footer: 'Exchange Reduce-Only STOP_MARKET + Dynamic Hourly Trail',
+            },
+          });
         }
       } else if (ev.type === 'TRAIL_SL') {
         if (AUTO_TRADE && trader && botState.livePos?.liveOrderPlaced) {
@@ -328,11 +351,32 @@ async function scanOnce(trader, botState) {
         const wins = botState.paperTrades.filter((x) => x.netUsdt > 0).length;
         const wr = ((wins / botState.paperTrades.length) * 100).toFixed(1);
         if (!OFFLINE || isLatestBar) {
-          await notify(
+          const exitText =
             `${netUsdt >= 0 ? '✅ WON' : '🛑 LOST'} EXIT (${AUTO_TRADE ? 'LIVE BINANCE' : 'PAPER'}) ${SYMBOL} ${TF} ${t.side} (${t.reason})\n` +
             `Entry: $${t.entry.toFixed(1)} → Exit: $${t.exit.toFixed(1)} (${netPct >= 0 ? '+' : ''}${(netPct * 100).toFixed(2)}% net)\n` +
-            `Est Net: ${netUsdt >= 0 ? '+' : ''}$${netUsdt} | Scoreboard: ${wins}W/${botState.paperTrades.length - wins}L (${wr}%) | Total Net: ${botState.netRealizedUsdt >= 0 ? '+' : ''}$${botState.netRealizedUsdt}${execNote}`
-          );
+            `Est Net: ${netUsdt >= 0 ? '+' : ''}$${netUsdt} | Scoreboard: ${wins}W/${botState.paperTrades.length - wins}L (${wr}%) | Total Net: ${botState.netRealizedUsdt >= 0 ? '+' : ''}$${botState.netRealizedUsdt}${execNote}`;
+          await notify(OFFLINE ? exitText : {
+            text: exitText,
+            card: {
+              kind: netUsdt >= 0 ? 'WIN' : 'LOSS',
+              title: `BTC BINANCE • ${SYMBOL} ${TF}`,
+              subtitle: `${t.side} ${t.reason}`,
+              execBadge: AUTO_TRADE ? `LIVE ${LEVERAGE}x ISOLATED` : 'PAPER',
+              ts: bars[i].t,
+              bars: bars.slice(Math.max(0, i - 47), i + 1),
+              levels: [
+                { price: t.entry, label: `ENTRY $${t.entry.toFixed(1)}`, color: '#94a3b8', dash: '3 3' },
+                { price: t.exit, label: `EXIT $${t.exit.toFixed(1)}`, color: netUsdt >= 0 ? '#22c55e' : '#ef4444' },
+              ],
+              metrics: [
+                { label: 'Side & Reason', value: `${t.side} (${t.reason})`, sub: `${LEVERAGE}x Isolated` },
+                { label: 'Price Move', value: `$${t.entry.toFixed(1)} → $${t.exit.toFixed(1)}`, sub: `${netPct >= 0 ? '+' : ''}${(netPct * 100).toFixed(2)}% net`, color: netUsdt >= 0 ? '#22c55e' : '#f43f5e' },
+                { label: 'Trade Net P&L', value: `${netUsdt >= 0 ? '+' : ''}$${netUsdt}`, sub: `Total ${botState.netRealizedUsdt >= 0 ? '+' : ''}$${botState.netRealizedUsdt}`, color: netUsdt >= 0 ? '#22c55e' : '#f43f5e' },
+                { label: 'Scoreboard', value: `${wins}W / ${botState.paperTrades.length - wins}L`, sub: `WR ${wr}%` },
+              ],
+              footer: 'HA+EMA+CCI Chandelier 4.5x • Compounding Isolated Margin',
+            },
+          });
         }
       }
     }
