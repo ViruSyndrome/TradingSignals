@@ -287,6 +287,9 @@ function escHtml(s) {
  * POST /api/alerts/redbar
  */
 app.post('/api/alerts/redbar', async (req, res) => {
+  if (String(process.env.ENABLE_DESK_ALERT_RELAY || 'false').toLowerCase() !== 'true') {
+    return res.json({ ok: true, ignored: true, reason: 'Desk alert relay silenced (auto bots notify directly)' });
+  }
   const token = (process.env.TELEGRAM_BOT_TOKEN || '').trim();
   const chatId = (process.env.TELEGRAM_CHAT_ID || '').trim();
   if (!token || !chatId) {

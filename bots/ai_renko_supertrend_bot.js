@@ -520,6 +520,7 @@ async function scanOnce(dhan, botState) {
 
       const enteredModes = [];
       let liveExecMsg = '';
+      const patPos = getActivePatrickPosition();
       if (!botState.modeA.pos) {
         botState.modeA.pos = { ...newPosBase };
         enteredModes.push('Mode A (Paper)');
@@ -529,7 +530,6 @@ async function scanOnce(dhan, botState) {
         enteredModes.push('Mode B (Paper)');
       }
       if (!botState.modeC.pos) {
-        const patPos = getActivePatrickPosition();
         const pauseDueToPat = patPos && (
           PAUSE_ON_PATRICK === 'all' ||
           (PAUSE_ON_PATRICK === 'opposite' && patPos.side !== side)
