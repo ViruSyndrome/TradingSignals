@@ -16,7 +16,7 @@ module.exports = {
         NOV6_EMA_FILTER: 'true',
         NOV6_FIRST_RED_GATE: 'true',
         NOV6_SANDWICH_GATE: 'true',
-        // Live NIFTY Options auto-trading enabled on Track 1 (Nov 6 Closed with Nov 9–12 fixes)
+        // Paper/observational only on Track 1 (live disabled so ₹37.8k wallet goes to Patrick / Mode C)
         DHAN_AUTO_TRADE: 'false',
         TRADE_ENABLED: 'false',
         DHAN_NIFTY_LOTS: '2',
@@ -70,7 +70,7 @@ module.exports = {
         AI_RENKO_STRIKE_MODE: 'atm',
         AI_RENKO_OPT_CAPITAL_RS: '37790',
         AI_RENKO_PAUSE_ON_PATRICK: 'opposite',
-        AI_RENKO_PATRICK_RESERVE_RS: '15000',
+        AI_RENKO_PATRICK_RESERVE_RS: '20000',
         AI_RENKO_AUTO_TRADE: 'true',
         AI_RENKO_POLL_MS: '67000',
       },

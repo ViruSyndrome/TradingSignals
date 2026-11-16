@@ -28,21 +28,49 @@ function _throttleChartCall(fn) {
   return next;
 }
 
+const fs = require('fs');
+const os = require('os');
+const nodePath = require('path');
+
 function _throttleOptionChainCall(fn) {
   const run = async () => {
-    const now = Date.now();
-    const wait = Math.max(0, _lastOptionChainTs + 3200 - now);
-    if (wait > 0) await new Promise((r) => setTimeout(r, wait));
-    _lastOptionChainTs = Date.now();
+    const lockFile = nodePath.join(os.tmpdir(), 'dhan_oc_global.lck');
+    const tsFile = nodePath.join(os.tmpdir(), 'dhan_oc_global.ts');
+    let fd = null;
+    for (let spin = 0; spin < 80; spin++) {
+      try {
+        fd = fs.openSync(lockFile, 'wx');
+        break;
+      } catch (e) {
+        if (e.code !== 'EEXIST') break;
+        try {
+          const st = fs.statSync(lockFile);
+          if (Date.now() - st.mtimeMs > 12000) fs.unlinkSync(lockFile);
+        } catch (_) {}
+        await new Promise((r) => setTimeout(r, 150));
+      }
+    }
+    try {
+      let diskTs = 0;
+      try { diskTs = Number(fs.readFileSync(tsFile, 'utf8')) || 0; } catch (_) {}
+      const last = Math.max(_lastOptionChainTs, diskTs);
+      const wait = Math.max(0, last + 3300 - Date.now());
+      if (wait > 0) await new Promise((r) => setTimeout(r, wait));
+      const now = Date.now();
+      _lastOptionChainTs = now;
+      try { fs.writeFileSync(tsFile, String(now)); } catch (_) {}
+    } finally {
+      if (fd !== null) {
+        try { fs.closeSync(fd); } catch (_) {}
+        try { fs.unlinkSync(lockFile); } catch (_) {}
+      }
+    }
     return fn();
   };
   const next = _optionChainQueue.then(run, run);
   _optionChainQueue = next.catch(() => {});
   return next;
 }
-
-const fs = require('fs');
-const nodePath = require('path');
 
 let _dotEnvCache = {};
 let _dotEnvMtime = 0;

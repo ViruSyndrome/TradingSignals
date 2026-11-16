@@ -56,7 +56,7 @@ const OFFLINE = process.argv.includes('--offline');
 const AUTO_TRADE = !OFFLINE && String(process.env.AI_RENKO_AUTO_TRADE || 'false').toLowerCase() === 'true';
 const PATRICK_STATE_PATH = path.join(__dirname, 'state_patrick_futures.json');
 const PAUSE_ON_PATRICK = String(process.env.AI_RENKO_PAUSE_ON_PATRICK || 'opposite').toLowerCase(); // 'opposite' | 'all' | 'none'
-const PATRICK_RESERVE_RS = Math.max(0, Number(process.env.AI_RENKO_PATRICK_RESERVE_RS || 15000));
+const PATRICK_RESERVE_RS = Math.max(0, Number(process.env.AI_RENKO_PATRICK_RESERVE_RS || 20000));
 
 function getActivePatrickPosition() {
   if (OFFLINE) return null;
