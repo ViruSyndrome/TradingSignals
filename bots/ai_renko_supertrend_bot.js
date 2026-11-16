@@ -57,6 +57,7 @@ const AUTO_TRADE = !OFFLINE && String(process.env.AI_RENKO_AUTO_TRADE || 'false'
 const PATRICK_STATE_PATH = path.join(__dirname, 'state_patrick_futures.json');
 const PAUSE_ON_PATRICK = String(process.env.AI_RENKO_PAUSE_ON_PATRICK || 'opposite').toLowerCase(); // 'opposite' | 'all' | 'none'
 const PATRICK_RESERVE_RS = Math.max(0, Number(process.env.AI_RENKO_PATRICK_RESERVE_RS || 20000));
+const TG_MODE_C_ONLY = String(process.env.AI_RENKO_TG_MODE_C_ONLY || 'true').toLowerCase() === 'true';
 
 function getActivePatrickPosition() {
   if (OFFLINE) return null;
@@ -253,12 +254,16 @@ async function closeModeBookPosition(cfg, book, pos, exitPx, reason, activeDhan,
 
   if (!OFFLINE || isLatestBar) {
     const modeLabel = cfg.key === 'modeC' && AUTO_TRADE ? 'LIVE' : 'PAPER';
-    await notify(
+    const msg =
       `📙 ${cfg.tag} (${modeLabel}) EXIT ${pos.side} ${SYM} ${TF} (${reason})\n` +
       `Index: ${pos.entryIdx.toFixed(2)} → ${exitPx.toFixed(2)} | Net: ${res.netIdx >= 0 ? '+' : ''}${res.netIdx.toFixed(1)} pts (₹${res.netFutRs})\n` +
       `Option (${pos.optLabel}): ₹${pos.entryOpt} → ₹${exitOptPx} | Net: ${res.netOpt >= 0 ? '+' : ''}${res.netOpt.toFixed(1)} pts (₹${res.netOptRs})\n` +
-      `Stats: ${book.trades} tr | Fut WR ${wr}% (Net ₹${book.netRs}) | Opt WR ${optWr}% (Net ₹${book.optNetRs})${execNote}`
-    );
+      `Stats: ${book.trades} tr | Fut WR ${wr}% (Net ₹${book.netRs}) | Opt WR ${optWr}% (Net ₹${book.optNetRs})${execNote}`;
+    if (!TG_MODE_C_ONLY || cfg.key === 'modeC') {
+      await notify(msg);
+    } else {
+      console.log(`[${BOT_NAME}] ${msg.replace(/\n/g, ' | ')}`);
+    }
   }
 }
 
@@ -321,7 +326,7 @@ async function processProtectedModeBar(cfg, book, bar, sig, activeDhan) {
     if (triggered) {
       pos.locked = true;
       pos.lockPrice = +(pos.side === 'LONG' ? pos.entryIdx + cfg.floor : pos.entryIdx - cfg.floor).toFixed(2);
-      if (!OFFLINE) {
+      if (!OFFLINE && (!TG_MODE_C_ONLY || cfg.key === 'modeC')) {
         await notify(
           `🔒 ${cfg.lockTag} ${SYM} ${TF} ${pos.side} hit +${cfg.trig} pts!\n` +
           `Floor Stop locked at ${pos.lockPrice} (+${cfg.floor} pts guaranteed profit)`
@@ -442,12 +447,16 @@ async function scanOnce(dhan, botState) {
         botState.modeA.pos = null;
 
         if (!OFFLINE || isLatestBar) {
-          await notify(
+          const msgA =
             `📘 [MODE A - Pure Flip] EXIT ${posA.side} ${SYM} ${TF} (ST_FLIP)\n` +
             `Index: ${posA.entryIdx.toFixed(2)} → ${b.c.toFixed(2)} | Net: ${resA.netIdx >= 0 ? '+' : ''}${resA.netIdx.toFixed(1)} pts (₹${resA.netFutRs})\n` +
             `Option (${posA.optLabel}): ₹${posA.entryOpt} → ₹${exitOptPx} | Net: ${resA.netOpt >= 0 ? '+' : ''}${resA.netOpt.toFixed(1)} pts (₹${resA.netOptRs})\n` +
-            `Stats A: ${botState.modeA.trades} tr | Fut WR ${wrA}% (Net ₹${botState.modeA.netRs}) | Opt WR ${optWrA}% (Net ₹${botState.modeA.optNetRs})`
-          );
+            `Stats A: ${botState.modeA.trades} tr | Fut WR ${wrA}% (Net ₹${botState.modeA.netRs}) | Opt WR ${optWrA}% (Net ₹${botState.modeA.optNetRs})`;
+          if (!TG_MODE_C_ONLY) {
+            await notify(msgA);
+          } else {
+            console.log(`[${BOT_NAME}] ${msgA.replace(/\n/g, ' | ')}`);
+          }
         }
       }
     }
@@ -534,7 +543,8 @@ async function scanOnce(dhan, botState) {
         }
       }
 
-      if (enteredModes.length > 0 && (!OFFLINE || isLatestBar)) {
+      const modeCRelevant = enteredModes.some((m) => m.startsWith('Mode C')) || Boolean(liveExecMsg);
+      if (enteredModes.length > 0 && (!OFFLINE || isLatestBar) && (!TG_MODE_C_ONLY || modeCRelevant)) {
         const tagExec = botState.modeC.pos?.liveOrderPlaced ? 'LIVE OPTIONS' : 'PAPER';
         await notify(
           `🟢 ENTER (${tagExec}) [AI Renko ST Brick=${BRICK_SIZE}] ${SYM} ${TF} ${side}\n` +

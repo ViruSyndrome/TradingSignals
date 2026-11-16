@@ -7,6 +7,7 @@ module.exports = {
       env: {
         PORT: '3001',
         TELEGRAM_POLLING: 'false',
+        NOTIFY_TELEGRAM: 'false',
         NOV6_STATE_DIR: './archive/nov6-close',
         REDBAR_BOT_INSTRUMENTS: 'NIFTY',
         DHAN_AUTO_INSTRUMENTS: 'NIFTY',
@@ -49,6 +50,7 @@ module.exports = {
         HA_CCI_SYMBOLS: 'CRUDEOIL,NIFTY',
         HA_CCI_LOTS: '1',
         HA_CCI_AUTO_TRADE: 'false',
+        NOTIFY_TELEGRAM: 'false',
         HA_CCI_POLL_MS: '73000',
       },
     },
@@ -71,6 +73,7 @@ module.exports = {
         AI_RENKO_OPT_CAPITAL_RS: '37790',
         AI_RENKO_PAUSE_ON_PATRICK: 'opposite',
         AI_RENKO_PATRICK_RESERVE_RS: '20000',
+        AI_RENKO_TG_MODE_C_ONLY: 'true',
         AI_RENKO_AUTO_TRADE: 'true',
         AI_RENKO_POLL_MS: '67000',
       },

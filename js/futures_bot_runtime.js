@@ -48,8 +48,9 @@ const DEFAULT_CONTRACTS = {
 };
 
 function createNotifier(botLabel) {
-  const token = process.env.TELEGRAM_BOT_TOKEN;
-  const chatId = process.env.TELEGRAM_CHAT_ID;
+  const tgDisabled = String(process.env.NOTIFY_TELEGRAM || 'true').toLowerCase() === 'false';
+  const token = tgDisabled ? null : process.env.TELEGRAM_BOT_TOKEN;
+  const chatId = tgDisabled ? null : process.env.TELEGRAM_CHAT_ID;
   const tg = token && chatId ? new TelegramBot(token, { polling: false }) : null;
   return async function notify(text) {
     const line = `[${botLabel}] ${text}`;

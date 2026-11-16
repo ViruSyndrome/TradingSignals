@@ -32,8 +32,9 @@ const isLegacyRenderHost = Boolean(
 if (isLegacyRenderHost) {
   console.log('[Bot] Legacy Render host detected — Telegram & scanner disabled (Oracle VM is primary).');
 }
-const token = isLegacyRenderHost ? null : process.env.TELEGRAM_BOT_TOKEN;
-const chatId = isLegacyRenderHost ? null : process.env.TELEGRAM_CHAT_ID;
+const tgDisabled = isLegacyRenderHost || String(process.env.NOTIFY_TELEGRAM || 'true').toLowerCase() === 'false';
+const token = tgDisabled ? null : process.env.TELEGRAM_BOT_TOKEN;
+const chatId = tgDisabled ? null : process.env.TELEGRAM_CHAT_ID;
 const pollingEnabled = Boolean(token && chatId) && process.env.TELEGRAM_POLLING === 'true';
 
 const { TwitterApi } = require('twitter-api-v2');
