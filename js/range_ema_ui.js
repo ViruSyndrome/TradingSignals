@@ -1139,6 +1139,22 @@ const RangeEmaUI = {
     } catch (_) {}
   },
 
+  _syncJumpLatestBtn(chart) {
+    const btn = document.getElementById('rbJumpLatest');
+    if (!btn) return;
+    if (!chart || !chart.$rbBars?.length) {
+      btn.style.display = 'none';
+      return;
+    }
+    const n = chart.$rbBars.length;
+    const xScale = chart.scales?.x;
+    const atRightEdge = xScale && Number.isFinite(xScale.max)
+      ? xScale.max >= (n - 1 - 1.5)
+      : true;
+    const isBehind = !atRightEdge || (this.state.chartPanOffset || 0) > 0;
+    btn.style.display = isBehind ? 'inline-flex' : 'none';
+  },
+
   _captureViewport(chart) {
     if (!chart || !chart.$rbViewKey || !chart.$rbBars?.length) return;
     const xScale = chart.scales?.x;
@@ -1168,14 +1184,16 @@ const RangeEmaUI = {
       userZoomed: Boolean(chart.$rbUserZoomed || manualY || !atRightEdge),
       savedAt: Date.now(),
     });
+    this._syncJumpLatestBtn(chart);
   },
 
-  _defaultTodayWindow(bars, times, inst, compact) {
+  _defaultTodayWindow(bars, times, inst, compact, wantSpan) {
     const n = bars.length;
     if (!n) return { xMin: 0, xMax: 0 };
-    const rightPad = compact ? 3 : 6;
+    const rightPad = compact ? 2 : 3;
     const leadIn = compact ? 4 : 8;
     const minSpan = compact ? 18 : 28;
+    const maxSpan = wantSpan || (compact ? 56 : 120);
     const dayMode = inst?.dayMode || 'utc';
     const tz = dayMode === 'ist' ? 'Asia/Kolkata' : 'UTC';
     const dayOf = (ts) => {
@@ -1191,8 +1209,8 @@ const RangeEmaUI = {
       if (dayOf(times[i]) === latestDay) todayStartIdx = i;
       else break;
     }
-    let xMin = Math.max(0, todayStartIdx - leadIn);
     const xMax = (n - 1) + rightPad;
+    let xMin = Math.max(0, todayStartIdx - leadIn, xMax - maxSpan);
     if ((xMax - xMin) < minSpan) {
       xMin = Math.max(0, Math.round(xMax - minSpan));
     }
@@ -1612,6 +1630,33 @@ const RangeEmaUI = {
     };
     document.getElementById('rbZoomReset')?.addEventListener('click', resetChartFit);
     document.getElementById('rbFloatReset')?.addEventListener('click', resetChartFit);
+    document.getElementById('rbJumpLatest')?.addEventListener('click', () => {
+      const ch = this._chart;
+      const row = (this.state.rows || [])[0];
+      if (this.state.chartPanOffset > 0) {
+        this.state.chartPanOffset = 0;
+        if (ch?.$rbViewKey) this._clearViewport(ch.$rbViewKey);
+        if (row && !row.error) this._paintChart(row, this.cfg());
+        return;
+      }
+      if (!ch || !ch.$rbBars?.length) { resetChartFit(); return; }
+      const n = ch.$rbBars.length;
+      const xScale = ch.scales?.x;
+      const rPad = ch.$rbCompact ? 2 : 3;
+      const curSpan = xScale && Number.isFinite(xScale.min) && Number.isFinite(xScale.max)
+        ? Math.max(12, xScale.max - xScale.min)
+        : (ch.$rbCompact ? 56 : 100);
+      const nextMax = Math.min(n - 1 + (ch.$rbRightSpacers || rPad), n - 1 + rPad);
+      const nextMin = Math.max(0, Math.round(nextMax - curSpan));
+      if (xScale) {
+        xScale.options.min = nextMin;
+        xScale.options.max = Math.round(nextMax);
+        ch.$rbUserZoomed = false;
+        this._fitYForWindow(ch);
+        try { ch.update('none'); } catch (_) {}
+        this._captureViewport(ch);
+      }
+    });
 
     const panPrice = (dir) => {
       const ch = this._chart;
@@ -2051,14 +2096,15 @@ const RangeEmaUI = {
           <span class="lg ema10">EMA ${c.emaFast || 10}</span>
           <span class="lg ema30">EMA ${c.emaSlow || 30}</span>
           <span class="lg band">${this._isFibStyle(r) ? `Mid-zone 44–56 · Fib 0/1${r.instrument?.markLabel ? ` · ${r.instrument.markLabel}` : ''}` : 'Day ranges'}</span>
-          <span class="lg stop">${o.firstRedLabel || '1H'} session box H/L</span>
-          <span class="lg sess-london rb-lg-desk">Session opens</span>
-          <span class="lg rb-lg-desk" style="border-left:3px solid #22c55e; color:#94a3b8; padding-left:4px;">Prev Fib Box</span>
+          <span class="lg stop" title="First closed 1H Red candle High/Low after NSE open (09:15 bar skipped)">${o.firstRedLabel || '1H'} session box H/L</span>
+          <span class="lg sess-london rb-lg-desk" title="Vertical dashed lines mark Asia, London, and NY session opens">Session opens</span>
+          <span class="lg rb-lg-desk" style="border-left:3px solid #22c55e; color:#94a3b8; padding-left:4px;" title="Previous sessions' daily Mark Fib boxes — click or hover on chart to inspect target zones">Prev Fib Box</span>
           <span id="rbCandleInfo" style="margin-left:auto; font-weight:600; font-size:11.5px; color:#cbd5e1;"></span>
         </div>
-        <p class="rb-zoom-hint">Drag chart to pan · Drag Y (price) or X (time) axis to scale · Double-click axis to reset · Wheel zooms time</p>
+        <p class="rb-zoom-hint">Drag chart to pan · Drag Y (price) or X (time) axis to scale · Double-click axis to reset · Wheel zooms time · Click &ldquo;History · ⏭ Live&rdquo; if scrolled back</p>
         <div class="rb-chart-box">
           <canvas id="redBarChart" aria-label="TrendRunner Desk chart"></canvas>
+          <button type="button" id="rbJumpLatest" title="Jump back to latest live candle" style="display:none; position:absolute; top:10px; right:74px; z-index:16; align-items:center; gap:5px; padding:4px 10px; font-size:11px; font-weight:700; color:#e0f2fe; background:rgba(14,165,233,0.22); border:1px solid rgba(56,189,248,0.65); border-radius:999px; cursor:pointer; backdrop-filter:blur(6px);">History · ⏭ Live</button>
           <div class="rb-floating-dpad${localStorage.getItem('trendrunner_dpad_side') !== 'right' ? ' is-left' : ''}" id="rbFloatingDpad" aria-label="Chart navigation">
             <div class="rb-dpad-grip" id="rbDpadGrip" title="Drag to move D-Pad anywhere on chart · Double-click or tap ⇄ to snap Left/Right">
               <span class="rb-dpad-dots">⠿</span>
@@ -4056,6 +4102,7 @@ const RangeEmaUI = {
     const wantMobile = (c.chartBarsMobile && c.chartBarsMobile[tf])
       || ({ '5m': 56, '15m': 48, '30m': 48, '1h': 42 }[tf] || 48);
     const want = compact ? wantMobile : wantDesktop;
+    const seriesCap = Math.max(want * 3, 360);
     const o = row.readout;
     const isRenkoMode = this.state.chartMode === 'renko';
     let bars;
@@ -4069,15 +4116,16 @@ const RangeEmaUI = {
     if (isRenkoMode && typeof RedBarTrend !== 'undefined' && RedBarTrend.buildRenkoSeries) {
       const bSize = o.renko?.brickSize || (row.bars[row.bars.length - 1].c * 0.0018);
       const allBricks = RedBarTrend.buildRenkoSeries(row.bars, bSize);
-      const showN = Math.min(want, Math.max(1, allBricks.length));
+      const showN = Math.min(seriesCap, Math.max(1, allBricks.length));
       const endIdx = Math.max(showN, allBricks.length - panOffset);
       const startIdx = Math.max(0, endIdx - showN);
       visStart = startIdx;
       const renkoSlice = allBricks.length ? allBricks.slice(startIdx, endIdx) : [];
       if (!renkoSlice.length) {
         // Fall back to candles if no bricks printed yet
-        const eIdx = Math.max(want, row.bars.length - panOffset);
-        const sIdx = Math.max(0, eIdx - want);
+        const fallbackN = Math.min(seriesCap, row.bars.length);
+        const eIdx = Math.max(fallbackN, row.bars.length - panOffset);
+        const sIdx = Math.max(0, eIdx - fallbackN);
         visStart = sIdx;
         bars = row.bars.slice(sIdx, eIdx);
         emaF = (row.ema.emaF || []).slice(sIdx, eIdx);
@@ -4108,7 +4156,7 @@ const RangeEmaUI = {
         emaS = fullEmaS.slice(startIdx, endIdx);
       }
     } else {
-      const showN = Math.min(want, row.bars.length);
+      const showN = Math.min(seriesCap, row.bars.length);
       const endIdx = Math.max(showN, row.bars.length - panOffset);
       const startIdx = Math.max(0, endIdx - showN);
       visStart = startIdx;
@@ -4120,7 +4168,8 @@ const RangeEmaUI = {
     const n = bars.length;
     const times = bars.map((b) => b.t);
 
-    const rightSpacers = compact ? 10 : 18;
+    // Keep live right margin compact (3–4 bars) so empty spacer slots never waste ~30% of chart width
+    const rightSpacers = compact ? 2 : 4;
     const labels = times.map((t, i) => {
       const d = new Date(t);
       const time = d.toLocaleTimeString(undefined, { hour: '2-digit', minute: '2-digit', hour12: false });
@@ -4610,7 +4659,9 @@ const RangeEmaUI = {
     const forceReset = Boolean(this._forceResetZoom);
     if (forceReset) this._forceResetZoom = false;
 
-    const savedVp = forceReset ? null : this._loadViewport(viewKey);
+    const rawSavedVp = forceReset ? null : this._loadViewport(viewKey);
+    const staleHistoryVp = rawSavedVp && !rawSavedVp.atRightEdge && (Date.now() - (rawSavedVp.savedAt || 0) > 15 * 60 * 1000);
+    const savedVp = staleHistoryVp ? null : rawSavedVp;
     const maxTotalX = Math.max(0, (n - 1) + rightSpacers);
     let savedXMin = undefined;
     let savedXMax = undefined;
@@ -4626,17 +4677,18 @@ const RangeEmaUI = {
       if (savedVp.atRightEdge) {
         const rPad = Number.isFinite(savedVp.rightPad)
           ? Math.max(0, Math.min(rightSpacers, savedVp.rightPad))
-          : (compact ? 3 : 6);
+          : (compact ? 2 : 3);
         savedXMax = Math.min(maxTotalX, (n - 1) + rPad);
         savedXMin = Math.max(0, savedXMax - visSpan);
       } else {
         let matchedIdx = savedVp.startTs != null ? times.findIndex((t) => t >= savedVp.startTs) : -1;
         if (matchedIdx < 0) matchedIdx = Math.max(0, Math.min(n - 1, Number(savedVp.xMin ?? 0)));
         savedXMin = Math.max(0, matchedIdx);
-        savedXMax = Math.min(maxTotalX, savedXMin + visSpan);
+        // Never include blank rightSpacers when viewing earlier historical candles
+        savedXMax = Math.min(n - 1, savedXMin + visSpan);
       }
     } else {
-      const defWin = this._defaultTodayWindow(bars, times, inst, compact);
+      const defWin = this._defaultTodayWindow(bars, times, inst, compact, want);
       savedXMin = defWin.xMin;
       savedXMax = Math.min(maxTotalX, defWin.xMax);
     }
@@ -5325,6 +5377,7 @@ const RangeEmaUI = {
     this._chart.$rbNearLevels = rawNearLevels;
     this._chart.$rbRightSpacers = rightSpacers;
     this._bindCanvasAxisInteractions(canvas, this._chart);
+    this._syncJumpLatestBtn(this._chart);
 
     const elInitInfo = document.getElementById('rbCandleInfo');
     if (elInitInfo && bars && bars.length) {

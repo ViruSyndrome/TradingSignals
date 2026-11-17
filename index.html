@@ -86,7 +86,7 @@
     if ('serviceWorker' in navigator) {
       window.addEventListener('load', () => {
         const hadController = Boolean(navigator.serviceWorker.controller);
-        navigator.serviceWorker.register('./service-worker.js?v=7.64', { updateViaCache: 'none' })
+        navigator.serviceWorker.register('./service-worker.js?v=7.65', { updateViaCache: 'none' })
           .then(reg => {
             reg.update().catch(() => {});
             navigator.serviceWorker.addEventListener('controllerchange', () => {
@@ -638,7 +638,7 @@
   <script src="js/range_ema_engine.js?v=1.2" defer></script>
   <script src="js/desk_alerts.js?v=1.13" defer></script>
   <script src="js/public_copy.js?v=1.3" defer></script>
-  <script src="js/range_ema_ui.js?v=2.75" defer></script>
+  <script src="js/range_ema_ui.js?v=2.76" defer></script>
   <script src="js/signals.js?v=6.70" defer></script>
   <script src="js/charts.js?v=6.60" defer></script>
   
@@ -837,35 +837,41 @@
   <div class="modal-overlay" id="rbGuideModal">
     <div class="modal-box" style="max-width: 760px; max-height: 88vh;">
       <div class="modal-header">
-        <h2 style="display:flex;align-items:center;gap:8px;font-size:1.15rem;">📖 TrendRunner Desk Guide &amp; Rules</h2>
+        <h2 style="display:flex;align-items:center;gap:8px;font-size:1.15rem;">📖 TrendRunner Desk Guide, Chart Controls &amp; Live Bots</h2>
         <button class="modal-close-btn" id="closeGuideModal" type="button">&times;</button>
       </div>
       <div class="modal-body" style="overflow-y:auto; padding:16px 20px; font-size:13px; line-height:1.6; color:#cbd5e1;">
-        
-        <div style="display:grid; grid-template-columns:1fr 1fr; gap:16px; margin-bottom:16px;">
+
+        <div style="background:rgba(56,189,248,0.08); border:1px solid rgba(56,189,248,0.25); border-radius:8px; padding:10px 12px; margin-bottom:16px;">
+          <h3 style="font-size:13px; font-weight:700; color:#38bdf8; margin:0 0 6px;">🤖 Live Automated Bot Stack (Oracle VM)</h3>
+          <p style="margin:0; font-size:12px; color:#cbd5e1;">
+            <strong>1. AI Renko Mode C (+Stage 3):</strong> NIFTY 15m Swing (7–25 DTE ATM Options) · Hard Cap -150p · +120p→+20p Lock · Stage 3 (>=+700p → Peak - 150p trail) · Supertrend Flip exit.<br>
+            <strong>2. Patrick Nill (`volFilter`):</strong> NIFTY 15m Options · 1.5R BE → 10-bar trail >=2.5R → 5.5R TP (priority ₹20k cash reserve).<br>
+            <strong>3. Trade 1 Option C (`redbar-trade1-live`):</strong> NIFTY 15m Intraday (1/day) · StrongClose >=0.70 · BE +35p→+10p · CloseBack 1H Red cut · 3R TP · 15:10 EOD.<br>
+            <strong>4. BTC Trend (`ha-cci-btc-trader`):</strong> Binance BTCUSDT 1h (`03:00–09:50 UTC` entries) · Chandelier 4.5x ATR · 4x Isolated (90% avail USDT).
+          </p>
+        </div>
+
+        <div style="display:grid; grid-template-columns:1fr 1fr; gap:14px; margin-bottom:16px;">
           <div style="background:rgba(255,255,255,0.03); border:1px solid rgba(255,255,255,0.07); border-radius:8px; padding:12px;">
-            <h3 style="font-size:13px; font-weight:700; color:#38bdf8; margin:0 0 6px;">🎯 Breakout leave</h3>
-            <p style="margin:0; font-size:12px; color:#94a3b8;">Price leaves the session box (first opposing candle high/low) with a clear close-through. ENTER with a 5m structural stop · bank ~50% at 1:1 &rarr; move stop to cost &rarr; trail the runner.</p>
+            <h3 style="font-size:13px; font-weight:700; color:#38bdf8; margin:0 0 6px;">🎯 1H First-Red Leave (Trade 1)</h3>
+            <p style="margin:0; font-size:12px; color:#94a3b8;">Waits for the first closed 1H red candle after NSE open (09:15 candle itself is ignored). Enters on the first 15m close outside High/Low with a strong close (>=70% toward extreme). Cuts on CloseBack inside box or exits 15:10 EOD.</p>
           </div>
           <div style="background:rgba(255,255,255,0.03); border:1px solid rgba(255,255,255,0.07); border-radius:8px; padding:12px;">
-            <h3 style="font-size:13px; font-weight:700; color:#4ade80; margin:0 0 6px;">⚡ Shelf retest</h3>
-            <p style="margin:0; font-size:12px; color:#94a3b8;">After a leave, price returns to the box edge. A <strong>5m candle must close</strong> back through that edge — a wick alone is not enough. Stop on the 5m swing · 1:1 &rarr; 1:2 &rarr; 1:3 ladder.</p>
+            <h3 style="font-size:13px; font-weight:700; color:#4ade80; margin:0 0 6px;">⚡ Shelf Retest &amp; Mode C Trail</h3>
+            <p style="margin:0; font-size:12px; color:#94a3b8;">Retest entries require a <strong>closed candle</strong> back through the structural edge (wicks alone don't qualify). Trend-following Mode C rides until AI Renko Supertrend flips, protected by -150p hard cap and +700p/-150p blow-off trail.</p>
           </div>
           <div style="background:rgba(255,255,255,0.03); border:1px solid rgba(255,255,255,0.07); border-radius:8px; padding:12px;">
-            <h3 style="font-size:13px; font-weight:700; color:#fbbf24; margin:0 0 6px;">⚖️ Mid-zone reject</h3>
-            <p style="margin:0; font-size:12px; color:#94a3b8;"><strong>Open candle marked → leave → retest mid-zone (44–56%) → SHORT reject.</strong> Fill near mid · stop beyond top of mid-zone · bank at session anchor / 2R. Live on BTC sessions and NIFTY open.</p>
+            <h3 style="font-size:13px; font-weight:700; color:#fbbf24; margin:0 0 6px;">⚖️ Mid-Zone Reject (POB) &amp; Fib Boxes</h3>
+            <p style="margin:0; font-size:12px; color:#94a3b8;">Gold dotted box = Mark Fib (0·44·50·56·1). Prior-day Fib boxes act as overhead/underhead magnets (SWG HI / NY LO). Click or hover a prior Fib box on the chart to inspect its levels.</p>
           </div>
           <div style="background:rgba(255,255,255,0.03); border:1px solid rgba(255,255,255,0.07); border-radius:8px; padding:12px;">
-            <h3 style="font-size:13px; font-weight:700; color:#a78bfa; margin:0 0 6px;">🧲 Stretch snapback (guide)</h3>
-            <p style="margin:0; font-size:12px; color:#94a3b8;">When price stretches far from a short 30m average for several bars, it often snaps back. Desk may draw a barricade + mean target. <strong>Chart guide only</strong> — not a default Telegram ENTER.</p>
-          </div>
-          <div style="background:rgba(255,255,255,0.03); border:1px solid rgba(255,255,255,0.07); border-radius:8px; padding:12px; grid-column: 1 / -1;">
-            <h3 style="font-size:13px; font-weight:700; color:#f472b6; margin:0 0 6px;">🕒 Afternoon window (~12:45 IST)</h3>
-            <p style="margin:0; font-size:12px; color:#94a3b8;">After lunch quiet, mark the early-afternoon candle. <strong>Reversal</strong> = trap that auction then reclaim. <strong>Breakout</strong> = expansion beyond morning high/low. Live ENTER when triggered.</p>
+            <h3 style="font-size:13px; font-weight:700; color:#a78bfa; margin:0 0 6px;">🧭 Chart Navigation &amp; Live Edge</h3>
+            <p style="margin:0; font-size:12px; color:#94a3b8;">Chart retains up to ~360 bars smoothly in pan history. Whenever you scroll left away from the live candle, a blue <strong>History · ⏭ Live</strong> pill appears at top-right so one click snaps straight back to live price.</p>
           </div>
         </div>
 
-        <h3 style="font-size:13px; font-weight:700; color:#f8fafc; margin:16px 0 6px;">🕒 Clocks that matter (not three Fib boxes)</h3>
+        <h3 style="font-size:13px; font-weight:700; color:#f8fafc; margin:16px 0 6px;">🕒 Session Clocks &amp; Fib Anchors (IST)</h3>
         <table style="width:100%; border-collapse:collapse; font-size:12px; margin-bottom:16px;">
           <thead>
             <tr style="border-bottom:1px solid rgba(255,255,255,0.1); color:#94a3b8; text-align:left;">
@@ -876,39 +882,37 @@
           </thead>
           <tbody>
             <tr style="border-bottom:1px solid rgba(255,255,255,0.05);">
-              <td style="padding:6px 8px; font-weight:600; color:#f8fafc;">BTC Mark Fib</td>
-              <td style="padding:6px 8px;">02:30–03:30</td>
-              <td style="padding:6px 8px; color:#94a3b8;">Single daily Fib box (0·44·50·56·1) from US close / CME settle. Targets / context — not automatic ENTER.</td>
+              <td style="padding:6px 8px; font-weight:600; color:#f8fafc;">NSE NIFTY Opening Box</td>
+              <td style="padding:6px 8px;">09:15–10:15</td>
+              <td style="padding:6px 8px; color:#94a3b8;">First 1H NSE candle anchors today's NIFTY Fib box; Trade 1 awaits the first closed 1H red candle after open.</td>
             </tr>
             <tr style="border-bottom:1px solid rgba(255,255,255,0.05);">
-              <td style="padding:6px 8px; font-weight:600; color:#f8fafc;">Asia Trikal</td>
-              <td style="padding:6px 8px;">05:30</td>
-              <td style="padding:6px 8px; color:#94a3b8;">BTC crypto clock for 30m X / mid-zone — not a second mark Fib box. London/NY opens are liquidity awareness only (desk no longer draws discovery boxes for them).</td>
-            </tr>
-            <tr style="border-bottom:1px solid rgba(255,255,255,0.05);">
-              <td style="padding:6px 8px; font-weight:600; color:#f8fafc;">Afternoon window</td>
+              <td style="padding:6px 8px; font-weight:600; color:#f8fafc;">Afternoon Window</td>
               <td style="padding:6px 8px;">12:45–13:15</td>
-              <td style="padding:6px 8px; color:#94a3b8;">NIFTY early-afternoon auction. Trap one side then reclaim, or expand beyond morning high/low.</td>
+              <td style="padding:6px 8px; color:#94a3b8;">NIFTY midday auction (trap/reclaim or morning H/L breakout context).</td>
+            </tr>
+            <tr style="border-bottom:1px solid rgba(255,255,255,0.05);">
+              <td style="padding:6px 8px; font-weight:600; color:#f8fafc;">BTC Mark Fib (16:00–17:00 ET)</td>
+              <td style="padding:6px 8px;">02:30–03:30 (EST) / 01:30–02:30 (EDT)</td>
+              <td style="padding:6px 8px; color:#94a3b8;">Single daily Fib box anchored to US equity close / CME settle. Magnets &amp; context only.</td>
             </tr>
             <tr>
-              <td style="padding:6px 8px; font-weight:600; color:#f8fafc;">US Cash Close &amp; Settle</td>
-              <td style="padding:6px 8px;">01:15–02:30</td>
-              <td style="padding:6px 8px; color:#94a3b8;">US cash closed (01:30). CME settle. Volatility compresses into 02:30 Mark Window.</td>
+              <td style="padding:6px 8px; font-weight:600; color:#f8fafc;">Asia / London / NY Opens</td>
+              <td style="padding:6px 8px;">05:30 / 13:30 / 20:00</td>
+              <td style="padding:6px 8px; color:#94a3b8;">BTC 05:30 Asia Trikal window + liquidity session markers (`03:00–09:50 UTC` = `08:30–15:20 IST` active HA-CCI BTC entry window).</td>
             </tr>
           </tbody>
         </table>
 
-        <h3 style="font-size:13px; font-weight:700; color:#f8fafc; margin:16px 0 6px;">💡 FAQs &amp; Rules of Execution</h3>
+        <h3 style="font-size:13px; font-weight:700; color:#f8fafc; margin:16px 0 6px;">💡 FAQs &amp; Fee Reality</h3>
         <div style="font-size:12px; line-height:1.6; color:#94a3b8;">
           <p><strong>What is the difference between WAIT and WATCH?</strong><br>
-          • <em>WAIT</em> = Market is in equilibrium or consolidation between boundaries. No directional bias or trade setup is present. Stay in cash.<br>
-          • <em>WATCH</em> = Directional bias or structure is identified (session box forming, average alignment, or liquidity sweep underway), but the exact entry trigger has NOT fired yet. Prepare your order, but DO NOT enter prematurely.</p>
-          
-          <p><strong>How do Futures Fees affect small vs large sizes?</strong><br>
-          Binance USD-M Futures fee is 0.04% per side (0.08% round-trip). Because fee is a fixed percentage, trading a $3,000 position for a small move makes 3× more net dollars than a $1,000 position for the same price movement. On losing trades, the fee remains 0.08% of notional.</p>
+          • <em>WAIT</em> = Market is consolidating inside equilibrium. No directional bias or trigger setup yet.<br>
+          • <em>WATCH</em> = Directional structure is set (session box broken or sweep underway), awaiting exact candle confirmation before entry.</p>
 
-          <p><strong>Set-and-Forget Model B Execution (NIFTY Options &amp; Futures):</strong><br>
-          Every confirmed ENTER provides a structural Stop Loss (anchored to signal/prior wick extreme or 1m Option rejection wick clamped to 4–14 pts). Model B banks 50% at 1:1 and moves the runner SL to cost (+0.50); the runner targets the Option 15m open ceiling, next median, or 1:3.</p>
+          <p><strong>Transaction Costs Modeled Across Strategies:</strong><br>
+          • <em>Dhan NIFTY Options:</em> Flat `₹40` round-trip brokerage + STT/exchange/GST + slippage buffer (~`1.5` option pts = `₹97.50`/lot).<br>
+          • <em>Binance BTCUSDT Perp:</em> `0.05%` taker fee per side (`0.10%` round-trip) + funding (~`0.02%/day`), 4x Isolated leverage on `90%` available USDT.</p>
         </div>
 
       </div>
