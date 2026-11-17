@@ -1,12 +1,14 @@
 'use strict';
 
 /**
- * redbar_trade1_paper_bot.js — Standalone PAPER/RESEARCH bot for Pre-Nov-6 Red Bar DNA "Trade 1 Only":
+ * redbar_trade1_paper_bot.js — Standalone bot for Pre-Nov-6 Red Bar DNA "Trade 1 Only" (Option C):
  *   1. Waits for the first closed 1H Red candle of the NSE day (never marks the opening 09:15 bar).
- *   2. Enters ONLY the first fresh departure ("Trade 1") on 15m close outside the 1H First-Red High/Low.
+ *   2. Enters ONLY the first fresh departure ("Trade 1") on 15m close outside the 1H First-Red High/Low
+ *      with StrongClose >= 0.70 (close in top/bottom 30% of entry bar).
  *   3. Strictly max 1 trade per IST day (ignores Trade 2, sweeps, POB, 12:45, etc.).
- *   4. Stop = opposite First-Red edge (min 14 pts), 1:1 -> move SL to breakeven, 3R Target (Swing 7-25 DTE ATM).
- * Completely isolated from all live trading bots (PAPER ONLY, separate state file, NOTIFY_TELEGRAM=false default).
+ *   4. CloseBack Cut inside 1H First-Red edge, 3R Target, 15:10 EOD Intraday Options,
+ *      plus BE+Cost Lock (+10p SL lock once favorable move reaches +35p spot).
+ *   5. Supports TRADE1_START_DATE=YYYY-MM-DD (arms standby until market open on that IST date).
  */
 
 require('dotenv').config();
@@ -28,7 +30,10 @@ const {
   isDhanConfigured,
 } = require('../js/futures_bot_runtime.js');
 
-const BOT_NAME = 'REDBAR_TRADE1_PAPER';
+const ONCE = process.argv.includes('--once');
+const OFFLINE = process.argv.includes('--offline');
+const AUTO_TRADE = !OFFLINE && String(process.env.TRADE1_AUTO_TRADE || 'false').toLowerCase() === 'true';
+const BOT_NAME = AUTO_TRADE ? 'REDBAR_TRADE1_LIVE' : 'REDBAR_TRADE1_PAPER';
 const STATE_PATH = path.join(__dirname, 'state_redbar_trade1.json');
 const PATRICK_STATE_PATH = path.join(__dirname, 'state_patrick_futures.json');
 const SYM = 'NIFTY';
@@ -37,6 +42,10 @@ const RED_TF = '1h';
 const RED_MS = 3600 * 1000;
 const RR_TARGET = Number(process.env.TRADE1_RR || 3.0);
 const BE_AT_1R = String(process.env.TRADE1_BE_1R || 'false').toLowerCase() === 'true';
+const BE_TRIG_PTS = Math.max(0, Number(process.env.TRADE1_BE_TRIG_PTS ?? 35));
+const BE_LOCK_PTS = Number(process.env.TRADE1_BE_LOCK_PTS ?? 10);
+const STRONG_CLOSE_MIN = Math.max(0, Number(process.env.TRADE1_STRONG_CLOSE_MIN ?? 0.70));
+const MIN_RISK_PTS = Math.max(1, Number(process.env.TRADE1_MIN_RISK_PTS ?? 12));
 const EOD_EXIT = String(process.env.TRADE1_EOD_EXIT || 'true').toLowerCase() === 'true';
 const CLOSE_BACK_CUT = String(process.env.TRADE1_CLOSE_BACK || 'true').toLowerCase() === 'true';
 const MAX_RISK_PCT = Number(process.env.TRADE1_MAX_RISK_PCT || 0.015);
@@ -48,10 +57,7 @@ const MIN_DTE_DAYS = 7;
 const MAX_DTE_DAYS = 25;
 const POLL_MS = Math.max(30000, Number(process.env.TRADE1_POLL_MS || 97000));
 const PATRICK_RESERVE_RS = Math.max(0, Number(process.env.TRADE1_PATRICK_RESERVE_RS || 20000));
-
-const ONCE = process.argv.includes('--once');
-const OFFLINE = process.argv.includes('--offline');
-const AUTO_TRADE = !OFFLINE && String(process.env.TRADE1_AUTO_TRADE || 'false').toLowerCase() === 'true';
+const START_DATE = String(process.env.TRADE1_START_DATE || '').trim();
 
 function isPatrickFlat() {
   if (OFFLINE) return true;
@@ -197,6 +203,33 @@ async function closeTrade1Position(activeDhan, botState, pos, exitPx, reason, ex
   }
 }
 
+function applyTrailingBe(pos, highPx, lowPx) {
+  if (!pos || pos.be) return false;
+  let moved = false;
+  let newSl = pos.sl;
+  if (BE_TRIG_PTS > 0) {
+    const fav = pos.side === 'LONG' ? highPx - pos.entry : pos.entry - lowPx;
+    if (fav >= BE_TRIG_PTS) {
+      const lockPx = pos.side === 'LONG' ? pos.entry + BE_LOCK_PTS : pos.entry - BE_LOCK_PTS;
+      if ((pos.side === 'LONG' && lockPx > newSl) || (pos.side === 'SHORT' && lockPx < newSl)) {
+        newSl = +lockPx.toFixed(2);
+        moved = true;
+      }
+    }
+  } else if (BE_AT_1R) {
+    const hit1R = pos.side === 'LONG' ? highPx >= pos.entry + pos.risk : lowPx <= pos.entry - pos.risk;
+    if (hit1R) {
+      newSl = pos.entry;
+      moved = true;
+    }
+  }
+  if (moved) {
+    pos.be = true;
+    pos.sl = newSl;
+  }
+  return moved;
+}
+
 async function checkTrade1LiveIntrabar(activeDhan, botState) {
   if (OFFLINE || !botState.pos || !activeDhan || !isDhanConfigured()) return;
   const clk = getIstClock();
@@ -205,13 +238,6 @@ async function checkTrade1LiveIntrabar(activeDhan, botState) {
   if (!(spot > 0)) return;
   const pos = botState.pos;
 
-  if (BE_AT_1R && !pos.be) {
-    const hit1R = pos.side === 'LONG' ? spot >= pos.entry + pos.risk : spot <= pos.entry - pos.risk;
-    if (hit1R) {
-      pos.be = true;
-      pos.sl = pos.entry;
-    }
-  }
   let reason = null;
   if ((pos.side === 'LONG' && spot <= pos.sl) || (pos.side === 'SHORT' && spot >= pos.sl)) {
     reason = pos.be ? 'BE_STOP_LTP' : 'SL_HIT_LTP';
@@ -224,6 +250,13 @@ async function checkTrade1LiveIntrabar(activeDhan, botState) {
   }
   if (reason) {
     await closeTrade1Position(activeDhan, botState, pos, spot, reason, Date.now(), true);
+    return;
+  }
+  if (applyTrailingBe(pos, spot, spot)) {
+    await notify(
+      `🔒 [TRADE 1 ${pos.liveOrderPlaced ? 'LIVE' : 'PAPER'} BE LOCKED] ${SYM} ${pos.side} | ` +
+      `Spot ${spot.toFixed(1)} hit +${BE_TRIG_PTS}p → SL moved to ${pos.sl} (+${BE_LOCK_PTS}p lock)`
+    );
   }
 }
 
@@ -249,16 +282,10 @@ async function scanOnce(dhan, botState) {
     if (b.t < startT || b.t > endT) continue;
     const isLatest = i >= workBars.length - 2;
     const { day, mins } = istPartsFast(b.t);
+    const beforeStartDate = !OFFLINE && Boolean(START_DATE) && day < START_DATE;
 
     if (botState.pos) {
       const pos = botState.pos;
-      if (BE_AT_1R && !pos.be) {
-        const hit1R = pos.side === 'LONG' ? b.h >= pos.entry + pos.risk : b.l <= pos.entry - pos.risk;
-        if (hit1R) {
-          pos.be = true;
-          pos.sl = pos.entry;
-        }
-      }
       let exitPx = null;
       let reason = null;
       if ((pos.side === 'LONG' && b.l <= pos.sl) || (pos.side === 'SHORT' && b.h >= pos.sl)) {
@@ -280,8 +307,13 @@ async function scanOnce(dhan, botState) {
 
       if (exitPx !== null) {
         await closeTrade1Position(activeDhan, botState, pos, exitPx, reason, b.t, isLatest);
+      } else if (applyTrailingBe(pos, b.h, b.l) && !OFFLINE) {
+        await notify(
+          `🔒 [TRADE 1 ${pos.liveOrderPlaced ? 'LIVE' : 'PAPER'} BE LOCKED] ${SYM} ${pos.side} | ` +
+          `15m bar hit +${BE_TRIG_PTS}p → SL moved to ${pos.sl} (+${BE_LOCK_PTS}p lock)`
+        );
       }
-    } else if (!takenSet.has(day) && mins >= 9 * 60 + 25 && mins <= 14 * 60 + 45) {
+    } else if (!beforeStartDate && !takenSet.has(day) && mins >= 9 * 60 + 25 && mins <= 14 * 60 + 45) {
       const fr = OFFLINE
         ? firstRedMap.get(day)
         : RedBarTrend.firstRedBarOfSession(redBars, day, { dayMode: 'ist', asOfTs: b.t + 900000, barMs: RED_MS });
@@ -293,8 +325,16 @@ async function scanOnce(dhan, botState) {
           const leftBelow = b.c < fr.low && prev.c >= fr.low;
           if (leftAbove || leftBelow) {
             const side = leftAbove ? 'LONG' : 'SHORT';
+            const barRange = Math.max(1e-6, b.h - b.l);
+            const closeLoc = side === 'LONG' ? (b.c - b.l) / barRange : (b.h - b.c) / barRange;
+            if (STRONG_CLOSE_MIN > 0 && closeLoc < STRONG_CLOSE_MIN) {
+              botState.lastProcessedTs = b.t;
+              botState.lastClosePx = b.c;
+              botState.lastBarIso = new Date(b.t).toISOString();
+              continue;
+            }
             const rawSl = side === 'LONG' ? fr.low : fr.high;
-            const risk = Math.max(14, Math.abs(b.c - rawSl));
+            const risk = Math.max(MIN_RISK_PTS, Math.abs(b.c - rawSl));
             if (risk / b.c <= MAX_RISK_PCT) {
               const sl = +(side === 'LONG' ? b.c - risk : b.c + risk).toFixed(2);
               const tp = +(side === 'LONG' ? b.c + risk * RR_TARGET : b.c - risk * RR_TARGET).toFixed(2);
@@ -330,9 +370,20 @@ async function scanOnce(dhan, botState) {
                 } catch (e) {
                   liveNote = ` | ❌ Live Err: ${e.message}`;
                 }
+              } else if (AUTO_TRADE && !optSnap.live) {
+                liveNote = ' | ⚠️ Live Skipped (No live option quote)';
               }
               takenSet.add(day);
               botState.takenDays = [...takenSet].slice(-90);
+              if (AUTO_TRADE && !liveOrderPlaced) {
+                await notify(
+                  `⚠️ [TRADE 1 LIVE SKIPPED] ${SYM} ${side} @ ${b.c.toFixed(1)} | Option: ${optSnap.label} @ ₹${optSnap.premium}${liveNote}`
+                );
+                botState.lastProcessedTs = b.t;
+                botState.lastClosePx = b.c;
+                botState.lastBarIso = new Date(b.t).toISOString();
+                continue;
+              }
               botState.pos = {
                 day,
                 side,
@@ -362,7 +413,7 @@ async function scanOnce(dhan, botState) {
                   card: {
                     kind: side === 'LONG' ? 'ENTER_LONG' : 'ENTER_SHORT',
                     title: `TRADE 1 (1H RED) • ${SYM} 15m`,
-                    subtitle: `CloseBack Cut • ${RR_TARGET}R TP • 15:10 EOD`,
+                    subtitle: `SC>=${STRONG_CLOSE_MIN} • BE +${BE_TRIG_PTS}/+${BE_LOCK_PTS} • CloseBack • ${RR_TARGET}R`,
                     execBadge: liveOrderPlaced ? 'LIVE OPTIONS' : 'PAPER',
                     ts: b.t,
                     bars: workBars.slice(Math.max(0, i - 47), i + 1),
@@ -374,10 +425,10 @@ async function scanOnce(dhan, botState) {
                     metrics: [
                       { label: 'Dhan Option', value: optSnap.label, sub: `${LOTS} lot (${LOTS * MULT} qty)` },
                       { label: 'Option Entry', value: `₹${optSnap.premium}`, sub: `Delta ${optSnap.delta}` },
-                      { label: 'Cut Rule', value: 'CloseBack Inside 1H Red', sub: `Emergency SL ${sl}` },
+                      { label: 'Cut / Lock', value: 'CloseBack 1H Edge', sub: `BE +${BE_LOCK_PTS}p @ +${BE_TRIG_PTS}p` },
                       { label: 'Session Exit', value: EOD_EXIT ? 'Intraday 15:10 EOD' : 'Swing', sub: `${RR_TARGET}R Target` },
                     ],
-                    footer: '1H First-Red Trade 1 • Max 1 Trade/Day • Intraday Options',
+                    footer: '1H First-Red Trade 1 (Option C) • Max 1 Trade/Day',
                   },
                 });
               }
@@ -395,10 +446,16 @@ async function scanOnce(dhan, botState) {
 
 async function main() {
   const botState = OFFLINE ? makeDefaultState() : loadJsonState(STATE_PATH, makeDefaultState);
-  const dhan = !OFFLINE && isDhanConfigured() ? createDhanClient() : null;
-  console.log(`[${BOT_NAME}] Starting (${OFFLINE ? 'OFFLINE REPLAY' : 'PAPER LIVE'}) | ${SYM} ${WORK_TF} (Red=${RED_TF}) | RR=${RR_TARGET} | BE_1R=${BE_AT_1R} | EOD=${EOD_EXIT}`);
+  console.log(
+    `[${BOT_NAME}] Starting (${OFFLINE ? 'OFFLINE REPLAY' : (AUTO_TRADE ? 'LIVE OPTIONS' : 'PAPER')}) | ` +
+    `${SYM} ${WORK_TF} (Red=${RED_TF}) | RR=${RR_TARGET} | StrongClose>=${STRONG_CLOSE_MIN} | ` +
+    `BE=${BE_TRIG_PTS}p/+${BE_LOCK_PTS}p | EOD=${EOD_EXIT}${START_DATE ? ` | StartDate=${START_DATE}` : ''}`
+  );
 
-  await scanOnce(dhan, botState);
+  const clk0 = getIstClock();
+  if (OFFLINE || !START_DATE || botState.pos || clk0.dateStr >= START_DATE) {
+    await scanOnce(null, botState);
+  }
   if (OFFLINE) {
     const tr = botState.trades;
     const fWins = tr.filter((t) => t.netFutRs > 0).length;
@@ -417,7 +474,8 @@ async function main() {
     try {
       const clk = getIstClock();
       if (!clk.isOpen) return;
-      await scanOnce(dhan, botState);
+      if (START_DATE && !botState.pos && clk.dateStr < START_DATE) return;
+      await scanOnce(null, botState);
       saveJsonState(STATE_PATH, botState);
     } catch (e) {
       console.error(`[${BOT_NAME}] Poll error:`, e.message);

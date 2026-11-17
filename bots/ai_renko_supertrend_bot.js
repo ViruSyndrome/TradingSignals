@@ -33,10 +33,15 @@ const ADX_THRESHOLD = Number(process.env.AI_RENKO_ADX_THRESH || 15);
 const MODE_B_TRIGGER_PTS = Number(process.env.AI_RENKO_LOCK_TRIG || 66.66); // 2 Bricks
 const MODE_B_LOCK_PTS = Number(process.env.AI_RENKO_LOCK_FLOOR || 25.0);
 
-// Mode C Hybrid Smart-Lock + Tail-Risk Cap (+120p trigger -> +20p floor, Hard Cap SL -150p)
+// Mode C Hybrid Smart-Lock + Tail-Risk Cap + Stage 3 Blow-Off Trail:
+//   Stage 1: Hard Cap SL -150p
+//   Stage 2: +120p -> +20p floor lock + AI Renko Supertrend trail
+//   Stage 3: >= +700p -> dynamic Peak - 150p trailing floor (captures blow-off reversals without capping trends)
 const MODE_C_TRIGGER_PTS = Number(process.env.AI_RENKO_C_TRIG || 120.0);
 const MODE_C_LOCK_PTS = Number(process.env.AI_RENKO_C_FLOOR || 20.0);
 const MODE_C_CAP_SL_PTS = Number(process.env.AI_RENKO_C_CAP_SL || 150.0);
+const MODE_C_STAGE3_TRIG_PTS = Math.max(0, Number(process.env.AI_RENKO_C_STAGE3_TRIG ?? 700.0));
+const MODE_C_STAGE3_GIVE_PTS = Math.max(10, Number(process.env.AI_RENKO_C_STAGE3_GIVE ?? 150.0));
 const BOOT_PING_COOLDOWN_MS = 30 * 60 * 1000;
 const FEED_ERR_LOG_COOLDOWN_MS = 15 * 60 * 1000;
 
@@ -124,6 +129,8 @@ function makeDefaultBotState() {
       modeCTriggerPts: MODE_C_TRIGGER_PTS,
       modeCLockPts: MODE_C_LOCK_PTS,
       modeCCapSlPts: MODE_C_CAP_SL_PTS,
+      modeCStage3TrigPts: MODE_C_STAGE3_TRIG_PTS,
+      modeCStage3GivePts: MODE_C_STAGE3_GIVE_PTS,
     },
     lots: LOTS,
     lastProcessedTs: 0,
@@ -219,10 +226,12 @@ const PROTECTED_MODES = [
     key: 'modeC',
     tag: '[MODE C - Smart Lock+Cap]',
     lockTag: '[MODE C - Smart Lock]',
-    entryLabel: `Mode C (+${MODE_C_TRIGGER_PTS}p -> +${MODE_C_LOCK_PTS}p, Cap -${MODE_C_CAP_SL_PTS}p)`,
+    entryLabel: `Mode C (+${MODE_C_TRIGGER_PTS}p -> +${MODE_C_LOCK_PTS}p, Cap -${MODE_C_CAP_SL_PTS}p, S3 +${MODE_C_STAGE3_TRIG_PTS}p/-${MODE_C_STAGE3_GIVE_PTS}p)`,
     trig: MODE_C_TRIGGER_PTS,
     floor: MODE_C_LOCK_PTS,
     capSl: MODE_C_CAP_SL_PTS,
+    stage3TrigPts: MODE_C_STAGE3_TRIG_PTS,
+    stage3GivePts: MODE_C_STAGE3_GIVE_PTS,
   },
 ];
 
@@ -280,7 +289,7 @@ async function closeModeBookPosition(cfg, book, pos, exitPx, reason, activeDhan,
               { label: 'Trade Net P&L', value: `${res.netOptRs >= 0 ? '+' : ''}₹${res.netOptRs}`, sub: `${res.netIdx >= 0 ? '+' : ''}${res.netIdx.toFixed(1)} idx pts`, color: won ? '#22c55e' : '#f43f5e' },
               { label: 'Scoreboard (Opt)', value: `${book.optTrades} tr • ${optWr}% WR`, sub: `Net ₹${book.optNetRs}` },
             ],
-            footer: `Mode C Hybrid (+${MODE_C_TRIGGER_PTS}p -> +${MODE_C_LOCK_PTS}p, Cap -${MODE_C_CAP_SL_PTS}p)`,
+            footer: `Mode C (+${MODE_C_TRIGGER_PTS}p -> +${MODE_C_LOCK_PTS}p, Cap -${MODE_C_CAP_SL_PTS}p, S3 +${MODE_C_STAGE3_TRIG_PTS}p/-${MODE_C_STAGE3_GIVE_PTS}p)`,
           },
         });
       } else {
@@ -292,8 +301,22 @@ async function closeModeBookPosition(cfg, book, pos, exitPx, reason, activeDhan,
   }
 }
 
+function updateModeStage3(cfg, pos, highPx, lowPx) {
+  if (!cfg.stage3TrigPts || cfg.stage3TrigPts <= 0) return false;
+  const fav = pos.side === 'LONG' ? highPx - pos.entryIdx : pos.entryIdx - lowPx;
+  if (fav > (pos.peakFavPts || 0)) pos.peakFavPts = +fav.toFixed(2);
+  if ((pos.peakFavPts || 0) < cfg.stage3TrigPts) return false;
+  const wasArmed = pos.stage3Floor != null;
+  const lockPts = pos.peakFavPts - cfg.stage3GivePts;
+  const cand = +(pos.side === 'LONG' ? pos.entryIdx + lockPts : pos.entryIdx - lockPts).toFixed(2);
+  if (pos.stage3Floor == null || (pos.side === 'LONG' && cand > pos.stage3Floor) || (pos.side === 'SHORT' && cand < pos.stage3Floor)) {
+    pos.stage3Floor = cand;
+  }
+  return !wasArmed && pos.stage3Floor != null;
+}
+
 /**
- * Evaluate real-time intrabar Spot triggers for Mode C (+120p lock, -150p hard cap, expiry close).
+ * Evaluate real-time intrabar Spot triggers for Mode C (+120p lock, -150p hard cap, Stage 3 >=+700p trail, expiry close).
  */
 async function checkModeCLiveIntrabar(activeDhan, botState) {
   const cfg = PROTECTED_MODES.find((m) => m.key === 'modeC');
@@ -306,23 +329,14 @@ async function checkModeCLiveIntrabar(activeDhan, botState) {
   const spot = await getNiftySpotLtp(activeDhan);
   if (!(spot > 0)) return;
 
-  if (!pos.locked) {
-    const hitTrig = pos.side === 'LONG' ? spot >= pos.entryIdx + cfg.trig : spot <= pos.entryIdx - cfg.trig;
-    if (hitTrig) {
-      pos.locked = true;
-      pos.lockPrice = +(pos.side === 'LONG' ? pos.entryIdx + cfg.floor : pos.entryIdx - cfg.floor).toFixed(2);
-      await notify(
-        `🔒 ${cfg.lockTag} LIVE INTRABAR ${SYM} hit +${cfg.trig} pts @ Spot ${spot}!\n` +
-        `Floor Stop locked at ${pos.lockPrice} (+${cfg.floor} pts)`
-      );
-    }
-  }
-
   let exitPx = null;
   let reason = null;
   if (pos.locked && ((pos.side === 'LONG' && spot <= pos.lockPrice) || (pos.side === 'SHORT' && spot >= pos.lockPrice))) {
     exitPx = spot;
     reason = 'PROFIT_LOCK_LTP';
+  } else if (pos.stage3Floor != null && ((pos.side === 'LONG' && spot <= pos.stage3Floor) || (pos.side === 'SHORT' && spot >= pos.stage3Floor))) {
+    exitPx = spot;
+    reason = 'STAGE3_TRAIL_LTP';
   } else if ((pos.side === 'LONG' && spot <= pos.entryIdx - cfg.capSl) || (pos.side === 'SHORT' && spot >= pos.entryIdx + cfg.capSl)) {
     exitPx = spot;
     reason = 'HARD_CAP_SL_LTP';
@@ -334,42 +348,50 @@ async function checkModeCLiveIntrabar(activeDhan, botState) {
   if (exitPx !== null) {
     pos.exitTs = Date.now();
     await closeModeBookPosition(cfg, botState.modeC, pos, exitPx, reason, activeDhan, true);
+    return;
+  }
+
+  if (!pos.locked) {
+    const hitTrig = pos.side === 'LONG' ? spot >= pos.entryIdx + cfg.trig : spot <= pos.entryIdx - cfg.trig;
+    if (hitTrig) {
+      pos.locked = true;
+      pos.lockPrice = +(pos.side === 'LONG' ? pos.entryIdx + cfg.floor : pos.entryIdx - cfg.floor).toFixed(2);
+      await notify(
+        `🔒 ${cfg.lockTag} LIVE INTRABAR ${SYM} hit +${cfg.trig} pts @ Spot ${spot}!\n` +
+        `Floor Stop locked at ${pos.lockPrice} (+${cfg.floor} pts)`
+      );
+    }
+  }
+  if (updateModeStage3(cfg, pos, spot, spot)) {
+    await notify(
+      `🚀 [MODE C - Stage 3 Blow-Off Trail] ARMED @ Spot ${spot} (+${pos.peakFavPts}p)!\n` +
+      `Trailing Floor at ${pos.stage3Floor} (Peak - ${cfg.stage3GivePts}p)`
+    );
   }
 }
 
 /**
- * Evaluate bar-by-bar profit-lock activation and exit triggers for Mode B / Mode C.
+ * Evaluate bar-by-bar profit-lock activation, Stage 3 trail, and exit triggers for Mode B / Mode C.
  */
 async function processProtectedModeBar(cfg, book, bar, sig, activeDhan) {
   const pos = book.pos;
   if (!pos) return;
 
-  if (!pos.locked) {
-    const triggered = pos.side === 'LONG'
-      ? bar.h >= pos.entryIdx + cfg.trig
-      : bar.l <= pos.entryIdx - cfg.trig;
-    if (triggered) {
-      pos.locked = true;
-      pos.lockPrice = +(pos.side === 'LONG' ? pos.entryIdx + cfg.floor : pos.entryIdx - cfg.floor).toFixed(2);
-      if (!OFFLINE && (!TG_MODE_C_ONLY || cfg.key === 'modeC')) {
-        await notify(
-          `🔒 ${cfg.lockTag} ${SYM} ${TF} ${pos.side} hit +${cfg.trig} pts!\n` +
-          `Floor Stop locked at ${pos.lockPrice} (+${cfg.floor} pts guaranteed profit)`
-        );
-      }
-    }
-  }
-
   let exitPx = null;
   let reason = null;
 
+  // Check active stops BEFORE tightening locks on the same bar (prevents lookahead)
   if (pos.locked) {
-    if (pos.side === 'LONG' && bar.l <= pos.lockPrice) {
+    if ((pos.side === 'LONG' && bar.l <= pos.lockPrice) || (pos.side === 'SHORT' && bar.h >= pos.lockPrice)) {
       exitPx = pos.lockPrice;
       reason = 'PROFIT_LOCK';
-    } else if (pos.side === 'SHORT' && bar.h >= pos.lockPrice) {
-      exitPx = pos.lockPrice;
-      reason = 'PROFIT_LOCK';
+    }
+  }
+
+  if (exitPx === null && pos.stage3Floor != null) {
+    if ((pos.side === 'LONG' && bar.l <= pos.stage3Floor) || (pos.side === 'SHORT' && bar.h >= pos.stage3Floor)) {
+      exitPx = pos.stage3Floor;
+      reason = 'STAGE3_TRAIL';
     }
   }
 
@@ -390,10 +412,33 @@ async function processProtectedModeBar(cfg, book, bar, sig, activeDhan) {
     }
   }
 
-  if (exitPx === null) return;
+  if (exitPx !== null) {
+    pos.exitTs = bar.t;
+    await closeModeBookPosition(cfg, book, pos, exitPx, reason, activeDhan, sig._isLatestBar);
+    return;
+  }
 
-  pos.exitTs = bar.t;
-  await closeModeBookPosition(cfg, book, pos, exitPx, reason, activeDhan, sig._isLatestBar);
+  if (!pos.locked) {
+    const triggered = pos.side === 'LONG'
+      ? bar.h >= pos.entryIdx + cfg.trig
+      : bar.l <= pos.entryIdx - cfg.trig;
+    if (triggered) {
+      pos.locked = true;
+      pos.lockPrice = +(pos.side === 'LONG' ? pos.entryIdx + cfg.floor : pos.entryIdx - cfg.floor).toFixed(2);
+      if (!OFFLINE && (!TG_MODE_C_ONLY || cfg.key === 'modeC')) {
+        await notify(
+          `🔒 ${cfg.lockTag} ${SYM} ${TF} ${pos.side} hit +${cfg.trig} pts!\n` +
+          `Floor Stop locked at ${pos.lockPrice} (+${cfg.floor} pts guaranteed profit)`
+        );
+      }
+    }
+  }
+  if (updateModeStage3(cfg, pos, bar.h, bar.l) && !OFFLINE && (!TG_MODE_C_ONLY || cfg.key === 'modeC')) {
+    await notify(
+      `🚀 [MODE C - Stage 3 Blow-Off Trail] ARMED @ +${pos.peakFavPts}p!\n` +
+      `Trailing Floor at ${pos.stage3Floor} (Peak - ${cfg.stage3GivePts}p)`
+    );
+  }
 }
 
 async function scanOnce(dhan, botState) {
@@ -515,6 +560,8 @@ async function scanOnce(dhan, botState) {
         delta: optSnap.delta,
         locked: false,
         lockPrice: null,
+        peakFavPts: 0,
+        stage3Floor: null,
         liveOrderPlaced: false,
       };
 
@@ -615,7 +662,6 @@ async function scanOnce(dhan, botState) {
 async function main() {
   const botState = OFFLINE ? makeDefaultBotState() : loadJsonState(STATE_PATH, makeDefaultBotState);
   if (!botState.modeC) botState.modeC = makeEmptyBook(OPT_CAPITAL_RS);
-  const dhan = !OFFLINE && isDhanConfigured() ? createDhanClient() : null;
 
   const execBadge = OFFLINE ? 'OFFLINE REPLAY' : (AUTO_TRADE ? 'LIVE OPTIONS (MODE C)' : 'PAPER LIVE');
   console.log(
@@ -631,16 +677,16 @@ async function main() {
       await notify(
         `🤖 AI Renko Supertrend™ Bot STARTED (${execBadge})\n` +
         `Symbol: ${SYM} ${TF} | Brick=${BRICK_SIZE} | Lots=${LOTS} (${MIN_DTE_DAYS}-${MAX_DTE_DAYS} DTE ${STRIKE_MODE.toUpperCase()})\n` +
-        `Mode C LIVE (+${MODE_C_TRIGGER_PTS}p -> +${MODE_C_LOCK_PTS}p, Cap -${MODE_C_CAP_SL_PTS}p) + Mode A & B Paper tracking`
+        `Mode C LIVE (+${MODE_C_TRIGGER_PTS}p -> +${MODE_C_LOCK_PTS}p, Cap -${MODE_C_CAP_SL_PTS}p, S3 >=+${MODE_C_STAGE3_TRIG_PTS}p/-${MODE_C_STAGE3_GIVE_PTS}p) + Mode A & B Paper tracking`
       );
     }
   }
 
   if (ONCE || OFFLINE) {
-    await scanOnce(dhan, botState);
+    await scanOnce(null, botState);
   } else {
     try {
-      await scanOnce(dhan, botState);
+      await scanOnce(null, botState);
       saveJsonState(STATE_PATH, botState);
     } catch (e) {
       console.error(`[${BOT_NAME}] Initial scan error (continuing loop):`, e.message);
@@ -669,7 +715,7 @@ async function main() {
 
   setInterval(async () => {
     try {
-      await scanOnce(dhan, botState);
+      await scanOnce(null, botState);
       saveJsonState(STATE_PATH, botState);
     } catch (e) {
       console.error(`[${BOT_NAME}] Poll error:`, e.message);
