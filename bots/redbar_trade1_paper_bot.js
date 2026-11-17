@@ -32,9 +32,10 @@ const SYM = 'NIFTY';
 const WORK_TF = '15m';
 const RED_TF = '1h';
 const RED_MS = 3600 * 1000;
-const RR_TARGET = Number(process.env.TRADE1_RR || 3.0);
-const BE_AT_1R = String(process.env.TRADE1_BE_1R || 'true').toLowerCase() === 'true';
-const EOD_EXIT = String(process.env.TRADE1_EOD_EXIT || 'false').toLowerCase() === 'true';
+const RR_TARGET = Number(process.env.TRADE1_RR || 2.5);
+const BE_AT_1R = String(process.env.TRADE1_BE_1R || 'false').toLowerCase() === 'true';
+const EOD_EXIT = String(process.env.TRADE1_EOD_EXIT || 'true').toLowerCase() === 'true';
+const CLOSE_BACK_CUT = String(process.env.TRADE1_CLOSE_BACK || 'true').toLowerCase() === 'true';
 const MAX_RISK_PCT = Number(process.env.TRADE1_MAX_RISK_PCT || 0.015);
 const LOTS = Math.max(1, Number(process.env.TRADE1_LOTS || 1));
 const MULT = 65;
@@ -157,7 +158,10 @@ async function scanOnce(dhan, botState) {
         reason = pos.be ? 'BE_STOP' : 'SL_HIT';
       } else if ((pos.side === 'LONG' && b.h >= pos.tp) || (pos.side === 'SHORT' && b.l <= pos.tp)) {
         exitPx = pos.tp;
-        reason = 'TP_3R';
+        reason = `TP_${RR_TARGET}R`;
+      } else if (CLOSE_BACK_CUT && ((pos.side === 'LONG' && b.c < pos.frHigh) || (pos.side === 'SHORT' && b.c > pos.frLow))) {
+        exitPx = b.c;
+        reason = 'CLOSE_BACK_CUT';
       } else if (EOD_EXIT && day === pos.day && mins >= 15 * 60 + 10) {
         exitPx = b.c;
         reason = 'EOD_1510';
@@ -244,6 +248,8 @@ async function scanOnce(dhan, botState) {
                 tp,
                 risk: +risk.toFixed(2),
                 entryTs: b.t,
+                frHigh: fr.high,
+                frLow: fr.low,
                 be: false,
                 optLabel: optSnap.label,
                 expiry: optSnap.expiry || null,
