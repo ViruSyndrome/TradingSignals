@@ -20,19 +20,22 @@ const {
   completedBars,
   fetchSymbolBars,
   getIstClock,
+  getNiftySpotLtp,
   resolveSwingOption,
   fetchOptionLiveOrEstExit,
+  executeOptionSwingOrder,
   createDhanClient,
   isDhanConfigured,
 } = require('../js/futures_bot_runtime.js');
 
 const BOT_NAME = 'REDBAR_TRADE1_PAPER';
 const STATE_PATH = path.join(__dirname, 'state_redbar_trade1.json');
+const PATRICK_STATE_PATH = path.join(__dirname, 'state_patrick_futures.json');
 const SYM = 'NIFTY';
 const WORK_TF = '15m';
 const RED_TF = '1h';
 const RED_MS = 3600 * 1000;
-const RR_TARGET = Number(process.env.TRADE1_RR || 2.5);
+const RR_TARGET = Number(process.env.TRADE1_RR || 3.0);
 const BE_AT_1R = String(process.env.TRADE1_BE_1R || 'false').toLowerCase() === 'true';
 const EOD_EXIT = String(process.env.TRADE1_EOD_EXIT || 'true').toLowerCase() === 'true';
 const CLOSE_BACK_CUT = String(process.env.TRADE1_CLOSE_BACK || 'true').toLowerCase() === 'true';
@@ -43,10 +46,23 @@ const FUT_COST_PTS = 9.3;
 const OPT_COST_PTS = 1.5;
 const MIN_DTE_DAYS = 7;
 const MAX_DTE_DAYS = 25;
-const POLL_MS = Math.max(30000, Number(process.env.TRADE1_POLL_MS || 90000));
+const POLL_MS = Math.max(30000, Number(process.env.TRADE1_POLL_MS || 97000));
+const PATRICK_RESERVE_RS = Math.max(0, Number(process.env.TRADE1_PATRICK_RESERVE_RS || 20000));
 
 const ONCE = process.argv.includes('--once');
 const OFFLINE = process.argv.includes('--offline');
+const AUTO_TRADE = !OFFLINE && String(process.env.TRADE1_AUTO_TRADE || 'false').toLowerCase() === 'true';
+
+function isPatrickFlat() {
+  if (OFFLINE) return true;
+  try {
+    if (!fs.existsSync(PATRICK_STATE_PATH)) return true;
+    const raw = JSON.parse(fs.readFileSync(PATRICK_STATE_PATH, 'utf8'));
+    return !(raw?.bySymbol?.[SYM]?.pos?.side);
+  } catch {
+    return true;
+  }
+}
 
 // Default Telegram OFF so experimental paper results don't clutter live bots unless opted in
 if (process.env.NOTIFY_TELEGRAM === undefined) process.env.NOTIFY_TELEGRAM = 'false';
@@ -120,8 +136,100 @@ function buildFirstRedByDay(redBars) {
   return map;
 }
 
+async function closeTrade1Position(activeDhan, botState, pos, exitPx, reason, exitTs, isLatest) {
+  let execNote = '';
+  if (AUTO_TRADE && pos.liveOrderPlaced && pos.optSecurityId && activeDhan) {
+    try {
+      const ord = await executeOptionSwingOrder(activeDhan, {
+        autoTrade: true,
+        securityId: pos.optSecurityId,
+        txType: 'SELL',
+        lots: LOTS,
+        qtyPerLot: MULT,
+        tag: `T1_${reason}`.slice(0, 12),
+      });
+      execNote = ord.placed ? ` | Broker SELL OK (${ord.orderId || 'OK'})` : ` | Broker SELL Skipped (${ord.reason})`;
+    } catch (e) {
+      execNote = ` | Broker SELL Err: ${e.message}`;
+    }
+  }
+  const grossIdx = pos.side === 'LONG' ? exitPx - pos.entry : pos.entry - exitPx;
+  const netFutPts = +(grossIdx - FUT_COST_PTS).toFixed(2);
+  const netFutRs = Math.round(netFutPts * MULT * LOTS);
+  const exitOpt = await fetchOptionLiveOrEstExit({
+    dhan: activeDhan,
+    securityId: pos.optSecurityId,
+    live: pos.optLive,
+    side: pos.side,
+    entryIdx: pos.entry,
+    entryOpt: pos.entryOpt,
+    exitIdx: exitPx,
+    delta: pos.delta || 0.58,
+    entryTs: pos.entryTs,
+    exitTs,
+    offline: OFFLINE,
+  });
+  const netOptPts = +(exitOpt - pos.entryOpt - OPT_COST_PTS).toFixed(2);
+  const netOptRs = Math.round(netOptPts * MULT * LOTS);
+
+  botState.netFutRs = Math.round((botState.netFutRs || 0) + netFutRs);
+  botState.netOptRs = Math.round((botState.netOptRs || 0) + netOptRs);
+  botState.trades.push({
+    day: pos.day,
+    side: pos.side,
+    reason,
+    entry: pos.entry,
+    exit: exitPx,
+    grossIdx: +grossIdx.toFixed(2),
+    netFutRs,
+    netOptRs,
+    mode: pos.liveOrderPlaced ? 'LIVE' : 'PAPER',
+  });
+  if (botState.trades.length > 300) botState.trades.shift();
+  botState.pos = null;
+  if (!OFFLINE || isLatest) {
+    const wins = botState.trades.filter((x) => x.netOptRs > 0).length;
+    await notify(
+      `${netOptRs >= 0 ? '✅' : '🛑'} [TRADE 1 ${AUTO_TRADE ? 'LIVE' : 'PAPER'} EXIT] ${SYM} ${pos.side} (${reason}) | ` +
+      `Idx ${pos.entry.toFixed(1)}→${exitPx.toFixed(1)} | Opt ₹${pos.entryOpt}→₹${exitOpt} (Opt ${netOptRs >= 0 ? '+' : ''}₹${netOptRs}) | ` +
+      `${wins}W/${botState.trades.length - wins}L (Net ₹${botState.netOptRs})${execNote}`
+    );
+  }
+}
+
+async function checkTrade1LiveIntrabar(activeDhan, botState) {
+  if (OFFLINE || !botState.pos || !activeDhan || !isDhanConfigured()) return;
+  const clk = getIstClock();
+  if (!clk.isOpen) return;
+  const spot = await getNiftySpotLtp(activeDhan);
+  if (!(spot > 0)) return;
+  const pos = botState.pos;
+
+  if (BE_AT_1R && !pos.be) {
+    const hit1R = pos.side === 'LONG' ? spot >= pos.entry + pos.risk : spot <= pos.entry - pos.risk;
+    if (hit1R) {
+      pos.be = true;
+      pos.sl = pos.entry;
+    }
+  }
+  let reason = null;
+  if ((pos.side === 'LONG' && spot <= pos.sl) || (pos.side === 'SHORT' && spot >= pos.sl)) {
+    reason = pos.be ? 'BE_STOP_LTP' : 'SL_HIT_LTP';
+  } else if ((pos.side === 'LONG' && spot >= pos.tp) || (pos.side === 'SHORT' && spot <= pos.tp)) {
+    reason = `TP_${RR_TARGET}R_LTP`;
+  } else if (EOD_EXIT && clk.dateStr === pos.day && clk.mins >= 910) {
+    reason = 'EOD_1510';
+  } else if (pos.expiry && pos.expiry === clk.dateStr && clk.mins >= 910) {
+    reason = 'EXPIRY_1510';
+  }
+  if (reason) {
+    await closeTrade1Position(activeDhan, botState, pos, spot, reason, Date.now(), true);
+  }
+}
+
 async function scanOnce(dhan, botState) {
   const activeDhan = OFFLINE ? null : (dhan || (isDhanConfigured() ? createDhanClient() : null));
+  await checkTrade1LiveIntrabar(activeDhan, botState);
   const workBars = OFFLINE ? loadOfflineBars(WORK_TF) : completedBars(await fetchSymbolBars(activeDhan, SYM, WORK_TF, 25), WORK_TF);
   const redBars = OFFLINE ? loadOfflineBars(RED_TF) : completedBars(await fetchSymbolBars(activeDhan, SYM, RED_TF, 25), RED_TF);
   if (workBars.length < 30 || redBars.length < 10) return;
@@ -171,46 +279,7 @@ async function scanOnce(dhan, botState) {
       }
 
       if (exitPx !== null) {
-        const grossIdx = pos.side === 'LONG' ? exitPx - pos.entry : pos.entry - exitPx;
-        const netFutPts = +(grossIdx - FUT_COST_PTS).toFixed(2);
-        const netFutRs = Math.round(netFutPts * MULT * LOTS);
-        const exitOpt = await fetchOptionLiveOrEstExit({
-          dhan: activeDhan,
-          securityId: pos.optSecurityId,
-          live: pos.optLive,
-          side: pos.side,
-          entryIdx: pos.entry,
-          entryOpt: pos.entryOpt,
-          exitIdx: exitPx,
-          delta: pos.delta || 0.58,
-          entryTs: pos.entryTs,
-          exitTs: b.t,
-          offline: OFFLINE,
-        });
-        const netOptPts = +(exitOpt - pos.entryOpt - OPT_COST_PTS).toFixed(2);
-        const netOptRs = Math.round(netOptPts * MULT * LOTS);
-
-        botState.netFutRs = Math.round((botState.netFutRs || 0) + netFutRs);
-        botState.netOptRs = Math.round((botState.netOptRs || 0) + netOptRs);
-        botState.trades.push({
-          day: pos.day,
-          side: pos.side,
-          reason,
-          entry: pos.entry,
-          exit: exitPx,
-          grossIdx: +grossIdx.toFixed(2),
-          netFutRs,
-          netOptRs,
-        });
-        if (botState.trades.length > 300) botState.trades.shift();
-        botState.pos = null;
-        if (!OFFLINE || isLatest) {
-          const wins = botState.trades.filter((x) => x.netOptRs > 0).length;
-          await notify(
-            `${netOptRs >= 0 ? '✅' : '🛑'} [TRADE 1 PAPER EXIT] ${SYM} ${pos.side} (${reason}) | ` +
-            `Idx ${pos.entry.toFixed(1)}→${exitPx.toFixed(1)} (Fut ₹${netFutRs}) | Opt ₹${pos.entryOpt}→₹${exitOpt} (Opt ₹${netOptRs}) | ${wins}W/${botState.trades.length - wins}L`
-          );
-        }
+        await closeTrade1Position(activeDhan, botState, pos, exitPx, reason, b.t, isLatest);
       }
     } else if (!takenSet.has(day) && mins >= 9 * 60 + 25 && mins <= 14 * 60 + 45) {
       const fr = OFFLINE
@@ -238,6 +307,30 @@ async function scanOnce(dhan, botState) {
                 strikeMode: 'atm',
                 offline: OFFLINE,
               });
+              let liveOrderPlaced = false;
+              let liveNote = '';
+              if (AUTO_TRADE && optSnap.live && optSnap.securityId && activeDhan) {
+                try {
+                  const ord = await executeOptionSwingOrder(activeDhan, {
+                    autoTrade: true,
+                    securityId: optSnap.securityId,
+                    txType: 'BUY',
+                    lots: LOTS,
+                    qtyPerLot: MULT,
+                    estPremium: optSnap.premium,
+                    minRemainingRs: isPatrickFlat() ? PATRICK_RESERVE_RS : 0,
+                    tag: 'T1_OPT_ENT',
+                  });
+                  if (ord.placed) {
+                    liveOrderPlaced = true;
+                    liveNote = ` | ✅ LIVE BUY ${LOTS} lot (${ord.orderId || 'OK'})`;
+                  } else {
+                    liveNote = ` | ⚠️ Live Skipped (${ord.reason})`;
+                  }
+                } catch (e) {
+                  liveNote = ` | ❌ Live Err: ${e.message}`;
+                }
+              }
               takenSet.add(day);
               botState.takenDays = [...takenSet].slice(-90);
               botState.pos = {
@@ -257,11 +350,36 @@ async function scanOnce(dhan, botState) {
                 optLive: optSnap.live,
                 entryOpt: optSnap.premium,
                 delta: optSnap.delta,
+                liveOrderPlaced,
               };
               if (!OFFLINE || isLatest) {
-                await notify(
-                  `🟢 [TRADE 1 PAPER ENTER] ${SYM} ${side} | Entry ${b.c.toFixed(1)} | SL ${sl} | ${RR_TARGET}R TP ${tp} | Opt ${optSnap.label} @ ₹${optSnap.premium}`
-                );
+                const textMsg =
+                  `🟢 [TRADE 1 ${liveOrderPlaced ? 'LIVE' : 'PAPER'} ENTER] ${SYM} ${side}\n` +
+                  `Index: ${b.c.toFixed(1)} | Floor SL: ${sl} | ${RR_TARGET}R TP: ${tp}\n` +
+                  `Option: ${optSnap.label} @ ₹${optSnap.premium} (${LOTS} lot = ${LOTS * MULT} qty)${liveNote}`;
+                await notify(OFFLINE ? textMsg : {
+                  text: textMsg,
+                  card: {
+                    kind: side === 'LONG' ? 'ENTER_LONG' : 'ENTER_SHORT',
+                    title: `TRADE 1 (1H RED) • ${SYM} 15m`,
+                    subtitle: `CloseBack Cut • ${RR_TARGET}R TP • 15:10 EOD`,
+                    execBadge: liveOrderPlaced ? 'LIVE OPTIONS' : 'PAPER',
+                    ts: b.t,
+                    bars: workBars.slice(Math.max(0, i - 47), i + 1),
+                    levels: [
+                      { price: b.c, label: `ENTRY ${b.c.toFixed(1)}`, color: '#38bdf8' },
+                      { price: sl, label: `SL ${sl.toFixed(1)}`, color: '#ef4444' },
+                      { price: tp, label: `${RR_TARGET}R TP ${tp.toFixed(1)}`, color: '#22c55e', dash: '3 3' },
+                    ],
+                    metrics: [
+                      { label: 'Dhan Option', value: optSnap.label, sub: `${LOTS} lot (${LOTS * MULT} qty)` },
+                      { label: 'Option Entry', value: `₹${optSnap.premium}`, sub: `Delta ${optSnap.delta}` },
+                      { label: 'Cut Rule', value: 'CloseBack Inside 1H Red', sub: `Emergency SL ${sl}` },
+                      { label: 'Session Exit', value: EOD_EXIT ? 'Intraday 15:10 EOD' : 'Swing', sub: `${RR_TARGET}R Target` },
+                    ],
+                    footer: '1H First-Red Trade 1 • Max 1 Trade/Day • Intraday Options',
+                  },
+                });
               }
             }
           }
