@@ -1592,6 +1592,7 @@ const RedBarTrend = {
       sandwich,
       inSandwich: false, // filled by caller with live price
       gapMinPts,
+      wideHighwayPts: widePts,
     };
   },
 
@@ -1650,7 +1651,8 @@ const RedBarTrend = {
       ? (advanced.firstRed.t + (advanced.firstRed.barMs || barMs))
       : null;
     const freshMs = 20 * 60 * 1000;
-    const tol = 8;
+    const refPx = Number(bars5m[bars5m.length - 1]?.c) || 25000;
+    const tol = Math.max(8, Math.round(refPx * 0.00032));
     let best = null;
 
     for (let i = bars5m.length - 1; i >= 0; i--) {
@@ -4271,8 +4273,8 @@ const RedBarTrend = {
       price, firstRed1h, evalTs, c.touchPct ?? 0.15, slice, bars5m,
     );
 
-    // Advanced NIFTY Red Bar: first-bar / red / gap medians anchored on 5m chart.
-    const advancedFibsEnabled = !!(c.advancedFibs && this.isIndianIndex(instIdEarly) && instIdEarly === 'NIFTY');
+    // Advanced Red Bar: first-bar / red / gap medians anchored on 5m chart across Indian indices (NIFTY, BANKNIFTY, SENSEX).
+    const advancedFibsEnabled = !!(c.advancedFibs && this.isIndianIndex(instIdEarly));
     let advancedFibs = null;
     let fibBounce = null;
     if (advancedFibsEnabled && bars5m) {
