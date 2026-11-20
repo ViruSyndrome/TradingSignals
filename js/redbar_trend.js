@@ -889,9 +889,10 @@ const RedBarTrend = {
   },
 
   /** H/L of one exchange session for the IST calendar day that contains `asOfTs`. */
-  sessionHlForIstDay(bars, session, asOfTs) {
+  sessionHlForIstDay(bars, session, asOfTs, opts = {}) {
     if (!bars || !session || !session.timeZone || !asOfTs) return null;
     const istDay = this.zonedDay(asOfTs, 'Asia/Kolkata');
+    const maxExclusiveTs = Number.isFinite(opts.maxExclusiveTs) ? opts.maxExclusiveTs : null;
     const openH = (session.open && session.open[0]) || 0;
     const openM = (session.open && session.open[1]) || 0;
     const closeH = (session.close && session.close[0]) || 23;
@@ -903,6 +904,7 @@ const RedBarTrend = {
     let touched = false;
     for (const b of bars) {
       if (this.zonedDay(b.t, 'Asia/Kolkata') !== istDay) continue;
+      if (maxExclusiveTs != null && b.t >= maxExclusiveTs) continue;
       const z = this.zonedHms(b.t, session.timeZone);
       const mins = z.hour * 60 + z.minute;
       const inSession = closeMins > openMins
@@ -4323,8 +4325,15 @@ const RedBarTrend = {
       || sessions.find((s) => /london|mcx\s*eve/i.test(s.label || ''));
     const nySess = sessions.find((s) => ['ny', 'us', 'newyork'].includes((s.id || '').toLowerCase()))
       || sessions.find((s) => /us|ny|new\s*york/i.test(s.label || ''));
-    const asiaHl = asiaSess ? this.sessionHlForIstDay(slice, asiaSess, bars[i].t) : null;
-    const londonHl = londonSess ? this.sessionHlForIstDay(slice, londonSess, bars[i].t) : null;
+    const curIstDay = this.zonedDay(bars[i].t, 'Asia/Kolkata');
+    const lonOpenCutoffTs = (londonSess && londonSess.timeZone && londonSess.open)
+      ? this.zonedClockToUtc(curIstDay, londonSess.timeZone, londonSess.open[0], londonSess.open[1])
+      : null;
+    const nyOpenCutoffTs = (nySess && nySess.timeZone && nySess.open)
+      ? this.zonedClockToUtc(curIstDay, nySess.timeZone, nySess.open[0], nySess.open[1])
+      : null;
+    const asiaHl = asiaSess ? this.sessionHlForIstDay(slice, asiaSess, bars[i].t, { maxExclusiveTs: lonOpenCutoffTs }) : null;
+    const londonHl = londonSess ? this.sessionHlForIstDay(slice, londonSess, bars[i].t, { maxExclusiveTs: nyOpenCutoffTs }) : null;
     const nyHl = nySess ? this.sessionHlForIstDay(slice, nySess, bars[i].t) : null;
     const asiaUntouched = !!(asiaHl && price < asiaHl.high && price > asiaHl.low);
     const sweep = this.detectSessionSweep(slice, clock, asiaHl, londonHl, firstRed1h, evalTs);
