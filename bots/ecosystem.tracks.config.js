@@ -116,6 +116,7 @@ module.exports = {
         TRADE1_MIN_RISK_PTS: '12',
         TRADE1_CLOSE_BACK: 'true',
         TRADE1_EOD_EXIT: 'true',
+        TRADE1_ALIGN_AI_RENKO: 'true',
         TRADE1_PATRICK_RESERVE_RS: '20000',
         TRADE1_POLL_MS: '97000',
       },

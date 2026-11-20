@@ -15,6 +15,7 @@ require('dotenv').config();
 const fs = require('fs');
 const path = require('path');
 const RedBarTrend = require('../archive/nov6-close/js/redbar_trend.js');
+const { calculateAIRenkoSupertrend } = require('../js/ai_renko_supertrend.js');
 const {
   createNotifier,
   loadJsonState,
@@ -58,6 +59,11 @@ const MAX_DTE_DAYS = 25;
 const POLL_MS = Math.max(30000, Number(process.env.TRADE1_POLL_MS || 97000));
 const PATRICK_RESERVE_RS = Math.max(0, Number(process.env.TRADE1_PATRICK_RESERVE_RS || 20000));
 const START_DATE = String(process.env.TRADE1_START_DATE || '').trim();
+const ALIGN_AI_RENKO = String(process.env.TRADE1_ALIGN_AI_RENKO || 'false').toLowerCase() === 'true';
+const RENKO_ATR_LEN = Number(process.env.AI_RENKO_ATR_LEN || 14);
+const RENKO_FACTOR = Number(process.env.AI_RENKO_FACTOR || 3);
+const RENKO_BRICK = Number(process.env.AI_RENKO_BRICK || 33.33);
+const RENKO_ADX_FILTER = String(process.env.AI_RENKO_ADX_FILTER || 'false').toLowerCase() === 'true';
 
 function isPatrickFlat() {
   if (OFFLINE) return true;
@@ -267,6 +273,13 @@ async function scanOnce(dhan, botState) {
   const redBars = OFFLINE ? loadOfflineBars(RED_TF) : completedBars(await fetchSymbolBars(activeDhan, SYM, RED_TF, 25), RED_TF);
   if (workBars.length < 30 || redBars.length < 10) return;
 
+  const stArr = ALIGN_AI_RENKO
+    ? calculateAIRenkoSupertrend(
+      workBars.map((b) => ({ time: b.t, open: b.o, high: b.h, low: b.l, close: b.c, volume: b.v || 0 })),
+      { atrLength: RENKO_ATR_LEN, baseFactor: RENKO_FACTOR, autoBrickSize: false, manualBrickSize: RENKO_BRICK, choppyFilterAdx: RENKO_ADX_FILTER }
+    )
+    : null;
+
   const firstRedMap = buildFirstRedByDay(redBars);
   const takenSet = new Set(Array.isArray(botState.takenDays) ? botState.takenDays : []);
   const startT = OFFLINE ? Math.max(workBars[0].t, redBars[0].t) : 0;
@@ -332,6 +345,23 @@ async function scanOnce(dhan, botState) {
               botState.lastClosePx = b.c;
               botState.lastBarIso = new Date(b.t).toISOString();
               continue;
+            }
+            if (ALIGN_AI_RENKO && stArr && stArr[i]) {
+              const stTrend = stArr[i].trend;
+              const aligned = (side === 'LONG' && stTrend === 1) || (side === 'SHORT' && stTrend === -1);
+              if (!aligned) {
+                if (!OFFLINE && isLatest && botState.lastSkipAlertTs !== b.t) {
+                  botState.lastSkipAlertTs = b.t;
+                  const renkoDir = stTrend === 1 ? 'LONG' : 'SHORT';
+                  await notify(
+                    `⏭️ [TRADE 1 FILTERED] Skipped ${SYM} ${side} @ ${b.c.toFixed(1)} — opposite to AI Renko (${renkoDir}, ST ${stArr[i].supertrend?.toFixed(1)})`
+                  );
+                }
+                botState.lastProcessedTs = b.t;
+                botState.lastClosePx = b.c;
+                botState.lastBarIso = new Date(b.t).toISOString();
+                continue;
+              }
             }
             const rawSl = side === 'LONG' ? fr.low : fr.high;
             const risk = Math.max(MIN_RISK_PTS, Math.abs(b.c - rawSl));
@@ -449,7 +479,7 @@ async function main() {
   console.log(
     `[${BOT_NAME}] Starting (${OFFLINE ? 'OFFLINE REPLAY' : (AUTO_TRADE ? 'LIVE OPTIONS' : 'PAPER')}) | ` +
     `${SYM} ${WORK_TF} (Red=${RED_TF}) | RR=${RR_TARGET} | StrongClose>=${STRONG_CLOSE_MIN} | ` +
-    `BE=${BE_TRIG_PTS}p/+${BE_LOCK_PTS}p | EOD=${EOD_EXIT}${START_DATE ? ` | StartDate=${START_DATE}` : ''}`
+    `BE=${BE_TRIG_PTS}p/+${BE_LOCK_PTS}p | AlignRenko=${ALIGN_AI_RENKO} | EOD=${EOD_EXIT}${START_DATE ? ` | StartDate=${START_DATE}` : ''}`
   );
 
   const clk0 = getIstClock();
