@@ -221,10 +221,12 @@ async function scanOnce(trader, botState) {
     for (const ev of events) {
       if (ev.type === 'ENTER') {
         let liveNote = '';
+        let liveBlocked = false;
         if (AUTO_TRADE && trader) {
           try {
             const { amt } = await inspectBinancePosition(trader);
             if (Math.abs(amt) > 0) {
+              liveBlocked = true;
               const key = `${SYMBOL}:${amt}`;
               liveNote = `\n⏸️ LIVE SKIPPED: Unmanaged ${SYMBOL} position (${amt} BTC) already open on Binance — will auto-trade cleanly once flat.`;
               if (botState.unmanagedAlertKey !== key) {
@@ -261,11 +263,18 @@ async function scanOnce(trader, botState) {
                 }
                 liveNote = `\n✅ LIVE BINANCE (${LEVERAGE}x Isolated): Qty=${ord.qty} BTC @ $${ord.avgPrice} | Stop=$${ord.stopPrice} (Algo=${ord.stopAlgoId || 'PENDING'})${ord.warning ? ` ⚠️ ${ord.warning}` : ''}`;
               } else {
+                liveBlocked = true;
                 liveNote = `\n⚠️ LIVE SKIPPED (${ord.reason}${ord.notional !== undefined ? `: $${ord.notional} < min $${ord.minNotional}` : ''})`;
               }
             }
           } catch (e) {
+            liveBlocked = true;
             liveNote = `\n❌ Binance ENTER Error: ${e.message}`;
+          }
+          if (liveBlocked) {
+            botState.pos = null;
+            if (ev.side === 'LONG') botState.longTaken = false;
+            else botState.shortTaken = false;
           }
         }
         if (!OFFLINE || isLatestBar) {
