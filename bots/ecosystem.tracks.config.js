@@ -79,7 +79,7 @@ module.exports = {
         AI_RENKO_STRIKE_MODE: 'atm',
         AI_RENKO_OPT_CAPITAL_RS: '37790',
         AI_RENKO_PAUSE_ON_PATRICK: 'opposite',
-        AI_RENKO_PATRICK_RESERVE_RS: '0',
+        AI_RENKO_PATRICK_RESERVE_RS: '20000',
         AI_RENKO_TG_MODE_C_ONLY: 'true',
         AI_RENKO_AUTO_TRADE: 'true',
         AI_RENKO_POLL_MS: '67000',
