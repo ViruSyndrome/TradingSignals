@@ -235,8 +235,8 @@ async function scanOnce(trader, botState) {
               }
             } else {
               botState.unmanagedAlertKey = '';
-              const avail = await trader.getAvailableUsdt();
-              const marginUsdt = +(avail * MARGIN_FRAC).toFixed(2);
+              const bal = await trader.getUsdtBalances();
+              const marginUsdt = +Math.min(bal.available * 0.95, Math.max(bal.wallet, bal.available) * MARGIN_FRAC).toFixed(2);
               const ord = await trader.openSingleStopTrade({
                 symbol: SYMBOL,
                 side: ev.side,
@@ -416,8 +416,8 @@ async function main() {
     let balLine = 'API keys not set (paper only)';
     if (trader) {
       try {
-        const [u, posInfo] = await Promise.all([trader.getAvailableUsdt(), inspectBinancePosition(trader)]);
-        balLine = `Avail: $${u.toFixed(2)} | Binance Pos: ${posInfo.amt} BTC`;
+        const [bal, posInfo] = await Promise.all([trader.getUsdtBalances(), inspectBinancePosition(trader)]);
+        balLine = `Avail: $${bal.available.toFixed(2)} / Wallet: $${bal.wallet.toFixed(2)} | Binance Pos: ${posInfo.amt} BTC`;
       } catch (e) {
         balLine = `Binance Check Err: ${e.message}`;
       }

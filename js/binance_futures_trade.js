@@ -142,12 +142,21 @@ function createBinanceFuturesTrade(opts = {}) {
     return Array.isArray(rows) ? rows : [];
   }
 
-  async function getAvailableUsdt() {
+  async function getUsdtBalances() {
     await _syncTime();
     const rows = await _request('GET', '/fapi/v2/balance', {}, { signed: true });
     const usdt = (Array.isArray(rows) ? rows : []).find((r) => String(r.asset).toUpperCase() === 'USDT');
-    const avbl = parseFloat(usdt?.availableBalance ?? usdt?.withdrawAvailable ?? 0);
-    return Number.isFinite(avbl) ? avbl : 0;
+    const available = parseFloat(usdt?.availableBalance ?? usdt?.withdrawAvailable ?? 0);
+    const wallet = parseFloat(usdt?.balance ?? usdt?.crossWalletBalance ?? available);
+    return {
+      available: Number.isFinite(available) ? available : 0,
+      wallet: Number.isFinite(wallet) ? wallet : 0,
+    };
+  }
+
+  async function getAvailableUsdt() {
+    const b = await getUsdtBalances();
+    return b.available;
   }
 
   async function getOpenOrders(symbol) {
@@ -762,6 +771,7 @@ function createBinanceFuturesTrade(opts = {}) {
     cancelAlgoOrder,
     getPositionRisk,
     getAvailableUsdt,
+    getUsdtBalances,
     getOpenOrders,
     getMarkPrice,
     setLeverage,
