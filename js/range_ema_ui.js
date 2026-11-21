@@ -417,19 +417,37 @@ const RangeEmaUI = {
 
   async _refreshFuturesPositions() {
     try {
-      const data = await this._futuresFetch('/api/trade/futures/positions?symbol=BTCUSDT');
+      const inst = this.activeInstrument() || {};
+      const sym = String(inst.symbol || 'BTCUSDT').toUpperCase();
+      const data = await this._futuresFetch(`/api/trade/futures/positions?symbol=${encodeURIComponent(sym)}`);
       this.state.futuresStatus = data;
       const nPos = (data.positions || []).length;
       const nOrd = (data.openOrders || []).length;
       this._showDeskToast(
         nPos || nOrd
-          ? `Binance: ${nPos} open position(s), ${nOrd} open order(s) — see Futures Positions`
-          : 'Binance: no open BTCUSDT futures position'
+          ? `Binance ${sym}: ${nPos} open position(s), ${nOrd} open order(s)`
+          : `Binance: no open ${sym} futures position`
       );
       this.render();
     } catch (e) {
       this._showDeskToast(e.message || 'Could not read positions');
     }
+  },
+
+  async _refreshCryptoBotsStatus() {
+    try {
+      const now = Date.now();
+      if (this._botStatusFetchedAt && now - this._botStatusFetchedAt < 20000) return;
+      this._botStatusFetchedAt = now;
+      const base = this._botBaseUrl();
+      if (!base) return;
+      const r = await fetch(`${base}/api/bots/crypto-status`, { cache: 'no-store' });
+      if (!r.ok) return;
+      const j = await r.json();
+      if (j && j.ok && j.bots) {
+        this.state.cryptoBotsStatus = j.bots;
+      }
+    } catch (_) {}
   },
 
   _friendlyErr(e) {
@@ -456,6 +474,7 @@ const RangeEmaUI = {
     // New generation invalidates in-flight work so tab clicks are never ignored
     const gen = ++this._refreshGen;
     const inst = this.activeInstrument();
+    if (inst?.botMeta) this._refreshCryptoBotsStatus();
     const curRow = (this.state.rows || [])[0];
     const sameChartShowing = !!(
       this._chart
@@ -619,6 +638,7 @@ const RangeEmaUI = {
       const needFib30m = tf === '1h' && mwMins < 60 && firstRedTf !== '30m';
       const need1m = (typeof FibMagnet !== 'undefined');
       const needWorkTf = tf !== workTf;
+      const needEth4h = instUpperId === 'ETH' && tf !== '4h' && typeof AIRenkoSupertrend !== 'undefined';
       const pair = await Promise.allSettled([
         get(tf, lim),
         needPivotFetch ? get(firstRedTf, limPivot) : Promise.resolve(null),
@@ -626,6 +646,7 @@ const RangeEmaUI = {
         needFib30m ? get('30m', 500) : Promise.resolve(null),
         need1m ? get('1m', 50) : Promise.resolve(null),
         needWorkTf ? get(workTf, 500) : Promise.resolve(null),
+        needEth4h ? get('4h', 400) : Promise.resolve(null),
       ]);
       if (pair[0].status !== 'fulfilled') throw pair[0].reason;
       raw = pair[0].value;
@@ -649,6 +670,7 @@ const RangeEmaUI = {
         raw1m = pair[4].value;
       }
       var rawWork = needWorkTf && pair[5]?.status === 'fulfilled' ? pair[5].value : null;
+      var rawEth4h = needEth4h && pair[6]?.status === 'fulfilled' ? pair[6].value : null;
     } catch (e) {
       return {
         symbol: instrument.symbol,
@@ -817,6 +839,43 @@ const RangeEmaUI = {
       ? deskMeta.priceDecimals
       : instrument.priceDecimals;
 
+    let ethChartOverlay = null;
+    let ethBotEval = null;
+    if (instUpperId === 'ETH' && typeof AIRenkoSupertrend !== 'undefined') {
+      try {
+        const toAiCandles = (arr) => arr.map((b) => ({ time: b.t, open: b.o, high: b.h, low: b.l, close: b.c }));
+        const stCur = AIRenkoSupertrend.calculateAIRenkoSupertrend(toAiCandles(bars30), {
+          atrLength: 14, baseFactor: 6, brickPct: 0.005, choppyFilterAdx: false,
+        });
+        const ema200Cur = AIRenkoSupertrend.calcEMA(bars30.map((b) => b.c), 200);
+        ethChartOverlay = {
+          stLine: stCur.map((x) => x?.supertrend ?? null),
+          stTrend: stCur.map((x) => x?.trend ?? 1),
+          ema200: ema200Cur,
+        };
+        const bars4h = tf === '4h' ? bars30 : (rawEth4h ? this._klinesToBars(rawEth4h) : null);
+        if (bars4h && bars4h.length >= 205) {
+          const st4 = AIRenkoSupertrend.calculateAIRenkoSupertrend(toAiCandles(bars4h), {
+            atrLength: 14, baseFactor: 6, brickPct: 0.005, choppyFilterAdx: false,
+          });
+          const ema4 = AIRenkoSupertrend.calcEMA(bars4h.map((b) => b.c), 200);
+          const last4 = st4[st4.length - 1];
+          const close4 = bars4h[bars4h.length - 1].c;
+          const e200 = ema4[ema4.length - 1];
+          ethBotEval = {
+            close: close4,
+            trend: last4.trend,
+            supertrend: last4.supertrend,
+            brickSize: last4.brickSize,
+            ema200: e200,
+            emaOk: last4.trend === 1 ? close4 > e200 : close4 < e200,
+          };
+        }
+      } catch (e) {
+        console.warn('[RangeEmaUI] ETH AI Renko overlay failed:', e.message || e);
+      }
+    }
+
     return {
       symbol: instrument.symbol,
       instrument,
@@ -830,6 +889,8 @@ const RangeEmaUI = {
       emaWork,
       emaAgree,
       action,
+      ethChartOverlay,
+      ethBotEval,
       feedCurrency,
       feedWarning,
       feedSource,
@@ -2011,7 +2072,7 @@ const RangeEmaUI = {
       : isMark ? 'Daily mark Fib (02:30–03:30 IST)'
       : isAsia ? 'Asia Trikal window (05:30 IST)'
       : isUsClose ? 'US cash close → mark Fib next (01:15–02:30 IST)'
-      : 'BTC · mark Fib + Red Bar (no desk discovery boxes)';
+      : `${instUpper === 'ETH' ? 'ETH' : 'BTC'} · mark Fib + Bot Telemetry`;
 
     // Trigger level text for Stepper
     const firstRedTag = o.firstRedLabel || (r.instrument?.firstRedTf === '30m' ? '30m' : '1H');
@@ -2037,7 +2098,7 @@ const RangeEmaUI = {
             <button type="button" class="rb-tf-btn${this.state.chartMode === 'renko' ? ' active' : ''}" data-rb-chart-mode="renko" title="Optional chart view only — not an ENTER signal">🧱 Renko View</button>
           </div>
           <div class="rb-tf-group" role="group" aria-label="Chart timeframe">
-            ${(c.timeframes || ['5m', '15m', '30m', '1h']).map((t) =>
+            ${(r.instrument?.timeframes || c.timeframes || ['5m', '15m', '30m', '1h']).map((t) =>
               `<button type="button" class="rb-tf-btn${t === this.activeTf() ? ' active' : ''}" data-rb-tf="${t}">${t}</button>`
             ).join('')}
           </div>
@@ -2055,8 +2116,8 @@ const RangeEmaUI = {
           </div>
           <div class="rb-beacon-right">
             ${!isNiftyInst && (!isNgInst || isBinanceWeekendNg) ? (
-              `<span class="rb-prime-pill next" title="${isXauInst ? 'XAU: COMEX close Fib = magnets only. 30m First Red DNA + Asia 05:30 Trikal / POB.' : isBinanceWeekendNg ? 'NG (Weekend Binance NATGASUSDT): NYMEX close Fib = magnets only. 30m First Red DNA + Asia 05:30 Trikal / POB.' : 'BTC: CME mark Fib = magnets only. Red Bar first-red DNA + Asia 05:30 Trikal / POB. London/NY = vol awareness, not mid-zone X.'}">
-                <strong>${isXauInst ? 'XAU:' : isBinanceWeekendNg ? 'NG (Binance):' : 'BTC:'}</strong> Mark Fib · ${(isXauInst || isBinanceWeekendNg) ? '30m ' : ''}Red Bar · Asia 05:30 Trikal
+              `<span class="rb-prime-pill next" title="${isXauInst ? 'XAU: COMEX close Fib = magnets only. 30m First Red DNA + Asia 05:30 Trikal / POB.' : isBinanceWeekendNg ? 'NG (Weekend Binance NATGASUSDT): NYMEX close Fib = magnets only. 30m First Red DNA + Asia 05:30 Trikal / POB.' : `${instUpper}: US Close (02:30–03:30 IST) Mark Fib = magnets only. Asia/London/NY sessions + live bot rules.`}">
+                <strong>${isXauInst ? 'XAU:' : isBinanceWeekendNg ? 'NG (Binance):' : `${instUpper}:`}</strong> Mark Fib · ${(isXauInst || isBinanceWeekendNg) ? '30m ' : ''}Sessions · Bot Live
               </span>`
             ) : prime.active ? `
               <span class="rb-prime-pill active" title="${prime.active.rule}">
@@ -2195,13 +2256,44 @@ const RangeEmaUI = {
             }${watchDetail ? `<div style="margin-top:4px;font-size:11.5px;font-weight:500;opacity:0.92;">${watchDetail}</div>` : ''}</div>`
           : `<div class="rb-signal-banner wait">⏳ WAITING — No active entry setup. Stay in cash.</div>`);
 
+    const activeSym = String(r.instrument?.symbol || r.symbol || 'BTCUSDT').toUpperCase();
+    const activeAsset = String(r.instrument?.id || activeSym.replace(/USDT$/i, '')).toUpperCase();
     const pos = this.state.futuresStatus;
-    const posAmt = pos?.positions?.[0] ? Math.abs(parseFloat(pos.positions[0].positionAmt) || 0) : 0;
+    const matchedPos = pos?.positions?.find((p) => String(p.symbol || '').toUpperCase() === activeSym) || pos?.positions?.[0];
+    const posAmt = matchedPos ? Math.abs(parseFloat(matchedPos.positionAmt) || 0) : 0;
     const posLine = pos
       ? (posAmt > 0
-        ? `<div class="rb-binance-status on">Binance: position open (${posAmt} BTC) · ${(pos.openOrders || []).length} resting order(s)</div>`
-        : `<div class="rb-binance-status">Binance: no open BTCUSDT position right now</div>`)
+        ? `<div class="rb-binance-status on">Binance ${activeSym}: position open (${posAmt} ${activeAsset}) · ${(pos.openOrders || []).length} resting order(s)</div>`
+        : `<div class="rb-binance-status">Binance: no open ${activeSym} position right now</div>`)
       : '';
+
+    const botMeta = r.instrument?.botMeta || null;
+    const liveBotSt = this.state.cryptoBotsStatus?.[activeSym] || null;
+    const cryptoBotCardHtml = botMeta ? (() => {
+      const inPos = Boolean(liveBotSt?.inPosition);
+      const badgeCol = inPos ? '#4ade80' : liveBotSt?.online ? '#38bdf8' : '#94a3b8';
+      const badgeBg = inPos ? 'rgba(74, 222, 128, 0.12)' : 'rgba(56, 189, 248, 0.08)';
+      const stateLabel = inPos
+        ? `LIVE ${liveBotSt.side} @ $${Number(liveBotSt.entry || 0).toFixed(2)}${liveBotSt.sl ? ` · SL $${Number(liveBotSt.sl).toFixed(2)}` : ''}`
+        : (liveBotSt?.online ? 'ARMED · FLAT (Scanning)' : 'BOT CONFIGURED');
+      const scoreTxt = liveBotSt && liveBotSt.tradesCount > 0
+        ? ` · Score: ${liveBotSt.winsCount}W/${liveBotSt.tradesCount - liveBotSt.winsCount}L (${liveBotSt.netRealizedUsdt >= 0 ? '+' : ''}$${Number(liveBotSt.netRealizedUsdt).toFixed(2)})`
+        : '';
+      const ethEval = r.ethBotEval;
+      const ethLine = ethEval
+        ? `<div style="margin-top:4px;font-size:11.5px;color:#cbd5e1;">4h AI Renko ST: <strong style="color:${ethEval.trend === 1 ? '#4ade80' : '#f87171'};">${ethEval.trend === 1 ? 'BULLISH' : 'BEARISH'}</strong> (ST $${Number(ethEval.supertrend).toFixed(2)} · Brick $${Number(ethEval.brickSize).toFixed(2)}) · 4h EMA200: <strong>$${Number(ethEval.ema200).toFixed(2)}</strong> (${ethEval.emaOk ? '<span style="color:#4ade80;">Aligned ✓</span>' : '<span style="color:#fbbf24;">Counter-EMA — wait</span>'})</div>`
+        : '';
+      return `
+        <div style="margin:6px 0 8px;padding:8px 10px;border-radius:8px;background:${badgeBg};border:1px solid ${badgeCol}44;font-size:12px;">
+          <div style="display:flex;flex-wrap:wrap;justify-content:space-between;align-items:center;gap:6px;">
+            <strong style="color:${badgeCol};">🤖 ${escTxt(botMeta.pm2Name)} · ${escTxt(stateLabel)}</strong>
+            <span style="color:#94a3b8;font-size:11px;">${escTxt(botMeta.leverage)} · ${escTxt(botMeta.marginFrac)}${escTxt(scoreTxt)}</span>
+          </div>
+          <div style="margin-top:3px;font-size:11.5px;color:#94a3b8;">${escTxt(botMeta.strategy)} · Window: ${escTxt(botMeta.entryWindow)}</div>
+          ${ethLine}
+        </div>
+      `;
+    })() : '';
 
     const btcConf = (!isNiftyInst) ? (o.btcConfluence || o.playbook?.btcConfluence || null) : null;
     const btcConfHtml = btcConf ? (() => {
@@ -2233,7 +2325,7 @@ const RangeEmaUI = {
         <div class="rb-bot-actions">
           <button type="button" class="rb-inst-btn active" id="rbPlaceTwoLeg">Place two-leg on Binance</button>
           <button type="button" class="rb-inst-btn" id="rbCheckBinance">Check Binance positions</button>
-          <a class="rb-inst-btn" href="https://www.binance.com/en/futures/BTCUSDT" target="_blank" rel="noopener">Open Binance Futures ↗</a>
+          <a class="rb-inst-btn" href="https://www.binance.com/en/futures/${activeSym}" target="_blank" rel="noopener">Open Binance Futures ↗</a>
         </div>
         <p class="rb-manage-plan-note">Notification = alert that ENTER fired (PWA banner and/or Telegram). It does <em>not</em> mean an order is filled unless auto-trade is on or you pressed Place.</p>`;
 
@@ -2247,6 +2339,7 @@ const RangeEmaUI = {
       actionContentHtml = `
         ${statusBanner}
         ${niftyOptCardHtml}
+        ${cryptoBotCardHtml}
         ${btcConfHtml}
         ${tellHtml}
         ${isNiftyInst ? '' : posLine}
@@ -2415,6 +2508,7 @@ const RangeEmaUI = {
       actionContentHtml = `
         ${statusBanner}
         ${niftyOptCardHtml}
+        ${cryptoBotCardHtml}
         ${btcConfHtml}
         ${tellHtml}
         <div class="rb-stepper-wrap">
@@ -4526,6 +4620,36 @@ const RangeEmaUI = {
         tension: 0.1,
         order: 3,
       },
+      ...((!isRenkoMode && inst?.id === 'ETH' && row.ethChartOverlay) ? [
+        {
+          label: 'AI Renko ST (14,6)',
+          data: (row.ethChartOverlay.stLine || []).slice(visStart, visStart + bars.length),
+          stepped: true,
+          borderWidth: 2,
+          pointRadius: 0,
+          fill: false,
+          order: 2,
+          segment: {
+            borderColor: (ctx) => {
+              const idx = visStart + ctx.p1DataIndex;
+              const tr = row.ethChartOverlay.stTrend?.[idx];
+              return tr === 1 ? '#22c55e' : '#f43f5e';
+            },
+          },
+          borderColor: '#22c55e',
+        },
+        {
+          label: 'EMA 200',
+          data: (row.ethChartOverlay.ema200 || []).slice(visStart, visStart + bars.length),
+          borderColor: 'rgba(226, 232, 240, 0.75)',
+          borderWidth: 1.5,
+          borderDash: [6, 4],
+          pointRadius: 0,
+          fill: false,
+          tension: 0.1,
+          order: 4,
+        },
+      ] : []),
     ];
 
     // Y-axis: keep it sparse. Chips carry PDH/PDL + Asia/London liquidity.

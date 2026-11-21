@@ -165,6 +165,62 @@ app.get('/api/trade/futures/status', (req, res) => {
   });
 });
 
+function readBotStateSummary(filename, defaults) {
+  try {
+    const fp = path.join(__dirname, 'bots', filename);
+    if (!fs.existsSync(fp)) return { ...defaults, online: false };
+    const st = JSON.parse(fs.readFileSync(fp, 'utf8'));
+    const trades = Array.isArray(st.paperTrades) ? st.paperTrades : [];
+    const wins = trades.filter((t) => Number(t.netUsdt) > 0).length;
+    const lp = st.livePos && st.livePos.liveOrderPlaced ? st.livePos : null;
+    const stPos = st.pos || null;
+    return {
+      ...defaults,
+      online: true,
+      symbol: st.symbol || defaults.symbol,
+      tf: st.tf || defaults.tf,
+      leverage: st.leverage || defaults.leverage,
+      lastClosePx: st.lastClosePx || null,
+      lastBarIso: st.lastBarIso || null,
+      inPosition: Boolean(lp || stPos),
+      side: lp?.side || stPos?.side || null,
+      entry: lp?.entry || stPos?.entry || null,
+      sl: lp?.sl || stPos?.sl || null,
+      qty: lp?.qty || null,
+      liveOrderPlaced: Boolean(lp),
+      tradesCount: trades.length,
+      winsCount: wins,
+      netRealizedUsdt: Number(st.netRealizedUsdt || 0),
+    };
+  } catch (e) {
+    return { ...defaults, online: false, error: e.message };
+  }
+}
+
+app.get('/api/bots/crypto-status', (req, res) => {
+  res.json({
+    ok: true,
+    bots: {
+      BTCUSDT: readBotStateSummary('state_ha_cci_btc.json', {
+        pm2Name: 'ha-cci-btc-trader',
+        symbol: 'BTCUSDT',
+        tf: '1h',
+        leverage: 4,
+        marginFrac: 0.45,
+        strategy: 'HA+EMA(20/50/200)+CCI(200) · Chand 4.5x',
+      }),
+      ETHUSDT: readBotStateSummary('state_ai_renko_ethusdt.json', {
+        pm2Name: 'ai-renko-eth-trader',
+        symbol: 'ETHUSDT',
+        tf: '4h',
+        leverage: 4,
+        marginFrac: 0.45,
+        strategy: 'AI Renko (14,6 · Brick 0.5%) + EMA200 · 8% SL',
+      }),
+    },
+  });
+});
+
 app.get('/api/trade/futures/positions', async (req, res) => {
   if (!requireTradeSecret(req, res)) return;
   try {

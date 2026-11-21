@@ -150,6 +150,7 @@ function calculateAIRenkoSupertrend(candles, options = {}) {
         baseFactor = 3,
         autoBrickSize = false,
         manualBrickSize = 33.33,
+        brickPct = 0,
         choppyFilterAdx = false,
         adxThreshold = 15,
         smoothLength = 5
@@ -180,9 +181,11 @@ function calculateAIRenkoSupertrend(candles, options = {}) {
         const adx = adxArr[i] != null ? adxArr[i] : 20;
 
         // 1. Determine active Brick Size
-        const brickSize = autoBrickSize
-            ? Math.max(atr * 0.5, c.close * 0.0005)
-            : Math.max(manualBrickSize, 0.0001);
+        const brickSize = brickPct > 0
+            ? Math.max(c.close * brickPct, 0.1)
+            : autoBrickSize
+                ? Math.max(atr * 0.5, c.close * 0.0005)
+                : Math.max(manualBrickSize, 0.0001);
 
         // 2. Update Non-Repainting Synthetic Renko Brick state on candle close
         if (renkoClose === null) {
@@ -327,11 +330,23 @@ function calculateDrDevendraBrickSizes(candles, sessionHours = 6) {
     };
 }
 
-module.exports = {
-    calculateAIRenkoSupertrend,
-    calculateDrDevendraBrickSizes,
-    calcATR,
-    calcADX,
-    calcEMA,
-    calcRMA
-};
+if (typeof module !== 'undefined' && module.exports) {
+    module.exports = {
+        calculateAIRenkoSupertrend,
+        calculateDrDevendraBrickSizes,
+        calcATR,
+        calcADX,
+        calcEMA,
+        calcRMA
+    };
+}
+if (typeof window !== 'undefined') {
+    window.AIRenkoSupertrend = {
+        calculateAIRenkoSupertrend,
+        calculateDrDevendraBrickSizes,
+        calcATR,
+        calcADX,
+        calcEMA,
+        calcRMA
+    };
+}

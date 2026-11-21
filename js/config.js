@@ -11,14 +11,15 @@ const CONFIG = {
   // ─── Assets to track ────────────────────────────────────────────────────────
   assets: {
 
-    // Red Bar focus: BTC only (Nifty / gold later when feeds exist)
+    // Red Bar + Crypto Bots Desk: BTCUSDT + ETHUSDT
     crypto: [
       { id: 'BTCUSDT', symbol: 'BTC', name: 'Bitcoin', currency: 'USD', icon: '₿' },
+      { id: 'ETHUSDT', symbol: 'ETH', name: 'Ethereum', currency: 'USD', icon: 'Ξ' },
     ],
 
-    coreWinners: ['BTC'],
+    coreWinners: ['BTC', 'ETH'],
     probationWinners: [],
-    provenWinners: ['BTC'],
+    provenWinners: ['BTC', 'ETH'],
   },
 
   signals: {
@@ -91,10 +92,10 @@ const CONFIG = {
     chartBandDays: 7,
     emaFast: 10,
     emaSlow: 30,
-    ohlcLimit: { '5m': 1000, '15m': 1000, '30m': 1000, '1h': 720 },
-    chartBars: { '5m': 120, '15m': 100, '30m': 96, '1h': 84 },
+    ohlcLimit: { '5m': 1000, '15m': 1000, '30m': 1000, '1h': 720, '4h': 400 },
+    chartBars: { '5m': 120, '15m': 100, '30m': 96, '1h': 84, '4h': 96 },
     // Crisp, thick TradingView/Binance-style candles on phones (◀ ▶ / drag pans earlier)
-    chartBarsMobile: { '5m': 56, '15m': 48, '30m': 48, '1h': 42 },
+    chartBarsMobile: { '5m': 56, '15m': 48, '30m': 48, '1h': 42, '4h': 48 },
     defaultInstrument: 'BTC',
     instruments: [
       {
@@ -115,10 +116,54 @@ const CONFIG = {
         markLabel: '16:00–17:00 ET (US Close / CME Settle)',
         fibLevels: [0, 0.44, 0.5, 0.56, 1],
         priceDecimals: 2,
-        tradeHint: 'Binance USDⓈ-M · BTCUSDT · Fib US Close (16:00–17:00 ET / 02:30–03:30 IST)',
+        timeframes: ['5m', '15m', '30m', '1h', '4h'],
+        ohlcLimit: { '5m': 1000, '15m': 1000, '30m': 1000, '1h': 720, '4h': 400 },
+        tradeHint: 'Binance USDⓈ-M · BTCUSDT · Bot: 1h HA+EMA+CCI(200) 4x/45% · Fib US Close (02:30–03:30 IST)',
         showSessionMarkers: true,
         // BTC uses only the single 02:30–03:30 IST mark window Fib box — no second 1H red box
         firstRedTf: null,
+        botMeta: {
+          pm2Name: 'ha-cci-btc-trader',
+          strategy: 'HA + EMA(20/50/200) + CCI(200) · Chand 4.5x ATR',
+          tf: '1h',
+          leverage: '4x Isolated',
+          marginFrac: '45% Wallet',
+          entryWindow: '03:00–09:50 UTC (08:30–15:20 IST)',
+        },
+        sessions: [
+          { id: 'asia', label: 'Asia', timeZone: 'Asia/Tokyo', open: [9, 0], close: [15, 0], color: '#818cf8' },
+          { id: 'london', label: 'London', timeZone: 'Europe/London', open: [8, 0], close: [16, 30], color: '#f472b6' },
+          { id: 'ny', label: 'US', timeZone: 'America/New_York', open: [9, 30], close: [16, 0], color: '#cbd5e1' },
+        ],
+      },
+      {
+        id: 'ETH',
+        label: 'ETH',
+        symbol: 'ETHUSDT',
+        feed: 'binanceFutures',
+        dayMode: 'ny',
+        bandStyle: 'sessionFib',
+        markWindow: {
+          timeZone: 'America/New_York',
+          startHour: 16, startMinute: 0,
+          endHour: 17, endMinute: 0,
+        },
+        markLabel: '16:00–17:00 ET (US Close / CME Settle)',
+        fibLevels: [0, 0.44, 0.5, 0.56, 1],
+        priceDecimals: 2,
+        timeframes: ['5m', '15m', '30m', '1h', '4h'],
+        ohlcLimit: { '5m': 1000, '15m': 1000, '30m': 1000, '1h': 720, '4h': 400 },
+        tradeHint: 'Binance USDⓈ-M · ETHUSDT · Bot: 4h AI Renko (14,6 Brick 0.5%) + EMA200 · 8% SL · 4x/45% · Fib 02:30–03:30 IST',
+        showSessionMarkers: true,
+        firstRedTf: null,
+        botMeta: {
+          pm2Name: 'ai-renko-eth-trader',
+          strategy: 'Crypto AI Renko (14,6 · Brick 0.5%) + EMA200 · 8% SL',
+          tf: '4h',
+          leverage: '4x Isolated',
+          marginFrac: '45% Wallet',
+          entryWindow: '24/7 on 4h candle close',
+        },
         sessions: [
           { id: 'asia', label: 'Asia', timeZone: 'Asia/Tokyo', open: [9, 0], close: [15, 0], color: '#818cf8' },
           { id: 'london', label: 'London', timeZone: 'Europe/London', open: [8, 0], close: [16, 30], color: '#f472b6' },
