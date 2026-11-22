@@ -209,8 +209,8 @@
       </div>
       <div class="topbar-right">
         <span id="liveStatus" class="live-status" title="Live status reflects the last successful market-data refresh."><span class="live-dot" id="liveDot"></span><span id="liveStatusText">Connecting</span></span>
-        <span id="lastUpdated" class="last-updated" title="When the data was last fetched from Binance.">–</span>
-        <button id="refreshBtn" class="refresh-btn" aria-label="Refresh data" title="Force refresh all data from Binance. Clears the cache.">
+        <span id="lastUpdated" class="last-updated" title="When the active feed was last refreshed.">–</span>
+        <button id="refreshBtn" class="refresh-btn" aria-label="Refresh data" title="Force refresh active market feed and clear cache.">
           <span>↻</span> Refresh
         </button>
       </div>
@@ -347,9 +347,9 @@
             <p>Each session can mark an open candle and draw levels <code>0, 0.44, 0.5, 0.56, 1</code> on that structure:</p>
             <ul>
               <li><strong>Mid-zone (44–56%):</strong> The middle band of the open mark candle — where price often retests after the first leave.</li>
-              <li><strong>Mid-zone reject (ENTER):</strong> After the open candle is marked (NIFTY ~09:15; BTC Asia Trikal ~05:30), wait for leave → retest of mid-zone → <strong>SHORT</strong> only if a 5m candle rejects back below mid. Close through the top of mid-zone = idea invalid.</li>
-              <li><strong>Also ENTER paths:</strong> breakout leave, shelf retest, liquidity sweep, afternoon window. Stretch snapback stays a chart guide only.</li>
-              <li><strong>Mark windows:</strong> BTC &amp; ETH ~US cash close (02:30–03:30 IST) · NIFTY/Sensex ~15:00–15:45 IST · used as <strong>targets / context</strong>, not automatic entries.</li>
+              <li><strong>Mid-zone reject (ENTER):</strong> After the open candle is marked (NSE/BSE ~09:15; MCX ~09:00/17:00/NYMEX; BTC Asia Trikal ~05:30), wait for leave → retest of mid-zone → <strong>SHORT</strong> only if a 5m candle rejects back below mid. Close through the top of mid-zone = idea invalid.</li>
+              <li><strong>Also ENTER paths:</strong> breakout leave, shelf retest, liquidity sweep, afternoon window, median wick, MCX 5:30 Formula.</li>
+              <li><strong>Mark windows:</strong> BTC &amp; ETH ~US cash close (16:00–17:00 ET = 02:30/01:30 IST) · NIFTY/BankNifty/Sensex ~15:00–15:45 IST · CRUDEOIL/NG ~09:00–09:30 IST (17:00 fallback) — <strong>targets / context</strong>.</li>
               <li><strong>Inside the full [0, 1] box:</strong> often chop → <strong>WAIT</strong>.</li>
             </ul>
           </div>
@@ -369,8 +369,8 @@
             <div class="edu-header"><span>🧲</span><h3>3. Stretch snapback (chart guide)</h3></div>
             <p>When price runs far from a short average on the 30-minute chart for several bars, it often snaps back:</p>
             <ul>
-              <li>Desk may draw a “barricade” and a mean target as a <strong>WATCH / overlay</strong>.</li>
-              <li>This is <strong>not</strong> a default Telegram ENTER — use it to avoid chasing extremes.</li>
+              <li>Desk draws a “barricade” and a mean target as an overlay guide; on NSE/BSE indices confirmed Barricade snaps can signal on Desk (while Telegram remains focused on primary setups).</li>
+              <li>Use it to spot overextension and avoid chasing extremes.</li>
             </ul>
           </div>
 
@@ -630,16 +630,16 @@
       });
     } catch(e) {}
   </script>
-  <script src="js/config.js?v=7.39" defer></script>
+  <script src="js/config.js?v=7.40" defer></script>
   <script src="js/api.js?v=7.03" defer></script>
   <script src="js/indicators.js?v=6.60" defer></script>
-  <script src="js/redbar_trend.js?v=2.43" defer></script>
+  <script src="js/redbar_trend.js?v=2.44" defer></script>
   <script src="js/ai_renko_supertrend.js?v=1.0" defer></script>
   <script src="js/fib_magnet.js?v=1.11" defer></script>
   <script src="js/range_ema_engine.js?v=1.2" defer></script>
   <script src="js/desk_alerts.js?v=1.13" defer></script>
-  <script src="js/public_copy.js?v=1.3" defer></script>
-  <script src="js/range_ema_ui.js?v=2.77" defer></script>
+  <script src="js/public_copy.js?v=1.4" defer></script>
+  <script src="js/range_ema_ui.js?v=2.78" defer></script>
   <script src="js/signals.js?v=6.70" defer></script>
   <script src="js/charts.js?v=6.60" defer></script>
   
@@ -846,26 +846,28 @@
         <div style="background:rgba(56,189,248,0.08); border:1px solid rgba(56,189,248,0.25); border-radius:8px; padding:10px 12px; margin-bottom:16px;">
           <h3 style="font-size:13px; font-weight:700; color:#38bdf8; margin:0 0 6px;">🤖 Live Automated Bot Stack (Oracle VM)</h3>
           <p style="margin:0; font-size:12px; color:#cbd5e1;">
-            <strong>1. AI Renko Mode C (+Stage 3):</strong> NIFTY 15m Options (7–25 DTE ATM) · Hard Cap -150p · +120p→+20p Lock · Stage 3 (>=+700p → Peak - 150p trail) · Supertrend Flip exit · <em>Respects ₹20k Patrick priority reserve.</em><br>
+            <strong>1. AI Renko Mode C (+Stage 3):</strong> NIFTY 15m Options (7–25 DTE ATM) · Hard Cap -150p · +120p→+30p Lock (36h → +50p) · ATR 5x @ +180p · Stage 3 (>=+700p → Peak - 150p) · Supertrend Flip exit · <em>Respects ₹20k Patrick priority reserve.</em><br>
             <strong>2. Patrick Nill (`volFilter`):</strong> NIFTY 15m Options · 1.5R BE → 10-bar trail >=2.5R → 5.5R TP (<strong>₹20,000 locked priority cash reserve</strong>).<br>
             <strong>3. Trade 1 Option C (`redbar-trade1-live`):</strong> NIFTY 15m Intraday (1/day) · AI Renko Supertrend direction-aligned · StrongClose >=0.70 · BE +35p→+10p · CloseBack 1H Red cut · 3R TP · 15:10 EOD · <em>Respects ₹20k Patrick reserve.</em><br>
-            <strong>4. BTC Trend (`ha-cci-btc-trader`):</strong> Binance BTCUSDT 1h (`03:00–09:50 UTC` entries) · HA+EMA(20/50/200)+CCI(200) · Chandelier 4.5x ATR · <strong>4x Isolated (45% wallet share)</strong>.<br>
-            <strong>5. ETH Swing (`ai-renko-eth-trader`):</strong> Binance ETHUSDT 4h (`24/7` on 4h close) · Crypto AI Renko (`ATR=14`, `Factor=6`, `Brick=0.5%`, `EMA200` filter) · 8% Hard `STOP_MARKET` · <strong>4x Isolated (45% wallet share)</strong>.
+            <strong>4. HA+EMA+CCI Dhan Paper (`ha-cci-dhan-paper`):</strong> NIFTY 15m &amp; CRUDEOIL 15m paper Chandelier trend tracker.<br>
+            <strong>5. BTC Trend (`ha-cci-btc-trader`):</strong> Binance BTCUSDT 1h (`03:00–09:50 UTC` entries) · HA+EMA(20/50/200)+CCI(200) · Chandelier 4.5x ATR · <strong>4x Isolated (45% wallet share)</strong>.<br>
+            <strong>6. ETH Swing (`ai-renko-eth-trader`):</strong> Binance ETHUSDT 4h (`24/7` on 4h close) · Crypto AI Renko (`ATR=14`, `Factor=6`, `Brick=0.5%`, `EMA200` filter) · 8% Hard `STOP_MARKET` · <strong>4x Isolated (45% wallet share)</strong>.<br>
+            <em>Note: BANKNIFTY &amp; SENSEX tabs are currently Desk-only (no live auto bot attached yet).</em>
           </p>
         </div>
 
         <div style="display:grid; grid-template-columns:1fr 1fr; gap:14px; margin-bottom:16px;">
           <div style="background:rgba(255,255,255,0.03); border:1px solid rgba(255,255,255,0.07); border-radius:8px; padding:12px;">
-            <h3 style="font-size:13px; font-weight:700; color:#38bdf8; margin:0 0 6px;">🎯 1H First-Red Leave (Trade 1)</h3>
-            <p style="margin:0; font-size:12px; color:#94a3b8;">Waits for the first closed 1H red candle after NSE open (09:15 candle itself is ignored). Enters on the first 15m close outside High/Low with a strong close (>=70% toward extreme). Cuts on CloseBack inside box or exits 15:10 EOD.</p>
+            <h3 style="font-size:13px; font-weight:700; color:#38bdf8; margin:0 0 6px;">🎯 Session Box Leave &amp; Median Bounce</h3>
+            <p style="margin:0; font-size:12px; color:#94a3b8;">On NSE/BSE indices, the Desk tracks 5m first-red + Advanced Medians (`fib_bounce`); Trade 1 bot tracks 1H first-red leave (15m strong close ≥70%). On MCX, waits for 15m first-red leave or 17:30 5:30 Formula.</p>
           </div>
           <div style="background:rgba(255,255,255,0.03); border:1px solid rgba(255,255,255,0.07); border-radius:8px; padding:12px;">
             <h3 style="font-size:13px; font-weight:700; color:#4ade80; margin:0 0 6px;">⚡ Shelf Retest &amp; Mode C Trail</h3>
-            <p style="margin:0; font-size:12px; color:#94a3b8;">Retest entries require a <strong>closed candle</strong> back through the structural edge (wicks alone don't qualify). Trend-following Mode C rides until AI Renko Supertrend flips, protected by -150p hard cap and +700p/-150p blow-off trail.</p>
+            <p style="margin:0; font-size:12px; color:#94a3b8;">Retest entries require a <strong>closed candle</strong> back through the structural edge (wicks alone don't qualify). Trend-following Mode C rides until AI Renko Supertrend flips, protected by -150p hard cap, +120p→+30p lock, and +700p/-150p blow-off trail.</p>
           </div>
           <div style="background:rgba(255,255,255,0.03); border:1px solid rgba(255,255,255,0.07); border-radius:8px; padding:12px;">
             <h3 style="font-size:13px; font-weight:700; color:#fbbf24; margin:0 0 6px;">⚖️ Mid-Zone Reject (POB) &amp; Fib Boxes</h3>
-            <p style="margin:0; font-size:12px; color:#94a3b8;">Gold dotted box = Mark Fib (0·44·50·56·1). Prior-day Fib boxes act as overhead/underhead magnets (SWG HI / NY LO). Click or hover a prior Fib box on the chart to inspect its levels.</p>
+            <p style="margin:0; font-size:12px; color:#94a3b8;">Gold dotted box = Mark Fib (`0·44·50·56·1`). Axis tags show structural levels (`SWG HI/LO`, `PDH/PDL`, and Crypto session extremes `ASIA/LON/NY H/L`). Click or hover a prior Fib box on the chart to inspect its levels.</p>
           </div>
           <div style="background:rgba(255,255,255,0.03); border:1px solid rgba(255,255,255,0.07); border-radius:8px; padding:12px;">
             <h3 style="font-size:13px; font-weight:700; color:#a78bfa; margin:0 0 6px;">🧭 Chart Navigation &amp; Live Edge</h3>
@@ -884,14 +886,19 @@
           </thead>
           <tbody>
             <tr style="border-bottom:1px solid rgba(255,255,255,0.05);">
-              <td style="padding:6px 8px; font-weight:600; color:#f8fafc;">NSE NIFTY Opening Box</td>
-              <td style="padding:6px 8px;">09:15–10:15</td>
-              <td style="padding:6px 8px; color:#94a3b8;">First 1H NSE candle anchors today's NIFTY Fib box; Trade 1 awaits the first closed 1H red candle after open.</td>
+              <td style="padding:6px 8px; font-weight:600; color:#f8fafc;">NSE / BSE Close Mark Fib</td>
+              <td style="padding:6px 8px;">15:00–15:45</td>
+              <td style="padding:6px 8px; color:#94a3b8;">Closing window anchors NIFTY, BANKNIFTY &amp; SENSEX Fib box; intraday morning uses 09:15 bar, first-red &amp; Advanced Medians (`120 / 300 / 400` pt highways).</td>
             </tr>
             <tr style="border-bottom:1px solid rgba(255,255,255,0.05);">
               <td style="padding:6px 8px; font-weight:600; color:#f8fafc;">Afternoon Window</td>
-              <td style="padding:6px 8px;">12:45–13:15</td>
-              <td style="padding:6px 8px; color:#94a3b8;">NIFTY midday auction (trap/reclaim or morning H/L breakout context).</td>
+              <td style="padding:6px 8px;">12:15–13:15</td>
+              <td style="padding:6px 8px; color:#94a3b8;">NSE/BSE midday liquidity &amp; 12:45 afternoon breakout / reversal / shelf retest checks.</td>
+            </tr>
+            <tr style="border-bottom:1px solid rgba(255,255,255,0.05);">
+              <td style="padding:6px 8px; font-weight:600; color:#f8fafc;">MCX Open &amp; 5:30 Formula</td>
+              <td style="padding:6px 8px;">09:00–09:30 / 17:30</td>
+              <td style="padding:6px 8px; color:#94a3b8;">CRUDEOIL &amp; NG anchor at 09:00 open (17:00 holiday fallback); 17:30 30m box sets 5:30 Formula (2.4R Crude / 2.5R NG) ahead of NYMEX (`18:30/19:30`).</td>
             </tr>
             <tr style="border-bottom:1px solid rgba(255,255,255,0.05);">
               <td style="padding:6px 8px; font-weight:600; color:#f8fafc;">BTC &amp; ETH Mark Fib (16:00–17:00 ET)</td>
@@ -901,7 +908,7 @@
             <tr>
               <td style="padding:6px 8px; font-weight:600; color:#f8fafc;">Asia / London / NY Opens</td>
               <td style="padding:6px 8px;">05:30 / 13:30 / 20:00</td>
-              <td style="padding:6px 8px; color:#94a3b8;">Crypto liquidity session markers (`03:00–09:50 UTC` = `08:30–15:20 IST` active HA-CCI BTC window; ETH AI Renko runs 24/7 on 4h closes).</td>
+              <td style="padding:6px 8px; color:#94a3b8;">Crypto liquidity clocks (DST-aware London &amp; NY). Active BTC bot entries `08:30–15:20 IST`; ETH AI Renko runs 24/7 on 4h closes.</td>
             </tr>
           </tbody>
         </table>
@@ -909,11 +916,11 @@
         <h3 style="font-size:13px; font-weight:700; color:#f8fafc; margin:16px 0 6px;">💡 FAQs &amp; Fee Reality</h3>
         <div style="font-size:12px; line-height:1.6; color:#94a3b8;">
           <p><strong>What is the difference between WAIT and WATCH?</strong><br>
-          • <em>WAIT</em> = Market is consolidating inside equilibrium. No directional bias or trigger setup yet.<br>
-          • <em>WATCH</em> = Directional structure is set (session box broken or sweep underway), awaiting exact candle confirmation before entry.</p>
+          • <em>WAIT</em> = Market is consolidating inside equilibrium or a narrow median sandwich — no active trade setup.<br>
+          • <em>WATCH</em> = Setup or bias is forming, awaiting confirmation or blocked by a risk filter (stale &gt;20m, &gt;0.5R chase, 200 MA chop, &gt;1% stop, or Equinox filter).</p>
 
-          <p><strong>Transaction Costs Modeled Across Strategies:</strong><br>
-          • <em>Dhan NIFTY Options:</em> Flat `₹40` round-trip brokerage + STT/exchange/GST + slippage buffer (~`1.5` option pts = `₹97.50`/lot).<br>
+          <p><strong>Transaction Costs &amp; Lot Sizes:</strong><br>
+          • <em>Dhan Indices:</em> NIFTY `65` qty/lot (~₹97.50/lot RT cost) · BANKNIFTY `30` qty/lot · SENSEX (`BSE_FNO`) `20` qty/lot.<br>
           • <em>Binance BTCUSDT &amp; ETHUSDT Perps:</em> `0.05%` taker fee per side (`0.10%` round-trip) + funding (~`0.02%/day`), `4x` Isolated each on a `45% / 45%` total-wallet split.</p>
         </div>
 

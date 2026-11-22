@@ -33,9 +33,9 @@ assert.strictEqual(crudeTargetPts, 36.0, '15 pt SL * 2.4 = 36 pt TP (matches Dr 
 console.log('Test 3 PASSED: Crude TP reconciled to 36 pts (~2.4R) at 15 pt SL floor.');
 
 // Test 4: Contract Freshness & Rollover Guard
-assert.strictEqual(DHAN_INSTRUMENT_SPECS.CRUDEOIL.underlyingExpiry, '2026-11-17');
-assert.strictEqual(DHAN_INSTRUMENT_SPECS.NG.underlyingExpiry, '2026-11-20');
-console.log('Test 4 PASSED: Contract expiry tracking active (Crude: 2026-11-17, NG: 2026-11-20).');
+assert.strictEqual(DHAN_INSTRUMENT_SPECS.CRUDEOIL.underlyingExpiry, '2026-12-18');
+assert.strictEqual(DHAN_INSTRUMENT_SPECS.NG.underlyingExpiry, '2026-12-28');
+console.log('Test 4 PASSED: Contract expiry tracking active (Crude: 2026-12-18, NG: 2026-12-28).');
 
 // Test 5: isBtcGate Leak Fix in entryGate
 // If instrumentId is CRUDEOIL or NG, pre_asia clock must NOT block ENTER

@@ -27,7 +27,7 @@ const DEFAULT_CONTRACTS = {
     signalSeg: 'MCX_COMM',
     signalInst: 'FUTCOM',
     signalScripEnv: 'DHAN_CRUDEOIL_SCRIP',
-    defaultSigScrip: '573422',
+    defaultSigScrip: '576264',
     execSeg: 'MCX_COMM',
     execInst: 'FUTCOM',
     execScripEnv: 'DHAN_CRUDEOIL_EXEC_SCRIP',

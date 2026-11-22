@@ -2693,13 +2693,15 @@ const RedBarTrend = {
       const crossBar = crossIdx >= 0 ? afternoonBars[crossIdx] : afternoonBars[0] || lastBar;
 
       // Check for Shelf Retest / Pullback (shelf retest mechanics in afternoon)
+      const shelfInPad = Math.max(10, currentPrice * 0.0004);
+      const shelfOutPad = Math.max(15, currentPrice * 0.0006);
       let retestBar = null;
       if (crossIdx >= 0 && crossIdx < afternoonBars.length - 1) {
         let testedShelf = false;
         for (let i = crossIdx + 1; i < afternoonBars.length; i++) {
           const b = afternoonBars[i];
           const prev = afternoonBars[i - 1];
-          if (b.l <= morning.morningHigh + 10 && b.l >= morning.morningHigh - 15) {
+          if (b.l <= morning.morningHigh + shelfInPad && b.l >= morning.morningHigh - shelfOutPad) {
             testedShelf = true;
           }
           if (testedShelf && b.c > b.o && b.c > prev.h) {
@@ -2775,13 +2777,15 @@ const RedBarTrend = {
       const crossBar = crossIdx >= 0 ? afternoonBars[crossIdx] : afternoonBars[0] || lastBar;
 
       // Check for Shelf Retest / Pullback (shelf retest mechanics in afternoon)
+      const shelfInPad = Math.max(10, currentPrice * 0.0004);
+      const shelfOutPad = Math.max(15, currentPrice * 0.0006);
       let retestBar = null;
       if (crossIdx >= 0 && crossIdx < afternoonBars.length - 1) {
         let testedShelf = false;
         for (let i = crossIdx + 1; i < afternoonBars.length; i++) {
           const b = afternoonBars[i];
           const prev = afternoonBars[i - 1];
-          if (b.h >= morning.morningLow - 10 && b.h <= morning.morningLow + 15) {
+          if (b.h >= morning.morningLow - shelfInPad && b.h <= morning.morningLow + shelfOutPad) {
             testedShelf = true;
           }
           if (testedShelf && b.c < b.o && b.c < prev.l) {
@@ -3638,7 +3642,8 @@ const RedBarTrend = {
       const isRetest = setupKind === 'afternoon_1245_retest';
       const isReversal = setupKind === 'afternoon_1245_reversal';
       const triggerP = afternoon1245?.triggerPrice ?? price;
-      const sp = afternoon1245?.stopLoss ?? (trend === 'bullish' ? triggerP - 20 : triggerP + 20);
+      const afFallback = Math.max(20, Math.round(triggerP * 0.0008));
+      const sp = afternoon1245?.stopLoss ?? (trend === 'bullish' ? triggerP - afFallback : triggerP + afFallback);
       const riskDist = Math.abs(triggerP - sp);
       const tp1 = trend === 'bullish' ? triggerP + riskDist : triggerP - riskDist;
       const tp2 = trend === 'bullish' ? triggerP + riskDist * 2 : triggerP - riskDist * 2;
@@ -4390,7 +4395,14 @@ const RedBarTrend = {
         btcTol: true,
       };
     } else if (bars5m && isMcx) {
-      const primes = this.NG_POB_PRIMES;
+      const nymexOpenMins = this.sessionOpenIstMins(evalTs, 'America/New_York', 9, 0);
+      const nymexH = Math.floor(nymexOpenMins / 60);
+      const nymexM = nymexOpenMins % 60;
+      const primes = [
+        { id: 'mcx_day', label: 'MCX Open', opens: [[9, 0]], activeFrom: 9 * 60, activeTo: 12 * 60 },
+        { id: 'mcx_eve', label: 'MCX Eve', opens: [[17, 0]], activeFrom: 17 * 60, activeTo: 18 * 60 + 30 },
+        { id: 'us', label: 'NYMEX Open', opens: [[nymexH, nymexM]], activeFrom: nymexOpenMins, activeTo: 22 * 60 },
+      ];
       xCandle5m = this.findPrimeSessionXCandle5m(bars5m, evalTs, {
         timeZone: 'Asia/Kolkata',
         primes,
@@ -4926,10 +4938,13 @@ const RedBarTrend = {
     btcConfluence = null, btcAsia0530 = null, mcx530 = null,
     medianHold = false,
   }) {
+    const instEarly = String(instrumentId || '').toUpperCase();
+    const isIndIdxEarly = this.isIndianIndex(instEarly);
+    const widePtsLabel = instEarly === 'SENSEX' ? 400 : instEarly === 'BANKNIFTY' ? 300 : 120;
     if (setupKind === 'fib_sandwich_wait') {
       return {
         state: 'wait',
-        reason: 'Price is strictly inside the narrow (< 120 pts) 09:15 vs red-bar sandwich — stand aside until price leaves the band.',
+        reason: `Price is strictly inside the narrow (< ${widePtsLabel} pts) 09:15 vs red-bar sandwich — stand aside until price leaves the band.`,
       };
     }
     if (trend !== 'bullish' && trend !== 'bearish') {
@@ -4949,9 +4964,6 @@ const RedBarTrend = {
       };
     }
 
-    const instEarly = String(instrumentId || '').toUpperCase();
-    const isIndIdxEarly = this.isIndianIndex(instEarly);
-
     // Indian indices (NIFTY, BANKNIFTY, SENSEX): no clock-based ENTER kills (14:15 / 13:45 / pt caps were desk inventions).
     // Setup quality decides. EOD flatten (~15:10) is ops-only in the bot.
     const isPob = setupKind === 'pob_reject';
@@ -4966,7 +4978,7 @@ const RedBarTrend = {
         magnet_bounce_watch: 'Fib bounce is chart context — not an ENTER.',
         pivot_reversal: 'Price crossed the 1H red against Fib bias — conflicting, wait.',
         trade2_watch: 'H1→M5 Trade 2: wait for 1H high/low liquidity sweep, then 5m close back through that level (median confluence).',
-        fib_sandwich_wait: 'Price is strictly inside the narrow (< 120 pts) 09:15 vs red-bar sandwich — stand aside until price leaves the band.',
+        fib_sandwich_wait: `Price is strictly inside the narrow (< ${widePtsLabel} pts) 09:15 vs red-bar sandwich — stand aside until price leaves the band.`,
         pob_reject_watch: 'Mid-zone (5m): open candle marked — wait retest of 44–56 then SHORT reject. NSE 09:15 or BTC Asia 05:30.',
         setup3_primed: 'Setup 3 Primed (overlay): ≥4× 30m candles detached from 5 EMA. Watch LTF Barricade — not ENTER until walk-forward PASS.',
         setup3_rubber_band: 'Setup 3 Barricade broken (overlay): rubber-band snapback visible — chart guide only.',
@@ -5256,10 +5268,7 @@ const RedBarTrend = {
       return `Setup 3 overlay: Barricade broken (${trend}) toward 30m 5 EMA — chart guide only, not DNA ENTER.${clockBit}`;
     }
     if (playbook?.setupKind === 'setup3_primed') {
-      return `Setup 3 overlay: rubber-band tension (≥4× 30m detached from 5 EMA). Watch Barricade — not an ENTER.${clockBit}`;
-    }
-    if (playbook?.setupKind === 'setup3_primed') {
-      return `Setup 3 Primed: 30m candles detached from 5 EMA (rubber band tension). Watch for Barricade breakout.${clockBit}`;
+      return `Setup 3 Primed: 30m candles detached from 5 EMA (rubber band tension). Watch Barricade breakout.${clockBit}`;
     }
     if (playbook?.setupKind === 'trade2_confirmed' || playbook?.setupKind === 'trade2_watch') {
       return `Trade 2 at 1H first-red Fibs (44/50/56).${redBit}${clockBit}`;
@@ -5408,7 +5417,7 @@ const RedBarTrend = {
     const refDir = isBullBias ? 1 : isBearBias ? -1 : (price > (maH || price) ? 1 : price < (maL || price) ? -1 : stDirection);
 
     // 1. Structure locked (First Red 1H / Asia 05:30 / POB)
-    const hasStructure = Boolean(firstRed1h || (btcAsia0530 && btcAsia0530.xHigh) || (pobReject && pobReject.xCandle));
+    const hasStructure = Boolean(firstRed1h || (btcAsia0530 && (btcAsia0530.xCandle?.high != null || btcAsia0530.xHigh)) || (pobReject && pobReject.xCandle));
 
     // 2. 200 MA 3-Line Channel (High, Close, Low)
     const above200Band = maH != null && price > maH;

@@ -54,8 +54,8 @@ const DHAN_INSTRUMENT_SPECS = {
   },
   CRUDEOIL: {
     id: 'CRUDEOIL',
-    underlyingScrip: envNum('DHAN_CRUDEOIL_SCRIP', 573422),
-    underlyingExpiry: '2026-11-17',
+    underlyingScrip: envNum('DHAN_CRUDEOIL_SCRIP', 576264),
+    underlyingExpiry: '2026-12-18',
     underlyingSeg: 'MCX_COMM',
     optSeg: 'MCX_COMM',
     lotSize: 1,
@@ -67,8 +67,8 @@ const DHAN_INSTRUMENT_SPECS = {
   },
   NG: {
     id: 'NG',
-    underlyingScrip: envNum('DHAN_NG_SCRIP', 574319),
-    underlyingExpiry: '2026-11-20',
+    underlyingScrip: envNum('DHAN_NG_SCRIP', 578249),
+    underlyingExpiry: '2026-12-28',
     underlyingSeg: 'MCX_COMM',
     optSeg: 'MCX_COMM',
     lotSize: 1,

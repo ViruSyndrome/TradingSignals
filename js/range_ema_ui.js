@@ -439,7 +439,7 @@ const RangeEmaUI = {
       const now = Date.now();
       if (this._botStatusFetchedAt && now - this._botStatusFetchedAt < 20000) return;
       this._botStatusFetchedAt = now;
-      const base = this._botBaseUrl();
+      const base = this._tradeBotUrl();
       if (!base) return;
       const r = await fetch(`${base}/api/bots/crypto-status`, { cache: 'no-store' });
       if (!r.ok) return;
@@ -454,10 +454,10 @@ const RangeEmaUI = {
     const name = e?.name || '';
     const msg = e?.message || String(e || 'Unknown error');
     if (name === 'AbortError' || /abort/i.test(msg) || /timed?\s*out/i.test(msg)) {
-      return 'Feed timed out — hard-refresh once, then tap Nifty again';
+      return 'Feed timed out — hard-refresh once and retry';
     }
     if (/failed to fetch|networkerror|load failed/i.test(msg)) {
-      return 'Nifty network blocked — hard-refresh (or clear site data) so the new Yahoo proxy loads';
+      return 'Feed network blocked — check Oracle VM tunnel or connection and refresh';
     }
     return msg;
   },
@@ -772,8 +772,8 @@ const RangeEmaUI = {
         readout.refs.firstRed1hLow = firstRed1h ? firstRed1h.low : null;
       }
       // Recompute Course Confluence on the currently selected chart timeframe (5m / 15m / 30m / 1h)
-      // so the 200 MA (H/L/C) and SuperTrend (10, 4.1) pills match the visible chart timeframe on BTC and MCX (CRUDEOIL, NG).
-      if (!isIndIdxId && typeof RedBarTrend.computeBtcCourseConfluence === 'function' && bars30 && bars30.length >= 30) {
+      // so the 200 MA (H/L/C) and SuperTrend (10, 4.1) pills match the visible chart timeframe on BTC / ETH.
+      if (['BTC', 'ETH'].includes(instUpperId) && typeof RedBarTrend.computeBtcCourseConfluence === 'function' && bars30 && bars30.length >= 30) {
         const tfConf = RedBarTrend.computeBtcCourseConfluence({
           bars: bars30,
           bars5m: bars5m && bars5m.length ? bars5m : bars30,
@@ -954,6 +954,10 @@ const RangeEmaUI = {
       && o.setupKind !== 'afternoon_1245_breakout'
       && o.setupKind !== 'afternoon_1245_reversal'
       && o.setupKind !== 'afternoon_1245_retest'
+      && o.setupKind !== 'fib_bounce'
+      && o.setupKind !== 'mcx_530_breakout'
+      && o.setupKind !== 'mcx_530_retest'
+      && o.setupKind !== 'mcx_530_reversal'
       && !trade2Live
     ) {
       const fibHi = o.currentBand?.high ?? o.refs?.orHigh;
@@ -1256,7 +1260,7 @@ const RangeEmaUI = {
     const minSpan = compact ? 18 : 28;
     const maxSpan = wantSpan || (compact ? 56 : 120);
     const dayMode = inst?.dayMode || 'utc';
-    const tz = dayMode === 'ist' ? 'Asia/Kolkata' : 'UTC';
+    const tz = dayMode === 'ist' ? 'Asia/Kolkata' : dayMode === 'ny' ? 'America/New_York' : 'UTC';
     const dayOf = (ts) => {
       try {
         return new Date(ts).toLocaleDateString('en-CA', { timeZone: tz });
@@ -1472,6 +1476,12 @@ const RangeEmaUI = {
   async _refreshNiftyOptionCard() {
     const el = document.getElementById('rbNiftyOptCard');
     if (!el) return;
+    const inst = this.activeInstrument?.() || {};
+    const instId = String(inst.id || '').toUpperCase();
+    if (instId === 'BANKNIFTY' || instId === 'SENSEX') {
+      el.innerHTML = `<div style="font-size:11.5px;color:#cbd5e1;">🇮🇳 <strong>${instId} Options Desk Preview</strong> · ${inst.dhanOptSegment || (instId === 'SENSEX' ? 'BSE_FNO' : 'NSE_FNO')} · Lot ${inst.lotSize || (instId === 'SENSEX' ? 20 : 30)} · Strike Step ${inst.strikeStep || 100} · <span style="color:#94a3b8;">Chart &amp; alerts active (live auto-execution is NIFTY-only).</span></div>`;
+      return;
+    }
     let botBase = '';
     try { botBase = localStorage.getItem('trade_bot_url') || ''; } catch (_) {}
     if (!botBase && typeof CONFIG !== 'undefined') {
@@ -2030,13 +2040,16 @@ const RangeEmaUI = {
 
     const instUpper = String(r.instrument?.id || '').toUpperCase();
     const isNiftyInst = ['NIFTY', 'BANKNIFTY', 'SENSEX'].includes(instUpper);
+    const isSensexInst = instUpper === 'SENSEX';
     const isXauInst = false;
-    const isNgInst = ['NG', 'CRUDEOIL'].includes(instUpper);
+    const isMcxInst = ['NG', 'CRUDEOIL'].includes(instUpper);
+    const isNgInst = isMcxInst;
     const isBinanceWeekendNg = false;
+    const idxExch = isSensexInst ? 'BSE' : 'NSE';
     const isNsePrime = isNiftyInst && curMins >= 555 && curMins < 735;
     const isNseHunt = isNiftyInst && curMins >= 735 && curMins <= 795;
-    const isNseAfternoon = isNiftyInst && curMins > 795 && curMins < 915;
-    const isNseMark = isNiftyInst && curMins >= 915 && curMins <= 945;
+    const isNseAfternoon = isNiftyInst && curMins > 795 && curMins < 900;
+    const isNseMark = isNiftyInst && curMins >= 900 && curMins <= 945;
 
     const isXauMark = isXauInst && isMark; // 16:00–17:00 ET (02:30–03:30 IST in EST)
     const comexOpenMins = this._getSessionOpenMins(nowMs, 'America/New_York', 8, 30);
@@ -2045,23 +2058,33 @@ const RangeEmaUI = {
 
     const nymexOpenMins = this._getSessionOpenMins(nowMs, 'America/New_York', 9, 0);
     const nymexOpenStr = fmtHm(nymexOpenMins);
-    const isMcxDay = isNgInst && !isBinanceWeekendNg && curMins >= 540 && curMins < 1020; // 09:00–17:00 IST
-    const isMcxEve = isNgInst && !isBinanceWeekendNg && curMins >= 1020 && curMins < nymexOpenMins; // 17:00–NYMEX
-    const isNymex = isNgInst && !isBinanceWeekendNg && curMins >= nymexOpenMins && curMins < 1380; // NYMEX–23:00 IST
-    const isNgMark = isNgInst && !isBinanceWeekendNg && curMins >= 1380 && curMins <= 1410; // 23:00–23:30 IST
+    const isMcxDay = isMcxInst && !isBinanceWeekendNg && curMins >= 540 && curMins < 570; // 09:00–09:30 Mark
+    const isMcxDayTrade = isMcxInst && !isBinanceWeekendNg && curMins >= 540 && curMins < 1020; // 09:00–17:00 IST
+    const isMcxEve = isMcxInst && !isBinanceWeekendNg && curMins >= 1020 && curMins < nymexOpenMins; // 17:00–NYMEX
+    const isNymex = isMcxInst && !isBinanceWeekendNg && curMins >= nymexOpenMins && curMins < 1380; // NYMEX–23:00 IST
+    const isNgMark = isMcxInst && !isBinanceWeekendNg && curMins >= 1380 && curMins <= 1410; // 23:00–23:30 close
+
+    const ethNyMarkMins = this._getSessionOpenMins(nowMs, 'America/New_York', 16, 0);
+    const ethNyMarkEndMins = (ethNyMarkMins + 60) % 1440;
+    const isNySettleMark = !isNiftyInst && !isMcxInst && (
+      ethNyMarkEndMins > ethNyMarkMins
+        ? (curMins >= ethNyMarkMins && curMins < ethNyMarkEndMins)
+        : (curMins >= ethNyMarkMins || curMins < ethNyMarkEndMins)
+    );
 
     const activeSessionName = isNiftyInst
-      ? (isNsePrime ? 'NSE prime · mid-zone & leave (09:15–12:15 IST)'
+      ? (isNsePrime ? `${idxExch} prime · mid-zone & leave (09:15–12:15 IST)`
         : isNseHunt ? 'Afternoon window (12:15–13:15 IST)'
-        : isNseAfternoon ? 'NSE afternoon session (13:15–15:15 IST)'
-        : isNseMark ? 'NSE close mark window (15:15–15:45 IST)'
-        : 'NSE closed (opens 09:15 IST)')
-      : (isNgInst && !isBinanceWeekendNg)
-        ? (isMcxDay ? 'MCX morning · mid-zone & leave (09:00–17:00 IST)'
-          : isMcxEve ? `MCX evening open · mid-zone (17:00–${nymexOpenStr} IST)`
+        : isNseAfternoon ? `${idxExch} afternoon trend (13:15–15:00 IST)`
+        : isNseMark ? `${idxExch} close mark window (15:00–15:45 IST)`
+        : `${idxExch} closed (opens 09:15 IST)`)
+      : (isMcxInst && !isBinanceWeekendNg)
+        ? (isMcxDay ? 'MCX opening mark window (09:00–09:30 IST)'
+          : isMcxDayTrade ? 'MCX morning · mid-zone & leave (09:00–17:00 IST)'
+          : isMcxEve ? `MCX evening · 5:30 Formula (17:00–${nymexOpenStr} IST)`
           : isNymex ? `US NYMEX open · energy session (${nymexOpenStr}–23:00 IST)`
-          : isNgMark ? 'MCX close mark window (23:00–23:30 IST)'
-          : 'MCX closed · Globex overnight (MCX opens 09:00 IST)')
+          : isNgMark ? 'MCX closing session (23:00–23:30 IST)'
+          : 'MCX closed (opens 09:00 IST)')
       : (isXauInst || isBinanceWeekendNg)
         ? (isXauMark ? 'Gold daily mark window (01:30–02:30 IST)'
           : isComexOpen ? `COMEX / US bullion open (${comexOpenStr}–${nyEndStr} IST)`
@@ -2069,13 +2092,15 @@ const RangeEmaUI = {
           : isLon ? `London bullion / LBMA (${lonOpenStr}–${comexOpenStr} IST)`
           : isLonClose ? `London close / LBMA fix (${fmtHm(lonCloseStart)}–${fmtHm(lonCloseEnd)} IST)`
           : 'Off-prime bullion hours')
-      : isMark ? 'Daily mark Fib (02:30–03:30 IST)'
+      : isNySettleMark ? `Daily mark Fib (${fmtHm(ethNyMarkMins)}–${fmtHm(ethNyMarkEndMins)} IST · 16:00 ET)`
       : isAsia ? 'Asia Trikal window (05:30 IST)'
-      : isUsClose ? 'US cash close → mark Fib next (01:15–02:30 IST)'
+      : isUsClose ? 'Pre-settle NY close (leads into 16:00 ET mark Fib)'
       : `${instUpper === 'ETH' ? 'ETH' : 'BTC'} · mark Fib + Bot Telemetry`;
 
     // Trigger level text for Stepper
-    const firstRedTag = o.firstRedLabel || (r.instrument?.firstRedTf === '30m' ? '30m' : '1H');
+    const firstRedTag = o.firstRed1h?.isMarkWindow
+      ? 'Mark Fib'
+      : (o.firstRedLabel || (r.instrument?.firstRedTf === '30m' ? '30m' : r.instrument?.firstRedTf === '5m' ? '5m' : r.instrument?.firstRedTf === '15m' ? '15m' : '1H'));
     const activePob = o.pobReject || o.playbook?.pobReject;
     const trigLevelStr = (activePob?.pobLo != null && (o.setupKind === 'pob_reject' || o.setupKind === 'pob_reject_watch'))
       ? `Mid-zone 44–56: ${this._fmt(activePob.pobLo)}–${this._fmt(activePob.pobHi)}`
@@ -2189,7 +2214,7 @@ const RangeEmaUI = {
 
     // 2. Action & Status HUD
     const isEnter = a.side === 'LONG' || a.side === 'SHORT';
-    const freshMins = (isNiftyInst || o.setupKind === 'pob_reject') ? 20 : 90;
+    const freshMins = (isNiftyInst || isMcxInst || o.setupKind === 'pob_reject' || o.setupKind === 'trade2_confirmed') ? 20 : 90;
     const snap = this.state.enterSnapshot;
     const snapAgeMin = snap?.at ? (Date.now() - snap.at) / 60000 : 0;
     const reasonStale = /stale|do not chase|window closed|already \d/i.test(String(o.actionReason || ''));
@@ -2242,7 +2267,7 @@ const RangeEmaUI = {
       ? `<div class="rb-signal-banner wait" style="background:rgba(56,189,248,0.10); border:1px solid rgba(56,189,248,0.35); color:#7dd3fc;">🧲 CONTEXT · Fair-value pull toward mark level @ ${this._fmt(a.tp1)} (not an ENTER — wait for leave / retest / sweep / mid-zone)</div>`
       : (showEnter
         ? `<div class="rb-signal-banner enter">${is1245Enter ? '🕒 AFTERNOON ENTER' : isPobEnter ? '⚖️ MID-ZONE ENTER' : 'LIVE ENTER'} · ${a.side} — fresh window (~${freshMins}m). Levels ${useSnap ? 'frozen at first alert' : 'live'}.</div>`
-        : (isEnter || reasonStale || snapStale)
+        : (isEnter || reasonStale)
           ? `<div class="rb-signal-banner watch">STALE — setup seen but too late to ENTER; do <em>not</em> chase. ${escTxt(o.actionReason) || 'Wait for the next leave / retest / sweep / mid-zone.'}</div>`
         : a.side === 'WATCH'
           ? `<div class="rb-signal-banner watch">${
@@ -2261,7 +2286,8 @@ const RangeEmaUI = {
     const pos = this.state.futuresStatus;
     const matchedPos = pos?.positions?.find((p) => String(p.symbol || '').toUpperCase() === activeSym) || pos?.positions?.[0];
     const posAmt = matchedPos ? Math.abs(parseFloat(matchedPos.positionAmt) || 0) : 0;
-    const posLine = pos
+    const isCryptoInst = !isNiftyInst && !isMcxInst;
+    const posLine = (isCryptoInst && pos)
       ? (posAmt > 0
         ? `<div class="rb-binance-status on">Binance ${activeSym}: position open (${posAmt} ${activeAsset}) · ${(pos.openOrders || []).length} resting order(s)</div>`
         : `<div class="rb-binance-status">Binance: no open ${activeSym} position right now</div>`)
@@ -2295,7 +2321,7 @@ const RangeEmaUI = {
       `;
     })() : '';
 
-    const btcConf = (!isNiftyInst) ? (o.btcConfluence || o.playbook?.btcConfluence || null) : null;
+    const btcConf = (!isNiftyInst && !isMcxInst) ? (o.btcConfluence || o.playbook?.btcConfluence || null) : null;
     const btcConfHtml = btcConf ? (() => {
       const sc = btcConf.score;
       const gradeCol = sc === 4 ? '#4ade80' : sc === 3 ? '#38bdf8' : sc === 2 ? '#fbbf24' : '#94a3b8';
@@ -2320,8 +2346,10 @@ const RangeEmaUI = {
     let actionContentHtml = '';
     if (showEnter) {
       const botBtns = isNiftyInst
-        ? `<p class="rb-manage-plan-note">NIFTY Options Model B: 1m option rejection gate + bid/ask spread filter runs before Telegram/Dhan alerts. Runner targets Option 15m open ceiling or next median.</p>`
-        : `
+        ? `<p class="rb-manage-plan-note">${instUpper} Options Model B: 1m option rejection gate + bid/ask spread filter runs before Telegram/Dhan alerts. Runner targets Option 15m open ceiling or next median.</p>`
+        : isMcxInst
+          ? `<p class="rb-manage-plan-note">Dhan MCX (${instUpper}): desk setup alert &amp; Telegram relay active when ENTER fires. Size per lot multiplier &amp; MCX structural stop.</p>`
+          : `
         <div class="rb-bot-actions">
           <button type="button" class="rb-inst-btn active" id="rbPlaceTwoLeg">Place two-leg on Binance</button>
           <button type="button" class="rb-inst-btn" id="rbCheckBinance">Check Binance positions</button>
@@ -2331,10 +2359,16 @@ const RangeEmaUI = {
 
       const runnerLabel = isNiftyInst
         ? 'TP B · Option 15m / Median'
-        : 'TP B · 50% @ 1:3';
+        : isMcxInst
+          ? (instUpper === 'CRUDEOIL' ? 'TP B · 2.4R Target' : 'TP B · 2.5R Target')
+          : 'TP B · 50% @ 1:3';
       const enterPlanDesc = isNiftyInst
-        ? 'Model B on Option Chart: SL = 1m option wick (4–14 pts) or index wick · Leg A banks 50% @ 1:1 (SL→cost +0.50) · Runner → Option 15m open / median.'
-        : (useSnap ? 'Frozen at first ENTER (ignores later level drift).' : 'Same entry + stop. Leg A books 50% @ 1:1 · Leg B runner @ 1:3.');
+        ? `Model B (${instUpper}): SL = structure / 1m option wick · Leg A banks 50% @ 1:1 (SL→cost +0.50) · Runner → Option 15m open / median.`
+        : isMcxInst
+          ? (instUpper === 'CRUDEOIL'
+            ? 'MCX Crude Oil: structural stop (min 15 pts) · TP1 1:1 box expansion · Runner 2.4R.'
+            : 'MCX Natural Gas: structural stop (min 2.5 pts) · TP1 1:1 box expansion · Runner 2.5R.')
+          : (useSnap ? 'Frozen at first ENTER (ignores later level drift).' : 'Same entry + stop. Leg A books 50% @ 1:1 · Leg B runner @ 1:3.');
 
       actionContentHtml = `
         ${statusBanner}
@@ -2342,9 +2376,9 @@ const RangeEmaUI = {
         ${cryptoBotCardHtml}
         ${btcConfHtml}
         ${tellHtml}
-        ${isNiftyInst ? '' : posLine}
+        ${posLine}
         <div class="rb-manage-plan">
-          <div class="rb-manage-plan-title">${isNiftyInst ? 'NIFTY ENTER · Model B Bracket' : 'One ENTER · set-and-forget two legs'}</div>
+          <div class="rb-manage-plan-title">${isNiftyInst ? `${instUpper} ENTER · Model B Bracket` : isMcxInst ? `${instUpper} MCX ENTER · Structural Plan` : 'One ENTER · set-and-forget two legs'}</div>
           <p class="rb-manage-plan-note">${enterPlanDesc}</p>
           <div class="rb-action-levels">
             <div><span>Entry</span><strong>${this._fmt(eN)}</strong><small class="rb-level-sub">${useSnap ? 'Frozen' : (ladder ? 'H1→M5' : 'Live')}</small></div>
@@ -2354,7 +2388,7 @@ const RangeEmaUI = {
           </div>
           ${botBtns}
         </div>
-        ${isNiftyInst ? '' : futuresBarHtml}
+        ${isCryptoInst ? futuresBarHtml : ''}
       `;
     } else {
       // Stepper (Magnet-aware when in Equilibrium Context, standard 4-step for Red Bar DNA)
@@ -2529,43 +2563,43 @@ const RangeEmaUI = {
     const timelineHtml = `
       <div class="rb-session-timeline-card">
         <div class="rb-timeline-header">
-          <span style="font-weight:600; color:#cbd5e1;">${isNiftyInst ? '🇮🇳 NSE Intraday Liquidity Rhythm' : '24H Global Liquidity Rhythm'}</span>
+          <span style="font-weight:600; color:#cbd5e1;">${isNiftyInst ? `🇮🇳 ${idxExch} Intraday Liquidity Rhythm` : isMcxInst ? `🛢️ MCX ${instUpper} Intraday Rhythm` : '24H Global Liquidity Rhythm'}</span>
           <span><span class="rb-live-pulse-dot"></span> Active: <strong style="color:#f8fafc;">${activeSessionName}</strong></span>
         </div>
         <div class="rb-timeline-track">
           ${isNiftyInst ? `
           <div class="rb-session-seg ${isNsePrime ? 'active' : ''} is-prime" title="09:15 IST open · mid-zone &amp; leave window">
             <span class="seg-time">09:15</span>
-            <span class="seg-name">NSE Open</span>
+            <span class="seg-name">${idxExch} Open</span>
           </div>
           <div class="rb-session-seg ${isNseHunt ? 'active' : ''} is-prime" title="Afternoon liquidity window (12:15–13:15 IST)">
             <span class="seg-time">12:45</span>
             <span class="seg-name">Afternoon</span>
           </div>
-          <div class="rb-session-seg ${isNseAfternoon ? 'active' : ''}" title="NSE afternoon trend window (13:15–15:15 IST)">
+          <div class="rb-session-seg ${isNseAfternoon ? 'active' : ''}" title="${idxExch} afternoon trend window (13:15–15:00 IST)">
             <span class="seg-time">13:15</span>
             <span class="seg-name">Trend</span>
           </div>
-          <div class="rb-session-seg ${isNseMark ? 'active' : ''}" title="NSE closing range mark window (15:15–15:45 IST)">
-            <span class="seg-time">15:15</span>
+          <div class="rb-session-seg ${isNseMark ? 'active' : ''}" title="${idxExch} closing range mark window (15:00–15:45 IST)">
+            <span class="seg-time">15:00</span>
             <span class="seg-name">Close Fib</span>
           </div>
           ` : isNgInst ? `
-          <div class="rb-session-seg ${isMcxDay ? 'active' : ''} is-prime" title="MCX morning open · mid-zone &amp; 30m leave">
+          <div class="rb-session-seg ${isMcxDayTrade ? 'active' : ''} is-prime" title="MCX morning open · 09:00–09:30 Mark Fib &amp; 30m leave">
             <span class="seg-time">09:00</span>
             <span class="seg-name">MCX Day</span>
           </div>
-          <div class="rb-session-seg ${isMcxEve ? 'active' : ''} is-prime" title="17:00 IST MCX evening / European energy open">
+          <div class="rb-session-seg ${isMcxEve ? 'active' : ''} is-prime" title="17:00 IST MCX evening · Europe / 5:30 Formula window">
             <span class="seg-time">17:00</span>
             <span class="seg-name">MCX Eve</span>
           </div>
-          <div class="rb-session-seg ${isNymex ? 'active' : ''} is-prime" title="US NYMEX Pit Open (${nymexOpenStr} IST) · Highest NatGas Volatility">
+          <div class="rb-session-seg ${isNymex ? 'active' : ''} is-prime" title="US NYMEX Pit Open (${nymexOpenStr} IST) · High NYMEX Volatility">
             <span class="seg-time">${nymexOpenStr}</span>
             <span class="seg-name">NYMEX</span>
           </div>
-          <div class="rb-session-seg ${isNgMark ? 'active' : ''}" title="MCX Closing Range Mark Window (23:00–23:30 IST)">
+          <div class="rb-session-seg ${isNgMark ? 'active' : ''}" title="MCX closing stretch (23:00–23:30 IST)">
             <span class="seg-time">23:00</span>
-            <span class="seg-name">Close Fib</span>
+            <span class="seg-name">MCX Close</span>
           </div>
           ` : isXauInst ? `
           <div class="rb-session-seg ${isXauMark ? 'active' : ''}" title="Gold Daily Mark Window (01:30–02:30 IST)">
@@ -2589,23 +2623,27 @@ const RangeEmaUI = {
             <span class="seg-name">LBMA Fix</span>
           </div>
           ` : `
-          <div class="rb-session-seg ${isMark ? 'active' : ''}" title="Dev mark Fib — US close / CME settle (02:30–03:30 IST)">
-            <span class="seg-time">02:30</span>
+          <div class="rb-session-seg ${isNySettleMark ? 'active' : ''}" title="Dev mark Fib — US close / CME settle (16:00–17:00 ET = ${fmtHm(ethNyMarkMins)}–${fmtHm(ethNyMarkEndMins)} IST)">
+            <span class="seg-time">${fmtHm(ethNyMarkMins)}</span>
             <span class="seg-name">Mark Fib</span>
           </div>
           <div class="rb-session-seg ${isAsia ? 'active' : ''}" title="Asia Trikal 05:30 IST — crypto clock, not a second Fib box">
             <span class="seg-time">05:30</span>
             <span class="seg-name">Asia Trikal</span>
           </div>
-          <div class="rb-session-seg ${isUsClose ? 'active' : ''}" title="US equity close / CME settle · leads into mark Fib">
-            <span class="seg-time">01:15</span>
-            <span class="seg-name">US Close</span>
+          <div class="rb-session-seg ${isLon ? 'active' : ''}" title="London cash hours (${lonOpenStr} IST)">
+            <span class="seg-time">${lonOpenStr}</span>
+            <span class="seg-name">London</span>
+          </div>
+          <div class="rb-session-seg ${isNy ? 'active' : ''}" title="US cash open (${nyOpenStr} IST)">
+            <span class="seg-time">${nyOpenStr}</span>
+            <span class="seg-name">US Open</span>
           </div>
           `}
         </div>
 
         ${(isNiftyInst || (isNgInst && !isBinanceWeekendNg)) ? `
-        <!-- Instrument-specific prime windows (NIFTY / Weekday MCX NG). BTC + XAU + Weekend NG: mark Fib + Asia 05:30 Trikal only — no desk 3-box matrix. -->
+        <!-- Instrument-specific prime windows (NSE/BSE / Weekday MCX). -->
         <div style="margin-top: 14px; padding-top: 10px; border-top: 1px solid rgba(255,255,255,0.06);">
           <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom: 8px;">
             <span style="font-size: 11px; font-weight: 700; color: #94a3b8; text-transform: uppercase; letter-spacing: 0.04em;">Session Timing Windows</span>
@@ -2631,18 +2669,18 @@ const RangeEmaUI = {
         </div>
         ` : `
         <div style="margin-top: 12px; padding-top: 10px; border-top: 1px solid rgba(255,255,255,0.06); font-size: 11.5px; color: #94a3b8; line-height: 1.45;">
-          <strong style="color:#cbd5e1;">${isXauInst ? 'XAU (Gold)' : 'BTC'} boxes:</strong> one mark Fib at <strong>02:30–03:30 IST</strong> (16:00–17:00 ET settle).
-          Red Bar = ${isXauInst ? '30m' : '1H'} first-red H/L. Asia <strong>05:30</strong> = Trikal 30m breakout &amp; POB — London/NY are liquidity sweeps, not extra Fib boxes.
+          <strong style="color:#cbd5e1;">${instUpper} boxes:</strong> one mark Fib at <strong>${fmtHm(ethNyMarkMins)}–${fmtHm(ethNyMarkEndMins)} IST</strong> (16:00–17:00 ET settle).
+          Asia <strong>05:30</strong>, London <strong>${lonOpenStr}</strong>, US <strong>${nyOpenStr}</strong> are session liquidity clocks — not extra Fib boxes.
         </div>
         `}
       </div>
     `;
 
     // 4. Key Levels Matrix (3-Column clean grid)
-    const markTag = isNiftyInst ? '15:15 Mark Fib' : (isNgInst && !isBinanceWeekendNg) ? '23:00 Mark Fib' : '02:30 Mark Fib';
-    const sess1Tag = isNgInst ? 'MCX Day H/L' : isNiftyInst ? 'NSE Morning H/L' : 'Asia H/L';
-    const sess2Tag = isNgInst ? 'MCX Eve H/L' : isNiftyInst ? 'NSE Midday H/L' : 'London H/L';
-    const sess3Tag = isNgInst ? 'NYMEX H/L' : isXauInst ? 'COMEX/NY H/L' : isNiftyInst ? 'NSE Session H/L' : 'NY H/L';
+    const markTag = isNiftyInst ? '15:00 Mark Fib' : (isMcxInst && !isBinanceWeekendNg) ? '09:00 Mark Fib' : `${fmtHm(ethNyMarkMins)} Mark Fib`;
+    const sess1Tag = isMcxInst ? 'MCX Day H/L' : isNiftyInst ? `${idxExch} Morning H/L` : 'Asia H/L';
+    const sess2Tag = isMcxInst ? 'MCX Eve H/L' : isNiftyInst ? `${idxExch} Midday H/L` : 'London H/L';
+    const sess3Tag = isMcxInst ? 'NYMEX H/L' : isXauInst ? 'COMEX/NY H/L' : isNiftyInst ? `${idxExch} Session H/L` : 'NY H/L';
     const levelsMatrixHtml = `
       <div class="rb-levels-matrix">
         <div class="rb-levels-col">
@@ -3906,21 +3944,31 @@ const RangeEmaUI = {
           const tw = ctx.measureText(label).width;
           const boxW = tw + padX * 2;
           const boxH = compact ? 13 : 15;
-          // Inside chart area, flush to the right scale — reclaim the old padding gutter
-          const x = Math.max(area.left + 2, axisX - boxW - (compact ? 2 : 4));
+          // Draw cleanly over the right Y-axis gutter (never over the latest candles)
+          const x = Math.max(area.left + 2, Math.min(axisX + (compact ? 2 : 4), chart.width - boxW - 2));
 
-          // Short tick into the plot so the eye can find the level without a full line
+          // Short tick from the plot right edge into the axis pill
           ctx.strokeStyle = t.color || '#e2e8f0';
           ctx.globalAlpha = 0.7;
           ctx.lineWidth = 1.5;
           ctx.setLineDash([]);
           ctx.beginPath();
-          ctx.moveTo(axisX - 10, y);
-          ctx.lineTo(axisX, y);
+          ctx.moveTo(axisX - 6, y);
+          ctx.lineTo(x, y);
           ctx.stroke();
           ctx.globalAlpha = 1;
 
-          ctx.fillStyle = t.bg || 'rgba(15, 23, 42, 0.92)';
+          // Opaque base so Y-axis scale numbers underneath don't bleed through the pill
+          ctx.fillStyle = '#0b1120';
+          ctx.beginPath();
+          if (typeof ctx.roundRect === 'function') {
+            ctx.roundRect(x, y - boxH / 2, boxW, boxH, 3);
+          } else {
+            ctx.rect(x, y - boxH / 2, boxW, boxH);
+          }
+          ctx.fill();
+
+          ctx.fillStyle = t.bg || 'rgba(15, 23, 42, 0.94)';
           ctx.strokeStyle = t.color || '#e2e8f0';
           ctx.lineWidth = 1;
           ctx.beginPath();
@@ -3983,22 +4031,25 @@ const RangeEmaUI = {
 
     const instUpper = String(instId || this.activeInstrument()?.id || '').toUpperCase();
     const isNifty = ['NIFTY', 'BANKNIFTY', 'SENSEX'].includes(instUpper);
+    const isSensex = instUpper === 'SENSEX';
+    const exchTag = isSensex ? 'BSE' : 'NSE';
     const isXau = false;
     const isNg = ['NG', 'CRUDEOIL'].includes(instUpper);
+    const isCrude = instUpper === 'CRUDEOIL';
     const comexOpenMins = this._getSessionOpenMins(nowMs, 'America/New_York', 8, 30);
     const nymexOpenMins = this._getSessionOpenMins(nowMs, 'America/New_York', 9, 0);
     const windows = isNifty ? [
       {
         id: 'nse_open',
-        name: 'NSE Open · mid-zone & leave',
-        code: 'NSE OPEN',
+        name: `${exchTag} Open · mid-zone & leave`,
+        code: `${exchTag} OPEN`,
         startIstMins: 555,   // 09:15 IST
         endIstMins: 735,     // 12:15 IST
         startStrIst: '09:15',
         endStrIst: '12:15',
         winRate: 'High-interest open',
         headline: '09:15 open candle · mid-zone & leave',
-        rule: 'First 5m opposing @ 09:15 → retest mid-zone 44–56 → SHORT reject, or higher-TF breakout leave'
+        rule: 'First 5m opposing @ 09:15 → retest mid-zone 44–56 → SHORT reject, or 5m first-red leave / medians'
       },
       {
         id: 'nse_hunt',
@@ -4010,44 +4061,44 @@ const RangeEmaUI = {
         endStrIst: '13:15',
         winRate: 'Stop-hunt window',
         headline: 'Midday liquidity sweep',
-        rule: 'Prefer flat morning scalps by ~12:45; morning high/low often hunted before Europe opens'
+        rule: 'Prefer flat morning scalps by ~12:45; morning high/low often hunted before afternoon expansion'
       },
       {
         id: 'nse_close',
-        name: 'NSE Close Mark Window',
+        name: `${exchTag} Close Mark Window`,
         code: 'CLOSE FIB',
-        startIstMins: 915,   // 15:15 IST
+        startIstMins: 900,   // 15:00 IST
         endIstMins: 945,     // 15:45 IST
-        startStrIst: '15:15',
+        startStrIst: '15:00',
         endStrIst: '15:45',
         winRate: 'Fib 0–1 Anchor',
-        headline: 'Closing range Fib anchor (15:15–15:45 IST)',
-        rule: 'High/Low wicks of 15:15–15:45 IST lock Fib 0, mid-zone 44–56, and Fib 1 for the next NSE session'
+        headline: `Closing range Fib anchor (15:00–15:45 IST)`,
+        rule: `High/Low wicks of 15:00–15:45 IST lock Fib 0, mid-zone 44–56, and Fib 1 for the next ${exchTag} session`
       }
     ] : isNg ? [
       {
         id: 'mcx_open',
-        name: 'MCX Morning Open · mid-zone & leave',
+        name: 'MCX Morning Open · Mark & Leave',
         code: 'MCX DAY',
         startIstMins: 540,   // 09:00 IST
         endIstMins: 720,     // 12:00 IST
         startStrIst: '09:00',
         endStrIst: '12:00',
         winRate: 'Morning open',
-        headline: 'MCX 09:00 open · mid-zone & 30m leave',
-        rule: 'First 5m opposing @ 09:00 → mid-zone retest SHORT, plus 30m session-box leave / retest'
+        headline: 'MCX 09:00–09:30 Mark Fib & 15m first-red',
+        rule: '09:00–09:30 Mark Fib locks day box; first 5m opposing @ 09:00 → mid-zone SHORT or 15m box leave'
       },
       {
         id: 'mcx_eve',
-        name: 'MCX Evening · 5 PM Energy Open',
+        name: isCrude ? 'MCX Evening · 5:30 Formula (17:30 IST)' : 'MCX Evening · 5 PM / 5:30 Formula',
         code: 'MCX EVE',
         startIstMins: 1020,  // 17:00 IST
-        endIstMins: 1110,    // 18:30 IST
+        endIstMins: nymexOpenMins,
         startStrIst: '17:00',
-        endStrIst: '18:30',
-        winRate: '5 PM energy slot',
-        headline: 'European / MCX evening liquidity',
-        rule: '17:00 IST commodity window: mid-zone 44–56 & MCX day high/low liquidity sweep'
+        endStrIst: fmtMins(nymexOpenMins),
+        winRate: 'Europe energy slot',
+        headline: '17:30 30m 5:30 Formula & MCX day H/L sweep',
+        rule: '17:30–18:00 30m candle marks 5:30 Formula box; breakout/retest/trap after 18:00 (2.4R Crude / 2.5R NG)'
       },
       {
         id: 'nymex',
@@ -4057,9 +4108,9 @@ const RangeEmaUI = {
         endIstMins: nymexOpenMins + 120,
         startStrIst: fmtMins(nymexOpenMins),
         endStrIst: fmtMins(nymexOpenMins + 120),
-        winRate: 'Peak NatGas Volatility',
-        headline: 'US NYMEX Open & 23:00–23:30 IST Close Fib',
-        rule: 'NYMEX 09:00 ET pit open drives largest Natural Gas impulse; 23:00–23:30 IST locks next day Mark Fibs'
+        winRate: isCrude ? 'Peak NYMEX Crude Vol' : 'Peak NYMEX NatGas Vol',
+        headline: `NYMEX Open (${fmtMins(nymexOpenMins)} IST) & Holiday 17:00 Mark`,
+        rule: `NYMEX 09:00 ET (${fmtMins(nymexOpenMins)} IST DST-aware) drives main US energy liquidity; 17:00–17:30 acts as holiday fallback mark`
       }
     ] : isXau ? [
       {
@@ -4744,8 +4795,14 @@ const RangeEmaUI = {
         );
       }
 
-      // 2. Session-specific liquidity pool for the current clock window (rank 2 = hunted pool, rank 3 = PDH/PDL)
-      if (clockId === 'pre_london') {
+      // 2. Session-specific liquidity pool (only apply Asia/London/NY pool clock to Crypto)
+      const instUpperTag = String(inst?.id || '').toUpperCase();
+      if (['NIFTY', 'BANKNIFTY', 'SENSEX'].includes(instUpperTag)) {
+        pickNearer('PDH', o.refs?.priorDayHigh, 'PDL', o.refs?.priorDayLow, '#fbbf24', 'rgba(55, 40, 10, 0.90)', 3);
+      } else if (['CRUDEOIL', 'NG'].includes(instUpperTag)) {
+        pickNearer('NYMEX HI', o.refs?.nyHigh, 'NYMEX LO', o.refs?.nyLow, '#cbd5e1', 'rgba(30, 41, 59, 0.88)', 2);
+        pickNearer('PDH', o.refs?.priorDayHigh, 'PDL', o.refs?.priorDayLow, '#fbbf24', 'rgba(55, 40, 10, 0.90)', 3);
+      } else if (clockId === 'pre_london') {
         if (o.firstRed1h?.high != null) {
           pushTag(`${o.firstRedLabel || '1H'} RED`, o.firstRed1h.high, '#f43f5e', 'rgba(60, 10, 20, 0.94)', { rank: 2 });
         }
@@ -4927,9 +4984,10 @@ const RangeEmaUI = {
                 const arrow = chg >= 0 ? '▲' : '▼';
                 const sign = chg >= 0 ? '+' : '';
                 const col = chg >= 0 ? '#4ade80' : '#f87171';
+                const symCur = inst.currency === 'INR' ? '₹' : '$';
                 const dayStr = priorFibInfo?.dayLabel ? ` (${priorFibInfo.dayLabel})` : '';
-                const pfSummary = priorFibInfo ? ` · <span style="color:#64748b;">Prev Fib${dayStr}:</span> <span style="color:#4ade80;">H $${Number(priorFibInfo.high).toFixed(d)}</span> <span style="color:#38bdf8;">Mid $${Number(priorFibInfo.mid).toFixed(d)}</span> <span style="color:#f87171;">L $${Number(priorFibInfo.low).toFixed(d)}</span>` : '';
-                elInfo.innerHTML = `<span style="color:#94a3b8;">Live:</span> <strong style="color:${col};">$${Number(last.c).toFixed(d)} (${arrow} ${sign}${chg.toFixed(2)}%)</strong> <span style="color:#64748b;">H: $${Number(last.h).toFixed(d)} · L: $${Number(last.l).toFixed(d)}</span>${pfSummary}`;
+                const pfSummary = priorFibInfo ? ` · <span style="color:#64748b;">Prev Fib${dayStr}:</span> <span style="color:#4ade80;">H ${symCur}${Number(priorFibInfo.high).toFixed(d)}</span> <span style="color:#38bdf8;">Mid ${symCur}${Number(priorFibInfo.mid).toFixed(d)}</span> <span style="color:#f87171;">L ${symCur}${Number(priorFibInfo.low).toFixed(d)}</span>` : '';
+                elInfo.innerHTML = `<span style="color:#94a3b8;">Live:</span> <strong style="color:${col};">${symCur}${Number(last.c).toFixed(d)} (${arrow} ${sign}${chg.toFixed(2)}%)</strong> <span style="color:#64748b;">H: ${symCur}${Number(last.h).toFixed(d)} · L: ${symCur}${Number(last.l).toFixed(d)}</span>${pfSummary}`;
               }
               return;
             }
@@ -5439,6 +5497,10 @@ const RangeEmaUI = {
             position: 'right',
             min: savedYMin,
             max: savedYMax,
+            afterFit(scale) {
+              const minW = compact ? 58 : 78;
+              if (scale.width < minW) scale.width = minW;
+            },
             grid: { color: 'rgba(255,255,255,0.06)' },
             ticks: {
               color: 'rgba(255,255,255,0.45)',

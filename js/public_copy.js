@@ -29,7 +29,7 @@ const TrendRunnerCopy = {
     },
     fib_sandwich_wait: {
       name: 'Between the medians (narrow)',
-      tip: 'Price is strictly inside the narrow (< 120 pts) 09:15 median vs red-bar median sandwich — stand aside until price breaks out of the band (or highway ≥ 120 pts).',
+      tip: 'Price is strictly inside the narrow opening-bar vs red-bar median sandwich — stand aside until price breaks out of the band.',
     },
     session_sweep: {
       name: 'Liquidity sweep',

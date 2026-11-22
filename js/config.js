@@ -81,8 +81,8 @@ const CONFIG = {
   // Sagar playbook: mark-window fibs + 1H first-red pivot (trade 1 / revisit trade 2)
   // + prior-day H/L book + Asia→London→US liquidity clock (js/redbar_trend.js).
   // EMA 10/30 is a SEPARATE overlay on the desk — not the trend engine.
-  // Tabs: BTC, NIFTY, BANKNIFTY, SENSEX, CRUDEOIL, NG (MCX).
-  // Live Dhan auto: NIFTY + CRUDEOIL + NG (1-lot MCX test). BANKNIFTY/SENSEX desk-only. BTC Telegram/auto paused.
+  // Tabs: BTC, ETH, NIFTY, BANKNIFTY, SENSEX, CRUDEOIL, NG (MCX).
+  // Live Dhan auto: NIFTY + CRUDEOIL + NG (1-lot MCX test). BANKNIFTY/SENSEX desk-only. BTC/ETH Red Bar alerts paused (bots run independent strategies).
   rangeEma: {
     enabled: true,
     workingTf: '15m',
@@ -118,7 +118,7 @@ const CONFIG = {
         priceDecimals: 2,
         timeframes: ['5m', '15m', '30m', '1h', '4h'],
         ohlcLimit: { '5m': 1000, '15m': 1000, '30m': 1000, '1h': 720, '4h': 400 },
-        tradeHint: 'Binance USDⓈ-M · BTCUSDT · Bot: 1h HA+EMA+CCI(200) 4x/45% · Fib US Close (02:30–03:30 IST)',
+        tradeHint: 'Binance USDⓈ-M · BTCUSDT · Bot: 1h HA+EMA+CCI(200) 4x/45% · Fib 16:00–17:00 ET (01:30/02:30 IST)',
         showSessionMarkers: true,
         // BTC uses only the single 02:30–03:30 IST mark window Fib box — no second 1H red box
         firstRedTf: null,
@@ -186,7 +186,7 @@ const CONFIG = {
         fallbackFeed: 'yahoo',
         fallbackSymbol: '^NSEI',
         dayMode: 'ist',
-        // Cash close window 15:15–15:45 IST (15:30 close + 15:45 bar)
+        // Cash close window 15:00–15:45 IST (closing range Fib)
         bandStyle: 'sessionFib',
         // Dr. Dev NSE intraday: All NIFTY Fibs (09:15 First Bar, Gap, First Red) on 5m chart; 1m option micro-entry
         firstRedTf: '5m',
@@ -286,10 +286,10 @@ const CONFIG = {
       {
         id: 'CRUDEOIL',
         label: 'CRUDEOIL',
-        symbol: 'CRUDEOIL NOV FUT',
+        symbol: 'CRUDEOIL DEC FUT',
         currency: 'INR',
-        dhanSecurityId: '573422',
-        contractExpiry: '2026-11-17',
+        dhanSecurityId: '576264',
+        contractExpiry: '2026-12-18',
         tpMult: 2.4,
         minSlPts: 15,
         dhanExchangeSegment: 'MCX_COMM',
@@ -320,7 +320,7 @@ const CONFIG = {
         priceDecimals: 0,
         timeframes: ['5m', '15m', '30m', '1h'],
         ohlcLimit: { '5m': 360, '15m': 500, '30m': 500, '1h': 400 },
-        tradeHint: 'Dhan MCX · CRUDEOIL NOV FUT (573422) · 09:00 / 17:00 Open & 5:30 Formula · NYMEX 18:30/19:30',
+        tradeHint: 'Dhan MCX · CRUDEOIL DEC FUT (576264) · 09:00 / 17:00 Open & 5:30 Formula · NYMEX 18:30/19:30',
         showSessionMarkers: true,
         sessions: [
           { id: 'mcx_day', label: 'MCX day', timeZone: 'Asia/Kolkata', open: [9, 0], close: [17, 0], color: '#818cf8' },
@@ -331,10 +331,10 @@ const CONFIG = {
       {
         id: 'NG',
         label: 'NG (MCX)',
-        symbol: 'NATURALGAS NOV FUT',
+        symbol: 'NATURALGAS DEC FUT',
         currency: 'INR',
-        dhanSecurityId: '574319',
-        contractExpiry: '2026-11-20',
+        dhanSecurityId: '578249',
+        contractExpiry: '2026-12-28',
         tpMult: 2.5,
         minSlPts: 2.5,
         dhanExchangeSegment: 'MCX_COMM',
@@ -365,7 +365,7 @@ const CONFIG = {
         priceDecimals: 1,
         timeframes: ['5m', '15m', '30m', '1h'],
         ohlcLimit: { '5m': 360, '15m': 500, '30m': 500, '1h': 400 },
-        tradeHint: 'Dhan MCX · NATURALGAS NOV FUT (574319) · 09:00 / 17:00 Open & NYMEX 18:30/19:30',
+        tradeHint: 'Dhan MCX · NATURALGAS DEC FUT (578249) · 09:00 / 17:00 Open & NYMEX 18:30/19:30',
         showSessionMarkers: true,
         sessions: [
           { id: 'mcx_day', label: 'MCX day', timeZone: 'Asia/Kolkata', open: [9, 0], close: [17, 0], color: '#818cf8' },
