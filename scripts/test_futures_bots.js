@@ -255,6 +255,28 @@ function load(sym, tf) {
     assert.strictEqual(okSell.placed, true);
     assert.strictEqual(placedOrders[1].productType, 'MARGIN');
 
+    // Verify BSE_FNO SENSEX support (1 lot = 20 qty, step = 100, exchangeSegment = BSE_FNO)
+    const { resolveSwingOption } = require('../js/futures_bot_runtime.js');
+    const sensexOff = await resolveSwingOption({ instrumentId: 'SENSEX', side: 'LONG', spot: 83920, offline: true });
+    assert.strictEqual(sensexOff.strike, 83900);
+    assert.strictEqual(sensexOff.optSeg, 'BSE_FNO');
+    mockExecDhan.getFundLimits = async () => ({ availabelBalance: 63766.31 });
+    const okSensexBuy = await executeOptionSwingOrder(mockExecDhan, {
+      autoTrade: true,
+      securityId: '822692',
+      exchangeSegment: 'BSE_FNO',
+      txType: 'BUY',
+      lots: 1,
+      qtyPerLot: 20,
+      estPremium: 1020,
+      minRemainingRs: 20000,
+      nowMs: marketOpenMs,
+    });
+    assert.strictEqual(okSensexBuy.placed, true);
+    assert.strictEqual(placedOrders[2].exchangeSegment, 'BSE_FNO');
+    assert.strictEqual(placedOrders[2].quantity, 20);
+    assert.strictEqual(placedOrders[2].productType, 'MARGIN');
+
     const { renderTradeCardPng } = require('../js/tg_card.js');
     const niftySlice = load('NIFTY', '15m').slice(-48);
     const png = renderTradeCardPng({

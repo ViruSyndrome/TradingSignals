@@ -17,8 +17,24 @@ const DEFAULT_CONTRACTS = {
     defaultSigScrip: '13',
     execSeg: 'NSE_FNO',
     execInst: 'FUTIDX',
+    optSeg: 'NSE_FNO',
     execScripEnv: 'DHAN_NIFTY_FUT_SCRIP',
     lotQty: 65,
+    strikeStep: 50,
+    tickSize: 0.05,
+    productType: 'MARGIN',
+  },
+  SENSEX: {
+    symbol: 'SENSEX',
+    signalSeg: 'IDX_I',
+    signalInst: 'INDEX',
+    signalScripEnv: 'AI_RENKO_SENSEX_SIG_SCRIP',
+    defaultSigScrip: '51',
+    execSeg: 'BSE_FNO',
+    execInst: 'OPTIDX',
+    optSeg: 'BSE_FNO',
+    lotQty: 20,
+    strikeStep: 100,
     tickSize: 0.05,
     productType: 'MARGIN',
   },
@@ -355,9 +371,15 @@ function dhanReady(dhan) {
   return Boolean(dhan && (typeof dhan.isConfigured === 'function' ? dhan.isConfigured() : isDhanConfigured()));
 }
 
-async function getNiftySpotLtp(dhan) {
+async function getSpotLtp(dhan, symbol = 'NIFTY') {
   if (!dhanReady(dhan)) return null;
-  return dhan.getMarketLtp('IDX_I', '13');
+  const spec = DEFAULT_CONTRACTS[String(symbol || 'NIFTY').toUpperCase()] || DEFAULT_CONTRACTS.NIFTY;
+  const scrip = (spec.signalScripEnv && process.env[spec.signalScripEnv]) || spec.defaultSigScrip || '13';
+  return dhan.getMarketLtp(spec.signalSeg || 'IDX_I', String(scrip));
+}
+
+async function getNiftySpotLtp(dhan) {
+  return getSpotLtp(dhan, 'NIFTY');
 }
 
 async function getAvailableBalance(dhan) {
@@ -384,10 +406,11 @@ async function hasOpenSecurityPosition(dhan, securityId) {
 }
 
 /**
- * Pick live 7–21 DTE NIFTY Option contract (CE on LONG, PE on SHORT), or deterministic offline estimate.
+ * Pick live 7–25 DTE Index Option contract (CE on LONG, PE on SHORT), or deterministic offline estimate.
  */
 async function resolveSwingOption({
   dhan,
+  instrumentId = 'NIFTY',
   side,
   spot,
   minDteDays = 7,
@@ -395,12 +418,16 @@ async function resolveSwingOption({
   strikeMode = 'atm',
   offline = false,
 }) {
+  const inst = String(instrumentId || 'NIFTY').toUpperCase();
+  const spec = DEFAULT_CONTRACTS[inst] || DEFAULT_CONTRACTS.NIFTY;
+  const step = Number(spec.strikeStep) || (inst === 'SENSEX' ? 100 : 50);
+  const optSeg = spec.optSeg || (inst === 'SENSEX' ? 'BSE_FNO' : 'NSE_FNO');
   const optType = side === 'LONG' ? 'CE' : 'PE';
-  const baseStrike = side === 'LONG' ? Math.floor(spot / 50) * 50 : Math.ceil(spot / 50) * 50;
-  const strike = strikeMode === 'itm' ? (side === 'LONG' ? baseStrike - 50 : baseStrike + 50) : baseStrike;
+  const baseStrike = side === 'LONG' ? Math.floor(spot / step) * step : Math.ceil(spot / step) * step;
+  const strike = strikeMode === 'itm' ? (side === 'LONG' ? baseStrike - step : baseStrike + step) : baseStrike;
   if (!offline && dhan && isDhanConfigured()) {
     try {
-      const optHelper = createDhanNiftyTrade({ client: dhan, instrumentId: 'NIFTY', productType: 'MARGIN' });
+      const optHelper = createDhanNiftyTrade({ client: dhan, instrumentId: inst, productType: 'MARGIN' });
       const pick = await optHelper.pickOptionContract({ side, spot, minDteDays, maxDteDays, strikeMode });
       const px = pick.ask > 0 ? pick.ask : pick.ltp;
       if (px > 0) {
@@ -409,14 +436,15 @@ async function resolveSwingOption({
           expiry: pick.expiry,
           strike: pick.strike,
           optSide: pick.optSide,
+          optSeg,
           securityId: pick.securityId,
           premium: +px.toFixed(2),
-          delta: +(pick.delta || 0.58).toFixed(2),
+          delta: +(pick.delta || 0.55).toFixed(2),
           live: true,
         };
       }
     } catch (e) {
-      console.warn(`[SwingOpt] Option resolution failed for ${side} @ ${spot} (falling back to Est):`, e.message);
+      console.warn(`[SwingOpt] ${inst} Option resolution failed for ${side} @ ${spot} (falling back to Est):`, e.message);
     }
   }
   return {
@@ -424,9 +452,10 @@ async function resolveSwingOption({
     expiry: null,
     strike,
     optSide: optType,
+    optSeg,
     securityId: null,
-    premium: 170.0,
-    delta: strikeMode === 'itm' ? 0.65 : 0.58,
+    premium: inst === 'SENSEX' ? 950.0 : 170.0,
+    delta: strikeMode === 'itm' ? 0.65 : 0.52,
     live: false,
   };
 }
@@ -437,31 +466,35 @@ async function resolveSwingOption({
 async function fetchOptionLiveOrEstExit({
   dhan,
   securityId,
+  exchangeSegment = 'NSE_FNO',
   live,
   side,
   entryIdx,
   entryOpt,
   exitIdx,
-  delta = 0.58,
+  delta = 0.55,
   entryTs,
   exitTs,
   offline = false,
 }) {
+  const seg = exchangeSegment || 'NSE_FNO';
   if (!offline && live && securityId && dhan && isDhanConfigured()) {
     try {
-      const ltp = await dhan.getMarketLtp('NSE_FNO', securityId);
+      const ltp = await dhan.getMarketLtp(seg, securityId);
       if (ltp > 0) return +ltp.toFixed(2);
     } catch (_) {
       // Fallback below
     }
   }
   const idxMove = side === 'LONG' ? (exitIdx - entryIdx) : (entryIdx - exitIdx);
-  const d = delta || 0.58;
+  const d = delta || 0.55;
+  const gammaCoef = seg === 'BSE_FNO' ? 0.00015 : 0.0005;
   const rawMove = idxMove > 0
-    ? idxMove * d + 0.0005 * idxMove * idxMove
+    ? idxMove * d + gammaCoef * idxMove * idxMove
     : Math.max(-(entryOpt - 5), idxMove * d * 0.85);
   const holdDays = Math.max(0.05, ((exitTs || Date.now()) - (entryTs || Date.now())) / 86400000);
-  const thetaEst = Math.min(holdDays, 4) * 10;
+  const thetaPerDay = seg === 'BSE_FNO' ? 8 : 10;
+  const thetaEst = Math.min(holdDays, 6) * thetaPerDay;
   return +Math.max(1, entryOpt + rawMove - thetaEst).toFixed(2);
 }
 
@@ -471,6 +504,7 @@ async function fetchOptionLiveOrEstExit({
 async function executeOptionSwingOrder(dhan, {
   autoTrade,
   securityId,
+  exchangeSegment = 'NSE_FNO',
   txType, // 'BUY' | 'SELL'
   lots = 1,
   qtyPerLot = 65,
@@ -480,6 +514,7 @@ async function executeOptionSwingOrder(dhan, {
   minRemainingRs = 0,
   nowMs = Date.now(),
 }) {
+  const seg = exchangeSegment || 'NSE_FNO';
   const qty = Math.max(1, Math.round(lots * qtyPerLot));
   if (!autoTrade) {
     return { simulated: true, reason: 'AUTO_TRADE=false', txType, qty, lots };
@@ -510,7 +545,7 @@ async function executeOptionSwingOrder(dhan, {
 
   const res = await dhan.placeOrder({
     transactionType: txType,
-    exchangeSegment: 'NSE_FNO',
+    exchangeSegment: seg,
     productType,
     orderType: 'MARKET',
     validity: 'DAY',
@@ -540,6 +575,7 @@ module.exports = {
   cancelExchangeOrder,
   hasOpenFuturesPosition,
   getIstClock,
+  getSpotLtp,
   getNiftySpotLtp,
   getAvailableBalance,
   hasOpenSecurityPosition,
