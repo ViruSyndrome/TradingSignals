@@ -347,9 +347,9 @@
             <p>Each session can mark an open candle and draw levels <code>0, 0.44, 0.5, 0.56, 1</code> on that structure:</p>
             <ul>
               <li><strong>Mid-zone (44–56%):</strong> The middle band of the open mark candle — where price often retests after the first leave.</li>
-              <li><strong>Mid-zone reject (ENTER):</strong> After the open candle is marked (NSE/BSE ~09:15; MCX ~09:00/17:00/NYMEX; BTC Asia Trikal ~05:30), wait for leave → retest of mid-zone → <strong>SHORT</strong> only if a 5m candle rejects back below mid. Close through the top of mid-zone = idea invalid.</li>
-              <li><strong>Also ENTER paths:</strong> breakout leave, shelf retest, liquidity sweep, afternoon window, median wick, MCX 5:30 Formula.</li>
-              <li><strong>Mark windows:</strong> BTC &amp; ETH ~US cash close (16:00–17:00 ET = 02:30/01:30 IST) · NIFTY/BankNifty/Sensex ~15:00–15:45 IST · CRUDEOIL/NG ~09:00–09:30 IST (17:00 fallback) — <strong>targets / context</strong>.</li>
+              <li><strong>Mid-zone reject (ENTER):</strong> After the open candle is marked (NSE/BSE ~09:15; BTC Asia Trikal ~05:30), wait for leave → retest of mid-zone → <strong>SHORT</strong> only if a 5m candle rejects back below mid. Close through the top of mid-zone = idea invalid.</li>
+              <li><strong>Also ENTER paths:</strong> breakout leave, shelf retest, liquidity sweep, afternoon window, median wick.</li>
+              <li><strong>Mark windows:</strong> BTC &amp; ETH ~US cash close (16:00–17:00 ET = 02:30/01:30 IST) · NIFTY &amp; SENSEX ~15:00–15:45 IST — <strong>targets / context</strong>.</li>
               <li><strong>Inside the full [0, 1] box:</strong> often chop → <strong>WAIT</strong>.</li>
             </ul>
           </div>
@@ -630,7 +630,7 @@
       });
     } catch(e) {}
   </script>
-  <script src="js/config.js?v=7.40" defer></script>
+  <script src="js/config.js?v=7.41" defer></script>
   <script src="js/api.js?v=7.03" defer></script>
   <script src="js/indicators.js?v=6.60" defer></script>
   <script src="js/redbar_trend.js?v=2.44" defer></script>
@@ -847,13 +847,11 @@
           <h3 style="font-size:13px; font-weight:700; color:#38bdf8; margin:0 0 6px;">🤖 Live Automated Bot Stack (Oracle VM)</h3>
           <p style="margin:0; font-size:12px; color:#cbd5e1;">
             <strong>1. AI Renko Mode C (+Stage 3):</strong> NIFTY 15m Options (7–25 DTE ATM) · Hard Cap -150p · +120p→+30p Lock (36h → +50p) · ATR 5x @ +180p · Stage 3 (>=+700p → Peak - 150p) · Supertrend Flip exit · <em>Respects ₹20k Patrick priority reserve.</em><br>
-            <strong>2. Patrick Nill (`volFilter`):</strong> NIFTY 15m Options · 1.5R BE → 10-bar trail >=2.5R → 5.5R TP (<strong>₹20,000 locked priority cash reserve</strong>).<br>
-            <strong>3. Trade 1 Option C (`redbar-trade1-live`):</strong> NIFTY 15m Intraday (1/day) · AI Renko Supertrend direction-aligned · StrongClose >=0.70 · BE +35p→+10p · CloseBack 1H Red cut · 3R TP · 15:10 EOD · <em>Respects ₹20k Patrick reserve.</em><br>
-            <strong>4. HA+EMA+CCI Dhan Paper (`ha-cci-dhan-paper`):</strong> NIFTY 15m &amp; CRUDEOIL 15m paper Chandelier trend tracker.<br>
+            <strong>2. SENSEX Mode C (`ai-renko-sensex-live`):</strong> BSE SENSEX 15m (`BSE_FNO` 7–25 DTE ATM, 1 lot = `20` qty) · `Brick 0.15%`, `Cap SL -0.75%`, `+0.48%→+0.12%` Lock, `36h → +0.20%`, `ATR 5x @ +0.72%`, `Stage 3 >=+2.5%/-0.6%` · <em>Respects ₹20k Patrick priority reserve.</em><br>
+            <strong>3. Patrick Nill (`volFilter`):</strong> NIFTY 15m Options · 1.5R BE → 10-bar trail >=2.5R → 5.5R TP (<strong>₹20,000 locked priority cash reserve</strong>).<br>
+            <strong>4. Trade 1 Option C (`redbar-trade1-live`):</strong> NIFTY 15m Intraday (1/day) · AI Renko Supertrend direction-aligned · StrongClose >=0.70 · BE +35p→+10p · CloseBack 1H Red cut · 3R TP · 15:10 EOD · <em>Respects ₹20k Patrick reserve.</em><br>
             <strong>5. BTC Trend (`ha-cci-btc-trader`):</strong> Binance BTCUSDT 1h (`03:00–09:50 UTC` entries) · HA+EMA(20/50/200)+CCI(200) · Chandelier 4.5x ATR · <strong>4x Isolated (45% wallet share)</strong>.<br>
-            <strong>6. ETH Swing (`ai-renko-eth-trader`):</strong> Binance ETHUSDT 4h (`24/7` on 4h close) · Crypto AI Renko (`ATR=14`, `Factor=6`, `Brick=0.5%`, `EMA200` filter) · 8% Hard `STOP_MARKET` · <strong>4x Isolated (45% wallet share)</strong>.<br>
-            <strong>7. SENSEX Mode C (`ai-renko-sensex-live`):</strong> BSE SENSEX 15m (`BSE_FNO` 7–25 DTE ATM, 1 lot = `20` qty) · `Brick 0.15%`, `Cap SL -0.75%`, `+0.48%→+0.12%` Lock, `36h → +0.20%`, `ATR 5x @ +0.72%`, `Stage 3 >=+2.5%/-0.6%` · <em>Respects ₹20k Patrick priority reserve.</em><br>
-            <em>Note: BANKNIFTY tab is currently Desk-only (no live auto bot attached yet).</em>
+            <strong>6. ETH Swing (`ai-renko-eth-trader`):</strong> Binance ETHUSDT 4h (`24/7` on 4h close) · Crypto AI Renko (`ATR=14`, `Factor=6`, `Brick=0.5%`, `EMA200` filter) · 8% Hard `STOP_MARKET` · <strong>4x Isolated (45% wallet share)</strong>.
           </p>
         </div>
 
@@ -889,17 +887,12 @@
             <tr style="border-bottom:1px solid rgba(255,255,255,0.05);">
               <td style="padding:6px 8px; font-weight:600; color:#f8fafc;">NSE / BSE Close Mark Fib</td>
               <td style="padding:6px 8px;">15:00–15:45</td>
-              <td style="padding:6px 8px; color:#94a3b8;">Closing window anchors NIFTY, BANKNIFTY &amp; SENSEX Fib box; intraday morning uses 09:15 bar, first-red &amp; Advanced Medians (`120 / 300 / 400` pt highways).</td>
+              <td style="padding:6px 8px; color:#94a3b8;">Closing window anchors NIFTY &amp; SENSEX Fib box; intraday morning uses 09:15 bar, first-red &amp; Advanced Medians (`120 / 400` pt highways).</td>
             </tr>
             <tr style="border-bottom:1px solid rgba(255,255,255,0.05);">
               <td style="padding:6px 8px; font-weight:600; color:#f8fafc;">Afternoon Window</td>
               <td style="padding:6px 8px;">12:15–13:15</td>
               <td style="padding:6px 8px; color:#94a3b8;">NSE/BSE midday liquidity &amp; 12:45 afternoon breakout / reversal / shelf retest checks.</td>
-            </tr>
-            <tr style="border-bottom:1px solid rgba(255,255,255,0.05);">
-              <td style="padding:6px 8px; font-weight:600; color:#f8fafc;">MCX Open &amp; 5:30 Formula</td>
-              <td style="padding:6px 8px;">09:00–09:30 / 17:30</td>
-              <td style="padding:6px 8px; color:#94a3b8;">CRUDEOIL &amp; NG anchor at 09:00 open (17:00 holiday fallback); 17:30 30m box sets 5:30 Formula (2.4R Crude / 2.5R NG) ahead of NYMEX (`18:30/19:30`).</td>
             </tr>
             <tr style="border-bottom:1px solid rgba(255,255,255,0.05);">
               <td style="padding:6px 8px; font-weight:600; color:#f8fafc;">BTC &amp; ETH Mark Fib (16:00–17:00 ET)</td>
@@ -921,7 +914,7 @@
           • <em>WATCH</em> = Setup or bias is forming, awaiting confirmation or blocked by a risk filter (stale &gt;20m, &gt;0.5R chase, 200 MA chop, &gt;1% stop, or Equinox filter).</p>
 
           <p><strong>Transaction Costs &amp; Lot Sizes:</strong><br>
-          • <em>Dhan Indices:</em> NIFTY `65` qty/lot (~₹97.50/lot RT cost) · BANKNIFTY `30` qty/lot · SENSEX (`BSE_FNO`) `20` qty/lot.<br>
+          • <em>Dhan Indices:</em> NIFTY `65` qty/lot (~₹97.50/lot RT cost) · SENSEX (`BSE_FNO`) `20` qty/lot (~₹130/lot RT cost).<br>
           • <em>Binance BTCUSDT &amp; ETHUSDT Perps:</em> `0.05%` taker fee per side (`0.10%` round-trip) + funding (~`0.02%/day`), `4x` Isolated each on a `45% / 45%` total-wallet split.</p>
         </div>
 

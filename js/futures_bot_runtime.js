@@ -201,10 +201,32 @@ async function fetchSymbolBars(dhan, sym, tf = '15m', daysBack = 25) {
 
   if (!dhan) throw new Error(`Dhan client unavailable for ${sym}`);
   const scripId = process.env[spec.signalScripEnv] || spec.defaultSigScrip;
-  const toMs = Date.now();
-  const fromMs = toMs - daysBack * 86400000;
   const tfMin = tfToMinutes(tf);
   const apiInterval = tfMin === 60 ? '60' : tfMin === 5 ? '5' : '15';
+
+  // Prefer shared local TrendRunner OHLC cache (45s TTL + dedupe) to prevent Dhan 429 rate limits across PM2 bots
+  if (String(process.env.DHAN_SHARED_CACHE || 'true').toLowerCase() !== 'false') {
+    const localPort = Number(process.env.DHAN_CACHE_PORT || process.env.PORT || 3000);
+    const localUrl = `http://127.0.0.1:${localPort}/api/dhan/ohlc?securityId=${encodeURIComponent(String(scripId))}&exchangeSegment=${encodeURIComponent(spec.signalSeg)}&instrument=${encodeURIComponent(spec.signalInst)}&interval=${encodeURIComponent(apiInterval)}&daysBack=${encodeURIComponent(String(daysBack))}`;
+    try {
+      const ctrl = new AbortController();
+      const tmo = setTimeout(() => ctrl.abort(), 8000);
+      const r = await fetch(localUrl, { signal: ctrl.signal });
+      clearTimeout(tmo);
+      if (r.ok) {
+        const j = await r.json();
+        if (j && j.ok && Array.isArray(j.rows) && j.rows.length > 0) {
+          const bars = rowsToBars(j.rows);
+          return tfMin === 30 ? resampleBars(bars, 30) : bars;
+        }
+      }
+    } catch (_) {
+      // Fall back to direct Dhan API if local trendrunner proxy is not running
+    }
+  }
+
+  const toMs = Date.now();
+  const fromMs = toMs - daysBack * 86400000;
   const rows = await dhan.getIntradayRange({
     securityId: String(scripId),
     exchangeSegment: spec.signalSeg,

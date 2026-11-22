@@ -48,23 +48,61 @@ app.get('/health', (req, res) => {
   });
 });
 
-/** Desk/browser proxy for Dhan OHLC (keys stay on server). */
+/** Desk/browser + shared PM2 bot proxy for Dhan OHLC (keys stay on server; 45s cache + in-flight dedupe prevents 429s). */
+const _dhanOhlcCache = new Map();
+const _dhanOhlcInflight = new Map();
+const DHAN_OHLC_CACHE_MS = Math.max(10_000, Number(process.env.DHAN_OHLC_CACHE_MS || 45_000));
+
 app.get('/api/dhan/ohlc', async (req, res) => {
   try {
     const { createDhanClient, isDhanConfigured } = require('./js/dhan_client.js');
     if (!isDhanConfigured()) {
       return res.status(503).json({ ok: false, error: 'DHAN_CLIENT_ID / DHAN_ACCESS_TOKEN not set' });
     }
-    const dhan = createDhanClient();
     const instrument = {
       dhanSecurityId: String(req.query.securityId || '13'),
       dhanExchangeSegment: String(req.query.exchangeSegment || 'IDX_I'),
       dhanInstrument: String(req.query.instrument || 'INDEX'),
     };
     const interval = String(req.query.interval || '15m');
+    const daysBack = Number(req.query.daysBack || 0);
     const limit = Math.min(2000, Math.max(50, Number(req.query.limit) || 500));
-    const rows = await dhan.getKlines(instrument, interval, limit);
-    res.json({ ok: true, rows, count: rows.length, securityId: instrument.dhanSecurityId, interval });
+    const cacheKey = `${instrument.dhanSecurityId}|${instrument.dhanExchangeSegment}|${instrument.dhanInstrument}|${interval}|${daysBack > 0 ? `d${daysBack}` : `l${limit}`}`;
+
+    const cached = _dhanOhlcCache.get(cacheKey);
+    if (cached && (Date.now() - cached.ts) < DHAN_OHLC_CACHE_MS) {
+      return res.json({ ok: true, rows: cached.rows, count: cached.rows.length, securityId: instrument.dhanSecurityId, interval, cached: true });
+    }
+
+    let pending = _dhanOhlcInflight.get(cacheKey);
+    if (!pending) {
+      const dhan = createDhanClient();
+      pending = (async () => {
+        if (daysBack > 0) {
+          const toMs = Date.now();
+          const fromMs = toMs - Math.min(90, daysBack) * 86400000;
+          const apiInt = interval === '1h' || interval === '60' ? '60' : interval === '5m' || interval === '5' ? '5' : '15';
+          return dhan.getIntradayRange({
+            securityId: instrument.dhanSecurityId,
+            exchangeSegment: instrument.dhanExchangeSegment,
+            instrument: instrument.dhanInstrument,
+            interval: apiInt,
+            fromMs,
+            toMs,
+            chunkDays: 20,
+            pauseMs: 280,
+          });
+        }
+        return dhan.getKlines(instrument, interval, limit);
+      })().finally(() => _dhanOhlcInflight.delete(cacheKey));
+      _dhanOhlcInflight.set(cacheKey, pending);
+    }
+
+    const rows = await pending;
+    if (Array.isArray(rows) && rows.length) {
+      _dhanOhlcCache.set(cacheKey, { ts: Date.now(), rows });
+    }
+    res.json({ ok: true, rows, count: rows.length, securityId: instrument.dhanSecurityId, interval, cached: false });
   } catch (e) {
     console.error('[Dhan] ohlc error:', e.message);
     res.status(500).json({ ok: false, error: e.message });

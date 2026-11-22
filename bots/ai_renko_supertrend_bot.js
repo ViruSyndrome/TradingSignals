@@ -829,6 +829,8 @@ async function main() {
 
   setInterval(async () => {
     try {
+      const clk = getIstClock();
+      if (!clk.isWeekday || clk.mins < 550 || clk.mins > 935) return; // 09:10–15:35 IST Mon–Fri only
       await scanOnce(null, botState);
       saveJsonState(STATE_PATH, botState);
     } catch (e) {

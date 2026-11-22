@@ -530,6 +530,8 @@ async function scanOnce(dhan, botState) {
   }
 
   setInterval(() => {
+    const clk = getIstClock();
+    if (!clk.isWeekday || clk.mins < 550 || clk.mins > 935) return; // 09:10–15:35 IST Mon–Fri only
     scanOnce(dhan, botState).catch((e) => console.error(`[${BOT_NAME}] Scan error:`, e.message));
   }, POLL_MS);
 })();
