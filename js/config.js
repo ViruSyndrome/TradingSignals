@@ -403,19 +403,19 @@ const CONFIG = {
     // Supabase edge function — public Nifty/^NSEI chart proxy
     yahooProxyUrl: 'https://ogoljnujatnlttrpjpxr.supabase.co/functions/v1/yahoo-chart',
     // Oracle bot base (serves /api/dhan/ohlc for NIFTY, BANKNIFTY, SENSEX, CRUDEOIL, NG)
-    proxyBaseUrl: 'https://real-follows-wav-seal.trycloudflare.com',
+    proxyBaseUrl: 'https://seeks-domain-canberra-choir.trycloudflare.com',
   },
 
   // ─── Alerts relay (desk → Render → Telegram). Same host as trade bot. ──────
   alerts: {
     // Oracle bot (Cloudflare tunnel). Update if cloudflared quick-tunnel URL rotates.
-    botBaseUrl: 'https://real-follows-wav-seal.trycloudflare.com',
+    botBaseUrl: 'https://seeks-domain-canberra-choir.trycloudflare.com',
   },
 
   // ─── Owner click-to-trade (Oracle bot; keys never in browser) ──────────────
   trade: {
     // Public bot URL (no trailing slash). Also used for Telegram ENTER relay.
-    botBaseUrl: 'https://real-follows-wav-seal.trycloudflare.com',
+    botBaseUrl: 'https://seeks-domain-canberra-choir.trycloudflare.com',
     defaultQuoteUsdt: 50,
   },
 
