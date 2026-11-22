@@ -10,7 +10,7 @@ const DeskAlerts = {
   TTL_MS: 4 * 60 * 60 * 1000,
   // Oracle bot via Cloudflare quick tunnel (Render is alert-only / outdated).
   // If tunnel URL rotates after cloudflared restart, update Settings → Bot URL.
-  DEFAULT_BOT_URL: 'https://real-follows-wav-seal.trycloudflare.com',
+  DEFAULT_BOT_URL: 'https://seeks-domain-canberra-choir.trycloudflare.com',
 
   enabled() {
     try {
@@ -44,12 +44,15 @@ const DeskAlerts = {
 
   /** Call once on desk boot — writes Bot URL into localStorage so Settings is not required. */
   ensureBotUrl() {
-    const url = this.DEFAULT_BOT_URL || this._botBaseUrl();
+    const cfgUrl = (typeof CONFIG !== 'undefined')
+      ? (CONFIG.market?.proxyBaseUrl || CONFIG.alerts?.botBaseUrl || CONFIG.trade?.botBaseUrl || '')
+      : '';
+    const url = (cfgUrl && String(cfgUrl).trim()) ? String(cfgUrl).trim().replace(/\/$/, '') : (this.DEFAULT_BOT_URL || this._botBaseUrl());
     if (!url) return '';
     try {
       const cur = String(localStorage.getItem('trade_bot_url') || '').trim();
       // Migrate off dead/outdated Render host or rotated trycloudflare tunnel so Place two-leg hits Oracle
-      if (!cur || /onrender\.com|precision-helmet-belfast-republic\.trycloudflare\.com/i.test(cur)) {
+      if (!cur || /onrender\.com/i.test(cur) || (cur.includes('trycloudflare.com') && url.includes('trycloudflare.com') && cur !== url)) {
         localStorage.setItem('trade_bot_url', url);
         return url;
       }

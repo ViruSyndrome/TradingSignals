@@ -328,12 +328,22 @@ const RangeEmaUI = {
   },
 
   _tradeBotUrl() {
+    const cfgUrl = (typeof CONFIG !== 'undefined')
+      ? (CONFIG.market?.proxyBaseUrl || CONFIG.trade?.botBaseUrl || CONFIG.alerts?.botBaseUrl || '')
+      : '';
     try {
-      const ls = localStorage.getItem('trade_bot_url');
-      if (ls && String(ls).trim()) return String(ls).trim().replace(/\/$/, '');
+      const ls = (localStorage.getItem('trade_bot_url') || '').trim();
+      if (ls && !(cfgUrl && ls.includes('trycloudflare.com') && cfgUrl.includes('trycloudflare.com') && ls !== cfgUrl)) {
+        return ls.replace(/\/$/, '');
+      }
+      if (cfgUrl) {
+        localStorage.setItem('trade_bot_url', cfgUrl.replace(/\/$/, ''));
+        return cfgUrl.replace(/\/$/, '');
+      }
     } catch (_) {}
+    if (cfgUrl) return cfgUrl.replace(/\/$/, '');
     if (typeof DeskAlerts !== 'undefined') return DeskAlerts._botBaseUrl?.() || DeskAlerts.DEFAULT_BOT_URL;
-    return 'https://real-follows-wav-seal.trycloudflare.com';
+    return '';
   },
 
   _tradeSecret() {
@@ -3934,7 +3944,8 @@ const RangeEmaUI = {
           }
           placed.push(y);
 
-          const price = Number(t.value).toFixed(0);
+          const vNum = Number(t.value);
+          const price = Math.abs(vNum) < 20 ? vNum.toFixed(2) : Math.abs(vNum) < 500 ? vNum.toFixed(1) : vNum.toFixed(0);
           // Compact: short labels drawn INSIDE the plot (no dead right gutter)
           const shortName = compact
             ? ({ STOP: 'STP', '1:1 TP': '1:1', '1:2': '1:2', '1:3 TP': '1:3', EXIT: 'TP', '1H RED': '1R', MED: 'Med', '5m HI': '5↑', '5m LO': '5↓', 'SWG HI': 'SwH', 'SWG LO': 'SwL', PDH: 'PDH', PDL: 'PDL', 'ASIA HI': 'A↑', 'ASIA LO': 'A↓', 'LON HI': 'L↑', 'LON LO': 'L↓', 'NY HI': 'NY↑', 'NY LO': 'NY↓', R: 'R', S: 'S' }[t.name] || t.name)
@@ -5507,7 +5518,10 @@ const RangeEmaUI = {
               font: { size: compact ? 9 : 10, family: 'Outfit' },
               // Fewer plain price ticks — custom STOP/EXIT tags carry the action
               maxTicksLimit: compact ? 3 : 5,
-              callback: (v) => Number(v).toFixed(0),
+              callback: (v) => {
+                const nV = Number(v);
+                return Math.abs(nV) < 20 ? nV.toFixed(2) : Math.abs(nV) < 500 ? nV.toFixed(1) : nV.toFixed(0);
+              },
             },
           },
         },
