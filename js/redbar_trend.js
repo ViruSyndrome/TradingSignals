@@ -888,29 +888,51 @@ const RedBarTrend = {
     return { day, high, low, mid: (high + low) / 2 };
   },
 
-  /** H/L of one exchange session for the IST calendar day that contains `asOfTs`. */
+  /** H/L of one exchange session for the active/most-recent started session covering or preceding `asOfTs`. */
   sessionHlForIstDay(bars, session, asOfTs, opts = {}) {
     if (!bars || !session || !session.timeZone || !asOfTs) return null;
-    const istDay = this.zonedDay(asOfTs, 'Asia/Kolkata');
     const maxExclusiveTs = Number.isFinite(opts.maxExclusiveTs) ? opts.maxExclusiveTs : null;
-    const openH = (session.open && session.open[0]) || 0;
-    const openM = (session.open && session.open[1]) || 0;
-    const closeH = (session.close && session.close[0]) || 23;
-    const closeM = (session.close && session.close[1]) || 59;
+    const openH = (session.open && session.open[0] != null) ? Number(session.open[0]) : 0;
+    const openM = (session.open && session.open[1] != null) ? Number(session.open[1]) : 0;
+    const closeH = (session.close && session.close[0] != null) ? Number(session.close[0]) : 23;
+    const closeM = (session.close && session.close[1] != null) ? Number(session.close[1]) : 59;
     const openMins = openH * 60 + openM;
     const closeMins = closeH * 60 + closeM;
+
+    // Anchor to the session's own calendar day (before open → previous session day) so sessions
+    // crossing IST midnight (e.g. NY 09:30–16:00 ET = 20:00–02:30 IST) never drop their pre-midnight bars.
+    const sessDay = this.sessionDayKey(asOfTs, {
+      timeZone: session.timeZone,
+      startHour: openH,
+      startMinute: openM,
+    });
+    const startTs = this.zonedClockToUtc(sessDay, session.timeZone, openH, openM);
+    const endDay = closeMins > openMins ? sessDay : this.shiftDay(sessDay, 1);
+    const rawEndTs = this.zonedClockToUtc(endDay, session.timeZone, closeH, closeM);
+    if (!Number.isFinite(startTs) || !Number.isFinite(rawEndTs)) return null;
+
+    let cutoffTs = null;
+    if (opts.cutoffSession && opts.cutoffSession.timeZone && opts.cutoffSession.open) {
+      const cSess = opts.cutoffSession;
+      const cOpenH = cSess.open[0] != null ? Number(cSess.open[0]) : 0;
+      const cOpenM = cSess.open[1] != null ? Number(cSess.open[1]) : 0;
+      let cDay = this.zonedDay(startTs, cSess.timeZone);
+      let cTs = this.zonedClockToUtc(cDay, cSess.timeZone, cOpenH, cOpenM);
+      if (Number.isFinite(cTs) && cTs <= startTs) {
+        cDay = this.shiftDay(cDay, 1);
+        cTs = this.zonedClockToUtc(cDay, cSess.timeZone, cOpenH, cOpenM);
+      }
+      if (Number.isFinite(cTs)) cutoffTs = cTs;
+    }
+    const maxTs = [rawEndTs, maxExclusiveTs, cutoffTs]
+      .filter(Number.isFinite)
+      .reduce((a, b) => Math.min(a, b), Infinity);
+
     let high = null;
     let low = null;
     let touched = false;
     for (const b of bars) {
-      if (this.zonedDay(b.t, 'Asia/Kolkata') !== istDay) continue;
-      if (maxExclusiveTs != null && b.t >= maxExclusiveTs) continue;
-      const z = this.zonedHms(b.t, session.timeZone);
-      const mins = z.hour * 60 + z.minute;
-      const inSession = closeMins > openMins
-        ? (mins >= openMins && mins < closeMins)
-        : (mins >= openMins || mins < closeMins);
-      if (!inSession) continue;
+      if (b.t < startTs || b.t >= maxTs) continue;
       touched = true;
       high = high == null ? b.h : Math.max(high, b.h);
       low = low == null ? b.l : Math.min(low, b.l);
@@ -4325,15 +4347,8 @@ const RedBarTrend = {
       || sessions.find((s) => /london|mcx\s*eve/i.test(s.label || ''));
     const nySess = sessions.find((s) => ['ny', 'us', 'newyork'].includes((s.id || '').toLowerCase()))
       || sessions.find((s) => /us|ny|new\s*york/i.test(s.label || ''));
-    const curIstDay = this.zonedDay(bars[i].t, 'Asia/Kolkata');
-    const lonOpenCutoffTs = (londonSess && londonSess.timeZone && londonSess.open)
-      ? this.zonedClockToUtc(curIstDay, londonSess.timeZone, londonSess.open[0], londonSess.open[1])
-      : null;
-    const nyOpenCutoffTs = (nySess && nySess.timeZone && nySess.open)
-      ? this.zonedClockToUtc(curIstDay, nySess.timeZone, nySess.open[0], nySess.open[1])
-      : null;
-    const asiaHl = asiaSess ? this.sessionHlForIstDay(slice, asiaSess, bars[i].t, { maxExclusiveTs: lonOpenCutoffTs }) : null;
-    const londonHl = londonSess ? this.sessionHlForIstDay(slice, londonSess, bars[i].t, { maxExclusiveTs: nyOpenCutoffTs }) : null;
+    const asiaHl = asiaSess ? this.sessionHlForIstDay(slice, asiaSess, bars[i].t, { cutoffSession: londonSess }) : null;
+    const londonHl = londonSess ? this.sessionHlForIstDay(slice, londonSess, bars[i].t, { cutoffSession: nySess }) : null;
     const nyHl = nySess ? this.sessionHlForIstDay(slice, nySess, bars[i].t) : null;
     const asiaUntouched = !!(asiaHl && price < asiaHl.high && price > asiaHl.low);
     const sweep = this.detectSessionSweep(slice, clock, asiaHl, londonHl, firstRed1h, evalTs);
