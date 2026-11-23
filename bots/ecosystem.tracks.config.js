@@ -83,6 +83,7 @@ module.exports = {
         AI_RENKO_TG_MODE_C_ONLY: 'true',
         AI_RENKO_AUTO_TRADE: 'true',
         AI_RENKO_POLL_MS: '67000',
+        AI_RENKO_INTRABAR_POLL_MS: '15000',
       },
     },
     {
@@ -175,6 +176,7 @@ module.exports = {
         AI_RENKO_TG_MODE_C_ONLY: 'true',
         AI_RENKO_AUTO_TRADE: 'true',
         AI_RENKO_POLL_MS: '69000',
+        AI_RENKO_INTRABAR_POLL_MS: '17000',
       },
     },
   ],

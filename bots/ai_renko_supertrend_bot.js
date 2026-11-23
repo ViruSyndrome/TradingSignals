@@ -71,6 +71,7 @@ const MAX_DTE_DAYS = Math.max(MIN_DTE_DAYS + 7, Number(process.env.AI_RENKO_MAX_
 const STRIKE_MODE = String(process.env.AI_RENKO_STRIKE_MODE || 'atm').toLowerCase();
 
 const POLL_MS = Math.max(15000, Number(process.env.AI_RENKO_POLL_MS || 60000));
+const INTRABAR_POLL_MS = Math.max(5000, Number(process.env.AI_RENKO_INTRABAR_POLL_MS || 15000));
 const ONCE = process.argv.includes('--once');
 const OFFLINE = process.argv.includes('--offline');
 const AUTO_TRADE = !OFFLINE && String(process.env.AI_RENKO_AUTO_TRADE || 'false').toLowerCase() === 'true';
@@ -426,47 +427,61 @@ async function advanceModeProtections(cfg, pos, highPx, lowPx, atrPx, nowMs, tag
   }
 }
 
+let intrabarBusy = false;
+let scanBusy = false;
+
 /**
  * Evaluate real-time intrabar Spot triggers for Mode C (+lock, theta boost, 5x ATR trail, hard cap SL, Stage 3, expiry close).
+ * Returns true if Mode C position state changed (closed or lock/trail advanced) so callers can persist immediately.
  */
 async function checkModeCLiveIntrabar(activeDhan, botState) {
+  if (intrabarBusy) return false;
   const cfg = PROTECTED_MODES.find((m) => m.key === 'modeC');
   const pos = botState.modeC?.pos;
-  if (OFFLINE || !cfg || !pos || !activeDhan || !isDhanConfigured()) return;
+  if (OFFLINE || !cfg || !pos || !activeDhan || !isDhanConfigured()) return false;
 
   const clk = getIstClock();
-  if (!clk.isOpen) return;
+  if (!clk.isOpen) return false;
 
-  const spot = await getSpotLtp(activeDhan, SYM);
-  if (!(spot > 0)) return;
-  const th = resolveModeThresholds(cfg, pos.entryIdx);
+  intrabarBusy = true;
+  try {
+    if (!botState.modeC?.pos) return false;
+    const spot = await getSpotLtp(activeDhan, SYM);
+    if (!(spot > 0)) return false;
+    const th = resolveModeThresholds(cfg, pos.entryIdx);
 
-  let exitPx = null;
-  let reason = null;
-  if (pos.locked && hitFloor(spot, pos.lockPrice, pos.side)) {
-    exitPx = spot;
-    reason = 'PROFIT_LOCK_LTP';
-  } else if (hitFloor(spot, pos.stage3Floor, pos.side)) {
-    exitPx = spot;
-    reason = 'STAGE3_TRAIL_LTP';
-  } else if (hitFloor(spot, pos.atrTrailFloor, pos.side)) {
-    exitPx = spot;
-    reason = 'ATR_TRAIL_LTP';
-  } else if ((pos.side === 'LONG' && spot <= pos.entryIdx - th.capSl) || (pos.side === 'SHORT' && spot >= pos.entryIdx + th.capSl)) {
-    exitPx = spot;
-    reason = 'HARD_CAP_SL_LTP';
-  } else if (pos.expiry && pos.expiry === clk.dateStr && clk.mins >= 910) {
-    exitPx = spot;
-    reason = 'EXPIRY_DAY_EXIT';
+    let exitPx = null;
+    let reason = null;
+    if (pos.locked && hitFloor(spot, pos.lockPrice, pos.side)) {
+      exitPx = spot;
+      reason = 'PROFIT_LOCK_LTP';
+    } else if (hitFloor(spot, pos.stage3Floor, pos.side)) {
+      exitPx = spot;
+      reason = 'STAGE3_TRAIL_LTP';
+    } else if (hitFloor(spot, pos.atrTrailFloor, pos.side)) {
+      exitPx = spot;
+      reason = 'ATR_TRAIL_LTP';
+    } else if ((pos.side === 'LONG' && spot <= pos.entryIdx - th.capSl) || (pos.side === 'SHORT' && spot >= pos.entryIdx + th.capSl)) {
+      exitPx = spot;
+      reason = 'HARD_CAP_SL_LTP';
+    } else if (pos.expiry && pos.expiry === clk.dateStr && clk.mins >= 910) {
+      exitPx = spot;
+      reason = 'EXPIRY_DAY_EXIT';
+    }
+
+    if (exitPx !== null) {
+      pos.exitTs = Date.now();
+      await closeModeBookPosition(cfg, botState.modeC, pos, exitPx, reason, activeDhan, true);
+      return true;
+    }
+
+    const beforeSig = `${pos.locked}|${pos.lockPrice}|${pos.peakFavPts}|${pos.atrTrailFloor}|${pos.stage3Floor}|${pos.thetaBoosted}`;
+    await advanceModeProtections(cfg, pos, spot, spot, pos.lastAtr || (SYM === 'SENSEX' ? 115 : 35), Date.now(), ' LIVE INTRABAR');
+    const afterSig = `${pos.locked}|${pos.lockPrice}|${pos.peakFavPts}|${pos.atrTrailFloor}|${pos.stage3Floor}|${pos.thetaBoosted}`;
+    return beforeSig !== afterSig;
+  } finally {
+    intrabarBusy = false;
   }
-
-  if (exitPx !== null) {
-    pos.exitTs = Date.now();
-    await closeModeBookPosition(cfg, botState.modeC, pos, exitPx, reason, activeDhan, true);
-    return;
-  }
-
-  await advanceModeProtections(cfg, pos, spot, spot, pos.lastAtr || (SYM === 'SENSEX' ? 115 : 35), Date.now(), ' LIVE INTRABAR');
 }
 
 /**
@@ -780,7 +795,7 @@ async function main() {
     : `+${MODE_C_TRIGGER_PTS}p -> +${MODE_C_LOCK_PTS}p, ${MODE_C_THETA_HRS}h -> +${MODE_C_THETA_FLOOR_PTS}p, ATR ${MODE_C_ATR_MULT}x @ +${MODE_C_ATR_TRIG_PTS}p, Cap -${MODE_C_CAP_SL_PTS}p, S3 >=+${MODE_C_STAGE3_TRIG_PTS}p/-${MODE_C_STAGE3_GIVE_PTS}p`;
   console.log(
     `[${BOT_NAME}] Starting (${execBadge}) | ${SYM} ${TF} | ` +
-    `ATR=${ATR_LENGTH}, Factor=${BASE_FACTOR}, Brick=${brickDesc} | DTE ${MIN_DTE_DAYS}-${MAX_DTE_DAYS} | Lots=${LOTS} (${MULT} qty/lot)`
+    `ATR=${ATR_LENGTH}, Factor=${BASE_FACTOR}, Brick=${brickDesc} | DTE ${MIN_DTE_DAYS}-${MAX_DTE_DAYS} | Lots=${LOTS} (${MULT} qty/lot) | IntrabarWatch=${Math.round(INTRABAR_POLL_MS / 1000)}s`
   );
 
   if (!OFFLINE && !ONCE) {
@@ -827,14 +842,33 @@ async function main() {
 
   if (ONCE || OFFLINE) return;
 
+  const sharedDhan = isDhanConfigured() ? createDhanClient() : null;
+
+  // Fast intrabar LTP watcher: ONLY polls Dhan LTP while Mode C has an open live/paper position during market hours
   setInterval(async () => {
+    if (!botState.modeC?.pos || intrabarBusy || scanBusy || !sharedDhan) return;
+    try {
+      const clk = getIstClock();
+      if (!clk.isOpen) return;
+      const changed = await checkModeCLiveIntrabar(sharedDhan, botState);
+      if (changed) saveJsonState(STATE_PATH, botState);
+    } catch (e) {
+      console.error(`[${BOT_NAME}] Intrabar LTP watch error:`, e.message);
+    }
+  }, INTRABAR_POLL_MS);
+
+  setInterval(async () => {
+    if (scanBusy) return;
+    scanBusy = true;
     try {
       const clk = getIstClock();
       if (!clk.isWeekday || clk.mins < 550 || clk.mins > 935) return; // 09:10–15:35 IST Mon–Fri only
-      await scanOnce(null, botState);
+      await scanOnce(sharedDhan, botState);
       saveJsonState(STATE_PATH, botState);
     } catch (e) {
       console.error(`[${BOT_NAME}] Poll error:`, e.message);
+    } finally {
+      scanBusy = false;
     }
   }, POLL_MS);
 }
