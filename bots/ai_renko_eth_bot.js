@@ -204,8 +204,13 @@ async function syncLiveEthPosition(trader, botState) {
   if (!lp || !lp.liveOrderPlaced) return;
 
   const { amt } = await inspectBinancePosition(trader);
-  if (Math.abs(amt) === 0) {
-    try { await trader.clearSymbolForEntry(SYMBOL, { closePosition: false }); } catch (_) {}
+  const botSideOpen = (lp.side === 'LONG' && amt > 0) || (lp.side === 'SHORT' && amt < 0);
+  if (Math.abs(amt) === 0 || !botSideOpen) {
+    if (Math.abs(amt) === 0) {
+      try { await trader.clearSymbolForEntry(SYMBOL, { closePosition: false }); } catch (_) {}
+    } else if (lp.stopAlgoId) {
+      try { await trader.cancelAlgoOrder(SYMBOL, lp.stopAlgoId); } catch (_) {}
+    }
     const exitPx = lp.sl || lp.entry;
     const rawPct = lp.side === 'LONG' ? (exitPx - lp.entry) / lp.entry : (lp.entry - exitPx) / lp.entry;
     const netUsdt = +(lp.qty * lp.entry * (rawPct - FEE_RT_PCT)).toFixed(2);
@@ -235,16 +240,19 @@ async function syncLiveEthPosition(trader, botState) {
   if (lp.sl > 0) {
     try {
       const algos = await trader.getOpenAlgoOrders(SYMBOL);
-      const hasStop = (algos || []).some((a) => String(a.type || a.orderType || '').includes('STOP'));
+      const hasStop = lp.stopAlgoId
+        ? (algos || []).some((a) => String(a.algoId || a.orderId) === String(lp.stopAlgoId))
+        : (algos || []).some((a) => String(a.type || a.orderType || '').includes('STOP'));
       if (!hasStop) {
+        const protectQty = Math.min(lp.qty || Math.abs(amt), Math.abs(amt));
         const res = await trader.moveStopToBreakeven({
           symbol: SYMBOL,
           side: lp.side,
           stopPrice: lp.sl,
-          quantity: Math.abs(amt),
+          quantity: protectQty,
         });
         lp.stopAlgoId = res.stopOrder?.algoId || null;
-        await notify(`🛡️ Re-attached missing Binance STOP_MARKET @ $${res.bePrice} for open ${lp.side} ${Math.abs(amt)} ${SYMBOL}`);
+        await notify(`🛡️ Re-attached missing Binance STOP_MARKET @ $${res.bePrice} for open ${lp.side} ${protectQty} ${SYMBOL}`);
       }
     } catch (e) {
       console.error(`[${BOT_NAME}] Stop self-heal check error:`, e.message);
@@ -324,13 +332,16 @@ async function scanOnce(trader, botState) {
         let execNote = '';
         if (AUTO_TRADE && trader && botState.livePos?.liveOrderPlaced) {
           try {
-            const { amt } = await inspectBinancePosition(trader);
-            if (Math.abs(amt) > 0) {
-              await trader.closeMarketOnly(SYMBOL);
-              execNote = '\n✅ LIVE BINANCE EXIT Market Closed & Algos Cleared';
-            } else {
-              execNote = '\nINFO: Binance exchange SL already flattened position.';
-            }
+            const lp = botState.livePos;
+            const res = await trader.closeBotSlice({
+              symbol: SYMBOL,
+              side: lp.side,
+              quantity: lp.qty,
+              stopAlgoId: lp.stopAlgoId,
+            });
+            execNote = res.closedQty > 0
+              ? `\n✅ LIVE BINANCE EXIT Closed ${res.closedQty} ETH & Cleared Bot Stop`
+              : '\nINFO: Binance exchange SL already flattened position.';
           } catch (e) {
             execNote = `\n❌ Binance EXIT Error: ${e.message}`;
           }
@@ -396,16 +407,18 @@ async function scanOnce(trader, botState) {
       if (AUTO_TRADE && trader) {
         try {
           const { amt } = await inspectBinancePosition(trader);
-          if (Math.abs(amt) > 0) {
+          const oppositeOpen = (side === 'LONG' && amt < 0) || (side === 'SHORT' && amt > 0);
+          if (oppositeOpen) {
             liveBlocked = true;
-            const key = `${SYMBOL}:${amt}`;
-            liveNote = `\n⏸️ LIVE SKIPPED: Unmanaged ${SYMBOL} position (${amt} ETH) already open on Binance — standing by cleanly.`;
+            const key = `${SYMBOL}:${amt}:${side}`;
+            liveNote = `\n⏸️ ACTION NEEDED (OPPOSITE POS): Manual ${SYMBOL} (${amt} ETH) is opposite to bot ${side} — skipped so your manual trade isn't closed.`;
             if (botState.unmanagedAlertKey !== key) {
               botState.unmanagedAlertKey = key;
-              await notify(`⚠️ ${BOT_NAME} saw unmanaged ${SYMBOL} position (${amt} ETH). Standing by without interfering.`);
+              await notify(`⚠️ ${BOT_NAME} ACTION NEEDED: Signal ${side} ${SYMBOL} skipped because opposite manual position (${amt} ETH) is open in One-Way Mode.`);
             }
           } else {
             botState.unmanagedAlertKey = '';
+            const stackedNote = Math.abs(amt) > 0 ? ` (stacked alongside manual ${amt} ETH)` : '';
             const bal = await trader.getUsdtBalances();
             const marginUsdt = +Math.min(bal.available * 0.95, Math.max(bal.wallet, bal.available) * MARGIN_FRAC).toFixed(2);
             const ord = await trader.openSingleStopTrade({
@@ -415,6 +428,7 @@ async function scanOnce(trader, botState) {
               leverage: LEVERAGE,
               stopPrice: sl,
               entryHint: b.c,
+              allowSameSideStack: true,
             });
             if (ord.placed) {
               botState.livePos = {
@@ -429,7 +443,7 @@ async function scanOnce(trader, botState) {
                 entryTs: b.t,
               };
               botState.pos = { side, entry: ord.avgPrice, sl: ord.stopPrice, entryTs: b.t };
-              liveNote = `\n✅ LIVE BINANCE (${LEVERAGE}x Isolated): Qty=${ord.qty} ETH @ $${ord.avgPrice} | Stop=$${ord.stopPrice} (Algo=${ord.stopAlgoId || 'PENDING'})${ord.warning ? ` ⚠️ ${ord.warning}` : ''}`;
+              liveNote = `\n✅ LIVE BINANCE (${LEVERAGE}x Isolated): Qty=${ord.qty} ETH @ $${ord.avgPrice}${stackedNote} | Stop=$${ord.stopPrice} (Algo=${ord.stopAlgoId || 'PENDING'})${ord.warning ? ` ⚠️ ${ord.warning}` : ''}`;
             } else {
               liveBlocked = true;
               liveNote = `\n⚠️ LIVE SKIPPED (${ord.reason}${ord.notional !== undefined ? `: $${ord.notional} < min $${ord.minNotional}` : ''})`;

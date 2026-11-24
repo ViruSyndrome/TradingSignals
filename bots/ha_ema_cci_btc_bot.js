@@ -120,9 +120,14 @@ async function syncLiveBtcPosition(trader, botState) {
   if (!lp || !lp.liveOrderPlaced) return;
 
   const { amt } = await inspectBinancePosition(trader);
-  if (Math.abs(amt) === 0) {
-    // Exchange STOP_MARKET filled between polls — record closure cleanly and clear remaining algos
-    try { await trader.clearSymbolForEntry(SYMBOL, { closePosition: false }); } catch (_) {}
+  const botSideOpen = (lp.side === 'LONG' && amt > 0) || (lp.side === 'SHORT' && amt < 0);
+  if (Math.abs(amt) === 0 || !botSideOpen) {
+    // Exchange STOP_MARKET filled between polls — record closure cleanly and clear bot's stop if still resting
+    if (Math.abs(amt) === 0) {
+      try { await trader.clearSymbolForEntry(SYMBOL, { closePosition: false }); } catch (_) {}
+    } else if (lp.stopAlgoId) {
+      try { await trader.cancelAlgoOrder(SYMBOL, lp.stopAlgoId); } catch (_) {}
+    }
     let markPx = lp.sl;
     try { markPx = await trader.getMarkPrice(SYMBOL); } catch (_) {}
     const exitPx = lp.sl || markPx;
@@ -150,20 +155,23 @@ async function syncLiveBtcPosition(trader, botState) {
     return;
   }
 
-  // Verify protective SL algo still exists; re-attach if missing
+  // Verify this bot's protective SL algo still exists; re-attach for lp.qty only if missing
   if (lp.sl > 0) {
     try {
       const algos = await trader.getOpenAlgoOrders(SYMBOL);
-      const hasStop = (algos || []).some((a) => String(a.type || a.orderType || '').includes('STOP'));
+      const hasStop = lp.stopAlgoId
+        ? (algos || []).some((a) => String(a.algoId || a.orderId) === String(lp.stopAlgoId))
+        : (algos || []).some((a) => String(a.type || a.orderType || '').includes('STOP'));
       if (!hasStop) {
+        const protectQty = Math.min(lp.qty || Math.abs(amt), Math.abs(amt));
         const res = await trader.moveStopToBreakeven({
           symbol: SYMBOL,
           side: lp.side,
           stopPrice: lp.sl,
-          quantity: Math.abs(amt),
+          quantity: protectQty,
         });
         lp.stopAlgoId = res.stopOrder?.algoId || null;
-        await notify(`🛡️ Re-attached missing Binance STOP_MARKET @ $${res.bePrice} for open ${lp.side} ${Math.abs(amt)} ${SYMBOL}`);
+        await notify(`🛡️ Re-attached missing Binance STOP_MARKET @ $${res.bePrice} for open ${lp.side} ${protectQty} ${SYMBOL}`);
       }
     } catch (e) {
       console.error(`[${BOT_NAME}] Stop self-heal check error:`, e.message);
@@ -225,16 +233,18 @@ async function scanOnce(trader, botState) {
         if (AUTO_TRADE && trader) {
           try {
             const { amt } = await inspectBinancePosition(trader);
-            if (Math.abs(amt) > 0) {
+            const oppositeOpen = (ev.side === 'LONG' && amt < 0) || (ev.side === 'SHORT' && amt > 0);
+            if (oppositeOpen) {
               liveBlocked = true;
-              const key = `${SYMBOL}:${amt}`;
-              liveNote = `\n⏸️ LIVE SKIPPED: Unmanaged ${SYMBOL} position (${amt} BTC) already open on Binance — will auto-trade cleanly once flat.`;
+              const key = `${SYMBOL}:${amt}:${ev.side}`;
+              liveNote = `\n⏸️ ACTION NEEDED (OPPOSITE POS): Manual ${SYMBOL} (${amt} BTC) is opposite to bot ${ev.side} — skipped so your manual trade isn't closed.`;
               if (botState.unmanagedAlertKey !== key) {
                 botState.unmanagedAlertKey = key;
-                await notify(`⚠️ ${BOT_NAME} saw unmanaged ${SYMBOL} position (${amt} BTC). Standing by cleanly without interfering.`);
+                await notify(`⚠️ ${BOT_NAME} ACTION NEEDED: Signal ${ev.side} ${SYMBOL} skipped because opposite manual position (${amt} BTC) is open in One-Way Mode.`);
               }
             } else {
               botState.unmanagedAlertKey = '';
+              const stackedNote = Math.abs(amt) > 0 ? ` (stacked alongside manual ${amt} BTC)` : '';
               const bal = await trader.getUsdtBalances();
               const marginUsdt = +Math.min(bal.available * 0.95, Math.max(bal.wallet, bal.available) * MARGIN_FRAC).toFixed(2);
               const ord = await trader.openSingleStopTrade({
@@ -244,6 +254,7 @@ async function scanOnce(trader, botState) {
                 leverage: LEVERAGE,
                 stopPrice: ev.sl,
                 entryHint: ev.entry,
+                allowSameSideStack: true,
               });
               if (ord.placed) {
                 botState.livePos = {
@@ -261,7 +272,7 @@ async function scanOnce(trader, botState) {
                   botState.pos.entry = ord.avgPrice;
                   botState.pos.sl = ord.stopPrice;
                 }
-                liveNote = `\n✅ LIVE BINANCE (${LEVERAGE}x Isolated): Qty=${ord.qty} BTC @ $${ord.avgPrice} | Stop=$${ord.stopPrice} (Algo=${ord.stopAlgoId || 'PENDING'})${ord.warning ? ` ⚠️ ${ord.warning}` : ''}`;
+                liveNote = `\n✅ LIVE BINANCE (${LEVERAGE}x Isolated): Qty=${ord.qty} BTC @ $${ord.avgPrice}${stackedNote} | Stop=$${ord.stopPrice} (Algo=${ord.stopAlgoId || 'PENDING'})${ord.warning ? ` ⚠️ ${ord.warning}` : ''}`;
               } else {
                 liveBlocked = true;
                 liveNote = `\n⚠️ LIVE SKIPPED (${ord.reason}${ord.notional !== undefined ? `: $${ord.notional} < min $${ord.minNotional}` : ''})`;
@@ -333,13 +344,16 @@ async function scanOnce(trader, botState) {
         let execNote = '';
         if (AUTO_TRADE && trader && botState.livePos?.liveOrderPlaced) {
           try {
-            const { amt } = await inspectBinancePosition(trader);
-            if (Math.abs(amt) > 0) {
-              await trader.closeMarketOnly(SYMBOL);
-              execNote = '\n✅ LIVE BINANCE EXIT Market Closed & Algos Cleared';
-            } else {
-              execNote = '\nINFO: Binance exchange SL already flattened position.';
-            }
+            const lp = botState.livePos;
+            const res = await trader.closeBotSlice({
+              symbol: SYMBOL,
+              side: lp.side,
+              quantity: lp.qty,
+              stopAlgoId: lp.stopAlgoId,
+            });
+            execNote = res.closedQty > 0
+              ? `\n✅ LIVE BINANCE EXIT Closed ${res.closedQty} BTC & Cleared Bot Stop`
+              : '\nINFO: Binance exchange SL already flattened position.';
           } catch (e) {
             execNote = `\n❌ Binance EXIT Error: ${e.message}`;
           }

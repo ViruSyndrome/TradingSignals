@@ -649,6 +649,7 @@ function createBinanceFuturesTrade(opts = {}) {
     leverage = 2,
     stopPrice,
     entryHint,
+    allowSameSideStack = false,
   } = {}) {
     const sym = String(symbol).toUpperCase();
     const tradeSide = String(side || '').toUpperCase();
@@ -660,15 +661,26 @@ function createBinanceFuturesTrade(opts = {}) {
     await _syncTime();
     const filters = await getExchangeFilters(sym);
 
-    // Never overwrite or wipe an already-open position
+    // Check existing position: block opposite side (One-Way Mode would cut user's manual trade); allow same-side stack when opted in
     const existing = await getPositionRisk(sym);
     const activeRow = (existing || []).find((p) => String(p.symbol).toUpperCase() === sym && Math.abs(parseFloat(p.positionAmt || 0)) > 0);
-    if (activeRow) {
-      return { skipped: true, reason: 'POSITION_ALREADY_OPEN', existingAmt: parseFloat(activeRow.positionAmt) };
+    const existingAmt = activeRow ? parseFloat(activeRow.positionAmt) : 0;
+    const stackingSameSide = Boolean(activeRow && allowSameSideStack && ((existingAmt > 0 && tradeSide === 'LONG') || (existingAmt < 0 && tradeSide === 'SHORT')));
+    if (activeRow && !stackingSameSide) {
+      return {
+        skipped: true,
+        reason: allowSameSideStack ? 'OPPOSITE_POSITION_OPEN' : 'POSITION_ALREADY_OPEN',
+        existingAmt,
+      };
     }
 
-    await setMarginType(sym, 'ISOLATED');
-    await setLeverage(sym, lev);
+    if (stackingSameSide) {
+      // Binance rejects margin-type changes while a position is open; keep existing margin mode & best-effort leverage
+      try { await setLeverage(sym, lev); } catch (_) {}
+    } else {
+      await setMarginType(sym, 'ISOLATED');
+      await setLeverage(sym, lev);
+    }
 
     const mark = Number.isFinite(Number(entryHint)) && Number(entryHint) > 0 ? Number(entryHint) : await getMarkPrice(sym);
     if (!(mark > 0)) throw new Error('Could not resolve mark price');
@@ -689,8 +701,10 @@ function createBinanceFuturesTrade(opts = {}) {
       };
     }
 
-    // Clear any stale orphaned open/algo orders since positionAmt is 0
-    try { await clearSymbolForEntry(sym, { closePosition: false }); } catch (_) {}
+    // Only clear stale orphaned orders when flat; never cancel user's manual SL/TP when stacking same side
+    if (!stackingSameSide) {
+      try { await clearSymbolForEntry(sym, { closePosition: false }); } catch (_) {}
+    }
 
     const openSide = tradeSide === 'LONG' ? 'BUY' : 'SELL';
     const closeSide = tradeSide === 'LONG' ? 'SELL' : 'BUY';
@@ -756,10 +770,61 @@ function createBinanceFuturesTrade(opts = {}) {
     return { ok: true, symbol: sym, notes };
   }
 
+  /**
+   * Close ONLY this bot's slice (qty) and cancel ONLY its own stopAlgoId, leaving any stacked manual position/stops intact.
+   */
+  async function closeBotSlice({ symbol = 'BTCUSDT', side, quantity, stopAlgoId } = {}) {
+    const sym = String(symbol).toUpperCase();
+    const tradeSide = String(side || '').toUpperCase();
+    await _syncTime();
+    const filters = await getExchangeFilters(sym);
+    const notes = [];
+
+    if (stopAlgoId) {
+      try {
+        await cancelAlgoOrder(sym, stopAlgoId);
+        notes.push(`cancelled algo ${stopAlgoId}`);
+      } catch (e) {
+        try {
+          await cancelOrder(sym, stopAlgoId);
+          notes.push(`cancelled order ${stopAlgoId}`);
+        } catch (e2) {
+          if (e.binanceCode !== -2011 && e2.binanceCode !== -2011) {
+            notes.push(`cancel stop warn: ${e.message}`);
+          }
+        }
+      }
+    }
+
+    const rows = await getPositionRisk(sym);
+    const row = (rows || []).find((p) => String(p.symbol).toUpperCase() === sym);
+    const amt = parseFloat(row?.positionAmt || 0);
+    const sameSide = (tradeSide === 'LONG' && amt > 0) || (tradeSide === 'SHORT' && amt < 0);
+    if (!sameSide || !(Math.abs(amt) > 0)) {
+      return { ok: true, symbol: sym, closedQty: 0, notes };
+    }
+
+    const targetQty = Number(quantity) > 0 ? Math.min(Number(quantity), Math.abs(amt)) : Math.abs(amt);
+    const closeQty = roundStep(targetQty, filters.stepSize, 'down');
+    if (closeQty >= filters.minQty) {
+      const closeSide = tradeSide === 'LONG' ? 'SELL' : 'BUY';
+      await _request('POST', '/fapi/v1/order', {
+        symbol: sym,
+        side: closeSide,
+        type: 'MARKET',
+        quantity: String(closeQty),
+        reduceOnly: 'true',
+      }, { signed: true });
+      notes.push(`closed ${closeQty} ${sym} (${closeSide} reduceOnly)`);
+    }
+    return { ok: true, symbol: sym, closedQty: closeQty, notes };
+  }
+
   return {
     openTwoLegDeskTrade,
     openSingleStopTrade,
     closeMarketOnly,
+    closeBotSlice,
     attachProtectiveLegs,
     moveStopToBreakeven,
     clearSymbolForEntry,
