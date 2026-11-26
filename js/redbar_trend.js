@@ -1451,9 +1451,10 @@ const RedBarTrend = {
     wideHighwayPts = 120,
     dayMode = 'ist',
   } = {}) {
+    const has5m = Array.isArray(bars5m) && bars5m.length > 0;
     const has15m = Array.isArray(bars15m) && bars15m.length > 0;
-    const anchorBars = has15m ? bars15m : bars5m;
-    const anchorBarMs = has15m ? (15 * 60 * 1000) : (5 * 60 * 1000);
+    const anchorBars = has5m ? bars5m : bars15m;
+    const anchorBarMs = has5m ? (5 * 60 * 1000) : (15 * 60 * 1000);
     if (!asOfDay || !Array.isArray(anchorBars) || !anchorBars.length) return null;
     const firstBar = this.firstBarOfSession(anchorBars, asOfDay, {
       dayMode,

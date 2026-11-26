@@ -1,36 +1,37 @@
-# TrendRunner — Red Bar Futures Desk
+# TrendRunner Desk — Live Multi-Market Trading & Research Platform
 
-Visual **Futures** research desk for **BTC** (`02:30–03:30 IST` mark window), **XAU / Gold** (`01:30–02:30 IST`), and **NIFTY** (`15:15–15:45 IST` institutional close):
-- **Mark-Window Fib Boxes (`0 · 0.44 · 0.5 · 0.56 · 1`)** extended across the session
-- **1H First Red Candle** as the daily session pivot (**Trade 1** departure & **Trade 2** 2–3h revisit)
-- **Session Liquidity Clock** (**Asia → London sweep → US open**)
-- **Structural Stops, `+0.8R → Breakeven` protection & `≥1.5R` Liquidity Targets**
-- **Futures Position Sizing, Safe Isolated Leverage & Liquidation Price** (inline on the desk and in the Risk Calculator tab)
+Visual trading desk and automated execution suite covering **4 live-traded markets**:
+- **Crypto (Binance USD-M Futures, 24/7):** `BTCUSDT` (`1h HA+EMA+CCI`), `ETHUSDT` (`4h AI Renko + EMA200`)
+- **Indian Indices (Dhan Official API, `09:15–15:30 IST`):** `NIFTY` (`AI Renko Mode C`, `RedBar Trade 1`, `Patrick Swing`), `SENSEX` (`AI Renko Mode C`)
 
-Educational only — the app does **not** place trades automatically.
+## Workspace Architecture
 
-## Live Desk Architecture
+| Component | Path | Purpose |
+|---|---|---|
+| **Web Desk UI** | `index.html`, `js/config.js`, `js/range_ema_ui.js`, `js/redbar_trend.js` | 4-tab live chart desk (`BTC`, `ETH`, `NIFTY`, `SENSEX`) with Fib boxes, Red Bar pivots, session liquidity clocks, and bot status strip |
+| **API & Cache Server** | `server.js` | Serves the web desk + 45s shared in-memory `/api/dhan/ohlc` cache to prevent Dhan `429` rate limits |
+| **AI Renko Mode C Bot** | `bots/ai_renko_supertrend_bot.js` | Live options swing bot for **NIFTY** (`15m`, brick `33.33`, lock `+120p→+30p`, Cap `-150p`, `15s` LTP watch) & **SENSEX** (`15m`, brick `0.15%`, lock `+0.48%→+0.24%`, Cap `-0.75%`, `17s` LTP watch) |
+| **RedBar Trade 1 Bot** | `bots/redbar_trade1_paper_bot.js` | Live NIFTY intraday options bot (`1h` First Red + `15m` `StrongClose >= 0.70`, `AlignRenko=true`, BE `+10p` @ `+35p`, `3R` TP, `15:10 IST` EOD exit) |
+| **Patrick Swing Bot** | `bots/patrick_futures_bot.js` | Live NIFTY `15m` selective swing options bot (`Mode=ALL`, `VolFilter=true`, `7–25 DTE ATM`) |
+| **Crypto Bots** | `bots/ha_ema_cci_btc_bot.js`, `bots/ai_renko_eth_bot.js` | Live Binance `4x Isolated` bots (`45%` margin frac, One-Way Mode same-side stacking + `closeBotSlice` exits) |
+| **PM2 Process Config** | `bots/ecosystem.tracks.config.js` | Single source of truth for all production PM2 apps on Oracle VM |
+| **Agent Skill / Runbook** | `.agents/skills/trendrunner-desk/SKILL.md` | Authoritative reference for rules, Fib box conventions, VM deployment, and safety checks |
 
-| Piece | Role |
-|--------|------|
-| **Red Bar Desk** | Primary screen (`CONFIG.ui.redBarOnly = true`) |
-| **`js/redbar_trend.js`** | 4-pillar engine: mark-window Fibs, 1H first-red Trade 1/Trade 2, session sweeps, `≥1.5R` liquidity magnet ladder, and `futuresSizing()` |
-| **`js/range_ema_ui.js`** | Interactive multi-instrument chart (`5m / 15m / 30m / 1h`), LONG/SHORT/WAIT action plan, and inline Futures Sizing strip |
-| **`redbar_desk_backtest.js`** | Walk-forward **15m** + 1H Futures CLI (0.08% RT fees, by-setup / by-session / first-45m London·US reports) |
-| **Risk Calculator (`#riskSection`)** | Full Futures LONG & SHORT position size, isolated leverage, and liquidation price calculator |
+## Verification & Testing
 
-## Walk-Forward Backtest CLI
+```powershell
+# Run full futures/options/Binance bot engine test suite
+node scripts/test_futures_bots.js
 
-```bash
-# Run ~4000-bar 15m walk-forward (setup + London/US open reports) + optional live readout
-node redbar_desk_backtest.js BTCUSDT 4000
-node redbar_desk_backtest.js BTCUSDT 4000 --live
+# Syntax check core bot files
+node -c bots/ai_renko_supertrend_bot.js; node -c bots/redbar_trade1_paper_bot.js; node -c js/binance_futures_trade.js
 ```
 
-Live ENTER setups (after Oct 2026 tune): **Trade 1**, **Trade 2**, **session sweep** only.  
-`magnet_reaction` / `session_continuation` stay WATCH (backtest bleed). First 45m of London/US blocks continuation/magnet re-enable.
+## Key Documentation
+- **Workspace Skill & Runbook:** `.agents/skills/trendrunner-desk/SKILL.md`
+- **Red Bar Learning Guide:** `docs/redbar-learning-guide.md`
+- **Red Bar Trader Blueprint:** `docs/RED_BAR_TRADER_SPEC.md`
+- **Portfolio & Tuning Notes:** `docs/STRATEGY_PORTFOLIO_AND_TUNING_2026-11-17.md`
 
 ## Disclaimer
-
-Crypto and futures trading can result in total loss of margin (liquidation). Always use isolated margin and a hard stop-loss on the exchange.
-
+Options and leveraged futures trading carry significant risk of loss. All live bots enforce hard exchange/broker stop-losses and isolated margin caps.

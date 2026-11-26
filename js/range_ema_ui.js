@@ -2687,7 +2687,13 @@ const RangeEmaUI = {
     `;
 
     // 4. Key Levels Matrix (3-Column clean grid)
-    const markTag = isNiftyInst ? '15:00 Mark Fib' : (isMcxInst && !isBinanceWeekendNg) ? '09:00 Mark Fib' : `${fmtHm(ethNyMarkMins)} Mark Fib`;
+    const markTag = isNiftyInst ? '09:15–09:20 Fib (5m)' : (isMcxInst && !isBinanceWeekendNg) ? '09:00 Mark Fib' : `${fmtHm(ethNyMarkMins)} Mark Fib`;
+    const advFbFib = (isNiftyInst && o.advancedFibs?.firstBar?.fibs) ? o.advancedFibs.firstBar.fibs : null;
+    const markHiDisp = advFbFib ? advFbFib.f1 : o.currentBand?.high;
+    const markLoDisp = advFbFib ? advFbFib.f0 : o.currentBand?.low;
+    const markMidLoDisp = advFbFib ? Math.min(advFbFib.f44, advFbFib.f56) : (o.currentBand?.pob ? o.currentBand.pob.low : (o.currentBand?.f44 != null ? Math.min(o.currentBand.f44, o.currentBand.f56) : null));
+    const markMidHiDisp = advFbFib ? Math.max(advFbFib.f44, advFbFib.f56) : (o.currentBand?.pob ? o.currentBand.pob.high : (o.currentBand?.f44 != null ? Math.max(o.currentBand.f44, o.currentBand.f56) : null));
+    const markMedDisp = advFbFib ? advFbFib.median : (o.currentBand?.f50 ?? o.currentBand?.mid);
     const sess1Tag = isMcxInst ? 'MCX Day H/L' : isNiftyInst ? `${idxExch} Morning H/L` : 'Asia H/L';
     const sess2Tag = isMcxInst ? 'MCX Eve H/L' : isNiftyInst ? `${idxExch} Midday H/L` : 'London H/L';
     const sess3Tag = isMcxInst ? 'NYMEX H/L' : isXauInst ? 'COMEX/NY H/L' : isNiftyInst ? `${idxExch} Session H/L` : 'NY H/L';
@@ -2701,9 +2707,9 @@ const RangeEmaUI = {
         </div>
         <div class="rb-levels-col">
           <div class="col-title">🧲 Equilibrium Anchors</div>
-          <div class="level-row"><span>${markTag}:</span> <strong>${this._fmt(o.currentBand?.high)} / ${this._fmt(o.currentBand?.low)}</strong></div>
-          <div class="level-row"><span>Mark mid-zone (44–56%):</span> <strong>${o.currentBand?.pob ? `${this._fmt(o.currentBand.pob.low)} – ${this._fmt(o.currentBand.pob.high)}` : (o.currentBand?.f44 != null ? `${this._fmt(Math.min(o.currentBand.f44, o.currentBand.f56))} – ${this._fmt(Math.max(o.currentBand.f44, o.currentBand.f56))}` : '—')}</strong></div>
-          <div class="level-row"><span>Mark median (50%):</span> <strong>${this._fmt(o.currentBand?.f50 ?? o.currentBand?.mid)}</strong></div>
+          <div class="level-row"><span>${markTag}:</span> <strong>${this._fmt(markHiDisp)} / ${this._fmt(markLoDisp)}</strong></div>
+          <div class="level-row"><span>Mark mid-zone (44–56%):</span> <strong>${markMidLoDisp != null ? `${this._fmt(markMidLoDisp)} – ${this._fmt(markMidHiDisp)}` : '—'}</strong></div>
+          <div class="level-row"><span>Mark median (50%):</span> <strong>${this._fmt(markMedDisp)}</strong></div>
           <div class="level-row"><span>${firstRedTag} session box:</span> <strong>${this._fmt(o.firstRed1h?.high)} / ${this._fmt(o.firstRed1h?.low)}</strong></div>
         </div>
         <div class="rb-levels-col">

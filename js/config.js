@@ -186,16 +186,16 @@ const CONFIG = {
         fallbackFeed: 'yahoo',
         fallbackSymbol: '^NSEI',
         dayMode: 'ist',
-        // Cash close window 15:00–15:45 IST (closing range Fib)
+        // Opening 5m candle Fib box (09:15–09:20 IST)
         bandStyle: 'sessionFib',
-        // Dr. Dev NSE intraday: All NIFTY Fibs (09:15 First Bar, Gap, First Red) on 5m chart; 1m option micro-entry
+        // Dr. Dev NSE intraday: All NIFTY Fibs (09:15–09:20 5m First Bar, Gap, First Red) on 5m chart
         firstRedTf: '5m',
         markWindow: {
           timeZone: 'Asia/Kolkata',
-          startHour: 15, startMinute: 0,
-          endHour: 15, endMinute: 45,
+          startHour: 9, startMinute: 15,
+          endHour: 9, endMinute: 20,
         },
-        markLabel: '15:00–15:45 IST',
+        markLabel: '09:15–09:20 IST (5m Open)',
         fibLevels: [0, 0.44, 0.5, 0.56, 1],
         // Strat 1 Advanced Red Bar: first-bar + red + gap medians. The band between them is the trade. Stop = signal wick. Target = next median.
         advancedFibs: true,
@@ -204,7 +204,7 @@ const CONFIG = {
         priceDecimals: 2,
         timeframes: ['5m', '15m', '30m', '1h'],
         ohlcLimit: { '5m': 360, '15m': 500, '30m': 500, '1h': 400 },
-        tradeHint: 'Dhan NSE · NIFTY · Advanced fib medians + POB/Trikal · Fib 15:00–15:45 IST',
+        tradeHint: 'Dhan NSE · NIFTY · Advanced fib medians + POB/Trikal · Fib 09:15–09:20 IST (5m)',
         showSessionMarkers: true,
         sessions: [
           { id: 'nse', label: 'NSE', timeZone: 'Asia/Kolkata', open: [9, 15], close: [15, 30], color: '#38bdf8' },
@@ -229,10 +229,10 @@ const CONFIG = {
         firstRedTf: '5m',
         markWindow: {
           timeZone: 'Asia/Kolkata',
-          startHour: 15, startMinute: 0,
-          endHour: 15, endMinute: 45,
+          startHour: 9, startMinute: 15,
+          endHour: 9, endMinute: 20,
         },
-        markLabel: '15:00–15:45 IST',
+        markLabel: '09:15–09:20 IST (5m Open)',
         fibLevels: [0, 0.44, 0.5, 0.56, 1],
         advancedFibs: true,
         advancedFibGapPts: 130,
@@ -240,7 +240,7 @@ const CONFIG = {
         priceDecimals: 2,
         timeframes: ['5m', '15m', '30m', '1h'],
         ohlcLimit: { '5m': 360, '15m': 500, '30m': 500, '1h': 400 },
-        tradeHint: 'Dhan BSE · SENSEX (Lot 20) · Live AI Renko Mode C (15m · Brick 0.15%) · Fib 15:00–15:45 IST',
+        tradeHint: 'Dhan BSE · SENSEX (Lot 20) · Live AI Renko Mode C (15m · Brick 0.15%) · Fib 09:15–09:20 IST (5m)',
         showSessionMarkers: true,
         sessions: [
           { id: 'nse', label: 'BSE', timeZone: 'Asia/Kolkata', open: [9, 15], close: [15, 30], color: '#38bdf8' },
