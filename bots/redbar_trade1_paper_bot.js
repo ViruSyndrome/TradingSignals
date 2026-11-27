@@ -366,6 +366,15 @@ async function scanOnce(dhan, botState) {
             const rawSl = side === 'LONG' ? fr.low : fr.high;
             const risk = Math.max(MIN_RISK_PTS, Math.abs(b.c - rawSl));
             if (risk / b.c <= MAX_RISK_PCT) {
+              botState.lastSignal = {
+                day,
+                barTs: b.t,
+                closeTs: b.t + 900000,
+                side,
+                closePx: b.c,
+                at: new Date().toISOString(),
+              };
+              if (!OFFLINE) saveJsonState(STATE_PATH, botState);
               const sl = +(side === 'LONG' ? b.c - risk : b.c + risk).toFixed(2);
               const tp = +(side === 'LONG' ? b.c + risk * RR_TARGET : b.c - risk * RR_TARGET).toFixed(2);
               const optSnap = await resolveSwingOption({

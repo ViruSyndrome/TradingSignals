@@ -76,9 +76,23 @@ const ONCE = process.argv.includes('--once');
 const OFFLINE = process.argv.includes('--offline');
 const AUTO_TRADE = !OFFLINE && String(process.env.AI_RENKO_AUTO_TRADE || 'false').toLowerCase() === 'true';
 const PATRICK_STATE_PATH = path.join(__dirname, 'state_patrick_futures.json');
+const REDBAR_T1_STATE_PATH = path.join(__dirname, 'state_redbar_trade1.json');
+const EXIT_ON_OPPOSITE_REDBAR = String(process.env.AI_RENKO_EXIT_ON_REDBAR || 'true').toLowerCase() === 'true';
 const PAUSE_ON_PATRICK = String(process.env.AI_RENKO_PAUSE_ON_PATRICK || 'opposite').toLowerCase(); // 'opposite' | 'all' | 'none'
 const PATRICK_RESERVE_RS = Math.max(0, Number(process.env.AI_RENKO_PATRICK_RESERVE_RS ?? 20000));
 const TG_MODE_C_ONLY = String(process.env.AI_RENKO_TG_MODE_C_ONLY || 'true').toLowerCase() === 'true';
+
+function getLatestRedBarSignal() {
+  if (OFFLINE || !EXIT_ON_OPPOSITE_REDBAR) return null;
+  try {
+    if (!fs.existsSync(REDBAR_T1_STATE_PATH)) return null;
+    const raw = JSON.parse(fs.readFileSync(REDBAR_T1_STATE_PATH, 'utf8'));
+    const sig = raw?.lastSignal;
+    return sig && (sig.side === 'LONG' || sig.side === 'SHORT') && Number(sig.barTs) > 0 ? sig : null;
+  } catch {
+    return null;
+  }
+}
 
 function getActivePatrickPosition() {
   if (OFFLINE) return null;
@@ -452,7 +466,17 @@ async function checkModeCLiveIntrabar(activeDhan, botState) {
 
     let exitPx = null;
     let reason = null;
-    if (pos.locked && hitFloor(spot, pos.lockPrice, pos.side)) {
+    const rbSig = getLatestRedBarSignal();
+    const rbOpposite = Boolean(
+      rbSig &&
+      rbSig.day === clk.dateStr &&
+      rbSig.side !== pos.side &&
+      Number(rbSig.barTs) > Number(pos.entryTs || 0)
+    );
+    if (rbOpposite) {
+      exitPx = spot;
+      reason = 'REDBAR_OPPOSITE_EXIT';
+    } else if (pos.locked && hitFloor(spot, pos.lockPrice, pos.side)) {
       exitPx = spot;
       reason = 'PROFIT_LOCK_LTP';
     } else if (hitFloor(spot, pos.stage3Floor, pos.side)) {
