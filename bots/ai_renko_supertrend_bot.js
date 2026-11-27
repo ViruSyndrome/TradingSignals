@@ -76,7 +76,7 @@ const ONCE = process.argv.includes('--once');
 const OFFLINE = process.argv.includes('--offline');
 const AUTO_TRADE = !OFFLINE && String(process.env.AI_RENKO_AUTO_TRADE || 'false').toLowerCase() === 'true';
 const PATRICK_STATE_PATH = path.join(__dirname, 'state_patrick_futures.json');
-const EXIT_ON_OPPOSITE_REDBAR = String(process.env.AI_RENKO_EXIT_ON_REDBAR || 'true').toLowerCase() === 'true';
+const EXIT_ON_OPPOSITE_REDBAR = String(process.env.AI_RENKO_EXIT_ON_REDBAR || 'false').toLowerCase() === 'true';
 const PAUSE_ON_PATRICK = String(process.env.AI_RENKO_PAUSE_ON_PATRICK || 'opposite').toLowerCase(); // 'opposite' | 'all' | 'none'
 const PATRICK_RESERVE_RS = Math.max(0, Number(process.env.AI_RENKO_PATRICK_RESERVE_RS ?? 20000));
 const TG_MODE_C_ONLY = String(process.env.AI_RENKO_TG_MODE_C_ONLY || 'true').toLowerCase() === 'true';
