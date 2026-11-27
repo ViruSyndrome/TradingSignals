@@ -76,22 +76,76 @@ const ONCE = process.argv.includes('--once');
 const OFFLINE = process.argv.includes('--offline');
 const AUTO_TRADE = !OFFLINE && String(process.env.AI_RENKO_AUTO_TRADE || 'false').toLowerCase() === 'true';
 const PATRICK_STATE_PATH = path.join(__dirname, 'state_patrick_futures.json');
-const REDBAR_T1_STATE_PATH = path.join(__dirname, 'state_redbar_trade1.json');
 const EXIT_ON_OPPOSITE_REDBAR = String(process.env.AI_RENKO_EXIT_ON_REDBAR || 'true').toLowerCase() === 'true';
 const PAUSE_ON_PATRICK = String(process.env.AI_RENKO_PAUSE_ON_PATRICK || 'opposite').toLowerCase(); // 'opposite' | 'all' | 'none'
 const PATRICK_RESERVE_RS = Math.max(0, Number(process.env.AI_RENKO_PATRICK_RESERVE_RS ?? 20000));
 const TG_MODE_C_ONLY = String(process.env.AI_RENKO_TG_MODE_C_ONLY || 'true').toLowerCase() === 'true';
 
-function getLatestRedBarSignal() {
-  if (OFFLINE || !EXIT_ON_OPPOSITE_REDBAR) return null;
-  try {
-    if (!fs.existsSync(REDBAR_T1_STATE_PATH)) return null;
-    const raw = JSON.parse(fs.readFileSync(REDBAR_T1_STATE_PATH, 'utf8'));
-    const sig = raw?.lastSignal;
-    return sig && (sig.side === 'LONG' || sig.side === 'SHORT') && Number(sig.barTs) > 0 ? sig : null;
-  } catch {
-    return null;
+/**
+ * Self-contained native 1H First-Red + 15m StrongClose (>=0.70) signal map built purely from this symbol's 15m bars.
+ * Zero cross-bot dependencies and zero extra Dhan API calls; SENSEX uses SENSEX bars, NIFTY uses NIFTY bars.
+ */
+function buildNative1hFirstRedSignals(bars15m) {
+  const istParts = (ts) => {
+    const d = new Date(ts + 19800000);
+    return { day: d.toISOString().slice(0, 10), mins: d.getUTCHours() * 60 + d.getUTCMinutes() };
+  };
+  // Aggregate 15m bars into NSE/BSE 1H candles anchored to 09:15 IST (09:15, 10:15, 11:15, ...)
+  const byDaySlot = new Map();
+  for (const b of bars15m) {
+    const { day, mins } = istParts(b.t);
+    if (mins < 555 || mins > 930) continue;
+    const slot = Math.floor((mins - 555) / 60);
+    const key = `${day}|${slot}`;
+    let cur = byDaySlot.get(key);
+    if (!cur) {
+      cur = { day, slot, t: b.t, o: b.o, h: b.h, l: b.l, c: b.c, closeTs: b.t + 3600000 };
+      byDaySlot.set(key, cur);
+    } else {
+      cur.h = Math.max(cur.h, b.h);
+      cur.l = Math.min(cur.l, b.l);
+      cur.c = b.c;
+    }
   }
+  const byDay1h = new Map();
+  for (const h1 of byDaySlot.values()) {
+    if (!byDay1h.has(h1.day)) byDay1h.set(h1.day, []);
+    byDay1h.get(h1.day).push(h1);
+  }
+  // Skip opening 09:15-10:15 candle (slot 0); take first closed 1H Red candle after open
+  const firstRedByDay = new Map();
+  for (const [day, list] of byDay1h.entries()) {
+    list.sort((a, b) => a.slot - b.slot);
+    for (let j = 1; j < list.length; j++) {
+      if (list[j].c < list[j].o) {
+        firstRedByDay.set(day, list[j]);
+        break;
+      }
+    }
+  }
+  const sigMap = new Map();
+  const takenDays = new Set();
+  for (let i = 1; i < bars15m.length; i++) {
+    const b = bars15m[i];
+    const { day, mins } = istParts(b.t);
+    if (takenDays.has(day) || mins < 565 || mins > 885) continue;
+    const fr = firstRedByDay.get(day);
+    if (!fr || b.t + 900000 < fr.closeTs) continue;
+    const prev = bars15m[i - 1];
+    if (istParts(prev.t).day !== day) continue;
+    const leftUp = b.c > fr.h && prev.c <= fr.h;
+    const leftDn = b.c < fr.l && prev.c >= fr.l;
+    if (!leftUp && !leftDn) continue;
+    const side = leftUp ? 'LONG' : 'SHORT';
+    const rng = Math.max(1e-6, b.h - b.l);
+    const closeLoc = side === 'LONG' ? (b.c - b.l) / rng : (b.h - b.c) / rng;
+    if (closeLoc < 0.70) continue;
+    const risk = Math.max(12, Math.abs(b.c - (side === 'LONG' ? fr.l : fr.h)));
+    if (risk / b.c > 0.015) continue;
+    takenDays.add(day);
+    sigMap.set(b.t, side);
+  }
+  return sigMap;
 }
 
 function getActivePatrickPosition() {
@@ -466,17 +520,7 @@ async function checkModeCLiveIntrabar(activeDhan, botState) {
 
     let exitPx = null;
     let reason = null;
-    const rbSig = getLatestRedBarSignal();
-    const rbOpposite = Boolean(
-      rbSig &&
-      rbSig.day === clk.dateStr &&
-      rbSig.side !== pos.side &&
-      Number(rbSig.barTs) > Number(pos.entryTs || 0)
-    );
-    if (rbOpposite) {
-      exitPx = spot;
-      reason = 'REDBAR_OPPOSITE_EXIT';
-    } else if (pos.locked && hitFloor(spot, pos.lockPrice, pos.side)) {
+    if (pos.locked && hitFloor(spot, pos.lockPrice, pos.side)) {
       exitPx = spot;
       reason = 'PROFIT_LOCK_LTP';
     } else if (hitFloor(spot, pos.stage3Floor, pos.side)) {
@@ -551,6 +595,13 @@ async function processProtectedModeBar(cfg, book, bar, sig, activeDhan) {
     } else if (pos.side === 'SHORT' && bar.h >= pos.entryIdx + th.capSl) {
       exitPx = +(pos.entryIdx + th.capSl).toFixed(2);
       reason = 'HARD_CAP_SL';
+    }
+  }
+
+  if (exitPx === null && cfg.key === 'modeC' && EXIT_ON_OPPOSITE_REDBAR) {
+    if (sig._rbSide && sig._rbSide !== pos.side && bar.t > Number(pos.entryTs || 0)) {
+      exitPx = bar.c;
+      reason = 'REDBAR_OPPOSITE_EXIT';
     }
   }
 
@@ -635,6 +686,8 @@ async function scanOnce(dhan, botState) {
 
   if (startIdx < 0) return;
 
+  const rbSigMap = EXIT_ON_OPPOSITE_REDBAR ? buildNative1hFirstRedSignals(bars) : null;
+
   for (let i = Math.max(20, startIdx); i < bars.length; i++) {
     const b = bars[i];
     const sig = stArr[i];
@@ -676,7 +729,7 @@ async function scanOnce(dhan, botState) {
     // ------------------------------------------------------------------------
     // MODE B & MODE C: Profit-Lock & Hybrid Smart-Lock + Tail-Risk Cap
     // ------------------------------------------------------------------------
-    const sigWithFlag = { ...sig, _isLatestBar: isLatestBar };
+    const sigWithFlag = { ...sig, _isLatestBar: isLatestBar, _rbSide: rbSigMap ? (rbSigMap.get(b.t) || null) : null };
     for (const modeCfg of PROTECTED_MODES) {
       await processProtectedModeBar(modeCfg, botState[modeCfg.key], b, sigWithFlag, activeDhan);
     }
